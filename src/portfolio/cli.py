@@ -27,20 +27,43 @@ def summary() -> None:
     domains = load_domains()
     plan = load_plan()
 
-    total_renewal = sum(d.renewal_price for d in domains if d.renewal_price)
-    total_value = sum(d.estimated_value for d in domains if d.estimated_value)
+    n = len(domains)
+    with_price = [d for d in domains if d.renewal_price is not None]
+    missing_price_n = n - len(with_price)
+    total_renewal = sum(d.renewal_price for d in with_price)
+
+    valued = [d for d in domains if d.registrar != "porkbun" and d.estimated_value]
+    porkbun_n = sum(1 for d in domains if d.registrar == "porkbun")
+    missing_value_n = n - len(valued) - porkbun_n
+    total_value = sum(d.estimated_value for d in valued)
 
     t = Table(title="Portfolio Summary", show_header=False)
     t.add_column("Metric")
     t.add_column("Value", justify="right")
-    t.add_row("Total domains", str(len(domains)))
+    t.add_row("Total domains", str(n))
     t.add_row("Active", str(sum(1 for d in domains if d.status.lower() == "active")))
     t.add_row("On hold", str(sum(1 for d in domains if d.status.lower() == "hold")))
-    t.add_row("Listed for sale", str(sum(1 for d in domains if "listed" in d.listing_status.lower())))
+    t.add_row("Listed for sale", str(sum(1 for d in domains if "listed for sale" in d.listing_status.lower())))
     t.add_row("Auto-renew on", str(sum(1 for d in domains if d.auto_renew.lower() == "on")))
-    t.add_row("Annual renewal cost", f"${total_renewal:,.2f}")
-    t.add_row("Estimated value", f"${total_value:,.2f}")
+    renewal_note = f"  [dim]({len(with_price)}/{n}; {missing_price_n} missing price)[/]" if missing_price_n else ""
+    t.add_row("Annual renewal cost", f"${total_renewal:,.2f}{renewal_note}")
+    value_note_parts = []
+    if porkbun_n:
+        value_note_parts.append(f"{porkbun_n} Porkbun excluded")
+    if missing_value_n:
+        value_note_parts.append(f"{missing_value_n} missing")
+    value_note = f"  [dim]({', '.join(value_note_parts)})[/]" if value_note_parts else ""
+    t.add_row("Estimated value", f"${total_value:,.2f}{value_note}")
     console.print(t)
+
+    by_reg = Counter(d.registrar for d in domains)
+    if by_reg:
+        r = Table(title="By registrar")
+        r.add_column("Registrar")
+        r.add_column("Count", justify="right")
+        for reg, count in by_reg.most_common():
+            r.add_row(reg, str(count))
+        console.print(r)
 
     counts = Counter(plan.values())
     if counts:
@@ -56,9 +79,9 @@ def summary() -> None:
     only_csv = sorted(csv_names - plan_names)
     only_plan = sorted(plan_names - csv_names)
     if only_csv:
-        console.print(f"\n[yellow]In CSV but not in plan ({len(only_csv)}):[/] " + ", ".join(only_csv))
+        console.print(f"\n[yellow]In registrar data but not in plan ({len(only_csv)}):[/] " + ", ".join(only_csv))
     if only_plan:
-        console.print(f"\n[yellow]In plan but not in CSV ({len(only_plan)}):[/] " + ", ".join(only_plan))
+        console.print(f"\n[yellow]In plan but not in registrar data ({len(only_plan)}):[/] " + ", ".join(only_plan))
 
 
 @app.command()
