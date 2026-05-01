@@ -57,7 +57,7 @@ Sole user: Vijo. No multi-tenancy, no permissions, no public surface. CLI-only.
 
 ## 5. Phases
 
-Strict sequence (option a). 15 phases total; v1.A, v1.B, and v1.C shipped.
+Strict sequence (option a). 16 phases total; v1.A, v1.B, v1.C, and v1.D shipped.
 
 Note on read/write boundary: portfolio is **read-only** through v2.C. **v2.D is the read→write transition** — it gains the ability to scaffold convention files and migrate parent-tracked dirs into their own repos (with explicit per-step confirmations). Every later version stays mostly read-only except where otherwise noted.
 
@@ -66,7 +66,8 @@ Note on read/write boundary: portfolio is **read-only** through v2.C. **v2.D is 
 | **v1.A** ✅ | Skeleton + repo-isolation gate | `portfolio project status <name>` subcommand · fuzzy resolver against plan.md · `--json` schema_version=1 · C1 own-git-repo gate · last commit (sha, subject, age, author) · binary verdict (Misconfigured / Active) |
 | **v1.B** ✅ | Full git pulse + Prompts.md + deploy-detect + live | activity rate (7d/30d) · branch + clean/dirty · uncommitted count · last Prompts.md entry (dated-H2 parser) · plan category · full verdict ladder (Active / Quiet / Stalled / Dormant / Fresh / Misconfigured) · C2 in-plan-md · C3 has-prompts-md · C4 prompts-md-format · C5 has-makefile · C6 has-ai-agents-md · deploy-platform detection (cloudflare / vercel / netlify / unknown / n/a) via filesystem markers · live-site HTTP class joined from `data/checks/` · platform-declared + live-site conformance · rich TTY view |
 | **v1.C** ✅ | Registrar consolidation | `data/domains/{godaddy,namecheap,porkbun}.csv` · 3 adapters with format normalization (3 date formats; auto-renew yes/no/ON/OFF) · Porkbun disclaimer-line skip · `Domain` schema gains `registrar` (required), `privacy`, `transfer_locked` · `domain_to_registrar()` shared lookup · `summary` warns on missing renewal_price · Porkbun rows excluded from value rollups (low-value TLDs) |
-| **v1.D** | NLP skill | `.claude/skills/project-status.md` — routes "what's the status of X" → CLI → JSON → prose · disambiguation handled in skill |
+| **v1.D** ✅ | Cleanup + classification migration (plan.md → portfolio.json) | `portfolio cleanup` subcommand · reads raw registrar CSVs + plan.md · writes `data/portfolio.json` (single canonical record per domain: name, registrar, category, expires, created, auto_renew, renewal_price, estimated_value, privacy, transfer_locked, nameservers, forwarding_url, raw passthrough for forensics) · auto-classification rules: Namecheap rows → "Under build", Porkbun rows → "Under build", GoDaddy rows → plan.md category (or warn if uncategorized) · `load_domains()` pivots to read from `portfolio.json` after cleanup · `load_plan()` is removed (categories now come from `domain.category` directly) · plan.md gets a deprecation comment in v1.D; actual file deletion happens in a later cleanup commit · drift output surfaces uncategorized domains as warnings · resolver in `project status` continues to fuzzy-match, just against `portfolio.json` keys instead of plan.md · typo / fuzzy-similar-name detection deferred to v2.B |
+| **v1.E** | NLP skill | `.claude/skills/project-status.md` — routes "what's the status of X" → CLI → JSON → prose · disambiguation handled in skill |
 | **v2.A** | Stack detection + scaffold completeness | stack identifier (React+Vite / Astro / Python+uv / Go+Fiber / scaffold-only) · C7 vite-version-ok · C9 has-prd-md · **scaffolding-required rules: has-readme · has-gitignore** (every sites/* project must have the standard scaffolding produced by the `/project-init` slash command: `docs/`, `docs/prd.md`, `docs/Prompts.md`, `AI_AGENTS.md`, `README.md`, `.gitignore`) |
 | **v2.B** | Drift + mapping | plan-drift signal · C10 domain-dir-match (override map for harmonia / levents / lamill-events / etc.) · C8 cf-pages-deployable |
 | **v2.C** | Per-stack rules | placeholder for emerging conventions: pnpm-lockfile-only · no-package-lock-json · gitignore-covers-build-output · python-uses-uv |
@@ -86,7 +87,7 @@ portfolio enforces these on sibling sites/* projects via `project status`. Failu
 | Rule | Pass condition | Lands in |
 |---|---|---|
 | `own-git-repo` | `git rev-parse --show-toplevel` resolves to project dir itself | v1.A |
-| `in-plan-md` | domain appears in plan.md under a category | v1.B |
+| `in-plan-md` → `has-category` | domain has a category set (originally from plan.md; renamed in v1.D once `portfolio.json` is canonical) | v1.B (renamed in v1.D) |
 | `has-prompts-md` | `docs/Prompts.md` exists | v1.B |
 | `prompts-md-format` | last H2 matches `^## \d{4}-\d{2}-\d{2}` | v1.B |
 | `has-makefile` | `Makefile` with `run` and `build` targets | v1.B |

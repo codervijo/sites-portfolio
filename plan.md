@@ -1,5 +1,14 @@
 # Portfolio Plan
 
+> **DEPRECATED as of v1.D (2026-05-01).** Categories now live in
+> `data/portfolio.json` and are loaded directly from each domain's
+> `category` field. This file is kept for historical reference only;
+> editing it has no effect. To change a domain's category, edit
+> `data/portfolio.json` (or run `portfolio cleanup` after updating
+> the registrar exports).
+>
+> This file will be deleted in a future cleanup commit.
+
 ## Portfolio as of April 24
 
 ---
