@@ -489,6 +489,26 @@ def project_status(
     _render_project_status(result)
 
 
+VERDICT_COLORS = {
+    "Misconfigured": "red",
+    "Active": "green",
+    "Quiet": "yellow",
+    "Stalled": "yellow",
+    "Dormant": "red",
+    "Fresh": "cyan",
+}
+
+LIVE_CLS_COLORS = {
+    "live-site": "green",
+    "forwarder": "cyan",
+    "for-sale": "yellow",
+    "parked": "yellow",
+    "ssl-broken": "red",
+    "dead": "red",
+    "error": "red",
+}
+
+
 def _render_project_status(result: dict) -> None:
     if result.get("error") == "not-found":
         console.print(f"[red]No project matches '{result['input']}' in plan.md.[/]")
@@ -501,17 +521,36 @@ def _render_project_status(result: dict) -> None:
 
     console.print(f"[bold]{result['resolved']}[/]  [dim](resolved from '{result['input']}')[/]")
     verdict = result["verdict"]
-    color = "red" if verdict == "Misconfigured" else "green"
+    color = VERDICT_COLORS.get(verdict, "white")
     console.print(f"Verdict: [{color}]{verdict}[/]")
-    console.print(f"Plan: {result.get('plan_category') or '[dim](no plan category)[/]'}")
-    console.print(f"Dir:  {result['dir']}{'' if result['dir_exists'] else ' [red](missing)[/]'}")
+    console.print(f"Plan:    {result.get('plan_category') or '[dim](no plan category)[/]'}")
+    console.print(f"Dir:     {result['dir']}{'' if result['dir_exists'] else ' [red](missing)[/]'}")
 
+    g = result["git"]
     t = Table(title="Git", show_header=False, box=None, padding=(0, 1))
     t.add_column("Field")
     t.add_column("Value")
-
-    if result["git"]["own_repo_pass"]:
+    if g["own_repo_pass"]:
         t.add_row("Repo", "[green]own .git[/]")
+        if g["branch"]:
+            if g["clean"]:
+                clean_str = "[green]clean[/]"
+            else:
+                clean_str = f"[yellow]{g['modified_count']} modified, {g['untracked_count']} untracked[/]"
+            t.add_row("Branch", f"{g['branch']} ({clean_str})")
+        last = g["last_commit"]
+        if last:
+            t.add_row(
+                "Last commit",
+                f'{last["short_sha"]} "{last["subject"]}" — {last["age_days"]}d ago, by {last["author"]}',
+            )
+        else:
+            t.add_row("Last commit", "[yellow](no commits yet)[/]")
+        if g["total_commits"] is not None:
+            t.add_row(
+                "Activity",
+                f"{g['commits_7d']} in 7d · {g['commits_30d']} in 30d · {g['total_commits']} total",
+            )
     else:
         failed = result["conformance"]["failed"]
         own = next((f for f in failed if f["rule"] == "own-git-repo"), {})
@@ -522,17 +561,39 @@ def _render_project_status(result: dict) -> None:
             "tracked-by-parent": f"[red]tracked by parent ({own.get('toplevel', '?')})[/]",
         }
         t.add_row("Repo", msg_map.get(reason, f"[red]{reason}[/]"))
-
-    last = result["git"]["last_commit"]
-    if last:
-        t.add_row(
-            "Last commit",
-            f'{last["short_sha"]} "{last["subject"]}" — {last["age_days"]}d ago, by {last["author"]}',
-        )
-    elif result["git"]["own_repo_pass"]:
-        t.add_row("Last commit", "[yellow](no commits yet)[/]")
-
     console.print(t)
+
+    p = result["prompts_md"]
+    if p["exists"] and p["last_entry"]:
+        le = p["last_entry"]
+        title = f' — {le["title"]}' if le["title"] else ""
+        warn = f" [yellow]({p['format_warning']})[/]" if p.get("format_warning") else ""
+        console.print(f"\n[bold]Last AI prompt:[/]  {le['date']}{title}{warn}")
+        console.print(f"  [dim]{le['summary']}[/]")
+    elif p["exists"]:
+        console.print("\n[bold]Last AI prompt:[/] [yellow](Prompts.md exists but is empty)[/]")
+    else:
+        console.print("\n[bold]Last AI prompt:[/] [dim]docs/Prompts.md not found[/]")
+
+    d = result["deployment"]
+    plat = d["platform"]
+    plat_color = "green" if plat not in ("unknown", "n/a") else ("dim" if plat == "n/a" else "yellow")
+    plat_extra = f" ({d['kind']})" if plat == "n/a" else ""
+    plat_evidence = f"  [dim]via: {', '.join(d['evidence'])}[/]" if d["evidence"] else ""
+    console.print(f"\n[bold]Deployment:[/]  [{plat_color}]{plat}[/]{plat_extra}{plat_evidence}")
+
+    live = d.get("live")
+    if live:
+        cls = live["classification"]
+        cls_color = LIVE_CLS_COLORS.get(cls, "white")
+        ms = f", {live['response_time_ms']}ms" if live.get("response_time_ms") is not None else ""
+        url = f"  → {live['final_url']}" if live.get("final_url") else ""
+        http_status = live.get("http_status")
+        console.print(
+            f"  Live: [{cls_color}]{cls}[/] (HTTP {http_status if http_status is not None else '?'}{ms}){url}  [dim]{live['snapshot']}[/]"
+        )
+    elif plat != "n/a":
+        console.print("  [dim]Live: no check snapshot covers this domain yet[/]")
 
     conf = result["conformance"]
     if conf["failed"]:
@@ -543,6 +604,12 @@ def _render_project_status(result: dict) -> None:
                 console.print(f"    [dim]fix: {f['fix']}[/]")
     if conf["passed"]:
         console.print(f"[green]Passed ({len(conf['passed'])}):[/] " + ", ".join(conf["passed"]))
+    if conf["skipped"]:
+        console.print(
+            f"[dim]Skipped ({len(conf['skipped'])}): "
+            + ", ".join(s["rule"] for s in conf["skipped"])
+            + "[/]"
+        )
 
 
 @app.command(name="list")
