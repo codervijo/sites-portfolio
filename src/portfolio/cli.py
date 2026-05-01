@@ -15,10 +15,47 @@ from .check import (
     previous_snapshot,
     run_check,
 )
-from .data import load_domains, load_plan
+from .data import PORTFOLIO_JSON, cleanup as run_cleanup, load_domains, load_plan
 
 app = typer.Typer(help="Manage your domain portfolio.", add_completion=False, no_args_is_help=True)
 console = Console()
+
+
+@app.command()
+def cleanup() -> None:
+    """Build canonical data/portfolio.json from registrar CSVs + plan.md classifications."""
+    out_path, domains, uncategorized = run_cleanup()
+
+    by_reg = Counter(d.registrar for d in domains)
+    by_cat = Counter(d.category for d in domains if d.category)
+
+    console.print(f"[green]Wrote[/] {out_path}  [dim]({len(domains)} domains)[/]")
+
+    t = Table(title="By registrar", show_header=False, box=None, padding=(0, 1))
+    t.add_column("Registrar")
+    t.add_column("Count", justify="right")
+    for reg, count in by_reg.most_common():
+        t.add_row(reg, str(count))
+    console.print(t)
+
+    c = Table(title="By category", show_header=False, box=None, padding=(0, 1))
+    c.add_column("Category")
+    c.add_column("Count", justify="right")
+    for cat, count in by_cat.most_common():
+        c.add_row(cat, str(count))
+    if uncategorized:
+        c.add_row("[yellow](uncategorized)[/]", f"[yellow]{len(uncategorized)}[/]")
+    console.print(c)
+
+    if uncategorized:
+        console.print(
+            f"\n[yellow]Uncategorized GoDaddy domains ({len(uncategorized)}):[/] "
+            + ", ".join(sorted(uncategorized))
+        )
+        console.print(
+            "[dim]Edit data/portfolio.json to set their `category` by hand, "
+            "or add them to plan.md (legacy) and re-run cleanup.[/]"
+        )
 
 
 @app.command()

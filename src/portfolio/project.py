@@ -347,9 +347,9 @@ def build_status(name: str) -> dict:
         _fail("own-git-repo", **entry)
 
     if plan_category:
-        _ok("in-plan-md")
+        _ok("has-category")
     else:
-        _fail("in-plan-md", reason="domain not categorized in plan.md")
+        _fail("has-category", reason="domain has no category set in portfolio.json")
 
     if not project_dir.exists():
         for r in ("has-prompts-md", "prompts-md-format", "has-makefile", "has-ai-agents-md", "platform-declared", "live-site"):
