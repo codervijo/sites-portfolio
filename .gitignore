@@ -1,0 +1,48 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+pip-wheel-metadata/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+._.DS_Store
+Thumbs.db
+
+# Env / local secrets
+.env
+.env.local
+.env.*.local
+
+# OAuth / GSC artifacts (defensive — these belong in ~/.config/portfolio/gsc/)
+credentials.json
+token.json
+client_secret_*.json
+
+# Logs
+*.log

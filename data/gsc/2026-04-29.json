@@ -1,0 +1,194 @@
+{
+  "fetched_at": "2026-04-30T05:19:54.236371+00:00",
+  "period": {
+    "start": "2026-03-30",
+    "end": "2026-04-26"
+  },
+  "days": 28,
+  "lag_days": 3,
+  "results": [
+    {
+      "domain": "airsucks.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "carrepairsite.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "dunam.co",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "hybridautopart.com",
+      "status": "ok",
+      "properties": [
+        "https://hybridautopart.com/",
+        "http://hybridautopart.com/"
+      ],
+      "per_property": [
+        {
+          "site_url": "https://hybridautopart.com/",
+          "clicks": 92,
+          "impressions": 25549,
+          "ctr": 0.0036009237152139027,
+          "position": 12.56444479235978
+        },
+        {
+          "site_url": "http://hybridautopart.com/",
+          "clicks": 0,
+          "impressions": 0,
+          "ctr": 0.0,
+          "position": 0.0
+        }
+      ],
+      "clicks": 92,
+      "impressions": 25549,
+      "ctr": 0.0036009237152139027,
+      "position": 12.56444479235978
+    },
+    {
+      "domain": "iotbastion.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "iotnews.today",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "kwizicle.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "lamill.io",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "lamill.us",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "lamillrentals.com",
+      "status": "ok",
+      "properties": [
+        "sc-domain:lamillrentals.com"
+      ],
+      "per_property": [
+        {
+          "site_url": "sc-domain:lamillrentals.com",
+          "clicks": 11,
+          "impressions": 490,
+          "ctr": 0.022448979591836733,
+          "position": 15.46938775510204
+        }
+      ],
+      "clicks": 11,
+      "impressions": 490,
+      "ctr": 0.022448979591836733,
+      "position": 15.46938775510204
+    },
+    {
+      "domain": "maslist.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "navodayansonline.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "newiniot.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "nosapta.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "plaira.io",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "streamsgalaxy.com",
+      "status": "ok",
+      "properties": [
+        "sc-domain:streamsgalaxy.com"
+      ],
+      "per_property": [
+        {
+          "site_url": "sc-domain:streamsgalaxy.com",
+          "clicks": 7,
+          "impressions": 397,
+          "ctr": 0.017632241813602016,
+          "position": 38.25692695214106
+        }
+      ],
+      "clicks": 7,
+      "impressions": 397,
+      "ctr": 0.017632241813602016,
+      "position": 38.25692695214106
+    },
+    {
+      "domain": "swiftly.co.in",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "thoralox.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "veezp.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "vijocherian.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "virtually.co.in",
+      "status": "ok",
+      "properties": [
+        "http://virtually.co.in/"
+      ],
+      "per_property": [
+        {
+          "site_url": "http://virtually.co.in/",
+          "clicks": 0,
+          "impressions": 0,
+          "ctr": 0.0,
+          "position": 0.0
+        }
+      ],
+      "clicks": 0,
+      "impressions": 0,
+      "ctr": 0.0,
+      "position": null
+    },
+    {
+      "domain": "whizgraphs.com",
+      "status": "not-in-gsc",
+      "properties": []
+    },
+    {
+      "domain": "yesuinnu.com",
+      "status": "not-in-gsc",
+      "properties": []
+    }
+  ]
+}
