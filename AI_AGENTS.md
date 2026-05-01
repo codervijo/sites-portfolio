@@ -63,17 +63,20 @@ Sibling rollout (other sites/* projects adopting this taxonomy + PRD template) i
 
 ## Roadmap (master phase table)
 
-Sequence: **strict by version** (option a). 14 phases total; v1.A shipped.
+Sequence: **strict by version** (option a). 15 phases total; v1.A and v1.B shipped.
+
+Note on read/write boundary: portfolio is **read-only** through v2.C — it observes filesystem, git, snapshots, and reports. **v2.D is the read→write transition**: it gains the ability to scaffold convention files and migrate parent-tracked dirs into their own repos (with explicit per-step confirmations). Every later version stays mostly read-only except where otherwise noted.
 
 | Phase | Theme | Features |
 |---|---|---|
 | **v1.A** ✅ | Skeleton + repo-isolation gate | `portfolio project status <name>` subcommand · fuzzy resolver against plan.md · `--json` schema_version=1 · C1 own-git-repo gate · last commit (sha, subject, age, author) · binary verdict (Misconfigured / Active) |
-| **v1.B** | Full git pulse + Prompts.md + deploy-detect + live | activity rate (7d/30d) · branch + clean/dirty · uncommitted count · last Prompts.md entry (dated-H2 parser) · plan category · full verdict ladder (Active / Quiet / Stalled / Dormant / Fresh / Misconfigured) · C2 in-plan-md · C3 has-prompts-md · C4 prompts-md-format · C5 has-makefile · C6 has-ai-agents-md · deploy-platform detection (cloudflare / vercel / netlify / unknown / n/a) via filesystem markers · live-site HTTP class joined from `data/checks/` · platform-declared + live-site conformance · rich TTY view |
+| **v1.B** ✅ | Full git pulse + Prompts.md + deploy-detect + live | activity rate (7d/30d) · branch + clean/dirty · uncommitted count · last Prompts.md entry (dated-H2 parser) · plan category · full verdict ladder (Active / Quiet / Stalled / Dormant / Fresh / Misconfigured) · C2 in-plan-md · C3 has-prompts-md · C4 prompts-md-format · C5 has-makefile · C6 has-ai-agents-md · deploy-platform detection (cloudflare / vercel / netlify / unknown / n/a) via filesystem markers · live-site HTTP class joined from `data/checks/` · platform-declared + live-site conformance · rich TTY view |
 | **v1.C** | Registrar consolidation | `data/domains/{godaddy,namecheap,porkbun}.csv` · 3 adapters with format normalization (dates: 3 formats; auto-renew: yes/no/ON/OFF) · Porkbun disclaimer-line skip · `Domain` schema gains `registrar` (required), `privacy`, `transfer_locked` · `domain_to_registrar()` shared lookup · `summary` warns on missing renewal_price rather than under-counting · Porkbun rows excluded from value rollups (low-value TLDs) |
 | **v1.D** | NLP skill | `.claude/skills/project-status.md` — routes "what's the status of X" → CLI → JSON → prose · disambiguation handled in skill |
 | **v2.A** | Stack detection | stack identifier (React+Vite / Astro / Python+uv / Go+Fiber / scaffold-only) · C7 vite-version-ok · C9 has-prd-md |
 | **v2.B** | Drift + mapping | plan-drift signal · C10 domain-dir-match (override map for harmonia / levents / lamill-events / etc.) · C8 cf-pages-deployable |
 | **v2.C** | Per-stack rules | placeholder for emerging conventions: pnpm-lockfile-only · no-package-lock-json · gitignore-covers-build-output · python-uses-uv |
+| **v2.D** | Remediation (**read→write boundary**) | `portfolio project fix <name>` subcommand · dry-run by default; `--apply` required to write · `--rule R` for surgical fixes · all fixes idempotent · auto-fixes: has-prompts-md (scaffold dated H2 starter) · has-ai-agents-md (template) · has-makefile (per-stack baseline; depends on v2.A) · prompts-md-format (migrate first H2 to today's date) · **own-git-repo guided migration** (multi-step: parent `git rm --cached` + parent `.gitignore` entry + project `git init` + initial commit; explicit confirmation at each step touching parent repo) · `--yes` skips prompts for scripted runs · templates embedded in `src/portfolio/templates.py` · `platform-declared` and `in-plan-md` deferred (require user choice / curation) |
 | **v3.A** | Brainstorm + score + already-own | `portfolio domain suggest <topic>` · OpenAI gpt-4o-mini brainstorm (~30 candidates) · 7-day cache by topic-hash · already-own search across 3 registrars (depends on v1.C) · SEO-weighted scoring (TLD tier · length · keyword · hyphen/digit penalty) · top-8 stdout |
 | **v3.B** | RDAP availability | opt-in `--check-availability` · RDAP per candidate, rate-limited ~5/sec · ✓ / ✗ / ? · per-TLD endpoint cache |
 | **v4.A** | GSC trend correlation | GSC trend per project (28d clicks/imp/pos, w/w delta) · C12 gsc-verified · reads existing `data/gsc/` snapshots |
@@ -82,7 +85,7 @@ Sequence: **strict by version** (option a). 14 phases total; v1.A shipped.
 | **v5.B** | HEAD vs deployed | deploy-freshness signal · C13 deploy-fresh · reads `version.json` from live URL |
 | **v5.C** | Build status + deploy lag | deploy lag (push → live) · last build status via Cloudflare/Vercel API · last-build-success conformance · *requires platform tokens — major new infra* |
 
-Strict sequence: `v1.A ✅ → v1.B → v1.C → v1.D → v2.A → v2.B → v2.C → v3.A → v3.B → v4.A → v4.B → v5.A → v5.B → v5.C`
+Strict sequence: `v1.A ✅ → v1.B ✅ → v1.C → v1.D → v2.A → v2.B → v2.C → v2.D → v3.A → v3.B → v4.A → v4.B → v5.A → v5.B → v5.C`
 
 ### Out of scope (intentionally never)
 
