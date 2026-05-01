@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
-from datetime import date, datetime
+import json
+from dataclasses import asdict, dataclass
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DOMAINS_DIR = ROOT / "data" / "domains"
+PORTFOLIO_JSON = ROOT / "data" / "portfolio.json"
 PLAN_MD = ROOT / "plan.md"
 
 REGISTRAR_GODADDY = "godaddy"
 REGISTRAR_NAMECHEAP = "namecheap"
 REGISTRAR_PORKBUN = "porkbun"
+
+PORTFOLIO_SCHEMA_VERSION = 1
 
 
 @dataclass
@@ -22,6 +26,7 @@ class Domain:
     expires: date | None
     auto_renew: str
     status: str
+    category: str | None = None
     created: date | None = None
     renewal_price: float | None = None
     estimated_value: float | None = None
@@ -180,12 +185,7 @@ def _load_porkbun(path: Path) -> list[Domain]:
     return out
 
 
-def load_domains(path: Path | None = None) -> list[Domain]:
-    """Load and merge domains from all per-registrar CSVs in data/domains/.
-
-    The legacy `path` arg is accepted for back-compat but ignored — multi-registrar
-    layout always reads from DOMAINS_DIR.
-    """
+def _load_from_registrars() -> list[Domain]:
     out: list[Domain] = []
     godaddy = DOMAINS_DIR / "godaddy.csv"
     namecheap = DOMAINS_DIR / "namecheap.csv"
@@ -199,16 +199,13 @@ def load_domains(path: Path | None = None) -> list[Domain]:
     return out
 
 
-def domain_to_registrar() -> dict[str, str]:
-    """Map of domain name -> registrar, for cross-feature dispatch (no API calls wasted)."""
-    return {d.name: d.registrar for d in load_domains()}
-
-
-def load_plan(path: Path | None = None) -> dict[str, str]:
-    """Map lowercase domain name -> plan category from plan.md."""
+def _load_legacy_plan_md(path: Path | None = None) -> dict[str, str]:
+    """Parse plan.md categorized lists. Used only during cleanup bootstrap; deprecated post-v1.D."""
     path = path or PLAN_MD
     mapping: dict[str, str] = {}
     current: str | None = None
+    if not path.exists():
+        return mapping
     for raw in path.read_text().splitlines():
         line = raw.strip()
         if line.startswith("### "):
@@ -220,3 +217,95 @@ def load_plan(path: Path | None = None) -> dict[str, str]:
         elif current and "." in line and " " not in line:
             mapping[line.lower()] = current
     return mapping
+
+
+def _apply_classification(domains: list[Domain], plan: dict[str, str]) -> tuple[list[Domain], list[str]]:
+    """Apply classification rules and return (domains_with_category, uncategorized_names)."""
+    uncategorized: list[str] = []
+    for d in domains:
+        if d.registrar in (REGISTRAR_NAMECHEAP, REGISTRAR_PORKBUN):
+            d.category = "Under build"
+        elif d.name in plan:
+            d.category = plan[d.name]
+        else:
+            d.category = None
+            uncategorized.append(d.name)
+    return domains, uncategorized
+
+
+def _domain_to_jsonable(d: Domain) -> dict:
+    raw = asdict(d)
+    for k in ("expires", "created"):
+        if raw[k] is not None:
+            raw[k] = raw[k].isoformat()
+    return raw
+
+
+def _domain_from_jsonable(r: dict) -> Domain:
+    def _d(v: str | None) -> date | None:
+        if not v:
+            return None
+        try:
+            return date.fromisoformat(v)
+        except ValueError:
+            return None
+    return Domain(
+        name=r["name"],
+        registrar=r["registrar"],
+        tld=r.get("tld", ""),
+        expires=_d(r.get("expires")),
+        auto_renew=r.get("auto_renew", ""),
+        status=r.get("status", ""),
+        category=r.get("category"),
+        created=_d(r.get("created")),
+        renewal_price=r.get("renewal_price"),
+        estimated_value=r.get("estimated_value"),
+        listing_status=r.get("listing_status", ""),
+        nameservers=r.get("nameservers", ""),
+        forwarding_url=r.get("forwarding_url", ""),
+        privacy=r.get("privacy"),
+        transfer_locked=r.get("transfer_locked"),
+    )
+
+
+def cleanup() -> tuple[Path, list[Domain], list[str]]:
+    """Run full pipeline: registrar CSVs + plan.md → data/portfolio.json. Returns (path, domains, uncategorized)."""
+    domains = _load_from_registrars()
+    plan = _load_legacy_plan_md()
+    domains, uncategorized = _apply_classification(domains, plan)
+
+    PORTFOLIO_JSON.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": PORTFOLIO_SCHEMA_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "domains": [_domain_to_jsonable(d) for d in sorted(domains, key=lambda x: x.name)],
+    }
+    PORTFOLIO_JSON.write_text(json.dumps(payload, indent=2) + "\n")
+    return PORTFOLIO_JSON, domains, uncategorized
+
+
+def load_domains(path: Path | None = None) -> list[Domain]:
+    """Load domains. Prefers data/portfolio.json (canonical post-v1.D); falls back to a
+    bootstrap from raw registrar CSVs + plan.md when portfolio.json is absent.
+    The legacy `path` arg is accepted but ignored — multi-registrar layout is fixed.
+    """
+    if PORTFOLIO_JSON.exists():
+        try:
+            payload = json.loads(PORTFOLIO_JSON.read_text())
+            return [_domain_from_jsonable(r) for r in payload.get("domains", [])]
+        except (json.JSONDecodeError, OSError):
+            pass
+    domains = _load_from_registrars()
+    plan = _load_legacy_plan_md()
+    domains, _ = _apply_classification(domains, plan)
+    return domains
+
+
+def domain_to_registrar() -> dict[str, str]:
+    """Map of domain name -> registrar, for cross-feature dispatch (no API calls wasted)."""
+    return {d.name: d.registrar for d in load_domains()}
+
+
+def load_plan(path: Path | None = None) -> dict[str, str]:
+    """Map of domain -> category. Sourced from `domain.category` (was plan.md)."""
+    return {d.name: d.category for d in load_domains() if d.category}
