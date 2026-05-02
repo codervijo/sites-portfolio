@@ -58,8 +58,10 @@ WINMACBOOKAIR.COM
 yesuinnu.com
 
 ## Plan for the Portfolio As of April, 2026
-### To be deleted immediately (20 domains)
+### To be deleted immediately (22 domains)
 
+newiniot.com
+swiftly.co.in
 WINMACBOOK.COM
 MACBOOKAIRFREE.COM
 MACBOOKAIRGAMES.COM
@@ -97,15 +99,13 @@ veezp.com
 VIJOCHERIAN.COM
 NOSAPTA.COM
 
-### Next session (17 domains)
+### Next session (15 domains)
 
 AIRSUCKS.COM
 dunam.co
 iotbastion.com
 iotnews.today
 NAVODAYANSONLINE.COM
-newiniot.com
-swiftly.co.in
 virtually.co.in
 whizgraphs.com
 yesuinnu.com

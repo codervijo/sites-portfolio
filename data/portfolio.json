@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-05-01T22:26:11.837969+00:00",
+  "generated_at": "2026-05-02T08:10:45.218501+00:00",
   "domains": [
     {
       "name": "airgiveaway.com",
@@ -536,7 +536,7 @@
       "expires": "2027-01-18",
       "auto_renew": "Off",
       "status": "Hold",
-      "category": "Next session",
+      "category": "To be deleted immediately",
       "created": "2018-01-18",
       "renewal_price": null,
       "estimated_value": 678.0,
@@ -672,7 +672,7 @@
       "expires": "2027-01-28",
       "auto_renew": "On",
       "status": "Active",
-      "category": "Next session",
+      "category": "To be deleted immediately",
       "created": "2018-01-28",
       "renewal_price": 10.99,
       "estimated_value": 207.0,
