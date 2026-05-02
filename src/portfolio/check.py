@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,6 +45,15 @@ CLASSIFICATION_PRIORITY = {
 }
 
 
+BODY_EXCERPT_LIMIT = 2000
+PARKING_REDIRECT_BODY_LIMIT = 1000
+
+JS_PARKING_REDIRECT_RE = re.compile(
+    r"""window\.location(?:\.href)?\s*=\s*['"]/(lander|landing|sale|park|parking|for[-_]?sale|coming[-_]?soon)\b""",
+    re.IGNORECASE,
+)
+
+
 @dataclass
 class CheckResult:
     domain: str
@@ -56,6 +66,8 @@ class CheckResult:
     redirect_chain: list[str] = field(default_factory=list)
     response_time_ms: int | None = None
     error: str | None = None
+    body_excerpt: str | None = None
+    classification_reason: str | None = None
 
 
 def _etld(host: str) -> str:
@@ -75,21 +87,36 @@ def _classify_error(err: str) -> str:
     return "dead"
 
 
-def _classify(domain: str, final_url: str | None, status: int | None, error: str | None) -> str:
+def _looks_like_parking_redirect(body: str | None) -> bool:
+    if not body or len(body) > PARKING_REDIRECT_BODY_LIMIT:
+        return False
+    return JS_PARKING_REDIRECT_RE.search(body) is not None
+
+
+def _classify(
+    domain: str,
+    final_url: str | None,
+    status: int | None,
+    error: str | None,
+    body: str | None = None,
+) -> tuple[str, str | None]:
+    """Returns (classification, optional reason)."""
     if error:
-        return _classify_error(error)
+        return _classify_error(error), None
     if not final_url:
-        return "dead"
+        return "dead", None
     final_host = httpx.URL(final_url).host.lower()
     if _has_suffix(final_host, FOR_SALE_HOST_SUFFIXES):
-        return "for-sale"
+        return "for-sale", "for-sale-host-suffix"
     if _has_suffix(final_host, PARKED_HOST_SUFFIXES):
-        return "parked"
+        return "parked", "parked-host-suffix"
     if status is not None and status >= 400:
-        return "error"
+        return "error", None
     if _etld(final_host) != _etld(domain):
-        return "forwarder"
-    return "live-site"
+        return "forwarder", None
+    if _looks_like_parking_redirect(body):
+        return "parked", "js-redirect-to-parking-page"
+    return "live-site", None
 
 
 async def _fetch(client: httpx.AsyncClient, domain: str, variant: str) -> CheckResult:
@@ -105,6 +132,13 @@ async def _fetch(client: httpx.AsyncClient, domain: str, variant: str) -> CheckR
         elapsed_ms = int((loop.time() - start) * 1000)
         chain = [str(h.url) for h in resp.history]
         final_url = str(resp.url)
+        body_full = ""
+        try:
+            body_full = resp.text
+        except Exception:
+            body_full = ""
+        body_excerpt = body_full[:BODY_EXCERPT_LIMIT] if body_full else None
+        classification, reason = _classify(domain, final_url, resp.status_code, None, body_full)
         return CheckResult(
             domain=domain,
             variant=variant,
@@ -112,10 +146,12 @@ async def _fetch(client: httpx.AsyncClient, domain: str, variant: str) -> CheckR
             dns_ok=True,
             status=resp.status_code,
             final_url=final_url,
-            classification=_classify(domain, final_url, resp.status_code, None),
+            classification=classification,
+            classification_reason=reason,
             redirect_chain=chain,
             response_time_ms=elapsed_ms,
             error=None,
+            body_excerpt=body_excerpt,
         )
     except Exception as e:
         elapsed_ms = int((loop.time() - start) * 1000)
@@ -127,6 +163,7 @@ async def _fetch(client: httpx.AsyncClient, domain: str, variant: str) -> CheckR
             or "no address associated" in msg
             or "name resolution" in msg
         )
+        classification, reason = _classify(domain, None, None, err)
         return CheckResult(
             domain=domain,
             variant=variant,
@@ -134,10 +171,12 @@ async def _fetch(client: httpx.AsyncClient, domain: str, variant: str) -> CheckR
             dns_ok=not dns_failure,
             status=None,
             final_url=None,
-            classification=_classify(domain, None, None, err),
+            classification=classification,
+            classification_reason=reason,
             redirect_chain=chain,
             response_time_ms=elapsed_ms,
             error=err,
+            body_excerpt=None,
         )
 
 
