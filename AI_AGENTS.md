@@ -44,15 +44,30 @@ Run from `sites/portfolio/`:
 - typer (CLI), rich (tables), httpx (async HTTP for site checks), tldextract (domain parsing), google-api-python-client (GSC).
 - Source layout: `src/portfolio/` (hatchling-packaged). Entry point: `portfolio.cli:app`.
 
-## How to run
+## Building info
+
+**Stack: Python ≥3.11 with uv. Does NOT use the central builder repo** (this is a deliberate exception — see `reference_builder_repo.md` in agent memory). The central multi-stack builder at `~/work/projects/builder/` is geared toward web app stacks (react / tauri / expo / etc.); portfolio is a CLI that lives in Python land with its own self-contained `Makefile` using `uv` directly.
+
+To build / run from this dir:
 
 ```bash
 cd sites/portfolio
-make deps                                # uv sync (auto-installs uv if missing)
-make run ARGS="summary"                  # any subcommand via ARGS
+make deps                  # uv sync (auto-installs uv if missing)
+make build                 # uv build → wheel
+make run ARGS="summary"    # invoke the CLI; pass args via ARGS=
+make test                  # uv run pytest
+make clean                 # remove .venv, dist, *.egg-info, __pycache__
 ```
 
-**Do not** invoke `../Makefile`'s `make run proj=portfolio` — that target is hardcoded for pnpm/Vite projects and will fail here.
+**Do not** invoke `../Makefile`'s `make run proj=portfolio` — that target is hardcoded for pnpm/Vite projects (which is what the rest of sites/* uses through the builder) and will fail here.
+
+## Deployment info
+
+- **Platform**: n/a — portfolio is a CLI, not a deployable web app.
+- **Live URL**: none.
+- **Last deployed commit**: n/a.
+- **Deploy trigger**: n/a — runs locally on the user's machine.
+- **Notes**: this project's `platform-declared` conformance rule resolves to `n/a` based on its `kind = cli` (detected from `pyproject.toml`).
 
 ## Key files
 
