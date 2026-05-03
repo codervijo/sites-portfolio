@@ -243,18 +243,32 @@ def _brainstorm_prompt(idea: str, strategy: Strategy, history: list[str], n: int
 
 
 def _parse_openai_text(payload: dict) -> str:
-    """Pull the model's text reply out of /v1/responses payload, robust to shape variants."""
-    if "output_text" in payload:
+    """Pull the model's text reply out of /v1/responses payload.
+
+    Reasoning models (gpt-5-mini, o-series) return `output` as a list where
+    `output[0]` is a `{"type": "reasoning"}` block with no text, and the actual
+    assistant message is later in the list. Naive `output[0].content[0].text`
+    misses it entirely. We walk the list and pick the first `type == "message"`
+    item with an `output_text` content block.
+    """
+    if isinstance(payload.get("output_text"), str) and payload["output_text"]:
         return payload["output_text"]
     output = payload.get("output", [])
-    if output and isinstance(output, list):
-        first = output[0]
-        if isinstance(first, dict):
-            content = first.get("content", [])
-            if content and isinstance(content, list):
-                first_block = content[0]
-                if isinstance(first_block, dict):
-                    return first_block.get("text", "") or first_block.get("output_text", "")
+    if not isinstance(output, list):
+        return ""
+    for item in output:
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        content = item.get("content", [])
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") in ("output_text", None):
+                text = block.get("text") or block.get("output_text") or ""
+                if text:
+                    return text
     return ""
 
 

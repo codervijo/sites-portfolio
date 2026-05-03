@@ -175,13 +175,33 @@ def test_extract_names_drops_invalid_chars():
 # ---------- _parse_openai_text ----------
 
 
-def test_parse_openai_responses_v1_shape():
+def test_parse_openai_responses_v1_message_shape():
+    """Standard /v1/responses output: a list with a `message` item containing
+    `output_text` content blocks."""
     payload = {
         "output": [
-            {"content": [{"text": "alpha\nbeta\ngamma"}]}
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": "alpha\nbeta\ngamma"}],
+            }
         ]
     }
     assert _parse_openai_text(payload) == "alpha\nbeta\ngamma"
+
+
+def test_parse_openai_responses_v1_skips_reasoning_block():
+    """Reasoning models (gpt-5-mini, o-series) prefix the output list with a
+    `{"type": "reasoning"}` block. Parser must skip it and find the message."""
+    payload = {
+        "output": [
+            {"type": "reasoning", "summary": []},
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": "zivlo\nquorbi\nblyxo"}],
+            },
+        ]
+    }
+    assert _parse_openai_text(payload) == "zivlo\nquorbi\nblyxo"
 
 
 def test_parse_openai_text_fallback_output_text():
@@ -191,6 +211,12 @@ def test_parse_openai_text_fallback_output_text():
 
 def test_parse_openai_text_handles_unexpected_shape():
     payload = {"weird": "shape"}
+    assert _parse_openai_text(payload) == ""
+
+
+def test_parse_openai_text_ignores_empty_message_blocks():
+    """Edge case: message block with no text content. Should return empty, not error."""
+    payload = {"output": [{"type": "message", "content": []}]}
     assert _parse_openai_text(payload) == ""
 
 

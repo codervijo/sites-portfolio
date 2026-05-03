@@ -776,15 +776,21 @@ def domain_suggest(
         console.print(f"\n[bold cyan]--- Strategy {idx}/{len(all_strategies)}: {strategy.label} ---[/]")
         console.print(f"[dim]{strategy.description}[/]")
 
-        if strategy.name in candidates_by_strategy:
-            cands = candidates_by_strategy[strategy.name]
+        cached_cands = candidates_by_strategy.get(strategy.name)
+        if cached_cands:
+            cands = cached_cands
             console.print(f"[dim](cached: {len(cands)} candidates)[/]")
         else:
+            if cached_cands is not None:
+                console.print(f"[dim](cached entry was empty — re-brainstorming)[/]")
             console.print("[dim]Brainstorming via OpenAI gpt-5-mini...[/]")
             try:
                 cands = brainstorm(topic, strategy, history, openai_key)
             except Exception as e:
                 console.print(f"[red]brainstorm failed:[/] {e}")
+                continue
+            if not cands:
+                console.print("[yellow]brainstorm returned 0 names — skipping (not caching empty result)[/]")
                 continue
             candidates_by_strategy[strategy.name] = cands
             cache_set(topic, all_strategies, candidates_by_strategy)
