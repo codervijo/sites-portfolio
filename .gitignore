@@ -38,6 +38,10 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+portfolio.env
+
+# Caches written by portfolio
+data/cache/
 
 # OAuth / GSC artifacts (defensive — these belong in ~/.config/portfolio/gsc/)
 credentials.json

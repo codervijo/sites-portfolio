@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "strategies": [
+    {
+      "name": "trendy",
+      "label": "Trendy / current-feel words",
+      "description": "Include or start with a trendy word if relevant (vibe, flow, auto, sync, drop, ship, ai, x)"
+    },
+    {
+      "name": "dev-technical",
+      "label": "Developer / technical names",
+      "description": "Developer or technical-feel names (deploy, ship, stack, prod, guard, lint, build, sentry, runtime)"
+    },
+    {
+      "name": "benefit-driven",
+      "label": "Benefit-driven names",
+      "description": "Names communicating an end-user benefit directly (safe, fast, ready, secure, simple, smart, easy)"
+    },
+    {
+      "name": "metaphor",
+      "label": "Metaphor / image names",
+      "description": "Evocative single-word or two-word names drawn from images and metaphors (flight, radar, shield, sentinel, lighthouse, compass, beacon, anchor)"
+    },
+    {
+      "name": "abstract-brandable",
+      "label": "Abstract / brandable invented words",
+      "description": "Short brandable invented words (5-10 chars), pronounceable, no obvious meaning — Stripe / Plaid / Notion category"
+    }
+  ]
+}

@@ -688,5 +688,170 @@ def list_all() -> None:
     console.print(t)
 
 
+domain_app = typer.Typer(help="Domain acquisition tooling (Power 1).", no_args_is_help=True)
+app.add_typer(domain_app, name="domain")
+
+
+@domain_app.command("suggest")
+def domain_suggest(
+    topic: str = typer.Argument(..., help="The product idea or topic to brainstorm domain names for"),
+    tlds: str = typer.Option(
+        "",
+        "--tlds",
+        help="Comma-separated TLDs to scan in priority order (default: .com,.ai,.io,.app,.dev,.tech,.co,.site,.online)",
+    ),
+    max_price: float = typer.Option(None, "--max-price", help="Filter out candidates priced above this USD/yr"),
+    strategies: int = typer.Option(0, "--strategies", help="Limit to first N strategies (0 = all)"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Dump ranked candidates and exit; no prompts"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the brainstorm cache"),
+) -> None:
+    """Brainstorm domain names for an idea, score them, check availability + price."""
+    from .availability import AvailabilityChecker
+    from .suggest import (
+        DEFAULT_TLDS,
+        Candidate,
+        already_owned_matches,
+        brainstorm,
+        cache_get,
+        cache_set,
+        filter_by_max_price,
+        load_env,
+        load_strategies,
+        render_options,
+    )
+
+    from .suggest import PORTFOLIO_ENV
+
+    env = load_env()
+    openai_key = env.get("OPENAI_API_KEY", "").strip()
+    if not openai_key:
+        console.print(
+            f"[red]OPENAI_API_KEY is not set.[/]  Edit [dim]{PORTFOLIO_ENV}[/] and try again."
+        )
+        raise typer.Exit(2)
+
+    tld_list = [t.strip() if t.strip().startswith(".") else f".{t.strip()}" for t in tlds.split(",") if t.strip()] if tlds else list(DEFAULT_TLDS)
+
+    all_strategies = load_strategies()
+    if strategies > 0:
+        all_strategies = all_strategies[:strategies]
+
+    owned = already_owned_matches(topic)
+    if owned:
+        console.print(f"[cyan]Already own ({len(owned)} match{'es' if len(owned) > 1 else ''}):[/]")
+        for o in owned:
+            console.print(f"  • {o}")
+        if not non_interactive:
+            cont = typer.confirm("Continue with new candidate brainstorm?", default=True)
+            if not cont:
+                raise typer.Exit(0)
+
+    cached = None if no_cache else cache_get(topic, all_strategies)
+    if cached:
+        console.print(f"[dim](using cached brainstorm; {len(cached.get('candidates_by_strategy', {}))} strategies)[/]")
+        candidates_by_strategy = {
+            k: [Candidate(**c) for c in v]
+            for k, v in cached["candidates_by_strategy"].items()
+        }
+    else:
+        candidates_by_strategy = {}
+
+    porkbun_api = env.get("PORKBUN_API_KEY", "").strip() or None
+    porkbun_secret = env.get("PORKBUN_SECRET_API_KEY", "").strip() or None
+    checker = AvailabilityChecker(porkbun_api_key=porkbun_api, porkbun_secret_key=porkbun_secret)
+    avail_fn = checker.make_check_callable()
+
+    console.print(
+        f"[dim]TLD ladder: {' '.join(tld_list)}  ·  availability backend: {checker.backend}"
+        + (f"  ·  max-price=${max_price:.2f}" if max_price is not None else "")
+        + "[/]"
+    )
+
+    history: list[str] = []
+    selected: str | None = None
+
+    for idx, strategy in enumerate(all_strategies, 1):
+        if selected:
+            break
+        console.print(f"\n[bold cyan]--- Strategy {idx}/{len(all_strategies)}: {strategy.label} ---[/]")
+        console.print(f"[dim]{strategy.description}[/]")
+
+        if strategy.name in candidates_by_strategy:
+            cands = candidates_by_strategy[strategy.name]
+            console.print(f"[dim](cached: {len(cands)} candidates)[/]")
+        else:
+            console.print("[dim]Brainstorming via OpenAI gpt-5-mini...[/]")
+            try:
+                cands = brainstorm(topic, strategy, history, openai_key)
+            except Exception as e:
+                console.print(f"[red]brainstorm failed:[/] {e}")
+                continue
+            candidates_by_strategy[strategy.name] = cands
+            cache_set(topic, all_strategies, candidates_by_strategy)
+
+        history.extend(c.name for c in cands)
+
+        options = render_options(cands, topic, tld_list, avail_fn)
+        options = filter_by_max_price(options, max_price)
+        available_options = [o for o in options if o.available is True]
+
+        if not available_options:
+            console.print("[yellow]No available domains in this round (none priced under filter or all taken).[/]")
+            continue
+
+        top = available_options[:5]
+
+        t = Table(box=None, padding=(0, 1))
+        t.add_column("#", justify="right")
+        t.add_column("Name")
+        t.add_column("TLD")
+        t.add_column("Avail", justify="center")
+        t.add_column("Price", justify="right")
+        t.add_column("Score", justify="right")
+        for i, o in enumerate(top, 1):
+            price_s = f"${o.price:,.2f}" if o.price is not None else "-"
+            avail_s = "[green]✓[/]" if o.available else "[red]✗[/]"
+            t.add_row(str(i), o.name, o.tld, avail_s, price_s, str(o.score))
+        console.print(t)
+
+        if non_interactive:
+            continue
+
+        prompt_msg = "\nPick (1-{n}), 'n' for next strategy, 'c' for custom name, or 'q' to quit".format(n=len(top))
+        choice = typer.prompt(prompt_msg, default="n", show_default=False).strip().lower()
+        if choice == "q":
+            console.print("[yellow]Aborted.[/]")
+            raise typer.Exit(0)
+        if choice == "n" or choice == "":
+            continue
+        if choice == "c":
+            custom = typer.prompt("Type custom name (no TLD)", default="").strip().lower()
+            if not custom:
+                continue
+            for tld in tld_list:
+                d = f"{custom}{tld}"
+                a, p = avail_fn(d)
+                if a is True:
+                    selected = d
+                    if p is not None:
+                        console.print(f"[dim]price: ${p:,.2f}[/]")
+                    break
+                console.print(f"[dim]{d}: not available[/]")
+            if not selected:
+                console.print("[yellow]Custom name not available in any TLD on the ladder.[/]")
+                continue
+        elif choice.isdigit() and 1 <= int(choice) <= len(top):
+            selected = top[int(choice) - 1].domain
+
+    if selected:
+        console.print(f"\n[green]✅ Selected:[/] [bold]{selected}[/]")
+        console.print(
+            f"[cyan]Go register at:[/] https://porkbun.com/checkout/search?q={selected}"
+        )
+        console.print("[dim]After you register, run `portfolio cleanup` (with the updated registrar CSV) to add it to your portfolio.[/]")
+    elif not non_interactive:
+        console.print("\n[yellow]No domain selected. Try refining the topic or running again with --strategies=N to limit.[/]")
+
+
 if __name__ == "__main__":
     app()
