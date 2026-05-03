@@ -1,0 +1,19 @@
+# Files Claude should never read into context.
+# Mirrors security-sensitive patterns from .gitignore where Claude reading
+# them would be a leak risk (env files, OAuth tokens, API keys).
+
+# Env files — *all* shapes (cover .env, foo.env, .env.local, foo.env.local, etc.)
+.env
+.env.*
+*.env
+*.env.*
+
+# OAuth / API token artifacts (mirror .gitignore)
+credentials.json
+client_secret_*.json
+token.json
+
+# Common key formats
+*.key
+*.pem
+*.p12

@@ -34,11 +34,11 @@ coverage.xml
 ._.DS_Store
 Thumbs.db
 
-# Env / local secrets
+# Env / local secrets — broad wildcard match (.env, foo.env, .env.local, foo.env.local)
 .env
-.env.local
-.env.*.local
-portfolio.env
+.env.*
+*.env
+*.env.*
 
 # Caches written by portfolio
 data/cache/
