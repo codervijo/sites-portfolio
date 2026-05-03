@@ -273,6 +273,66 @@ def test_render_options_marks_all_unavailable_as_unavailable():
     assert options[0].available is False
 
 
+def test_render_options_keeps_scanning_past_unknown_to_find_true():
+    """If RDAP returns unknown (None) for an early TLD, keep scanning — don't stop there.
+    Confirmed available (True) is preferred over unknown.
+    """
+    cands = [Candidate(name="flow", strategy="trendy")]
+
+    def fake_check(domain):
+        if domain == "flow.com":
+            return False, None       # taken
+        if domain == "flow.ai":
+            return None, None        # unknown (RDAP gap)
+        if domain == "flow.io":
+            return True, 49.00       # confirmed available
+        return False, None
+
+    options = render_options(cands, "any", [".com", ".ai", ".io", ".app"], fake_check)
+    assert options[0].tld == ".io"
+    assert options[0].available is True
+
+
+def test_render_options_returns_unknown_when_no_true_found():
+    """If no TLD returned True, surface the best Unknown result rather than hiding it."""
+    cands = [Candidate(name="flow", strategy="trendy")]
+
+    def fake_check(domain):
+        if domain == "flow.com":
+            return False, None       # taken
+        if domain == "flow.ai":
+            return None, None        # unknown
+        return None, None
+
+    options = render_options(cands, "any", [".com", ".ai", ".io"], fake_check)
+    assert options[0].available is None
+    assert options[0].tld in (".ai", ".io")
+
+
+def test_render_options_sort_priority_true_unknown_false():
+    """Final sort: True > None > False; within each, by score desc."""
+    cands = [
+        Candidate(name="alpha", strategy="x"),
+        Candidate(name="beta", strategy="x"),
+        Candidate(name="gamma", strategy="x"),
+    ]
+
+    def fake_check(domain):
+        if domain.startswith("alpha"):
+            return False, None       # all .com / .ai taken
+        if domain.startswith("beta"):
+            return None, None        # unknown
+        if domain.startswith("gamma"):
+            return True, 11.99       # confirmed available
+        return False, None
+
+    options = render_options(cands, "any", [".com", ".ai"], fake_check)
+    # gamma (True) first, beta (Unknown) second, alpha (False) last
+    assert options[0].name == "gamma"
+    assert options[1].name == "beta"
+    assert options[2].name == "alpha"
+
+
 # ---------- filter_by_max_price ----------
 
 

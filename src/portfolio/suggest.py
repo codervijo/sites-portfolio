@@ -25,7 +25,7 @@ CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 OPENAI_MODEL = "gpt-5-mini"
-OPENAI_TIMEOUT = 30.0
+OPENAI_TIMEOUT = 90.0
 DEFAULT_CANDIDATES_PER_STRATEGY = 12
 
 DEFAULT_TLDS = (".com", ".ai", ".io", ".app", ".dev", ".tech", ".co", ".site", ".online")
@@ -296,40 +296,47 @@ def brainstorm(idea: str, strategy: Strategy, history: list[str], api_key: str, 
 
 
 def render_options(candidates: list[Candidate], topic: str, tlds: list[str], avail_check) -> list[ScoredOption]:
-    """For each candidate, scan TLDs in order, stop at first available; score; sort by score desc.
-    `avail_check(domain) -> (available: bool|None, price: float|None)` is the pluggable check.
+    """For each candidate, scan TLDs in order; stop at first **confirmed available** (True);
+    otherwise track best `unknown` (None) result by score; only mark fully taken if every TLD
+    came back False. `avail_check(domain) -> (available: bool|None, price: float|None)`.
+
+    Surfaces unknowns to the caller so users can see and verify them at the registrar —
+    RDAP has gaps (.io, .co, several radix TLDs); without this, those candidates would
+    silently disappear.
     """
     out: list[ScoredOption] = []
     for c in candidates:
-        chosen: ScoredOption | None = None
+        attempts: list[tuple[bool | None, float | None, int, str, str]] = []
         for tld in tlds:
             domain = f"{c.name}{tld}"
             available, price = avail_check(domain)
             score, _notes = score_name(c.name, topic, tld)
-            if available is False:
-                continue
-            chosen = ScoredOption(
-                name=c.name,
-                tld=tld,
-                domain=domain,
-                available=available,
-                price=price,
-                score=score,
-                strategy=c.strategy,
-            )
-            break
-        if chosen is None:
-            chosen = ScoredOption(
-                name=c.name,
-                tld=tlds[0] if tlds else ".com",
-                domain=f"{c.name}{tlds[0]}" if tlds else c.name,
-                available=False,
-                price=None,
-                score=0,
-                strategy=c.strategy,
-            )
-        out.append(chosen)
-    out.sort(key=lambda o: (o.available is True, o.score), reverse=True)
+            attempts.append((available, price, score, tld, domain))
+            if available is True:
+                break
+
+        def _rank_priority(a):
+            if a[0] is True:
+                return 0
+            if a[0] is None:
+                return 1
+            return 2
+
+        attempts.sort(key=lambda a: (_rank_priority(a), -a[2]))
+        best = attempts[0]
+        out.append(ScoredOption(
+            name=c.name,
+            tld=best[3],
+            domain=best[4],
+            available=best[0],
+            price=best[1],
+            score=best[2],
+            strategy=c.strategy,
+        ))
+    out.sort(key=lambda o: (
+        0 if o.available is True else (1 if o.available is None else 2),
+        -o.score,
+    ))
     return out
 
 

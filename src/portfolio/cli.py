@@ -793,13 +793,21 @@ def domain_suggest(
 
         options = render_options(cands, topic, tld_list, avail_fn)
         options = filter_by_max_price(options, max_price)
-        available_options = [o for o in options if o.available is True]
+        # Show confirmed-available AND unknown (RDAP has coverage gaps); only hide fully-taken (False).
+        showable = [o for o in options if o.available is not False]
 
-        if not available_options:
-            console.print("[yellow]No available domains in this round (none priced under filter or all taken).[/]")
+        if not showable:
+            console.print("[yellow]No available or candidate domains in this round (all taken or filtered out by --max-price).[/]")
             continue
 
-        top = available_options[:5]
+        unknown_n = sum(1 for o in showable if o.available is None)
+        if unknown_n and checker.backend == "rdap":
+            console.print(
+                f"[dim]({unknown_n} of {len(showable)} marked '?' — RDAP has gaps for some TLDs; "
+                "set PORKBUN_API_KEY + PORKBUN_SECRET_API_KEY in portfolio.env for definitive answers + price.)[/]"
+            )
+
+        top = showable[:5]
 
         t = Table(box=None, padding=(0, 1))
         t.add_column("#", justify="right")
@@ -810,7 +818,12 @@ def domain_suggest(
         t.add_column("Score", justify="right")
         for i, o in enumerate(top, 1):
             price_s = f"${o.price:,.2f}" if o.price is not None else "-"
-            avail_s = "[green]✓[/]" if o.available else "[red]✗[/]"
+            if o.available is True:
+                avail_s = "[green]✓[/]"
+            elif o.available is None:
+                avail_s = "[yellow]?[/]"
+            else:
+                avail_s = "[red]✗[/]"
             t.add_row(str(i), o.name, o.tld, avail_s, price_s, str(o.score))
         console.print(t)
 
