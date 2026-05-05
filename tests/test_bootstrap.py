@@ -187,6 +187,73 @@ def test_favicon_color_deterministic(tmp_path):
     assert len(colors) >= 2  # at least some variation across these 5
 
 
+# ---------- v3.B.2: sitemap generator + SEO regression test ----------
+
+
+def test_vite_path_writes_sitemap_script(tmp_path):
+    bootstrap("flow.dev", stack="vite", sites_root=tmp_path)
+    project = tmp_path / "flow.dev"
+    script = project / "scripts" / "generate-sitemap.mjs"
+    assert script.exists()
+    text = script.read_text()
+    # Scans dist/ for HTML files and writes dist/sitemap.xml
+    assert "import { readdirSync, statSync, writeFileSync }" in text
+    assert "dist/sitemap.xml" in text or "DIST" in text
+    # Default site URL falls through to the domain at scaffold time
+    assert "https://flow.dev" in text
+
+
+def test_vite_path_build_script_chains_sitemap_generator(tmp_path):
+    bootstrap("flow.dev", stack="vite", sites_root=tmp_path)
+    pkg = json.loads((tmp_path / "flow.dev" / "package.json").read_text())
+    assert pkg["scripts"]["build"] == "vite build && node scripts/generate-sitemap.mjs"
+
+
+def test_astro_path_uses_sitemap_integration(tmp_path):
+    bootstrap("flow.dev", stack="astro", sites_root=tmp_path)
+    project = tmp_path / "flow.dev"
+    config = (project / "astro.config.mjs").read_text()
+    assert "@astrojs/sitemap" in config
+    assert "integrations: [sitemap()]" in config
+    assert "site: 'https://flow.dev'" in config
+    pkg = json.loads((project / "package.json").read_text())
+    assert "@astrojs/sitemap" in pkg["dependencies"]
+
+
+def test_vite_path_seo_test_present_and_asserts_baseline(tmp_path):
+    bootstrap("flow.dev", stack="vite", sites_root=tmp_path)
+    seo_test = (tmp_path / "flow.dev" / "src" / "__tests__" / "seo.test.js").read_text()
+    # Reads the right file
+    assert "index.html" in seo_test
+    # Asserts the v3.B baseline pieces
+    for assertion in ("title", "meta", "description", "canonical",
+                      "og:title", "twitter:card", "favicon", "Organization", "WebSite"):
+        assert assertion in seo_test, f"SEO test missing assertion for {assertion!r}"
+    # Domain-specific canonical check
+    assert "flow.dev" in seo_test
+
+
+def test_astro_path_seo_test_present_and_strips_frontmatter(tmp_path):
+    bootstrap("flow.dev", stack="astro", sites_root=tmp_path)
+    seo_test = (tmp_path / "flow.dev" / "src" / "__tests__" / "seo.test.js").read_text()
+    # Reads the .astro source
+    assert "index.astro" in seo_test
+    # Strips the frontmatter block
+    assert "frontmatter" in seo_test.lower() or "---[" in seo_test
+    # Asserts core baseline
+    for assertion in ("title", "description", "canonical", "favicon", "Organization"):
+        assert assertion in seo_test, f"SEO test missing assertion for {assertion!r}"
+
+
+def test_both_stacks_have_test_seo_npm_script(tmp_path):
+    bootstrap("a.com", stack="vite", sites_root=tmp_path)
+    bootstrap("b.com", stack="astro", sites_root=tmp_path)
+    pkg_a = json.loads((tmp_path / "a.com" / "package.json").read_text())
+    pkg_b = json.loads((tmp_path / "b.com" / "package.json").read_text())
+    assert pkg_a["scripts"]["test:seo"] == "vitest run src/__tests__/seo.test.js"
+    assert pkg_b["scripts"]["test:seo"] == "vitest run src/__tests__/seo.test.js"
+
+
 def test_template_path_ai_agents_has_post_deploy_checklist(tmp_path):
     bootstrap("flow.dev", sites_root=tmp_path)
     text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()

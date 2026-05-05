@@ -483,26 +483,18 @@ def _astro_package_json(domain: str) -> str:
             "preview": "astro preview",
             "astro": "astro",
             "test": "vitest run",
-            "test:watch": "vitest"
+            "test:watch": "vitest",
+            "test:seo": "vitest run src/__tests__/seo.test.js"
         },
         "dependencies": {
-            "astro": "^5.0.0"
+            "astro": "^5.0.0",
+            "@astrojs/sitemap": "^3.2.0"
         },
         "devDependencies": {
             "vitest": "^3.0.0"
         }
     }, indent=2) + "\n"
 
-
-def _astro_config() -> str:
-    return """// astro.config.mjs
-import { defineConfig } from 'astro/config';
-
-export default defineConfig({
-  // site: 'https://<domain>/',  // set when deployed
-  output: 'static',
-});
-"""
 
 
 def _astro_index(domain: str) -> str:
@@ -577,10 +569,11 @@ def _vite_package_json(domain: str) -> str:
         "type": "module",
         "scripts": {
             "dev": "vite",
-            "build": "vite build",
+            "build": "vite build && node scripts/generate-sitemap.mjs",
             "preview": "vite preview",
             "test": "vitest run",
-            "test:watch": "vitest"
+            "test:watch": "vitest",
+            "test:seo": "vitest run src/__tests__/seo.test.js"
         },
         "dependencies": {
             "react": "^18.3.0",
@@ -770,6 +763,180 @@ describe('smoke', () => {
 """
 
 
+def _vite_sitemap_script(domain: str) -> str:
+    """Post-build sitemap generator for Vite. Scans dist/ for .html files and
+    emits dist/sitemap.xml. No deps; uses Node's built-ins.
+
+    Matches cricketfansite.com's existing convention: chained into the
+    package.json `build` script as `vite build && node scripts/generate-sitemap.mjs`.
+    """
+    return f"""// scripts/generate-sitemap.mjs
+// Post-build sitemap generator. Scans dist/ for .html files and emits
+// dist/sitemap.xml. Run via the chained build script.
+
+import {{ readdirSync, statSync, writeFileSync }} from 'node:fs';
+import {{ join, posix }} from 'node:path';
+
+const SITE = (process.env.VITE_SITE_URL || 'https://{domain}').replace(/\\/$/, '');
+const DIST = 'dist';
+
+function scan(dir, base = '') {{
+  const out = [];
+  for (const entry of readdirSync(dir)) {{
+    const full = join(dir, entry);
+    const stat = statSync(full);
+    if (stat.isDirectory()) {{
+      out.push(...scan(full, posix.join(base, entry)));
+    }} else if (entry.endsWith('.html')) {{
+      const route = entry === 'index.html'
+        ? (base ? '/' + base : '/')
+        : '/' + posix.join(base, entry.replace(/\\.html$/, ''));
+      out.push(route);
+    }}
+  }}
+  return out;
+}}
+
+let routes;
+try {{
+  routes = scan(DIST).sort();
+}} catch (err) {{
+  console.error(`generate-sitemap: cannot read ${{DIST}}/ — did vite build run?`);
+  process.exit(1);
+}}
+
+const today = new Date().toISOString().slice(0, 10);
+const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${{routes.map(r => `  <url>
+    <loc>${{SITE}}${{r}}</loc>
+    <lastmod>${{today}}</lastmod>
+    <changefreq>weekly</changefreq>
+  </url>`).join('\\n')}}
+</urlset>
+`;
+writeFileSync(join(DIST, 'sitemap.xml'), xml);
+console.log(`generate-sitemap: wrote ${{routes.length}} URL(s) to ${{DIST}}/sitemap.xml`);
+"""
+
+
+def _astro_config_with_sitemap(domain: str) -> str:
+    return f"""// astro.config.mjs
+import {{ defineConfig }} from 'astro/config';
+import sitemap from '@astrojs/sitemap';
+
+export default defineConfig({{
+  site: 'https://{domain}',
+  integrations: [sitemap()],
+  output: 'static',
+}});
+"""
+
+
+def _seo_test_vite(domain: str) -> str:
+    domain_re = domain.replace(".", "\\\\.")
+    return """// src/__tests__/seo.test.js
+// Technical-SEO regression check. Asserts that the v3.B SEO baseline tags
+// remain present in index.html. Catches regressions if a future edit
+// accidentally strips the meta block.
+//
+// Does NOT assert the description placeholder has been filled in — that's
+// your job. It only checks the structural pieces are still there.
+
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
+
+describe('SEO baseline (index.html)', () => {
+  it('has a <title>', () => {
+    expect(html).toMatch(/<title>[^<]+<\\/title>/);
+  });
+
+  it('has <meta name="description">', () => {
+    expect(html).toMatch(/<meta\\s+name="description"\\s+content="[^"]+"/);
+  });
+
+  it('has <link rel="canonical">', () => {
+    expect(html).toMatch(/<link\\s+rel="canonical"\\s+href="https?:\\/\\/[^"]+"/);
+  });
+
+  it('has Open Graph tags', () => {
+    expect(html).toMatch(/property="og:title"/);
+    expect(html).toMatch(/property="og:url"/);
+    expect(html).toMatch(/property="og:type"/);
+  });
+
+  it('has Twitter card meta', () => {
+    expect(html).toMatch(/name="twitter:card"/);
+  });
+
+  it('has favicon link', () => {
+    expect(html).toMatch(/<link\\s+rel="icon"[^>]*href="\\/favicon\\.svg"/);
+  });
+
+  it('has JSON-LD Organization + WebSite', () => {
+    expect(html).toMatch(/<script\\s+type="application\\/ld\\+json"/);
+    expect(html).toMatch(/"@type":\\s*"Organization"/);
+    expect(html).toMatch(/"@type":\\s*"WebSite"/);
+  });
+
+  it('canonical URL points to __DOMAIN__', () => {
+    expect(html).toMatch(/canonical"\\s+href="https?:\\/\\/__DOMAIN_RE__/);
+  });
+});
+""".replace("__DOMAIN__", domain).replace("__DOMAIN_RE__", domain_re)
+
+
+def _seo_test_astro(domain: str) -> str:
+    return """// src/__tests__/seo.test.js
+// Technical-SEO regression check for Astro. Reads src/pages/index.astro,
+// strips frontmatter, asserts the v3.B SEO baseline tags remain.
+
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const raw = readFileSync(join(process.cwd(), 'src', 'pages', 'index.astro'), 'utf8');
+// Strip frontmatter (between leading `---` markers) so we just check the HTML body.
+const html = raw.replace(/^---[\\s\\S]*?---\\n/, '');
+
+describe('SEO baseline (src/pages/index.astro)', () => {
+  it('has a <title>', () => {
+    expect(html).toMatch(/<title>/);
+  });
+
+  it('has <meta name="description">', () => {
+    expect(html).toMatch(/<meta\\s+name="description"/);
+  });
+
+  it('has <link rel="canonical">', () => {
+    expect(html).toMatch(/<link\\s+rel="canonical"/);
+  });
+
+  it('has Open Graph tags', () => {
+    expect(html).toMatch(/property="og:title"/);
+    expect(html).toMatch(/property="og:url"/);
+  });
+
+  it('has Twitter card meta', () => {
+    expect(html).toMatch(/name="twitter:card"/);
+  });
+
+  it('has favicon link', () => {
+    expect(html).toMatch(/<link\\s+rel="icon"[^>]*href="\\/favicon\\.svg"/);
+  });
+
+  it('has JSON-LD Organization + WebSite', () => {
+    expect(html).toMatch(/application\\/ld\\+json/);
+    expect(html).toMatch(/"@type":\\s*"Organization"/);
+    expect(html).toMatch(/"@type":\\s*"WebSite"/);
+  });
+});
+"""
+
+
 # ---- Ingester template ----
 
 
@@ -850,6 +1017,7 @@ ASTRO_FILES = [
     ("package.json", "astro_pkg"),
     ("astro.config.mjs", "astro_config"),
     ("src/pages/index.astro", "astro_index"),
+    ("src/__tests__/seo.test.js", "seo_test_astro"),
 ]
 
 VITE_FILES = [
@@ -858,6 +1026,8 @@ VITE_FILES = [
     ("index.html", "vite_index_html"),
     ("src/main.jsx", "vite_main"),
     ("src/App.jsx", "vite_app"),
+    ("scripts/generate-sitemap.mjs", "vite_sitemap_script"),
+    ("src/__tests__/seo.test.js", "seo_test_vite"),
 ]
 
 INGESTER_FILES = [
@@ -884,9 +1054,15 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str) -> str:
     if key == "astro_pkg":
         return _astro_package_json(domain)
     if key == "astro_config":
-        return _astro_config()
+        return _astro_config_with_sitemap(domain)
     if key == "astro_index":
         return _astro_index(domain)
+    if key == "seo_test_astro":
+        return _seo_test_astro(domain)
+    if key == "vite_sitemap_script":
+        return _vite_sitemap_script(domain)
+    if key == "seo_test_vite":
+        return _seo_test_vite(domain)
     if key == "vite_pkg":
         return _vite_package_json(domain)
     if key == "vite_config":
