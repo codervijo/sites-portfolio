@@ -16,8 +16,10 @@ import pytest
 from portfolio import bootstrap as bs
 from portfolio.bootstrap import (
     BootstrapError,
-    _add_wrangler_toml,
+    _add_cf_headers,
+    _add_wrangler_jsonc,
     _bump_vite_version,
+    _remove_legacy_wrangler_toml,
     _remove_redirects_files,
     bootstrap,
     detect_stack_from_pkg,
@@ -93,8 +95,12 @@ def test_template_path_writes_common_files(tmp_path):
 def test_template_path_ai_agents_has_required_sections(tmp_path):
     bootstrap("flow.dev", topic="cool idea", sites_root=tmp_path)
     text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
-    assert "## Building info" in text
-    assert "## Deployment info" in text
+    # Reformatted to match the homeloom + voltloop convention:
+    # Build tooling section + Deployment section.
+    assert "## Build tooling — Makefile + Docker" in text
+    assert "## Deployment" in text
+    assert "wrangler.jsonc" in text
+    assert "public/_headers" in text
     assert "cool idea" in text  # topic injected
 
 
@@ -221,16 +227,54 @@ def test_from_genai_removes_redirects(tmp_path):
     assert any("removed" in fix and "_redirects" in fix for fix in result.cf_fixes)
 
 
-def test_from_genai_adds_wrangler_toml(tmp_path):
+def test_from_genai_adds_wrangler_jsonc(tmp_path):
     project = tmp_path / "kwizicle.com"
     project.mkdir()
     _make_fake_lovable_export(project / "genai", with_redirects=False)
 
     result = bootstrap("kwizicle.com", from_genai=True, sites_root=tmp_path)
-    assert (project / "wrangler.toml").exists()
-    text = (project / "wrangler.toml").read_text()
-    assert "kwizicle-com" in text  # project name with dots replaced
-    assert any("wrangler.toml" in fix for fix in result.cf_fixes)
+    assert (project / "wrangler.jsonc").exists()
+    text = (project / "wrangler.jsonc").read_text()
+    parsed = json.loads(text)
+    assert parsed["name"] == "kwizicle-com"
+    assert parsed["assets"]["directory"] == "./dist"
+    assert parsed["assets"]["not_found_handling"] == "single-page-application"
+    assert any("wrangler.jsonc" in fix for fix in result.cf_fixes)
+
+
+def test_from_genai_adds_cf_headers(tmp_path):
+    project = tmp_path / "kwizicle.com"
+    project.mkdir()
+    _make_fake_lovable_export(project / "genai", with_redirects=False)
+
+    result = bootstrap("kwizicle.com", from_genai=True, sites_root=tmp_path)
+    headers_path = project / "public" / "_headers"
+    assert headers_path.exists()
+    text = headers_path.read_text()
+    assert "Cache-Control" in text
+    assert "X-Frame-Options" in text
+    assert any("public/_headers" in fix for fix in result.cf_fixes)
+
+
+def test_from_genai_removes_legacy_wrangler_toml(tmp_path):
+    project = tmp_path / "kwizicle.com"
+    project.mkdir()
+    _make_fake_lovable_export(project / "genai", with_redirects=False)
+    # Simulate a legacy wrangler.toml left over from the older bootstrap.
+    (project / "wrangler.toml").write_text('name = "x"\n[site]\nbucket = "./dist"\n')
+
+    result = bootstrap("kwizicle.com", from_genai=True, sites_root=tmp_path)
+    assert not (project / "wrangler.toml").exists()
+    assert any("legacy wrangler.toml" in fix for fix in result.cf_fixes)
+
+
+def test_template_path_also_gets_cf_config(tmp_path):
+    """All bootstrapped projects ship with wrangler.jsonc + public/_headers,
+    not just the genai-copy ones."""
+    bootstrap("flow.dev", sites_root=tmp_path)
+    project = tmp_path / "flow.dev"
+    assert (project / "wrangler.jsonc").exists()
+    assert (project / "public" / "_headers").exists()
 
 
 def test_from_genai_preserves_existing_common_files(tmp_path):
@@ -325,7 +369,8 @@ def test_git_url_path_invokes_clone_then_genai_logic(tmp_path):
     # CF fixes applied
     pkg = json.loads((project / "package.json").read_text())
     assert pkg["devDependencies"]["vite"] == "^6.0.0"
-    assert (project / "wrangler.toml").exists()
+    assert (project / "wrangler.jsonc").exists()
+    assert (project / "public" / "_headers").exists()
 
 
 def test_git_url_path_refuses_existing_dir(tmp_path):
@@ -385,11 +430,32 @@ def test_remove_redirects_files(tmp_path):
     assert not (public / "_redirects").exists()
 
 
-def test_add_wrangler_toml(tmp_path):
-    assert _add_wrangler_toml(tmp_path, "kwizicle.com") is True
-    assert (tmp_path / "wrangler.toml").exists()
+def test_add_wrangler_jsonc(tmp_path):
+    assert _add_wrangler_jsonc(tmp_path, "kwizicle.com", "2026-05-04") is True
+    assert (tmp_path / "wrangler.jsonc").exists()
+    parsed = json.loads((tmp_path / "wrangler.jsonc").read_text())
+    assert parsed["name"] == "kwizicle-com"
+    assert parsed["compatibility_date"] == "2026-05-04"
+    assert parsed["assets"]["not_found_handling"] == "single-page-application"
     # Idempotent: second call returns False, doesn't overwrite.
-    assert _add_wrangler_toml(tmp_path, "kwizicle.com") is False
+    assert _add_wrangler_jsonc(tmp_path, "kwizicle.com", "2026-05-04") is False
+
+
+def test_add_cf_headers(tmp_path):
+    assert _add_cf_headers(tmp_path) is True
+    headers = (tmp_path / "public" / "_headers").read_text()
+    assert "Cache-Control" in headers
+    assert "X-Content-Type-Options: nosniff" in headers
+    # Idempotent
+    assert _add_cf_headers(tmp_path) is False
+
+
+def test_remove_legacy_wrangler_toml(tmp_path):
+    (tmp_path / "wrangler.toml").write_text("name = 'x'\n")
+    assert _remove_legacy_wrangler_toml(tmp_path) is True
+    assert not (tmp_path / "wrangler.toml").exists()
+    # Idempotent — returns False when not present.
+    assert _remove_legacy_wrangler_toml(tmp_path) is False
 
 
 def test_detect_stack_from_pkg_astro(tmp_path):

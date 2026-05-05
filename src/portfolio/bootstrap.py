@@ -83,62 +83,82 @@ def _ai_agents_md(domain: str, stack: str, topic: str) -> str:
 
 ## Stack
 
-{stack.capitalize()} (per the central multi-stack builder at `~/work/projects/builder/`).
+{stack.capitalize()} project under the sites/* workspace. Build path goes
+through the parent `sites/Makefile` (Docker-orchestrated) which delegates
+per-stack work to the central builder at `~/work/projects/builder/`.
 
 ## Project structure
 
 - `src/` — application source
+- `public/` — static assets copied to `dist/` at build (favicons, OG images, `_headers`)
 - `docs/` — PRD, Prompts log
-- `Makefile` — includes the central builder; auto-detects stack
+- `Makefile` — thin forwarder to `../Makefile`
+- `wrangler.jsonc` — Cloudflare deploy config
 - `scripts/` *(if present)* — ingester or build-time helpers
 
-## Building info
+## Build tooling — Makefile + Docker
 
-This project's local `Makefile` is a thin forwarder to the parent
-**`sites/Makefile`** (Docker-orchestrated workflow). The parent Makefile in
-turn delegates per-stack work to the central multi-stack builder at
-`~/work/projects/builder/` (Makefile.react / Makefile.astro / Makefile.python /
-etc., auto-detected by stack).
+All dev work runs inside the parent `sites1` docker container. The host doesn't
+need Node/pnpm installed; the container does. The parent `Makefile`
+(`../Makefile` from this dir) is the canonical entry point.
 
-Two ways to invoke targets:
+### Why docker
 
-1. **From this project dir** (forwarded automatically):
-   ```
-   make deps        # → make -C .. deps proj={domain}
-   make run         # → make -C .. run proj={domain}
-   make build       # etc.
-   ```
+- Pinned Node + pnpm versions match Cloudflare's build env.
+- Avoids polluting the host with per-project node_modules.
+- Same image serves every sibling project under sites/.
 
-2. **From `sites/`** (parent Makefile direct):
-   ```
-   make buildsh                     # enter dev container
-   make run proj={domain}
-   make build proj={domain}
-   ```
+### Common Makefile targets
 
-See `~/work/projects/builder/README.md` for the per-stack target list and
-the parent `sites/Makefile` for the Docker orchestration layer.
+This project's local `Makefile` forwards every target to `../Makefile` with
+`proj={domain}`, so these all work either from this dir or from `sites/`:
 
-## Deployment info
+| Command | What it does |
+|---|---|
+| `make buildsh` *(from `sites/`)* | Drop into a bash shell inside the docker container at `/usr/src/app` (= `sites/` mounted in). |
+| `make run` *(from here)* / `make run proj={domain}` *(from `sites/`)* | `pnpm install` then start dev server (auto-detected). |
+| `make check-vite proj={domain}` | Start the dev server, skipping install. |
+| `make test proj={domain}` | `pnpm install` + `pnpm build` + `pnpm test`. **Hard-fails outside docker** — `make buildsh` first, or `docker exec`. |
+| `make deps` | Install pnpm globally (image bootstrap). |
+| `make clean` *(from `sites/`)* | Remove root `package.json`, lockfile, node_modules. Don't run inside a project dir. |
 
-- **Platform**: cloudflare-pages
-- **Live URL**: https://{domain}/  *(update once deployed)*
-- **Last deployed commit**: <fill once shipped>
-- **Deploy trigger**: push to main → CF Pages build hook
-- **Notes**: `wrangler.toml` declares the Pages project; deploy plumbing lands in v3.C
+### Running Make targets from a Claude Code session
+
+The Bash tool runs on the host as `vijo`, not inside docker. To execute a
+target inside the container, find the running container and `docker exec` in:
+
+```bash
+docker ps                                               # find the sites1 container name
+docker exec -w /usr/src/app <name> make test proj={domain}
+```
+
+## Deployment
+
+- **Platform:** Cloudflare Workers (Static Assets) — *not* Vercel.
+- **Config:** `wrangler.jsonc` at the repo root — points `assets.directory` at `./dist` and uses `not_found_handling: "single-page-application"` for SPA client-side routing.
+- **Headers:** `public/_headers` — cache (`/assets/*` immutable, HTML no-cache) + security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`). Vite copies `public/` into `dist/` at build, so the file ships with the assets.
+- **Build:** `pnpm build` → `dist/`. Wrangler picks up `dist/` via `wrangler.jsonc`.
+- **Deploy:** `wrangler deploy` (locally) or via Cloudflare's Git integration on push.
+- **Vite version:** must be ≥ 6.0.0 — Wrangler's Vite integration rejects Vite 5.
+- **Env vars:** set `VITE_*` vars (e.g. `VITE_GA_ID`) in the Cloudflare Workers project's environment-variable settings — they're inlined at build time.
+- **Live URL:** https://{domain}/  *(update once first deploy succeeds)*
+- **Legacy:** if a `vercel.json` or `.vercelignore` is present from a Lovable export, it's inert on Cloudflare and safe to delete.
 
 ## How to run
 
 ```bash
-make deps
-make run
+# from this dir, after `make buildsh` from sites/:
+make deps      # → pnpm install via the central builder
+make run       # → dev server
+make build     # → dist/
+make test      # → pnpm install + build + test (must be inside container)
 ```
 
 ## Key conventions
 
 - Stack: {stack}
-- Build via the central builder
-- Cloudflare Pages constraints respected: Vite ≥6, frozen-lockfile install, no `_redirects` SPA fallback
+- Build path: this project's `Makefile` → `../Makefile` → `~/work/projects/builder/`
+- Cloudflare deploy constraints: Vite ≥ 6, frozen-lockfile install, no `_redirects` SPA fallback (handled by `wrangler.jsonc`'s `not_found_handling` instead).
 
 ## Out of scope / don't touch
 
@@ -266,16 +286,24 @@ endif
 """
 
 
-def _wrangler_toml(domain: str) -> str:
-    project = domain.replace(".", "-")
-    return f"""name = "{project}"
-compatibility_date = "2026-05-01"
+def _wrangler_jsonc(domain: str, today_iso: str) -> str:
+    """Modern Cloudflare Pages config (matches homeloom.app's known-good setup).
 
-[site]
-bucket = "./dist"
-
-# Cloudflare Pages config — adjust if your build output dir is not ./dist
-"""
+    Uses `assets.not_found_handling: "single-page-application"` for SPA routing
+    instead of the legacy `_redirects` fallback. The `[site]` block of older
+    `wrangler.toml` files is for Workers Sites — not CF Pages — and triggers
+    build errors on the modern CF Pages pipeline.
+    """
+    project = re.sub(r"[^a-z0-9-]", "-", domain.lower()).strip("-")
+    return json.dumps({
+        "$schema": "node_modules/wrangler/config-schema.json",
+        "name": project,
+        "compatibility_date": today_iso,
+        "assets": {
+            "directory": "./dist",
+            "not_found_handling": "single-page-application",
+        },
+    }, indent=2) + "\n"
 
 
 # ---- Astro stack templates ----
@@ -622,16 +650,49 @@ def _remove_redirects_files(project_dir: Path) -> list[str]:
     return removed
 
 
-def _add_wrangler_toml(project_dir: Path, domain: str) -> bool:
-    """Add wrangler.toml if missing. Returns True if added, False if already present."""
-    path = project_dir / "wrangler.toml"
+def _add_wrangler_jsonc(project_dir: Path, domain: str, today_iso: str) -> bool:
+    """Add wrangler.jsonc if missing. Returns True if added, False if already present."""
+    path = project_dir / "wrangler.jsonc"
     if path.exists():
         return False
-    path.write_text(_wrangler_toml(domain))
+    path.write_text(_wrangler_jsonc(domain, today_iso))
     return True
 
 
-def _apply_cf_safety_fixes(project_dir: Path, domain: str) -> list[str]:
+CF_HEADERS_TEMPLATE = """/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+"""
+
+
+def _add_cf_headers(project_dir: Path) -> bool:
+    """Add public/_headers (CF cache + security) if missing. Returns True if added."""
+    path = project_dir / "public" / "_headers"
+    if path.exists():
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(CF_HEADERS_TEMPLATE)
+    return True
+
+
+def _remove_legacy_wrangler_toml(project_dir: Path) -> bool:
+    """Remove any wrangler.toml left from older bootstraps (legacy Workers Sites
+    format breaks modern CF Pages builds). Returns True if removed."""
+    path = project_dir / "wrangler.toml"
+    if not path.exists():
+        return False
+    path.unlink()
+    return True
+
+
+def _apply_cf_safety_fixes(project_dir: Path, domain: str, today_iso: str) -> list[str]:
     """Apply Cloudflare Pages safety fixes after a genai-copy. Returns list of fix descriptions."""
     fixes: list[str] = []
     bumped = _bump_vite_version(project_dir / "package.json")
@@ -639,9 +700,13 @@ def _apply_cf_safety_fixes(project_dir: Path, domain: str) -> list[str]:
         fixes.append(bumped)
     removed = _remove_redirects_files(project_dir)
     for r in removed:
-        fixes.append(f"removed {r} (CF Pages convention: no SPA fallback)")
-    if _add_wrangler_toml(project_dir, domain):
-        fixes.append("wrote wrangler.toml (Cloudflare Pages config)")
+        fixes.append(f"removed {r} (handled by wrangler.jsonc not_found_handling instead)")
+    if _remove_legacy_wrangler_toml(project_dir):
+        fixes.append("removed legacy wrangler.toml (Workers Sites format breaks CF Pages)")
+    if _add_wrangler_jsonc(project_dir, domain, today_iso):
+        fixes.append("wrote wrangler.jsonc with assets + SPA not_found_handling (matches homeloom.app convention)")
+    if _add_cf_headers(project_dir):
+        fixes.append("wrote public/_headers (cache + security headers, copied to dist/ at build)")
     return fixes
 
 
@@ -744,13 +809,11 @@ def bootstrap(
         detected = detect_stack_from_pkg(project_dir)
         if detected != "unknown":
             stack = detected
-        cf_fixes = _apply_cf_safety_fixes(project_dir, domain)
         result = BootstrapResult(
             project_dir=project_dir,
             stack=stack,
             path="git-url" if git_url else "genai",
             files_copied=copied,
-            cf_fixes=cf_fixes,
             warnings=list(copy_warnings),
         )
     else:
@@ -774,13 +837,17 @@ def bootstrap(
         )
 
     # Common scaffolding files. On --from-genai, skip files that genai already provided.
-    skip_existing = (result.path == "genai")
+    skip_existing = (result.path != "template")
     common_written, common_skipped = _write_files(
         project_dir, COMMON_FILES, domain, stack, topic, today, skip_existing=skip_existing
     )
     result.files_written.extend(common_written)
     if common_skipped:
         result.warnings.append(f"left {len(common_skipped)} pre-existing common file(s) untouched: {', '.join(common_skipped)}")
+
+    # CF safety fixes apply to BOTH paths — every bootstrapped project ships with
+    # wrangler.jsonc + public/_headers matching the homeloom.app convention.
+    result.cf_fixes = _apply_cf_safety_fixes(project_dir, domain, today)
 
     if with_ingester:
         ing_written, _ = _write_files(project_dir, INGESTER_FILES, domain, stack, topic, today, skip_existing=skip_existing)
