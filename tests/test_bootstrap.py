@@ -19,6 +19,8 @@ from portfolio.bootstrap import (
     _add_cf_headers,
     _add_wrangler_jsonc,
     _bump_vite_version,
+    _ensure_pnpm_only,
+    _project_name,
     _remove_legacy_wrangler_toml,
     _remove_redirects_files,
     bootstrap,
@@ -236,7 +238,7 @@ def test_from_genai_adds_wrangler_jsonc(tmp_path):
     assert (project / "wrangler.jsonc").exists()
     text = (project / "wrangler.jsonc").read_text()
     parsed = json.loads(text)
-    assert parsed["name"] == "kwizicle-com"
+    assert parsed["name"] == "kwizicle"  # base only — TLD dropped
     assert parsed["assets"]["directory"] == "./dist"
     assert parsed["assets"]["not_found_handling"] == "single-page-application"
     assert any("wrangler.jsonc" in fix for fix in result.cf_fixes)
@@ -434,11 +436,94 @@ def test_add_wrangler_jsonc(tmp_path):
     assert _add_wrangler_jsonc(tmp_path, "kwizicle.com", "2026-05-04") is True
     assert (tmp_path / "wrangler.jsonc").exists()
     parsed = json.loads((tmp_path / "wrangler.jsonc").read_text())
-    assert parsed["name"] == "kwizicle-com"
+    # Name drops the TLD entirely (matches user's preferred form after kwizicle iteration).
+    assert parsed["name"] == "kwizicle"
     assert parsed["compatibility_date"] == "2026-05-04"
     assert parsed["assets"]["not_found_handling"] == "single-page-application"
     # Idempotent: second call returns False, doesn't overwrite.
     assert _add_wrangler_jsonc(tmp_path, "kwizicle.com", "2026-05-04") is False
+
+
+@pytest.mark.parametrize("domain,expected", [
+    ("kwizicle.com", "kwizicle"),
+    ("homeloom.app", "homeloom"),
+    ("voltloop.site", "voltloop"),
+    ("foo.bar.io", "foo-bar"),
+    ("multi-word.com", "multi-word"),
+])
+def test_project_name_munging(domain, expected):
+    assert _project_name(domain) == expected
+
+
+def test_ensure_pnpm_only_removes_bun_lockfile(tmp_path):
+    (tmp_path / "bun.lockb").write_bytes(b"bun lock binary")
+    (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
+    fixes = _ensure_pnpm_only(tmp_path)
+    assert not (tmp_path / "bun.lockb").exists()
+    assert (tmp_path / "pnpm-lock.yaml").exists()  # pnpm preserved
+    assert any("bun.lockb" in f for f in fixes)
+
+
+def test_ensure_pnpm_only_removes_npm_lockfile(tmp_path):
+    (tmp_path / "package-lock.json").write_text("{}")
+    fixes = _ensure_pnpm_only(tmp_path)
+    assert not (tmp_path / "package-lock.json").exists()
+    assert any("package-lock.json" in f for f in fixes)
+
+
+def test_ensure_pnpm_only_removes_yarn_lock(tmp_path):
+    (tmp_path / "yarn.lock").write_text("# yarn lock\n")
+    fixes = _ensure_pnpm_only(tmp_path)
+    assert not (tmp_path / "yarn.lock").exists()
+    assert any("yarn.lock" in f for f in fixes)
+
+
+def test_ensure_pnpm_only_normalizes_package_manager_field(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({
+        "name": "x",
+        "packageManager": "bun@1.0.0",
+    }))
+    fixes = _ensure_pnpm_only(tmp_path)
+    pkg = json.loads((tmp_path / "package.json").read_text())
+    assert pkg["packageManager"].startswith("pnpm")
+    assert any("packageManager" in f for f in fixes)
+
+
+def test_ensure_pnpm_only_leaves_pnpm_package_manager_alone(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({
+        "name": "x",
+        "packageManager": "pnpm@9.5.0",
+    }))
+    fixes = _ensure_pnpm_only(tmp_path)
+    pkg = json.loads((tmp_path / "package.json").read_text())
+    assert pkg["packageManager"] == "pnpm@9.5.0"
+    assert not any("packageManager" in f for f in fixes)
+
+
+def test_ensure_pnpm_only_no_op_when_clean(tmp_path):
+    (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
+    (tmp_path / "package.json").write_text(json.dumps({"name": "x"}))
+    fixes = _ensure_pnpm_only(tmp_path)
+    assert fixes == []
+
+
+def test_from_genai_strips_bun_lockfile(tmp_path):
+    """Lovable exports ship bun.lockb + package-lock.json + pnpm-lock.yaml.
+    All three lockfiles confused CF Pages; only pnpm-lock.yaml should remain."""
+    project = tmp_path / "kwizicle.com"
+    project.mkdir()
+    _make_fake_lovable_export(project / "genai", with_redirects=False)
+    # Add the multi-lockfile situation Lovable produces.
+    (project / "genai" / "bun.lockb").write_bytes(b"bun")
+    (project / "genai" / "package-lock.json").write_text("{}")
+    (project / "genai" / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
+
+    result = bootstrap("kwizicle.com", from_genai=True, sites_root=tmp_path)
+    assert not (project / "bun.lockb").exists(), "bun.lockb should be removed"
+    assert not (project / "package-lock.json").exists(), "package-lock.json should be removed"
+    assert (project / "pnpm-lock.yaml").exists(), "pnpm-lock.yaml should be preserved"
+    assert any("bun.lockb" in f for f in result.cf_fixes)
+    assert any("package-lock.json" in f for f in result.cf_fixes)
 
 
 def test_add_cf_headers(tmp_path):

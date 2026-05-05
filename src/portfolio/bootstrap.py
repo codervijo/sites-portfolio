@@ -157,6 +157,7 @@ make test      # → pnpm install + build + test (must be inside container)
 ## Key conventions
 
 - Stack: {stack}
+- **Package manager: pnpm only.** No `bun.lockb`, no `package-lock.json`, no `yarn.lock` — they cause CF Pages to pick the wrong manager and break the build. The `pnpm-lock.yaml` is the only lockfile that should ever be committed.
 - Build path: this project's `Makefile` → `../Makefile` → `~/work/projects/builder/`
 - Cloudflare deploy constraints: Vite ≥ 6, frozen-lockfile install, no `_redirects` SPA fallback (handled by `wrangler.jsonc`'s `not_found_handling` instead).
 
@@ -286,6 +287,18 @@ endif
 """
 
 
+def _project_name(domain: str) -> str:
+    """Convert a domain to a CF-friendly project name.
+
+    Drops the TLD and any subdomain dots. e.g. `kwizicle.com` → `kwizicle`,
+    `app.foo.io` → `app-foo`. Matches the user's preferred naming after
+    several CF build iterations on kwizicle.
+    """
+    base = domain.lower().rsplit(".", 1)[0]
+    base = re.sub(r"[^a-z0-9-]", "-", base).strip("-")
+    return base or domain.lower().replace(".", "-")
+
+
 def _wrangler_jsonc(domain: str, today_iso: str) -> str:
     """Modern Cloudflare Pages config (matches homeloom.app's known-good setup).
 
@@ -294,10 +307,9 @@ def _wrangler_jsonc(domain: str, today_iso: str) -> str:
     `wrangler.toml` files is for Workers Sites — not CF Pages — and triggers
     build errors on the modern CF Pages pipeline.
     """
-    project = re.sub(r"[^a-z0-9-]", "-", domain.lower()).strip("-")
     return json.dumps({
         "$schema": "node_modules/wrangler/config-schema.json",
-        "name": project,
+        "name": _project_name(domain),
         "compatibility_date": today_iso,
         "assets": {
             "directory": "./dist",
@@ -682,6 +694,56 @@ def _add_cf_headers(project_dir: Path) -> bool:
     return True
 
 
+NON_PNPM_LOCKFILES = (
+    ("bun.lockb", "bun"),
+    ("bun.lock", "bun"),
+    ("package-lock.json", "npm"),
+    ("yarn.lock", "yarn"),
+)
+NON_PNPM_CONFIG_FILES = (
+    ".bunfig.toml",
+    ".npmrc.bun",
+)
+
+
+def _ensure_pnpm_only(project_dir: Path) -> list[str]:
+    """Strip non-pnpm lockfiles + config so CF Pages picks pnpm deterministically.
+
+    Lovable exports often ship multiple lockfiles (bun.lockb + package-lock.json
+    + pnpm-lock.yaml). CF picks one — sometimes the wrong one — and the build
+    fails. Removing all but pnpm-lock.yaml fixes this.
+
+    Also normalizes `packageManager` field in package.json to pnpm if it's
+    set to bun or yarn.
+    """
+    fixes: list[str] = []
+    for name, mgr in NON_PNPM_LOCKFILES:
+        path = project_dir / name
+        if path.exists():
+            path.unlink()
+            fixes.append(f"removed {name} (pnpm-only convention; CF Pages was picking {mgr} and breaking)")
+    for name in NON_PNPM_CONFIG_FILES:
+        path = project_dir / name
+        if path.exists():
+            path.unlink()
+            fixes.append(f"removed {name} (pnpm-only convention)")
+
+    pkg_path = project_dir / "package.json"
+    if pkg_path.exists():
+        try:
+            pkg = json.loads(pkg_path.read_text())
+        except json.JSONDecodeError:
+            pkg = None
+        if pkg and "packageManager" in pkg:
+            current = pkg["packageManager"]
+            if not current.startswith("pnpm"):
+                pkg["packageManager"] = "pnpm@9.0.0"
+                pkg_path.write_text(json.dumps(pkg, indent=2) + "\n")
+                fixes.append(f"normalized package.json packageManager: {current} → pnpm@9.0.0")
+
+    return fixes
+
+
 def _remove_legacy_wrangler_toml(project_dir: Path) -> bool:
     """Remove any wrangler.toml left from older bootstraps (legacy Workers Sites
     format breaks modern CF Pages builds). Returns True if removed."""
@@ -698,6 +760,7 @@ def _apply_cf_safety_fixes(project_dir: Path, domain: str, today_iso: str) -> li
     bumped = _bump_vite_version(project_dir / "package.json")
     if bumped:
         fixes.append(bumped)
+    fixes.extend(_ensure_pnpm_only(project_dir))
     removed = _remove_redirects_files(project_dir)
     for r in removed:
         fixes.append(f"removed {r} (handled by wrangler.jsonc not_found_handling instead)")
