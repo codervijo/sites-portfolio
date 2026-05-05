@@ -98,11 +98,20 @@ def test_template_path_ai_agents_has_required_sections(tmp_path):
     assert "cool idea" in text  # topic injected
 
 
-def test_template_path_makefile_points_at_builder(tmp_path):
+def test_template_path_makefile_forwards_to_parent_with_proj(tmp_path):
     bootstrap("flow.dev", sites_root=tmp_path)
     text = (tmp_path / "flow.dev" / "Makefile").read_text()
-    assert "BUILDER_PATH" in text
-    assert "../../builder" in text
+    assert "PROJ := flow.dev" in text
+    assert "$(MAKE) -C .." in text
+    assert "proj=$(PROJ)" in text
+
+
+def test_template_path_makefile_errors_without_parent(tmp_path):
+    """Generated Makefile should refuse to run if ../Makefile is missing."""
+    bootstrap("flow.dev", sites_root=tmp_path)
+    text = (tmp_path / "flow.dev" / "Makefile").read_text()
+    assert "wildcard ../Makefile" in text
+    assert "$(error" in text
 
 
 def test_template_path_refuses_existing_dir(tmp_path):

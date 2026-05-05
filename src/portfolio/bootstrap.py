@@ -34,7 +34,6 @@ from pathlib import Path
 from .data import ROOT
 
 SITES_ROOT = ROOT.parent
-BUILDER_REL_PATH = "../../builder"
 MIN_VITE_MAJOR = 6
 DOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
 
@@ -95,20 +94,30 @@ def _ai_agents_md(domain: str, stack: str, topic: str) -> str:
 
 ## Building info
 
-Stack auto-detected by the central builder at `~/work/projects/builder/`,
-which provides per-stack Makefiles (`Makefile.react`, `Makefile.python`, etc.).
+This project's local `Makefile` is a thin forwarder to the parent
+**`sites/Makefile`** (Docker-orchestrated workflow). The parent Makefile in
+turn delegates per-stack work to the central multi-stack builder at
+`~/work/projects/builder/` (Makefile.react / Makefile.astro / Makefile.python /
+etc., auto-detected by stack).
 
-Two ways to build:
+Two ways to invoke targets:
 
-1. **Via sites/Makefile** (Docker-orchestrated, common): from `sites/`:
-   - `make buildsh` — enter the dev container
-   - `make build proj={domain}` / `make run proj={domain}` / `make test proj={domain}`
+1. **From this project dir** (forwarded automatically):
+   ```
+   make deps        # → make -C .. deps proj={domain}
+   make run         # → make -C .. run proj={domain}
+   make build       # etc.
+   ```
 
-2. **From this project dir** (own Makefile + builder include):
-   - `make deps` — install dependencies
-   - `make build` / `make run` / `make test`
+2. **From `sites/`** (parent Makefile direct):
+   ```
+   make buildsh                     # enter dev container
+   make run proj={domain}
+   make build proj={domain}
+   ```
 
-See `~/work/projects/builder/README.md` for the central builder docs.
+See `~/work/projects/builder/README.md` for the per-stack target list and
+the parent `sites/Makefile` for the Docker orchestration layer.
 
 ## Deployment info
 
@@ -239,16 +248,21 @@ build/
 """
 
 
-def _local_makefile() -> str:
-    return f"""# Per-project Makefile — delegates to the central multi-stack builder.
-# See ~/work/projects/builder/README.md for target list.
+def _local_makefile(domain: str) -> str:
+    return f"""PROJ := {domain}
 
-BUILDER_PATH ?= {BUILDER_REL_PATH}
+.DEFAULT_GOAL := help
 
-# Auto-detect stack; override with STACK=astro / STACK=react / STACK=vite etc.
-# STACK ?= astro
+# Verify parent Makefile exists — this project is part of the sites/ workspace.
+ifeq ($(wildcard ../Makefile),)
+$(error This Makefile is meant to be run inside the sites/ workspace. Parent Makefile not found.)
+endif
 
-include $(BUILDER_PATH)/Makefile
+# Forward every target to the parent Makefile with proj set to this project.
+# `make buildsh` (parent) drops you into the dev container; `make run` etc.
+# delegate to the central builder repo (~/work/projects/builder/) under the hood.
+%:
+\t$(MAKE) -C .. $@ proj=$(PROJ)
 """
 
 
@@ -489,7 +503,7 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str) -> str:
     if key == "gitignore":
         return _gitignore()
     if key == "makefile":
-        return _local_makefile()
+        return _local_makefile(domain)
     if key == "prd":
         return _docs_prd_md(domain, topic)
     if key == "prompts":
