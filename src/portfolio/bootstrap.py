@@ -23,6 +23,7 @@ own .git from day zero (in addition to the cloned genai/ history).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -504,21 +505,59 @@ export default defineConfig({
 """
 
 
-def _astro_index() -> str:
-    return """---
+def _astro_index(domain: str) -> str:
+    return f"""---
 // src/pages/index.astro
-const title = "Welcome";
+const site = "https://{domain}";
+const title = "{domain}";
+const description = "<fill in: 1-2 sentence value prop for SEO description>";
 ---
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
+    <title>{{title}}</title>
+    <meta name="description" content={{description}} />
+    <link rel="canonical" href={{site}} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={{title}} />
+    <meta property="og:description" content={{description}} />
+    <meta property="og:url" content={{site}} />
+    <meta property="og:site_name" content="{domain}" />
+
+    <!-- Twitter card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={{title}} />
+    <meta name="twitter:description" content={{description}} />
+
+    <!-- JSON-LD structured data: Organization + WebSite -->
+    <script type="application/ld+json" set:html={{JSON.stringify({{
+      "@context": "https://schema.org",
+      "@graph": [
+        {{
+          "@type": "Organization",
+          "@id": `${{site}}/#organization`,
+          "name": "{domain}",
+          "url": site,
+        }},
+        {{
+          "@type": "WebSite",
+          "@id": `${{site}}/#website`,
+          "url": site,
+          "name": "{domain}",
+          "description": description,
+          "publisher": {{ "@id": `${{site}}/#organization` }},
+        }},
+      ],
+    }})}} />
   </head>
   <body>
     <main>
-      <h1>{title}</h1>
+      <h1>{{title}}</h1>
       <p>Scaffolded via <code>portfolio bootstrap</code>.</p>
     </main>
   </body>
@@ -568,12 +607,51 @@ export default defineConfig({
 
 
 def _vite_index_html(domain: str) -> str:
+    site = f"https://{domain}"
+    json_ld = json.dumps({
+        "@context": "https://schema.org",
+        "@graph": [
+            {
+                "@type": "Organization",
+                "@id": f"{site}/#organization",
+                "name": domain,
+                "url": site,
+            },
+            {
+                "@type": "WebSite",
+                "@id": f"{site}/#website",
+                "url": site,
+                "name": domain,
+                "publisher": {"@id": f"{site}/#organization"},
+            },
+        ],
+    }, indent=2)
     return f"""<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{domain}</title>
+    <meta name="description" content="<fill in: 1-2 sentence value prop for SEO description>" />
+    <link rel="canonical" href="{site}" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="{domain}" />
+    <meta property="og:description" content="<fill in description>" />
+    <meta property="og:url" content="{site}" />
+    <meta property="og:site_name" content="{domain}" />
+
+    <!-- Twitter card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{domain}" />
+    <meta name="twitter:description" content="<fill in description>" />
+
+    <!-- JSON-LD structured data: Organization + WebSite -->
+    <script type="application/ld+json">
+{json_ld}
+    </script>
   </head>
   <body>
     <div id="root"></div>
@@ -601,6 +679,40 @@ def _vite_app_jsx() -> str:
     </main>
   );
 }
+"""
+
+
+# ---- Favicon SVG monogram ----
+
+
+FAVICON_PALETTE = (
+    "#0ea5e9", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899",
+    "#ef4444", "#f97316", "#f59e0b", "#10b981", "#14b8a6",
+    "#06b6d4", "#3b82f6",
+)
+
+
+def _favicon_color(domain: str) -> str:
+    """Deterministic palette pick based on domain. Same domain → same color forever."""
+    h = hashlib.sha256(domain.encode()).digest()
+    return FAVICON_PALETTE[h[0] % len(FAVICON_PALETTE)]
+
+
+def _favicon_svg(domain: str) -> str:
+    """Single-letter monogram SVG. Browsers render SVG favicons natively at any size.
+    No raster conversion needed — Vite's build pipeline can do it later if a
+    legacy .ico is required.
+    """
+    base = domain.split(".")[0] or domain
+    initial = (base[0] if base else "?").upper()
+    color = _favicon_color(domain)
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="{color}"/>
+  <text x="32" y="32"
+        font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        font-size="40" font-weight="700" fill="white"
+        text-anchor="middle" dominant-baseline="central">{initial}</text>
+</svg>
 """
 
 
@@ -729,6 +841,7 @@ COMMON_FILES = [
 SEO_FILES = [
     ("public/robots.txt", "robots"),
     ("public/sitemap.xml", "sitemap"),
+    ("public/favicon.svg", "favicon_svg"),
     ("vitest.config.js", "vitest_config"),
     ("src/__tests__/smoke.test.js", "smoke_test"),
 ]
@@ -773,7 +886,7 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str) -> str:
     if key == "astro_config":
         return _astro_config()
     if key == "astro_index":
-        return _astro_index()
+        return _astro_index(domain)
     if key == "vite_pkg":
         return _vite_package_json(domain)
     if key == "vite_config":
@@ -788,6 +901,8 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str) -> str:
         return _robots_txt(domain)
     if key == "sitemap":
         return _sitemap_xml(domain, today)
+    if key == "favicon_svg":
+        return _favicon_svg(domain)
     if key == "vitest_config":
         return _vitest_config()
     if key == "smoke_test":

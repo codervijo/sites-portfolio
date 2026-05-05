@@ -119,7 +119,7 @@ def test_template_path_growth_log_is_self_sustaining(tmp_path):
 def test_template_path_seo_files_present(tmp_path):
     bootstrap("flow.dev", sites_root=tmp_path)
     project = tmp_path / "flow.dev"
-    for rel in ("public/robots.txt", "public/sitemap.xml",
+    for rel in ("public/robots.txt", "public/sitemap.xml", "public/favicon.svg",
                 "vitest.config.js", "src/__tests__/smoke.test.js"):
         assert (project / rel).exists(), f"missing {rel}"
     # robots references the sitemap URL
@@ -128,6 +128,63 @@ def test_template_path_seo_files_present(tmp_path):
     sitemap = (project / "public" / "sitemap.xml").read_text()
     assert "https://flow.dev/" in sitemap
     assert "<urlset" in sitemap
+
+
+def test_template_path_vite_index_has_meta_tags_and_jsonld(tmp_path):
+    bootstrap("flow.dev", stack="vite", sites_root=tmp_path)
+    text = (tmp_path / "flow.dev" / "index.html").read_text()
+    # Standard SEO meta
+    assert '<meta name="description"' in text
+    assert '<link rel="canonical" href="https://flow.dev"' in text
+    assert '<link rel="icon" type="image/svg+xml" href="/favicon.svg"' in text
+    # OG / Twitter
+    assert '<meta property="og:title"' in text
+    assert '<meta property="og:url" content="https://flow.dev"' in text
+    assert '<meta name="twitter:card"' in text
+    # JSON-LD structured data
+    assert '<script type="application/ld+json">' in text
+    assert '"@type": "Organization"' in text
+    assert '"@type": "WebSite"' in text
+    assert '"https://flow.dev/#organization"' in text
+
+
+def test_template_path_astro_index_has_meta_tags_and_jsonld(tmp_path):
+    bootstrap("flow.dev", stack="astro", sites_root=tmp_path)
+    text = (tmp_path / "flow.dev" / "src" / "pages" / "index.astro").read_text()
+    # Astro frontmatter has site/title/description
+    assert 'const site = "https://flow.dev"' in text
+    assert 'const title = "flow.dev"' in text
+    # Meta + OG + Twitter + JSON-LD
+    assert "og:title" in text
+    assert "twitter:card" in text
+    assert "application/ld+json" in text
+    assert '"@type": "Organization"' in text
+
+
+def test_favicon_svg_renders_initial_and_color(tmp_path):
+    bootstrap("kwizicle.com", sites_root=tmp_path)
+    svg = (tmp_path / "kwizicle.com" / "public" / "favicon.svg").read_text()
+    # Valid SVG envelope
+    assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
+    # Uses viewBox + a rect background + a centered text
+    assert 'viewBox="0 0 64 64"' in svg
+    assert "<rect" in svg
+    assert "<text" in svg
+    # Initial = first letter of base name, uppercase
+    assert ">K<" in svg
+    # Has a fill color from the palette (any 6-digit hex)
+    import re
+    assert re.search(r'fill="#[0-9a-f]{6}"', svg) is not None
+
+
+def test_favicon_color_deterministic(tmp_path):
+    """Same domain → same color forever (so favicon doesn't drift between rebuilds)."""
+    from portfolio.bootstrap import _favicon_color
+    assert _favicon_color("kwizicle.com") == _favicon_color("kwizicle.com")
+    # Different domains usually pick different colors (palette has 12 entries)
+    colors = {_favicon_color(d) for d in
+              ("flow.dev", "kwizicle.com", "lamill.io", "homeloom.app", "voltloop.site")}
+    assert len(colors) >= 2  # at least some variation across these 5
 
 
 def test_template_path_ai_agents_has_post_deploy_checklist(tmp_path):
