@@ -28,7 +28,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from .data import ROOT
@@ -144,6 +144,13 @@ docker exec -w /usr/src/app <name> make test proj={domain}
 - **Live URL:** https://{domain}/  *(update once first deploy succeeds)*
 - **Legacy:** if a `vercel.json` or `.vercelignore` is present from a Lovable export, it's inert on Cloudflare and safe to delete.
 
+### Post-deploy checklist (do these once after the first successful deploy)
+
+- [ ] Verify in **Google Search Console** at https://search.google.com/search-console — add as `sc-domain:{domain}` property; verify via DNS TXT record. Until this is done, no SEO traffic data is observable for this site (and the workspace-wide `30 commercial sites with traffic` goal can't credit it).
+- [ ] Submit the sitemap (`https://{domain}/sitemap.xml`) inside GSC.
+- [ ] Update the **Live URL** above with the actual deploy URL.
+- [ ] Run `make run ARGS="cleanup"` from `sites/portfolio/` so `data/portfolio.json` reflects the new project's state (and `project status {domain}` resolves cleanly).
+
 ## How to run
 
 ```bash
@@ -153,6 +160,48 @@ make run       # → dev server
 make build     # → dist/
 make test      # → pnpm install + build + test (must be inside container)
 ```
+
+## How this project is checked
+
+This project is enforced against shared sites/* conventions by
+`portfolio project status {domain}` (run from `sites/portfolio/`).
+Conformance rules currently checked include: `own-git-repo`,
+`has-category` (project listed in portfolio.json), `has-prompts-md` +
+`prompts-md-format` (dated H2), `has-makefile`, `has-ai-agents-md`,
+`platform-declared` (CF/Vercel/Netlify marker), `live-site` (HTTP
+classification), and **`has-growth-log`** (`docs/growth.md` exists —
+the per-project growth-experiment log; see Growth log section below).
+v4 adds `has-prd-md`, `has-readme`, `has-gitignore`, `vite-version-ok`,
+`ai-agents-md-has-building-info`, `ai-agents-md-has-deployment-info`.
+The bootstrap output satisfies all of these on day zero — keep it that way.
+
+If `project status` flags a regression, fix it. v4.D's
+`portfolio project fix` will eventually auto-fix; until then, hand-edit.
+
+## Growth log — per-project experiment tracker
+
+`docs/growth.md` is this project's append-only log of growth experiments
+(content, SEO, marketing, structural changes). Each entry is a dated H2
+with a measurable hypothesis + KPI + observation window (default 28d).
+Read **the full workflow inside `docs/growth.md`** — it's self-sustaining
+so you don't have to remember the lifecycle from outside the file.
+
+Update it whenever you do something growth-relevant on this site. The
+data source is GSC (`portfolio gsc sync` from the portfolio dir); this
+file narrates *why*.
+
+## Strategy reminder — ship fast, let the market decide
+
+This sites/* workspace is shipping commercial sites toward a
+**30-site SEO-traffic goal**. The convention is **build & ship fast,
+then let GSC data drive what to invest more in.** Don't over-polish
+before launch. Get a minimum-viable version live, indexed, then
+iterate on whichever sites actually attract traffic.
+
+Translation for this project: prefer shipping over perfection. The
+SEO baseline files (`public/robots.txt`, `public/sitemap.xml`),
+deploy config, and dev tooling (`vitest`) are pre-scaffolded so you
+can ship today.
 
 ## Versioning
 
@@ -238,6 +287,80 @@ Two-level versioning convention (canonical: `sites/portfolio/AI_AGENTS.md`):
 ## 6. Open questions
 
 - *(append-only log; mark answered with date but never delete)*
+"""
+
+
+def _docs_growth_md(domain: str, today: str) -> str:
+    try:
+        review_date = (date.fromisoformat(today) + timedelta(days=28)).isoformat()
+    except ValueError:
+        review_date = "<today + 28 days>"
+    return f"""# Growth Log — {domain}
+
+> **What this file is for:** an honest, append-only log of growth experiments
+> on this site — what was tried, what was measured, what happened. The data
+> source is GSC; this file narrates *why*. Future-you (or future-Claude)
+> reads this when deciding what to try next, both on this site and on
+> related sister sites.
+
+## How to use this (workflow — re-read this when you forget)
+
+**Add an entry whenever you do something growth-relevant.** That includes:
+shipping new content, structural SEO changes (sitemap, schema, redirects,
+internal linking), tech changes that affect crawl/indexing, marketing
+pushes, backlink campaigns. *Not* every code commit — just things you'd
+want to point at when GSC numbers move (or fail to).
+
+**Each entry is a hypothesis you can be wrong about.** Commit to a
+measurable KPI and an observation window before acting — otherwise "did
+this work?" is just a feeling.
+
+### Lifecycle of one entry
+
+1. **Day of action** — append a new dated H2 with `Status: active`, the
+   hypothesis, the KPI you'll watch, current baseline numbers, what you
+   did, and the date to review (default: today + 28 days, matching GSC's
+   reporting window).
+2. **Review day** — pull current GSC numbers, compute delta vs baseline.
+   Fill in **Result** and **Learning**. Set **Status** to `shipped` (worked,
+   keep going), `failed` (didn't pay off, abandon), or extend the review
+   another window if results are ambiguous.
+3. **Never rewrite older entries.** Wrong hypotheses are the most valuable
+   data — they tell you what NOT to repeat on the next site. Append, don't
+   edit.
+
+### Where to get the numbers
+
+```bash
+cd ~/work/projects/sites/portfolio && make run ARGS="gsc sync"
+```
+
+Then read the row for `{domain}`. Or pull from
+https://search.google.com/search-console directly.
+
+### Format
+
+```
+## YYYY-MM-DD — <one-line hypothesis or action>
+- **Status:** active | testing | shipped | failed | abandoned
+- **KPI:** <what GSC metric / query / page>
+- **Baseline:** <numbers at start>
+- **Action:** <what was done; 1-2 lines>
+- **Result:** <numbers after window; "TBD — review YYYY-MM-DD" until then>
+- **Learning:** <why it worked / didn't; what to try next; "TBD" until reviewed>
+```
+
+---
+
+## {today} — site scaffolded; growth log started
+- **Status:** active
+- **KPI:** any GSC traffic — clicks, impressions, indexed-page count
+- **Baseline:** 0 clicks / 0 impressions (just deployed)
+- **Action:** project scaffolded via `portfolio bootstrap`; first deploy
+  pending. After deploy: verify in GSC as `sc-domain:{domain}` and submit
+  the sitemap.
+- **Result:** TBD — review {review_date}
+- **Learning:** TBD
 """
 
 
@@ -346,7 +469,7 @@ def _wrangler_jsonc(domain: str, today_iso: str) -> str:
 
 
 def _astro_package_json(domain: str) -> str:
-    project = domain.replace(".", "-")
+    project = _project_name(domain)
     return json.dumps({
         "name": project,
         "type": "module",
@@ -357,10 +480,15 @@ def _astro_package_json(domain: str) -> str:
             "start": "astro dev",
             "build": "astro build",
             "preview": "astro preview",
-            "astro": "astro"
+            "astro": "astro",
+            "test": "vitest run",
+            "test:watch": "vitest"
         },
         "dependencies": {
             "astro": "^5.0.0"
+        },
+        "devDependencies": {
+            "vitest": "^3.0.0"
         }
     }, indent=2) + "\n"
 
@@ -402,7 +530,7 @@ const title = "Welcome";
 
 
 def _vite_package_json(domain: str) -> str:
-    project = domain.replace(".", "-")
+    project = _project_name(domain)
     return json.dumps({
         "name": project,
         "private": True,
@@ -411,7 +539,9 @@ def _vite_package_json(domain: str) -> str:
         "scripts": {
             "dev": "vite",
             "build": "vite build",
-            "preview": "vite preview"
+            "preview": "vite preview",
+            "test": "vitest run",
+            "test:watch": "vitest"
         },
         "dependencies": {
             "react": "^18.3.0",
@@ -419,7 +549,9 @@ def _vite_package_json(domain: str) -> str:
         },
         "devDependencies": {
             "@vitejs/plugin-react": "^4.3.0",
-            "vite": "^6.0.0"
+            "vite": "^6.0.0",
+            "vitest": "^3.0.0",
+            "jsdom": "^25.0.0"
         }
     }, indent=2) + "\n"
 
@@ -469,6 +601,60 @@ def _vite_app_jsx() -> str:
     </main>
   );
 }
+"""
+
+
+# ---- SEO + test scaffolding ----
+
+
+def _robots_txt(domain: str) -> str:
+    return f"""User-agent: *
+Allow: /
+
+Sitemap: https://{domain}/sitemap.xml
+"""
+
+
+def _sitemap_xml(domain: str, today_iso: str) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Stub sitemap. v3.B will replace this with a build-time generator that
+  scans routes/pages. Until then, it lists just the home page so Google
+  can discover the site at all.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://{domain}/</loc>
+    <lastmod>{today_iso}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+"""
+
+
+def _vitest_config() -> str:
+    return """// vitest.config.js
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    environment: 'jsdom',
+    globals: true,
+  },
+});
+"""
+
+
+def _smoke_test() -> str:
+    return """// src/__tests__/smoke.test.js
+import { describe, it, expect } from 'vitest';
+
+describe('smoke', () => {
+  it('environment runs', () => {
+    expect(1 + 1).toBe(2);
+  });
+});
 """
 
 
@@ -537,6 +723,14 @@ COMMON_FILES = [
     ("Makefile", "makefile"),
     ("docs/prd.md", "prd"),
     ("docs/Prompts.md", "prompts"),
+    ("docs/growth.md", "growth"),
+]
+
+SEO_FILES = [
+    ("public/robots.txt", "robots"),
+    ("public/sitemap.xml", "sitemap"),
+    ("vitest.config.js", "vitest_config"),
+    ("src/__tests__/smoke.test.js", "smoke_test"),
 ]
 
 ASTRO_FILES = [
@@ -572,6 +766,8 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str) -> str:
         return _docs_prd_md(domain, topic)
     if key == "prompts":
         return _docs_prompts_md(domain, today)
+    if key == "growth":
+        return _docs_growth_md(domain, today)
     if key == "astro_pkg":
         return _astro_package_json(domain)
     if key == "astro_config":
@@ -588,6 +784,14 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str) -> str:
         return _vite_main_jsx()
     if key == "vite_app":
         return _vite_app_jsx()
+    if key == "robots":
+        return _robots_txt(domain)
+    if key == "sitemap":
+        return _sitemap_xml(domain, today)
+    if key == "vitest_config":
+        return _vitest_config()
+    if key == "smoke_test":
+        return _smoke_test()
     if key == "ingester":
         return _ingester_template()
     if key == "ingester_readme":
@@ -935,6 +1139,11 @@ def bootstrap(
     # CF safety fixes apply to BOTH paths — every bootstrapped project ships with
     # wrangler.jsonc + public/_headers matching the homeloom.app convention.
     result.cf_fixes = _apply_cf_safety_fixes(project_dir, domain, today)
+
+    # SEO + test baseline: robots.txt, sitemap.xml stub, vitest config, smoke test.
+    # Skip if the project already has them (genai exports often include their own).
+    seo_written, _ = _write_files(project_dir, SEO_FILES, domain, stack, topic, today, skip_existing=True)
+    result.files_written.extend(seo_written)
 
     if with_ingester:
         ing_written, _ = _write_files(project_dir, INGESTER_FILES, domain, stack, topic, today, skip_existing=skip_existing)

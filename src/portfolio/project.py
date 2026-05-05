@@ -352,7 +352,7 @@ def build_status(name: str) -> dict:
         _fail("has-category", reason="domain has no category set in portfolio.json")
 
     if not project_dir.exists():
-        for r in ("has-prompts-md", "prompts-md-format", "has-makefile", "has-ai-agents-md", "platform-declared", "live-site"):
+        for r in ("has-prompts-md", "prompts-md-format", "has-makefile", "has-ai-agents-md", "has-growth-log", "platform-declared", "live-site"):
             _skip(r, "dir does not exist")
     else:
         if prompts["exists"]:
@@ -375,6 +375,13 @@ def build_status(name: str) -> dict:
             _ok("has-ai-agents-md")
         else:
             _fail("has-ai-agents-md", reason="AI_AGENTS.md not found")
+
+        if (project_dir / "docs" / "growth.md").exists():
+            _ok("has-growth-log")
+        else:
+            _fail("has-growth-log",
+                  reason="docs/growth.md not found — per-project growth-experiment log",
+                  fix=f"`portfolio bootstrap` scaffolds it; for existing projects, add docs/growth.md with a dated H2 entry per experiment (see template)")
 
         if deployment["platform"] == "n/a":
             _ok("platform-declared")

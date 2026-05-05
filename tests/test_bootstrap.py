@@ -90,8 +90,71 @@ def test_template_path_writes_common_files(tmp_path):
     bootstrap("flow.dev", sites_root=tmp_path)
     project = tmp_path / "flow.dev"
     for rel in ("AI_AGENTS.md", "README.md", ".gitignore", "Makefile",
-                "docs/prd.md", "docs/Prompts.md"):
+                "docs/prd.md", "docs/Prompts.md", "docs/growth.md"):
         assert (project / rel).exists(), f"missing {rel}"
+
+
+def test_template_path_growth_log_is_self_sustaining(tmp_path):
+    """docs/growth.md must embed the workflow so the user doesn't need to
+    remember it. Specifically: lifecycle steps, format guide, where to get
+    GSC numbers, and a first entry already filled in with a concrete review
+    date."""
+    bootstrap("flow.dev", sites_root=tmp_path)
+    text = (tmp_path / "flow.dev" / "docs" / "growth.md").read_text()
+    # Workflow guide present
+    assert "How to use this" in text
+    assert "Lifecycle of one entry" in text
+    # Format spec present
+    assert "Status:" in text and "KPI:" in text and "Baseline:" in text
+    # Where-to-get-numbers
+    assert "gsc sync" in text
+    # First entry pre-populated with status=active and a concrete review date
+    assert "Status:** active" in text
+    # Review date should be a specific YYYY-MM-DD, not the literal placeholder
+    import re
+    match = re.search(r"review (\d{4}-\d{2}-\d{2})", text)
+    assert match is not None, "first entry must include a concrete review date"
+
+
+def test_template_path_seo_files_present(tmp_path):
+    bootstrap("flow.dev", sites_root=tmp_path)
+    project = tmp_path / "flow.dev"
+    for rel in ("public/robots.txt", "public/sitemap.xml",
+                "vitest.config.js", "src/__tests__/smoke.test.js"):
+        assert (project / rel).exists(), f"missing {rel}"
+    # robots references the sitemap URL
+    assert "Sitemap: https://flow.dev/sitemap.xml" in (project / "public" / "robots.txt").read_text()
+    # sitemap is valid-looking XML with the home page
+    sitemap = (project / "public" / "sitemap.xml").read_text()
+    assert "https://flow.dev/" in sitemap
+    assert "<urlset" in sitemap
+
+
+def test_template_path_ai_agents_has_post_deploy_checklist(tmp_path):
+    bootstrap("flow.dev", sites_root=tmp_path)
+    text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
+    # Post-deploy checklist with GSC verification
+    assert "Post-deploy checklist" in text
+    assert "search.google.com/search-console" in text
+    assert "sc-domain:flow.dev" in text
+
+
+def test_template_path_ai_agents_has_conformance_section(tmp_path):
+    bootstrap("flow.dev", sites_root=tmp_path)
+    text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
+    assert "How this project is checked" in text
+    assert "portfolio project status" in text
+    # Lists at least the v1 rules + has-growth-log
+    for rule in ("own-git-repo", "has-prompts-md", "has-growth-log", "platform-declared"):
+        assert rule in text, f"rule {rule} not surfaced in AI_AGENTS"
+
+
+def test_template_path_ai_agents_has_ship_fast_reminder(tmp_path):
+    bootstrap("flow.dev", sites_root=tmp_path)
+    text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
+    # Some recognizable form of the workspace ship-fast strategy
+    assert "ship" in text.lower()
+    assert "30-site" in text or "30 commercial" in text or "30-site SEO" in text
 
 
 def test_template_path_ai_agents_has_required_sections(tmp_path):

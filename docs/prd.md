@@ -105,6 +105,7 @@ portfolio enforces these on sibling sites/* projects via `project status`. Failu
 | `prompts-md-format` | last H2 matches `^## \d{4}-\d{2}-\d{2}` | v1.B |
 | `has-makefile` | `Makefile` with `run` and `build` targets | v1.B |
 | `has-ai-agents-md` | `AI_AGENTS.md` exists | v1.B |
+| `has-growth-log` | `docs/growth.md` exists — per-project growth-experiment log; bootstrap scaffolds it with a self-sustaining workflow guide + first dated H2 entry | v3.A.1 |
 | `platform-declared` | filesystem markers identify cloudflare/vercel/netlify, OR project is n/a (CLI/library) | v1.B |
 | `live-site` | latest check classification is `live-site` | v1.B |
 | `vite-version-ok` | Vite ≥6 for React projects | v4.A |
