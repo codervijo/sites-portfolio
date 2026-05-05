@@ -154,12 +154,31 @@ make build     # → dist/
 make test      # → pnpm install + build + test (must be inside container)
 ```
 
+## Versioning
+
+This project follows the sites/* **canonical versioning convention** (defined
+in `sites/portfolio/AI_AGENTS.md`):
+
+- **`vN`** — major capability tier. Each is a coherent shipped capability and
+  may break compat with the previous tier. SemVer-MAJOR semantics.
+- **`vN.X`** — phase letter within a tier (A / B / C / …). Internal slicing of
+  build work; signals "order/scope can shift." Each phase still ships
+  independently.
+
+Two-layer notation separates **external version** (what consumers see) from
+**internal phasing** (how the team slices work). Letters signal *un-promised* —
+nobody mistakes `v1.B` for a SemVer minor release.
+
+Track this project's progress in `docs/prd.md` against this taxonomy. v0.A is
+the bootstrap (this scaffold); v1.A is the first real shipped capability.
+
 ## Key conventions
 
 - Stack: {stack}
 - **Package manager: pnpm only.** No `bun.lockb`, no `package-lock.json`, no `yarn.lock` — they cause CF Pages to pick the wrong manager and break the build. The `pnpm-lock.yaml` is the only lockfile that should ever be committed.
 - Build path: this project's `Makefile` → `../Makefile` → `~/work/projects/builder/`
 - Cloudflare deploy constraints: Vite ≥ 6, frozen-lockfile install, no `_redirects` SPA fallback (handled by `wrangler.jsonc`'s `not_found_handling` instead).
+- **Versioning**: two-level `vN` / `vN.X` — see Versioning section above and `sites/portfolio/AI_AGENTS.md` for the canonical statement.
 
 ## Out of scope / don't touch
 
@@ -199,17 +218,22 @@ last_updated: {today}
 
 ## 4. Versions
 
+Two-level versioning convention (canonical: `sites/portfolio/AI_AGENTS.md`):
+
+- `vN` = major capability tier; SemVer-MAJOR semantics.
+- `vN.X` = phase letter within a tier; internal slicing.
+
 | Version | Theme | Acceptance |
 |---|---|---|
-| v0 | scaffold | minimal home page deploys to Cloudflare Pages |
-| v1 | <fill in> | <fill in> |
+| v0 | scaffold | local builds, CF wrangler.jsonc + public/_headers in place, repo initialized |
+| v1 | <fill in: first real shipped capability> | <fill in: what users get> |
 
 ## 5. Phases
 
-| Phase | Theme | Features |
-|---|---|---|
-| **v0.A** | scaffold + deploy | initial page · `wrangler.toml` · CF Pages connection |
-| **v1.A** | <fill in> | <fill in> |
+| Phase | Theme | Features | Status |
+|---|---|---|---|
+| **v0.A** | scaffolded | `portfolio bootstrap` ran; standard files written; git initialized | ✅ |
+| **v1.A** | <fill in> | <fill in> | planned |
 
 ## 6. Open questions
 

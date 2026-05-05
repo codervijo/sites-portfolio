@@ -106,6 +106,25 @@ def test_template_path_ai_agents_has_required_sections(tmp_path):
     assert "cool idea" in text  # topic injected
 
 
+def test_template_path_ai_agents_has_versioning_section(tmp_path):
+    """Bootstrapped projects must surface the canonical sites/* versioning
+    convention so agents/users entering the project know about vN / vN.X."""
+    bootstrap("flow.dev", sites_root=tmp_path)
+    text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
+    assert "## Versioning" in text
+    assert "vN" in text and "vN.X" in text
+    assert "sites/portfolio/AI_AGENTS.md" in text  # points at the canonical source
+    assert "v0.A" in text  # bootstrap phase notation
+
+
+def test_template_path_prd_references_versioning_convention(tmp_path):
+    bootstrap("flow.dev", sites_root=tmp_path)
+    prd = (tmp_path / "flow.dev" / "docs" / "prd.md").read_text()
+    assert "v0" in prd and "v0.A" in prd  # initial scaffold phase notation
+    assert "v1" in prd  # first-real-version placeholder
+    assert "sites/portfolio/AI_AGENTS.md" in prd  # canonical reference
+
+
 def test_template_path_makefile_forwards_to_parent_with_proj(tmp_path):
     bootstrap("flow.dev", sites_root=tmp_path)
     text = (tmp_path / "flow.dev" / "Makefile").read_text()
