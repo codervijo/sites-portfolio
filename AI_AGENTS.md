@@ -26,6 +26,8 @@ Run from `sites/portfolio/`:
 - `make run ARGS="gsc auth | list | sync | compare"` — Google Search Console integration
 - `make run ARGS="cleanup"` — rebuild `data/portfolio.json` from registrar CSVs + plan.md (v1.D; classification migration)
 - `make run ARGS="project status <name>"` — single-project status (v1.A/v1.B); fuzzy resolves against `data/portfolio.json`; `--json` for machine consumption
+- `make run ARGS="domain suggest <topic>"` — multi-strategy LLM brainstorm + RDAP/Porkbun availability + price (v2.A/v2.B; Power 1)
+- `make run ARGS='bootstrap <domain>'` — scaffold a sites/* project to ship-ready; `--from-genai` copies a Lovable-style export from `<domain>/genai/` up; `--git-url=<url>` clones first; CF Pages safety fixes auto-applied (v3.A; Power 2)
 
 ## Conventions this project enforces on siblings
 

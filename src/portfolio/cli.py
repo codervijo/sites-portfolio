@@ -872,5 +872,64 @@ def domain_suggest(
         console.print("\n[yellow]No domain selected. Try refining the topic or running again with --strategies=N to limit.[/]")
 
 
+@app.command()
+def bootstrap(
+    domain: str = typer.Argument(..., help="Domain name to scaffold under sites/ (e.g. kwizicle.com)"),
+    stack: str = typer.Option("astro", "--stack", help="astro or vite (ignored if --from-genai or --git-url)"),
+    from_genai: bool = typer.Option(False, "--from-genai", help="Copy contents of sites/<domain>/genai/ up to project root + apply CF safety fixes"),
+    git_url: str = typer.Option("", "--git-url", help="git clone URL into sites/<domain>/genai/, then proceed as --from-genai"),
+    with_ingester: bool = typer.Option(False, "--with-ingester", help="Add scripts/ dir with an ingester template"),
+    topic: str = typer.Option("", "--topic", help="One-line topic; written into AI_AGENTS.md and docs/prd.md"),
+) -> None:
+    """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A)."""
+    from .bootstrap import BootstrapError, bootstrap as run_bootstrap
+
+    try:
+        result = run_bootstrap(
+            domain=domain,
+            stack=stack,
+            from_genai=from_genai,
+            git_url=git_url or None,
+            with_ingester=with_ingester,
+            topic=topic,
+        )
+    except BootstrapError as e:
+        console.print(f"[red]bootstrap failed:[/] {e}")
+        raise typer.Exit(2)
+
+    console.print(f"[green]✓[/] Bootstrapped [bold]{result.project_dir}[/]  [dim](path={result.path}, stack={result.stack})[/]")
+
+    if result.files_copied:
+        console.print(f"\n[bold]Copied from genai/ ({len(result.files_copied)}):[/]")
+        for f in result.files_copied:
+            console.print(f"  • {f}")
+
+    if result.cf_fixes:
+        console.print(f"\n[bold]Cloudflare Pages safety fixes ({len(result.cf_fixes)}):[/]")
+        for fix in result.cf_fixes:
+            console.print(f"  • {fix}")
+
+    if result.files_written:
+        console.print(f"\n[bold]Files written ({len(result.files_written)}):[/]")
+        for f in sorted(result.files_written):
+            console.print(f"  • {f}")
+
+    if result.git_initialized:
+        sha = result.initial_commit_sha[:7] if result.initial_commit_sha else "?"
+        console.print(f"\n[green]✓[/] git initialized; initial commit [dim]{sha}[/]")
+    else:
+        console.print("\n[yellow]✗[/] git init failed — initialize manually")
+
+    if result.warnings:
+        console.print(f"\n[yellow]Warnings ({len(result.warnings)}):[/]")
+        for w in result.warnings:
+            console.print(f"  • {w}")
+
+    if result.next_steps:
+        console.print("\n[bold]Next steps:[/]")
+        for step in result.next_steps:
+            console.print(f"  {step}")
+
+
 if __name__ == "__main__":
     app()
