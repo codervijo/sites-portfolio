@@ -140,6 +140,10 @@ docker exec -w /usr/src/app <name> make test proj={domain}
 - **Headers:** `public/_headers` — cache (`/assets/*` immutable, HTML no-cache) + security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`). Vite copies `public/` into `dist/` at build, so the file ships with the assets.
 - **Build:** `pnpm build` → `dist/`. Wrangler picks up `dist/` via `wrangler.jsonc`.
 - **Deploy:** `wrangler deploy` (locally) or via Cloudflare's Git integration on push.
+  Initial GitHub repo + CF Pages project setup is automated by the portfolio CLI:
+  `cd ../portfolio && make run ARGS="deploy {domain}"` runs `gh repo create` and
+  POSTs to the CF Pages API with `build_command="pnpm run build"` set explicitly
+  (avoids the bun-detection trap kwizicle.com hit). Idempotent; safe to re-run.
 - **Vite version:** must be ≥ 6.0.0 — Wrangler's Vite integration rejects Vite 5.
 - **Env vars:** set `VITE_*` vars (e.g. `VITE_GA_ID`) in the Cloudflare Workers project's environment-variable settings — they're inlined at build time.
 - **Live URL:** https://{domain}/  *(update once first deploy succeeds)*

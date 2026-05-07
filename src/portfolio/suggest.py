@@ -62,6 +62,15 @@ OPENAI_API_KEY=
 # When unset, the CLI falls back to RDAP (free, no keys, availability only — no price).
 PORKBUN_API_KEY=
 PORKBUN_SECRET_API_KEY=
+
+# Required for `portfolio deploy <domain>` Cloudflare Pages step (v3.C).
+# CF_API_TOKEN: create at https://dash.cloudflare.com/profile/api-tokens
+#   with permission `Account / Cloudflare Pages: Edit` (scoped to your account).
+# CF_ACCOUNT_ID: Cloudflare dashboard → right-side panel of any zone overview,
+#   or `wrangler whoami` after `wrangler login`.
+# `gh` CLI must also be authenticated (`gh auth login`).
+CF_API_TOKEN=
+CF_ACCOUNT_ID=
 """
 
 
