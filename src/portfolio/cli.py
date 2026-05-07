@@ -700,7 +700,7 @@ def domain_suggest(
         "--tlds",
         help="Comma-separated TLDs to scan in priority order (default: .com,.ai,.io,.app,.dev,.tech,.co,.site,.online)",
     ),
-    max_price: float = typer.Option(None, "--max-price", help="Filter out candidates priced above this USD/yr"),
+    max_price: float = typer.Option(20.0, "--max-price", help="Filter out candidates priced above this USD/yr (default 20; pass a big number e.g. 999 to disable)"),
     strategies: int = typer.Option(0, "--strategies", help="Limit to first N strategies (0 = all)"),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Dump ranked candidates and exit; no prompts"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the brainstorm cache"),
@@ -764,11 +764,21 @@ def domain_suggest(
     checker = AvailabilityChecker(log_fn=_log_check)
     avail_fn = checker.make_check_callable()
 
-    console.print(
-        f"[dim]TLD ladder: {' '.join(tld_list)}  ·  availability: {checker.backend}"
-        + (f"  ·  max-price=${max_price:.2f}" if max_price is not None else "")
-        + "[/]"
-    )
+    # Config summary — shown once at the start so the user knows what's being used.
+    cfg_t = Table(box=None, padding=(0, 1), show_header=False, title="[bold]Search config[/]", title_justify="left")
+    cfg_t.add_column("key", style="dim")
+    cfg_t.add_column("value")
+    cfg_t.add_row("topic", topic)
+    cfg_t.add_row("max price", f"${max_price:.2f}/yr (pass --max-price=999 to disable)")
+    cfg_t.add_row("TLD ladder", " ".join(tld_list))
+    cfg_t.add_row("availability", "RDAP (auth-free)")
+    cfg_t.add_row("pricing", "Porkbun /pricing/get (public, cached 7d)")
+    cfg_t.add_row("brainstorm", "OpenAI gpt-5-mini")
+    cfg_t.add_row("strategies", f"{len(all_strategies)} ({', '.join(s.name for s in all_strategies)})")
+    cfg_t.add_row("brainstorm cache", "BYPASSED (--no-cache)" if no_cache else "7d topic-hash hit/miss")
+    cfg_t.add_row("mode", "non-interactive (dump + exit)" if non_interactive else "interactive (per-strategy round)")
+    console.print(cfg_t)
+    console.print()
 
     history: list[str] = []
     selected: str | None = None
