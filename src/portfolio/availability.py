@@ -1,7 +1,21 @@
-"""Domain availability + price (v2.B).
+"""Domain availability + price (v2.B, fixed 2026-05-06).
 
-Default backend: Porkbun `domain/checkAvailability` (returns available + price in
-one call). Falls back to RDAP when Porkbun keys are absent (availability only).
+Two independent layers — kept separate because Porkbun's previous
+`/domain/checkAvailability` endpoint is dead (returns 404). The current
+working layout:
+
+  - **Availability**: RDAP. IANA bootstrap → per-TLD endpoint → GET
+    `/domain/<name>`. 404 = available; 200 = taken; anything else =
+    unknown (per-TLD coverage gaps for `.io / .co / .tech` etc.).
+
+  - **Price**: Porkbun's `/api/json/v3/pricing/get` — public, no auth
+    required, returns prices for every TLD they sell. Cached locally
+    for 7 days.
+
+`AvailabilityChecker` composes both: RDAP for the bool, Porkbun pricing
+for the dollars. Retries 1× with 1s backoff on transient network errors.
+Distinguishes `error` (retried, still failed) from `unknown` (RDAP has no
+endpoint for that TLD).
 """
 from __future__ import annotations
 
@@ -14,8 +28,12 @@ import requests
 
 from .data import ROOT
 
-PORKBUN_URL = "https://api.porkbun.com/api/json/v3/domain/checkAvailability"
-PORKBUN_TIMEOUT = 10.0
+PORKBUN_PRICING_URL = "https://api.porkbun.com/api/json/v3/pricing/get"
+PORKBUN_TIMEOUT = 30.0
+PORKBUN_PRICING_CACHE_PATH = ROOT / "data" / "cache" / "porkbun_pricing.json"
+PORKBUN_PRICING_TTL_SECONDS = 7 * 24 * 60 * 60
+PORKBUN_PRICING_RETRIES = 2
+PORKBUN_PRICING_RETRY_BACKOFF_S = 2.0
 
 RDAP_TIMEOUT = 8.0
 RDAP_BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
@@ -23,14 +41,30 @@ RDAP_CACHE_PATH = ROOT / "data" / "cache" / "rdap_endpoints.json"
 RDAP_CACHE_TTL_SECONDS = 30 * 24 * 60 * 60
 
 DEFAULT_RATE_DELAY_S = 0.3
+DEFAULT_RETRIES = 1
+DEFAULT_RETRY_BACKOFF_S = 1.0
 
 
 @dataclass
 class AvailResult:
+    """One check result.
+
+    `available`:
+      - True   → confirmed available
+      - False  → confirmed taken
+      - None   → unknown (RDAP gap, no error)
+
+    `error` is set when the check actually failed (timeout, 5xx, parse
+    failure) after retries — distinct from None-without-error which is
+    "the registry just doesn't expose RDAP for this TLD."
+    """
     available: bool | None
     price: float | None
     backend: str
     error: str | None = None
+
+
+# ---------- pricing (Porkbun /pricing/get; public, no auth) ----------
 
 
 def _money_from_str(s) -> float | None:
@@ -42,25 +76,81 @@ def _money_from_str(s) -> float | None:
         return None
 
 
-def porkbun_check(domain: str, api_key: str, secret_key: str) -> AvailResult:
-    """Single Porkbun checkAvailability call. Returns AvailResult."""
-    payload = {"secretapikey": secret_key, "apikey": api_key, "domain": domain}
-    try:
-        r = requests.post(PORKBUN_URL, json=payload, timeout=PORKBUN_TIMEOUT)
-        body = r.json()
-    except Exception as e:
-        return AvailResult(available=None, price=None, backend="porkbun", error=f"{type(e).__name__}: {e}")
-    resp = body.get("response", {}) if isinstance(body, dict) else {}
-    if body.get("status") == "ERROR":
-        return AvailResult(available=None, price=None, backend="porkbun", error=body.get("message", "porkbun error"))
-    avail_str = (resp.get("avail") or "").lower()
-    available = True if avail_str == "yes" else (False if avail_str == "no" else None)
-    price = _money_from_str(resp.get("price"))
-    return AvailResult(available=available, price=price, backend="porkbun")
+def _fetch_porkbun_pricing() -> dict[str, dict] | None:
+    """Hit /pricing/get with retries. Returns the `pricing` dict (TLD without
+    leading dot → {registration, renewal, transfer, coupons}). Returns None
+    on persistent failure (so callers fall back to no-price gracefully)."""
+    for attempt in range(PORKBUN_PRICING_RETRIES + 1):
+        try:
+            r = requests.get(PORKBUN_PRICING_URL, timeout=PORKBUN_TIMEOUT)
+        except Exception:
+            if attempt < PORKBUN_PRICING_RETRIES:
+                time.sleep(PORKBUN_PRICING_RETRY_BACKOFF_S * (attempt + 1))
+                continue
+            return None
+        if r.status_code != 200:
+            if 500 <= r.status_code < 600 and attempt < PORKBUN_PRICING_RETRIES:
+                time.sleep(PORKBUN_PRICING_RETRY_BACKOFF_S * (attempt + 1))
+                continue
+            return None
+        try:
+            body = r.json()
+        except Exception:
+            return None
+        if body.get("status") != "SUCCESS":
+            return None
+        pricing = body.get("pricing")
+        if not isinstance(pricing, dict):
+            return None
+        return pricing
+    return None
+
+
+def load_porkbun_pricing() -> dict[str, dict]:
+    """Get the Porkbun pricing dict, refreshing the cache if stale.
+
+    Returns {} if the cache is stale and the fetch fails — callers should
+    treat empty pricing as "no price available" (price=None per lookup).
+    """
+    if PORKBUN_PRICING_CACHE_PATH.exists():
+        try:
+            payload = json.loads(PORKBUN_PRICING_CACHE_PATH.read_text())
+            if (time.time() - payload.get("cached_at", 0)) <= PORKBUN_PRICING_TTL_SECONDS:
+                return payload.get("pricing", {})
+        except (OSError, json.JSONDecodeError):
+            pass
+    pricing = _fetch_porkbun_pricing()
+    if pricing is None:
+        return {}
+    PORKBUN_PRICING_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PORKBUN_PRICING_CACHE_PATH.write_text(json.dumps({"cached_at": time.time(), "pricing": pricing}))
+    return pricing
+
+
+def lookup_price(domain: str, pricing: dict[str, dict] | None = None) -> float | None:
+    """Look up the registration price for a domain in the Porkbun pricing dict."""
+    if pricing is None:
+        pricing = load_porkbun_pricing()
+    if not pricing:
+        return None
+    if "." not in domain:
+        return None
+    tld = domain.rsplit(".", 1)[-1].lower()
+    if "." in domain.split(".", 1)[1]:  # multi-part TLD like co.in
+        rest = domain.split(".", 1)[1].lower()
+        if rest in pricing:
+            tld = rest
+    entry = pricing.get(tld)
+    if not isinstance(entry, dict):
+        return None
+    return _money_from_str(entry.get("registration"))
+
+
+# ---------- RDAP availability (with retry) ----------
 
 
 def _load_rdap_endpoints() -> dict[str, list[str]]:
-    """Map of TLD (no dot) -> list of RDAP base URLs. Cached on disk."""
+    """TLD (no dot) → list of RDAP base URLs. Cached on disk for 30 days."""
     if RDAP_CACHE_PATH.exists():
         try:
             payload = json.loads(RDAP_CACHE_PATH.read_text())
@@ -86,42 +176,74 @@ def _load_rdap_endpoints() -> dict[str, list[str]]:
     return services
 
 
-def rdap_check(domain: str) -> AvailResult:
-    """Free availability check via RDAP. Returns AvailResult (price always None)."""
+def rdap_check(domain: str, *, retries: int = DEFAULT_RETRIES, backoff_s: float = DEFAULT_RETRY_BACKOFF_S) -> AvailResult:
+    """Check availability via RDAP. Retries `retries` times on transient errors.
+
+    Returns:
+      - AvailResult(available=True)   for HTTP 404 (registry confirms not registered)
+      - AvailResult(available=False)  for HTTP 200 (registry returns the record)
+      - AvailResult(available=None, error=None) when there's no RDAP endpoint
+        for that TLD (genuine gap, not a transient failure)
+      - AvailResult(available=None, error=...) when calls failed (auth/timeout/5xx)
+    """
     tld = domain.rsplit(".", 1)[-1].lower() if "." in domain else ""
     services = _load_rdap_endpoints()
     urls = services.get(tld, [])
     if not urls:
-        return AvailResult(available=None, price=None, backend="rdap", error=f"no RDAP endpoint for .{tld}")
+        return AvailResult(available=None, price=None, backend="rdap",
+                           error=None)  # genuine gap, no error
     base = urls[0].rstrip("/")
-    try:
-        r = requests.get(f"{base}/domain/{domain}", timeout=RDAP_TIMEOUT)
-    except Exception as e:
-        return AvailResult(available=None, price=None, backend="rdap", error=f"{type(e).__name__}: {e}")
-    if r.status_code == 404:
-        return AvailResult(available=True, price=None, backend="rdap")
-    if r.status_code == 200:
-        return AvailResult(available=False, price=None, backend="rdap")
-    return AvailResult(available=None, price=None, backend="rdap", error=f"RDAP HTTP {r.status_code}")
+    last_err: str | None = None
+    for attempt in range(retries + 1):
+        try:
+            r = requests.get(f"{base}/domain/{domain}", timeout=RDAP_TIMEOUT)
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            if attempt < retries:
+                time.sleep(backoff_s)
+                continue
+            return AvailResult(available=None, price=None, backend="rdap", error=last_err)
+        if r.status_code == 404:
+            return AvailResult(available=True, price=None, backend="rdap")
+        if r.status_code == 200:
+            return AvailResult(available=False, price=None, backend="rdap")
+        if 500 <= r.status_code < 600 and attempt < retries:
+            last_err = f"RDAP HTTP {r.status_code}"
+            time.sleep(backoff_s)
+            continue
+        return AvailResult(available=None, price=None, backend="rdap",
+                           error=f"RDAP HTTP {r.status_code}")
+    return AvailResult(available=None, price=None, backend="rdap", error=last_err)
+
+
+# ---------- AvailabilityChecker (composes RDAP + Porkbun pricing) ----------
 
 
 class AvailabilityChecker:
-    """Stateful checker: picks Porkbun or RDAP based on env, rate-limits between calls."""
+    """Composes RDAP (availability) with Porkbun pricing (price). The two are
+    independent — RDAP doesn't need any API key; Porkbun's `/pricing/get`
+    is public.
+
+    `log_fn(msg)`, if provided, is called with one human-readable status line
+    per check so the user can see progress.
+    """
 
     def __init__(
         self,
-        porkbun_api_key: str | None = None,
-        porkbun_secret_key: str | None = None,
+        porkbun_api_key: str | None = None,        # kept for API compat; not used post-2026-05-06
+        porkbun_secret_key: str | None = None,     # same
         rate_delay_s: float = DEFAULT_RATE_DELAY_S,
+        log_fn=None,
     ):
-        self.porkbun_api_key = porkbun_api_key or None
-        self.porkbun_secret_key = porkbun_secret_key or None
         self.rate_delay_s = rate_delay_s
+        self.log_fn = log_fn
         self._last_call_at = 0.0
+        self._pricing: dict[str, dict] | None = None  # lazy
 
     @property
     def backend(self) -> str:
-        return "porkbun" if (self.porkbun_api_key and self.porkbun_secret_key) else "rdap"
+        # Single backend now: RDAP + Porkbun-public-pricing. No auth needed.
+        return "rdap+porkbun-pricing"
 
     def _rate_limit(self) -> None:
         elapsed = time.time() - self._last_call_at
@@ -129,15 +251,55 @@ class AvailabilityChecker:
             time.sleep(self.rate_delay_s - elapsed)
         self._last_call_at = time.time()
 
+    def _log(self, msg: str) -> None:
+        if self.log_fn is not None:
+            self.log_fn(msg)
+
     def check(self, domain: str) -> AvailResult:
         self._rate_limit()
-        if self.backend == "porkbun":
-            return porkbun_check(domain, self.porkbun_api_key, self.porkbun_secret_key)
-        return rdap_check(domain)
+        avail = rdap_check(domain)
+        if self._pricing is None:
+            self._pricing = load_porkbun_pricing()
+        price = lookup_price(domain, self._pricing)
+        return AvailResult(
+            available=avail.available,
+            price=price,
+            backend=self.backend,
+            error=avail.error,
+        )
 
     def make_check_callable(self):
-        """Return a `(domain) -> (available, price)` callable for suggest.render_options()."""
-        def _f(domain: str) -> tuple[bool | None, float | None]:
+        """Return a `(domain) -> (available, price, error)` callable for
+        suggest.render_options(). Logs each check via self.log_fn if set."""
+        def _f(domain: str):
             res = self.check(domain)
-            return res.available, res.price
+            if self.log_fn is not None:
+                if res.error:
+                    self._log(f"  ✕ {domain}  error: {res.error}")
+                elif res.available is True:
+                    price_s = f", ${res.price:.2f}/yr" if res.price is not None else ""
+                    self._log(f"  ✓ {domain}  available{price_s}")
+                elif res.available is False:
+                    self._log(f"  ✗ {domain}  taken")
+                else:
+                    self._log(f"  ? {domain}  unknown (no RDAP endpoint for this TLD)")
+            return res.available, res.price, res.error
         return _f
+
+
+# ---------- back-compat shims ----------
+
+
+def porkbun_check(domain: str, api_key: str = "", secret_key: str = "") -> AvailResult:
+    """Deprecated: Porkbun's `/domain/checkAvailability` was removed in 2026.
+    Kept as a thin wrapper that routes to the new RDAP+pricing path so any
+    external caller still gets a sane result.
+    """
+    avail = rdap_check(domain)
+    price = lookup_price(domain)
+    return AvailResult(
+        available=avail.available,
+        price=price,
+        backend="rdap+porkbun-pricing",
+        error=avail.error,
+    )

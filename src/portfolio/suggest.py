@@ -100,6 +100,7 @@ class ScoredOption:
     price: float | None
     score: int
     strategy: str
+    error: str | None = None  # set when availability check failed (vs None+no-err = RDAP gap)
 
 
 def ensure_portfolio_env() -> Path:
@@ -318,48 +319,73 @@ def brainstorm(idea: str, strategy: Strategy, history: list[str], api_key: str, 
     return out
 
 
+def _normalize_avail_check(avail_check):
+    """Adapter so render_options accepts both the new 3-tuple
+    `(avail, price, error)` callables (post-2026-05-06) and any old
+    2-tuple `(avail, price)` callables that may exist in tests."""
+    def _wrapped(domain: str):
+        result = avail_check(domain)
+        if not isinstance(result, tuple):
+            return None, None, None
+        if len(result) == 3:
+            return result
+        if len(result) == 2:
+            return result[0], result[1], None
+        return None, None, None
+    return _wrapped
+
+
 def render_options(candidates: list[Candidate], topic: str, tlds: list[str], avail_check) -> list[ScoredOption]:
     """For each candidate, scan TLDs in order; stop at first **confirmed available** (True);
-    otherwise track best `unknown` (None) result by score; only mark fully taken if every TLD
-    came back False. `avail_check(domain) -> (available: bool|None, price: float|None)`.
-
-    Surfaces unknowns to the caller so users can see and verify them at the registrar —
-    RDAP has gaps (.io, .co, several radix TLDs); without this, those candidates would
-    silently disappear.
+    otherwise pick the best result by priority (True > unknown-no-err > unknown-error > False),
+    score-tiebreak. Surfaces both unknowns AND errors to the caller so checks aren't silently
+    swallowed.
     """
+    check = _normalize_avail_check(avail_check)
     out: list[ScoredOption] = []
     for c in candidates:
-        attempts: list[tuple[bool | None, float | None, int, str, str]] = []
+        attempts: list[tuple] = []  # (avail, price, error, score, tld, domain)
         for tld in tlds:
             domain = f"{c.name}{tld}"
-            available, price = avail_check(domain)
+            available, price, error = check(domain)
             score, _notes = score_name(c.name, topic, tld)
-            attempts.append((available, price, score, tld, domain))
+            attempts.append((available, price, error, score, tld, domain))
             if available is True:
                 break
 
         def _rank_priority(a):
-            if a[0] is True:
+            avail, _, err, _, _, _ = a
+            if avail is True:
                 return 0
-            if a[0] is None:
-                return 1
-            return 2
+            if avail is None and err is None:
+                return 1   # genuine RDAP gap (worth showing)
+            if avail is None and err is not None:
+                return 2   # call failed (worth showing distinctly)
+            return 3       # confirmed taken
 
-        attempts.sort(key=lambda a: (_rank_priority(a), -a[2]))
+        attempts.sort(key=lambda a: (_rank_priority(a), -a[3]))
         best = attempts[0]
         out.append(ScoredOption(
             name=c.name,
-            tld=best[3],
-            domain=best[4],
+            tld=best[4],
+            domain=best[5],
             available=best[0],
             price=best[1],
-            score=best[2],
+            score=best[3],
             strategy=c.strategy,
+            error=best[2],
         ))
-    out.sort(key=lambda o: (
-        0 if o.available is True else (1 if o.available is None else 2),
-        -o.score,
-    ))
+
+    def _final_priority(o):
+        if o.available is True:
+            return 0
+        if o.available is None and o.error is None:
+            return 1
+        if o.available is None and o.error is not None:
+            return 2
+        return 3
+
+    out.sort(key=lambda o: (_final_priority(o), -o.score))
     return out
 
 

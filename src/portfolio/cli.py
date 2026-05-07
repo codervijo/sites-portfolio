@@ -756,13 +756,16 @@ def domain_suggest(
     else:
         candidates_by_strategy = {}
 
-    porkbun_api = env.get("PORKBUN_API_KEY", "").strip() or None
-    porkbun_secret = env.get("PORKBUN_SECRET_API_KEY", "").strip() or None
-    checker = AvailabilityChecker(porkbun_api_key=porkbun_api, porkbun_secret_key=porkbun_secret)
+    # Per-check log so the user sees the script working through each (name, TLD).
+    # Prints inline; rendered at the same indent level as table rows that follow.
+    def _log_check(msg: str) -> None:
+        console.print(f"[dim]{msg}[/]")
+
+    checker = AvailabilityChecker(log_fn=_log_check)
     avail_fn = checker.make_check_callable()
 
     console.print(
-        f"[dim]TLD ladder: {' '.join(tld_list)}  ·  availability backend: {checker.backend}"
+        f"[dim]TLD ladder: {' '.join(tld_list)}  ·  availability: {checker.backend}"
         + (f"  ·  max-price=${max_price:.2f}" if max_price is not None else "")
         + "[/]"
     )
@@ -806,11 +809,15 @@ def domain_suggest(
             console.print("[yellow]No available or candidate domains in this round (all taken or filtered out by --max-price).[/]")
             continue
 
-        unknown_n = sum(1 for o in showable if o.available is None)
-        if unknown_n and checker.backend == "rdap":
+        unknown_n = sum(1 for o in showable if o.available is None and o.error is None)
+        error_n = sum(1 for o in showable if o.error is not None)
+        if unknown_n:
             console.print(
-                f"[dim]({unknown_n} of {len(showable)} marked '?' — RDAP has gaps for some TLDs; "
-                "set PORKBUN_API_KEY + PORKBUN_SECRET_API_KEY in portfolio.env for definitive answers + price.)[/]"
+                f"[dim]({unknown_n} marked '?' — RDAP has no endpoint for that TLD; verify at the registrar.)[/]"
+            )
+        if error_n:
+            console.print(
+                f"[red]({error_n} marked '✕' — check failed after retry; may be transient. Re-run to retry.)[/]"
             )
 
         top = showable[:5]
@@ -826,10 +833,12 @@ def domain_suggest(
             price_s = f"${o.price:,.2f}" if o.price is not None else "-"
             if o.available is True:
                 avail_s = "[green]✓[/]"
-            elif o.available is None:
-                avail_s = "[yellow]?[/]"
-            else:
+            elif o.available is False:
                 avail_s = "[red]✗[/]"
+            elif o.error is not None:
+                avail_s = "[red bold]✕[/]"  # check failed after retry
+            else:
+                avail_s = "[yellow]?[/]"     # genuine RDAP gap
             t.add_row(str(i), o.name, o.tld, avail_s, price_s, str(o.score))
         console.print(t)
 
@@ -849,13 +858,13 @@ def domain_suggest(
                 continue
             for tld in tld_list:
                 d = f"{custom}{tld}"
-                a, p = avail_fn(d)
+                a, p, err = avail_fn(d)
                 if a is True:
                     selected = d
                     if p is not None:
                         console.print(f"[dim]price: ${p:,.2f}[/]")
                     break
-                console.print(f"[dim]{d}: not available[/]")
+                console.print(f"[dim]{d}: {'taken' if a is False else ('error: ' + err if err else 'unknown')}[/]")
             if not selected:
                 console.print("[yellow]Custom name not available in any TLD on the ladder.[/]")
                 continue
