@@ -805,14 +805,14 @@ MENU_ITEMS = [
     ("2", "Expand a row (full-ladder detail)",         False),
     ("5", "Add my own names to the grid",              False),
     ("6", "Mark / unmark for shortlist",               False),
-    ("7", "Decide from shortlist",                     True),  # v4.B
+    ("7", "Decide from shortlist",                     False),  # v4.B
     ("8", "Show TLD reference (pricing, SEO, vibe)",   False),
 ]
 
 
-COMING_SOON_HINTS = {
-    "7": "Decide from shortlist is coming in v4.B — pick another option.",
-}
+# v4.B 2026-05-08: option 7 is now active. No coming-soon hints in v4.B;
+# the constant is preserved (empty) for future stub use.
+COMING_SOON_HINTS: dict[str, str] = {}
 
 
 # v3.E 2026-05-08: per-TLD reference card. Surfaced via menu option 8 so the
@@ -1144,6 +1144,181 @@ def _print_shortlist(shortlist: list[str], rows) -> None:
         console.print(f"  {i}. [bold]{name}[/]  Pick: [cyan]{pick}[/]{price_s}")
 
 
+# v4.B 2026-05-08: decide-from-shortlist orchestrator + helpers.
+
+
+def _render_decide_table(finalists, max_price: float) -> None:
+    """Focused comparison table for the decide phase. Columns:
+    name · reg · renew (with cliff marker) · pick · anchors · defense.
+    No per-TLD cell columns (cleaner than the full grid)."""
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title="[bold]Decide — finalists comparison[/]",
+              title_justify="left")
+    t.add_column("#", justify="right")
+    t.add_column("Name", style="bold")
+    t.add_column("Reg", justify="right")
+    t.add_column("Renew", justify="right")
+    t.add_column("Pick", style="cyan")
+    t.add_column("Anchors", style="magenta")
+    t.add_column("Defense")
+    for i, row in enumerate(finalists, 1):
+        pick_tld = row.pick_tld or "-"
+        cell = row.cells.get(pick_tld) if row.pick_tld else None
+        reg_s = f"${cell.price:.0f}" if (cell and cell.price is not None) else "-"
+        renew_val = cell.renewal if cell else None
+        renew_s = f"${renew_val:.0f}" if renew_val is not None else "-"
+        cliff = _renewal_cliff_marker(cell.price if cell else None, renew_val)
+        if cliff:
+            renew_s += cliff
+        anchors = " · ".join(row.anchors_matched) if row.anchors_matched else "-"
+        # Defense one-liner.
+        com_cell = row.cells.get(".com")
+        if pick_tld == ".com":
+            defense = "[dim]is the pick[/]"
+        elif com_cell and com_cell.available is True and not com_cell.over_max:
+            defense = "[green].com avail[/]"
+        elif com_cell and com_cell.com_class == "live-site":
+            defense = "[red].com is a live site[/]"
+        elif com_cell and com_cell.available is False:
+            defense = "[yellow].com taken[/]"
+        else:
+            defense = "[dim]?[/]"
+        t.add_row(str(i), row.name, reg_s, renew_s,
+                  row.pick_label or pick_tld, anchors, defense)
+    console.print(t)
+
+
+def _decide_step1_brand_collision(finalists, brave_key: str, openai_key: str) -> None:
+    from .decide import check_brand_collision
+    backend_label = "Brave Search" if brave_key else "AI fallback (gpt-5-mini)"
+    console.print(f"\n[bold]Step 1/6 — Brand collision check[/]  [dim]({backend_label})[/]")
+    for row in finalists:
+        result = check_brand_collision(row.name, brave_key, openai_key)
+        console.print(f"  [bold]{row.name}[/]")
+        if result.backend == "brave":
+            if not result.hits:
+                console.print("    [dim](no notable results)[/]")
+            for hit in result.hits:
+                title = hit.title or "(no title)"
+                console.print(f"    · [bold]{title}[/]")
+                if hit.url:
+                    console.print(f"      [dim]{hit.url}[/]")
+        elif result.backend == "ai":
+            console.print(f"    {result.ai_verdict}")
+        else:
+            err = result.error or "skipped"
+            console.print(f"    [yellow](skipped: {err})[/]")
+
+
+def _decide_step2_uspto(finalists) -> None:
+    from .decide import uspto_tess_url
+    console.print("\n[bold]Step 2/6 — USPTO TESS quick search[/]  [dim](manual click-through)[/]")
+    for row in finalists:
+        console.print(f"  [bold]{row.name}[/]  [dim]{uspto_tess_url(row.name)}[/]")
+
+
+def _decide_step3_extensibility(finalists, topic: str,
+                                vocab_terms: list[str] | None,
+                                openai_key: str) -> None:
+    from .decide import assess_extensibility_safe
+    console.print("\n[bold]Step 3/6 — Brand-extensibility[/]  [dim](AI assessment)[/]")
+    for row in finalists:
+        verdict = assess_extensibility_safe(row.name, topic, vocab_terms, openai_key)
+        console.print(f"  [bold]{row.name}[/]  {verdict}")
+
+
+def _decide_step4_cost(finalists) -> None:
+    from .decide import compute_five_year_cost
+    console.print("\n[bold]Step 4/6 — 5-year cost projection[/]  [dim](reg + 4×renewal)[/]")
+    for row in finalists:
+        cell = row.cells.get(row.pick_tld) if row.pick_tld else None
+        if cell is None:
+            console.print(f"  [bold]{row.name}{row.pick_tld or ''}[/]  [dim](no pick)[/]")
+            continue
+        five_yr = compute_five_year_cost(cell.price, cell.renewal)
+        if five_yr is None:
+            console.print(f"  [bold]{row.name}{row.pick_tld}[/]  [dim](no pricing)[/]")
+            continue
+        reg_s = f"${cell.price:.0f}" if cell.price is not None else "—"
+        renew_s = f"${cell.renewal:.0f}" if cell.renewal is not None else "—"
+        console.print(
+            f"  [bold]{row.name}{row.pick_tld}[/]  {reg_s} + 4×{renew_s} = "
+            f"[cyan]${five_yr:.0f}[/]"
+        )
+
+
+def _decide_step5_phone_test(finalists) -> list[str]:
+    from .decide import parse_test_response
+    console.print("\n[bold]Step 5/6 — Phone test[/]  [dim](interactive)[/]")
+    console.print("  Say \"the site is <name>\" out loud for each finalist:")
+    for row in finalists:
+        console.print(f"    · {row.name}")
+    sub = typer.prompt(
+        "  Names that tripped you (comma-sep), or Enter for none",
+        default="", show_default=False,
+    )
+    matched, unrecognized = parse_test_response(sub, [r.name for r in finalists])
+    for u in unrecognized:
+        console.print(f"  [yellow]'{u}' not in the finalists — typo?[/]")
+    return matched
+
+
+def _decide_step6_memory_test(finalists) -> list[str]:
+    from .decide import parse_test_response
+    console.print("\n[bold]Step 6/6 — Memory test[/]  [dim](interactive)[/]")
+    console.print("  Look away for 30 seconds, then list the finalists from memory.")
+    sub = typer.prompt(
+        "  Names you couldn't recall (comma-sep), or Enter for none",
+        default="", show_default=False,
+    )
+    matched, unrecognized = parse_test_response(sub, [r.name for r in finalists])
+    for u in unrecognized:
+        console.print(f"  [yellow]'{u}' not in the finalists — typo?[/]")
+    return matched
+
+
+def _menu_decide(rows, shortlist: list[str], tld_list: list[str],
+                 max_price: float, topic: str, vocab_terms: list[str] | None,
+                 brave_key: str, openai_key: str):
+    """Menu option 7 orchestrator. Returns (row, tld) pick or None."""
+    finalists = [r for r in rows if r.name in shortlist]
+    if not finalists:
+        console.print("[yellow]Shortlist is empty — mark some candidates first (option 6).[/]")
+        return None
+
+    _render_decide_table(finalists, max_price=max_price)
+    _decide_step1_brand_collision(finalists, brave_key, openai_key)
+    _decide_step2_uspto(finalists)
+    _decide_step3_extensibility(finalists, topic, vocab_terms, openai_key)
+    _decide_step4_cost(finalists)
+    phone_concerns = _decide_step5_phone_test(finalists)
+    memory_concerns = _decide_step6_memory_test(finalists)
+
+    console.print("\n[bold]Test concerns:[/]")
+    console.print(f"  · Phone test:  {', '.join(phone_concerns) if phone_concerns else '[dim](none)[/]'}")
+    console.print(f"  · Memory test: {', '.join(memory_concerns) if memory_concerns else '[dim](none)[/]'}")
+
+    while True:
+        choice = typer.prompt(
+            f"\nPick row 1-{len(finalists)} to register, or b to back to menu",
+            default="b", show_default=False,
+        ).strip().lower()
+        if choice == "b" or not choice:
+            return None
+        if not choice.isdigit():
+            console.print(f"[red]Type 1-{len(finalists)} or b.[/]")
+            continue
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(finalists):
+            console.print(f"[red]Row {choice} out of range (1-{len(finalists)}).[/]")
+            continue
+        row = finalists[idx]
+        if row.pick_tld is None:
+            console.print(f"[red]{row.name} has no recommended TLD; remove from shortlist or fix.[/]")
+            continue
+        return row, row.pick_tld
+
+
 def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
     """Sub-prompt for menu option 6. Multi-target per invocation
     (`m 5 7 12` or `m 5,7,12` marks three at once).
@@ -1423,6 +1598,18 @@ def _domain_suggest_validation(
             continue
         if choice == "6":
             shortlist = _menu_shortlist(rows, shortlist)
+            continue
+        if choice == "7":
+            brave_key = env.get("BRAVE_SEARCH_API_KEY", "").strip()
+            result = _menu_decide(
+                rows, shortlist, tld_list, max_price,
+                topic=topic, vocab_terms=vocab_terms,
+                brave_key=brave_key, openai_key=openai_key,
+            )
+            if result is not None:
+                selected_row, selected_tld = result
+                break
+            # b from decide → main menu (shortlist preserved)
             continue
         if choice == "8":
             _render_tld_reference()

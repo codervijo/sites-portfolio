@@ -1674,16 +1674,11 @@ def test_v3e_menu_items_v4a_lineup():
     assert keys == ["1", "2", "5", "6", "7", "8"]
 
 
-def test_v3e_menu_items_only_seven_is_coming_soon():
-    """v4.A: only item 7 (decide) carries the coming-soon flag."""
+def test_v3e_menu_items_all_active_in_v4b():
+    """v4.B: all listed menu items are now active (item 7 was activated)."""
     from portfolio.cli import MENU_ITEMS
-    by_key = {k: cs for k, _, cs in MENU_ITEMS}
-    assert by_key["1"] is False
-    assert by_key["2"] is False
-    assert by_key["5"] is False
-    assert by_key["6"] is False
-    assert by_key["7"] is True   # v4.B
-    assert by_key["8"] is False
+    for key, _, coming_soon in MENU_ITEMS:
+        assert coming_soon is False, f"item {key} unexpectedly stubbed"
 
 
 def test_v3e_menu_keys_hint_format():
@@ -1702,15 +1697,13 @@ def test_v3e_render_menu_includes_active_items_and_quit():
         assert key in out
 
 
-def test_v3e_render_menu_marks_seven_as_coming_soon():
-    """Item 7 carries the (coming soon) annotation; items 1/2/5/6/8 do not."""
+def test_v3e_render_menu_no_coming_soon_in_v4b():
+    """v4.B: item 7 was activated, so no (coming soon) annotations remain."""
     from portfolio.cli import _render_menu, console
     with console.capture() as cap:
         _render_menu()
     out = cap.get()
-    # Exactly one (coming soon) annotation in v4.A.
-    assert out.count("coming soon") == 1
-    # Verify it's attached to line 7 by checking that line.
+    assert "coming soon" not in out
     assert "7. Decide from shortlist" in out
 
 
@@ -2453,3 +2446,304 @@ def test_v3e_render_tld_reference_includes_validation_summary():
     # The closing summary line should land at the bottom of the output.
     assert "validation pipeline" in out
     assert ".app and .dev are honest peers" in out
+
+
+# =============================================================================
+# v4.B — decide module (decide.py)
+# =============================================================================
+
+
+def test_v4b_brave_search_parses_results(monkeypatch):
+    from portfolio.decide import brave_search
+    fake_resp = MagicMock(status_code=200)
+    fake_resp.json.return_value = {
+        "web": {
+            "results": [
+                {"title": "ScrubSync", "url": "https://scrubsync.example/",
+                 "description": "Healthcare scheduling SaaS"},
+                {"title": "Other", "url": "https://other.example/",
+                 "description": "Some other site"},
+            ]
+        }
+    }
+    fake_resp.raise_for_status = MagicMock()
+    monkeypatch.setattr("portfolio.decide.requests.get", lambda *a, **kw: fake_resp)
+    hits = brave_search("scrubsync", "key", count=3)
+    assert len(hits) == 2
+    assert hits[0].title == "ScrubSync"
+    assert hits[0].url == "https://scrubsync.example/"
+
+
+def test_v4b_brave_search_passes_subscription_token(monkeypatch):
+    from portfolio.decide import brave_search
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured["headers"] = kwargs.get("headers", {})
+        captured["params"] = kwargs.get("params", {})
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"web": {"results": []}}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.get", fake_get)
+    brave_search("foo", "my-token", count=5)
+    assert captured["headers"]["X-Subscription-Token"] == "my-token"
+    assert captured["params"]["q"] == "foo"
+    assert captured["params"]["count"] == 5
+
+
+def test_v4b_brave_search_handles_no_results(monkeypatch):
+    from portfolio.decide import brave_search
+    fake_resp = MagicMock(status_code=200)
+    fake_resp.json.return_value = {"web": {"results": []}}
+    fake_resp.raise_for_status = MagicMock()
+    monkeypatch.setattr("portfolio.decide.requests.get", lambda *a, **kw: fake_resp)
+    assert brave_search("foo", "key") == []
+
+
+def test_v4b_check_brand_collision_uses_brave_when_keyed(monkeypatch):
+    from portfolio.decide import check_brand_collision
+    fake_resp = MagicMock(status_code=200)
+    fake_resp.json.return_value = {
+        "web": {"results": [{"title": "Alpha", "url": "https://alpha/", "description": ""}]}
+    }
+    fake_resp.raise_for_status = MagicMock()
+    monkeypatch.setattr("portfolio.decide.requests.get", lambda *a, **kw: fake_resp)
+    result = check_brand_collision("alpha", brave_key="bk", openai_key="ok")
+    assert result.backend == "brave"
+    assert result.hits[0].title == "Alpha"
+
+
+def test_v4b_check_brand_collision_falls_back_to_ai_on_brave_error(monkeypatch):
+    from portfolio.decide import check_brand_collision
+    call_count = {"n": 0}
+
+    def fake_get(*a, **kw):
+        # Brave call fails
+        raise ConnectionError("brave down")
+
+    def fake_post(*a, **kw):
+        call_count["n"] += 1
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "No notable brand match."}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.get", fake_get)
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    result = check_brand_collision("alpha", brave_key="bk", openai_key="ok")
+    assert result.backend == "ai"
+    assert "No notable" in result.ai_verdict
+    assert call_count["n"] == 1
+
+
+def test_v4b_check_brand_collision_uses_ai_when_no_brave_key(monkeypatch):
+    from portfolio.decide import check_brand_collision
+
+    def fake_post(*a, **kw):
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "Yes — Stripe is a payments company."}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    result = check_brand_collision("stripe", brave_key="", openai_key="ok")
+    assert result.backend == "ai"
+    assert "Stripe" in result.ai_verdict
+
+
+def test_v4b_check_brand_collision_skipped_when_no_keys():
+    from portfolio.decide import check_brand_collision
+    result = check_brand_collision("alpha", brave_key="", openai_key="")
+    assert result.backend == "skipped"
+    assert result.error is not None
+
+
+def test_v4b_uspto_tess_url_quotes_name():
+    from portfolio.decide import uspto_tess_url
+    url = uspto_tess_url("scrub sync")
+    assert "tmsearch.uspto.gov" in url
+    assert "scrub+sync" in url or "scrub%20sync" in url
+
+
+def test_v4b_assess_brand_extensibility_includes_topic_and_anchors(monkeypatch):
+    from portfolio.decide import assess_brand_extensibility
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["body"] = kwargs.get("json", {})
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "Locked to clinical context."}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    out = assess_brand_extensibility("scrubsync", "healthcare workwear",
+                                     ["scrubs", "fit"], "ok")
+    assert "Locked" in out
+    sent = captured["body"]["input"]
+    assert "healthcare workwear" in sent
+    assert "scrubs, fit" in sent
+    assert "scrubsync" in sent
+
+
+def test_v4b_assess_extensibility_safe_falls_back_on_error(monkeypatch):
+    from portfolio.decide import assess_extensibility_safe
+    monkeypatch.setattr("portfolio.decide.requests.post",
+                        MagicMock(side_effect=ConnectionError("nope")))
+    out = assess_extensibility_safe("alpha", "topic", [], "ok")
+    assert "failed" in out.lower()
+
+
+def test_v4b_assess_extensibility_safe_skips_without_api_key():
+    from portfolio.decide import assess_extensibility_safe
+    out = assess_extensibility_safe("alpha", "topic", [], "")
+    assert "skipped" in out.lower() or "no openai" in out.lower()
+
+
+def test_v4b_compute_five_year_cost_basic():
+    from portfolio.decide import compute_five_year_cost
+    # .com $11 reg, $11 renewal → 11 + 4×11 = 55
+    assert compute_five_year_cost(11.0, 11.0) == 55.0
+    # .xyz $2 reg, $13 renewal → 2 + 4×13 = 54
+    assert compute_five_year_cost(2.0, 13.0) == 54.0
+
+
+def test_v4b_compute_five_year_cost_missing_renewal_uses_reg():
+    from portfolio.decide import compute_five_year_cost
+    # missing renewal → reg + 4×reg = 5×reg
+    assert compute_five_year_cost(10.0, None) == 50.0
+
+
+def test_v4b_compute_five_year_cost_returns_none_when_unknown():
+    from portfolio.decide import compute_five_year_cost
+    assert compute_five_year_cost(None, None) is None
+
+
+def test_v4b_parse_test_response_matches_finalists():
+    from portfolio.decide import parse_test_response
+    matched, unrec = parse_test_response("scrubsync, doffeasy",
+                                         ["scrubsync", "doffeasy", "handoffhub"])
+    assert matched == ["scrubsync", "doffeasy"]
+    assert unrec == []
+
+
+def test_v4b_parse_test_response_strips_tld_suffix():
+    from portfolio.decide import parse_test_response
+    matched, _ = parse_test_response("scrubsync.app", ["scrubsync"])
+    assert matched == ["scrubsync"]
+
+
+def test_v4b_parse_test_response_collects_unrecognized():
+    from portfolio.decide import parse_test_response
+    matched, unrec = parse_test_response("scrubsync, mistyped",
+                                         ["scrubsync", "doffeasy"])
+    assert matched == ["scrubsync"]
+    assert unrec == ["mistyped"]
+
+
+def test_v4b_parse_test_response_empty_input():
+    from portfolio.decide import parse_test_response
+    assert parse_test_response("", ["scrubsync"]) == ([], [])
+    assert parse_test_response("   ", ["scrubsync"]) == ([], [])
+
+
+def test_v4b_parse_test_response_dedupes():
+    from portfolio.decide import parse_test_response
+    matched, _ = parse_test_response("scrubsync, scrubsync, doffeasy",
+                                     ["scrubsync", "doffeasy"])
+    assert matched == ["scrubsync", "doffeasy"]
+
+
+# v4.B CLI integration
+
+
+def _build_finalist_row(name: str, pick_tld: str = ".com",
+                       reg: float = 11.0, renew: float | None = 11.0,
+                       com_avail: bool = True):
+    """Helper for menu_decide tests."""
+    from portfolio.suggest import GridRow, CellState
+    cells = {
+        pick_tld: CellState(domain=f"{name}{pick_tld}", available=True,
+                            price=reg, renewal=renew),
+    }
+    if pick_tld != ".com":
+        cells[".com"] = CellState(domain=f"{name}.com", available=com_avail,
+                                  price=11.0, renewal=11.0)
+    return GridRow(name=name, strategy="t",
+                   pick_tld=pick_tld, pick_label=pick_tld, why="",
+                   cells=cells, anchors_matched=["alpha"])
+
+
+def test_v4b_menu_decide_empty_shortlist_returns_none(monkeypatch):
+    from portfolio.cli import _menu_decide
+    rows = [_build_finalist_row("alpha")]
+    out = _menu_decide(rows, shortlist=[], tld_list=[".com"],
+                      max_price=20.0, topic="x", vocab_terms=[],
+                      brave_key="", openai_key="")
+    assert out is None
+
+
+def test_v4b_menu_decide_b_returns_none_after_walking_steps(monkeypatch):
+    """Walk through all 6 steps then type b at the pick prompt."""
+    from portfolio.cli import _menu_decide
+
+    def fake_post(*a, **kw):
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "neutral verdict"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    # Three prompts in order: phone test (Enter), memory test (Enter), pick (b)
+    prompts = iter(["", "", "b"])
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: next(prompts))
+
+    rows = [_build_finalist_row("alpha")]
+    out = _menu_decide(rows, shortlist=["alpha"], tld_list=[".com"],
+                      max_price=20.0, topic="x", vocab_terms=[],
+                      brave_key="", openai_key="ok")
+    assert out is None
+
+
+def test_v4b_menu_decide_pick_returns_row_and_tld(monkeypatch):
+    """Walk steps, then pick row 1 → returns (row, tld)."""
+    from portfolio.cli import _menu_decide
+
+    def fake_post(*a, **kw):
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "neutral verdict"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    prompts = iter(["", "", "1"])  # phone, memory, pick row 1
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: next(prompts))
+
+    rows = [_build_finalist_row("alpha", pick_tld=".com")]
+    out = _menu_decide(rows, shortlist=["alpha"], tld_list=[".com"],
+                      max_price=20.0, topic="x", vocab_terms=[],
+                      brave_key="", openai_key="ok")
+    assert out is not None
+    row, tld = out
+    assert row.name == "alpha"
+    assert tld == ".com"
+
+
+def test_v4b_render_decide_table_includes_renewal_and_defense():
+    from portfolio.cli import _render_decide_table, console
+    rows = [_build_finalist_row("alpha", pick_tld=".xyz",
+                                 reg=2.0, renew=13.0)]
+    with console.capture() as cap:
+        _render_decide_table(rows, max_price=20.0)
+    out = cap.get()
+    assert "alpha" in out
+    assert "$2" in out
+    assert "$13" in out
+    # Renewal cliff: 13/2 = 6.5x → marker present
+    assert "↑" in out
+    # Defense: .com is available → "com avail"
+    assert ".com avail" in out
