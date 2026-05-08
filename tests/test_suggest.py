@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from portfolio import suggest
 from portfolio.suggest import (
@@ -1358,3 +1359,300 @@ def test_v3d_pipeline_dedupes_across_strategies():
 
     names = [r.name for r in rows]
     assert names.count("scrubsync") == 1
+
+
+# =============================================================================
+# v3.D — strict porn screen (3 layers)
+# =============================================================================
+
+from portfolio.suggest import (
+    LOCAL_PORN_BLOCKLIST,
+    MODERATION_THRESHOLD_SEXUAL,
+    MODERATION_THRESHOLD_SEXUAL_MINORS,
+    _screen_layer1,
+    _screen_layer2,
+    _screen_layer3,
+    screen_for_content_strict,
+)
+
+
+# ---------- Layer 1: local blocklist ----------
+
+
+def test_screen_layer1_blocks_obvious_terms():
+    names = ["pornhub", "xxxsite", "milfhub", "bdsmtools",
+             "smutbox", "nsfwapi", "fetishlab", "kinkbox",
+             "slutapp", "whorehub", "fucker", "cuntware",
+             "twatcorp", "fapdaily", "incestbox", "pedolab"]
+    kept, dropped = _screen_layer1(names)
+    assert kept == []
+    assert {n for n, _ in dropped} == set(names)
+    assert all(reason == "local" for _, reason in dropped)
+
+
+def test_screen_layer1_keeps_innocent_names():
+    names = ["scrubsync", "doffeasy", "handoffhub", "ppefit",
+             "gownsync", "coatlink", "shiftsafe", "badgehq"]
+    kept, dropped = _screen_layer1(names)
+    assert kept == names
+    assert dropped == []
+
+
+def test_screen_layer1_doesnt_block_essex_or_asset():
+    """Critical: short ambiguous terms (sex, ass, dick, tit) are NOT in the
+    local list. essex/asset/dictionary/title etc. must pass Layer 1."""
+    innocent = ["essex", "asset", "passport", "title", "dictionary",
+                "predict", "analysis", "moral", "peacock"]
+    kept, dropped = _screen_layer1(innocent)
+    assert kept == innocent
+    assert dropped == []
+
+
+# ---------- Layer 2: OpenAI moderation ----------
+
+
+def _moderation_response(scores_per_name):
+    """Build a fake OpenAI /v1/moderations response payload."""
+    fake = MagicMock()
+    fake.status_code = 200
+    fake.json.return_value = {
+        "results": [
+            {"flagged": False, "categories": {}, "category_scores": s}
+            for s in scores_per_name
+        ]
+    }
+    fake.raise_for_status = MagicMock()
+    return fake
+
+
+def test_screen_layer2_moderation_drops_high_sexual_score(monkeypatch):
+    fake = _moderation_response([
+        {"sexual": 0.01, "sexual/minors": 0.0},  # safe
+        {"sexual": 0.8, "sexual/minors": 0.0},   # drop
+    ])
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        kept, dropped = _screen_layer2(["alpha", "porny"], api_key="sk-fake")
+    assert kept == ["alpha"]
+    assert dropped == [("porny", "moderation")]
+
+
+def test_screen_layer2_keeps_low_sexual_score(monkeypatch):
+    fake = _moderation_response([{"sexual": 0.01, "sexual/minors": 0.0}])
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        kept, dropped = _screen_layer2(["alpha"], api_key="sk-fake")
+    assert kept == ["alpha"]
+    assert dropped == []
+
+
+def test_screen_layer2_threshold_at_0_05(monkeypatch):
+    """Boundary: sexual=0.04 keeps, sexual=0.06 drops."""
+    fake = _moderation_response([
+        {"sexual": 0.04, "sexual/minors": 0.0},  # under → keep
+        {"sexual": 0.06, "sexual/minors": 0.0},  # over → drop
+    ])
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        kept, dropped = _screen_layer2(["under", "over"], api_key="sk-fake")
+    assert kept == ["under"]
+    assert dropped == [("over", "moderation")]
+
+
+def test_screen_layer2_drops_minors_at_low_threshold(monkeypatch):
+    """sexual/minors threshold is 0.01 — much stricter than `sexual`."""
+    fake = _moderation_response([
+        {"sexual": 0.001, "sexual/minors": 0.005},  # both under
+        {"sexual": 0.001, "sexual/minors": 0.02},   # minors over → drop
+    ])
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        kept, dropped = _screen_layer2(["safe", "minorsbad"], api_key="sk-fake")
+    assert kept == ["safe"]
+    assert dropped == [("minorsbad", "moderation")]
+
+
+def test_screen_layer2_silently_continues_on_api_failure(monkeypatch):
+    with patch("portfolio.suggest.requests.post",
+               side_effect=ConnectionError("network down")):
+        kept, dropped = _screen_layer2(["alpha", "beta"], api_key="sk-fake")
+    assert kept == ["alpha", "beta"]
+    assert dropped == []
+
+
+def test_screen_layer2_silently_continues_on_http_500(monkeypatch):
+    fake = MagicMock(status_code=500)
+    fake.raise_for_status.side_effect = requests.HTTPError("500")
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        kept, dropped = _screen_layer2(["alpha"], api_key="sk-fake")
+    assert kept == ["alpha"]
+    assert dropped == []
+
+
+def test_screen_layer2_skipped_when_api_key_missing():
+    kept, dropped = _screen_layer2(["alpha", "beta"], api_key="")
+    assert kept == ["alpha", "beta"]
+    assert dropped == []
+
+
+# ---------- Layer 3: gpt-5-mini adjacency ----------
+
+
+def _layer3_response(text):
+    """Build a fake /v1/responses payload for the Layer 3 prompt."""
+    fake = MagicMock()
+    fake.status_code = 200
+    fake.json.return_value = {"output_text": text}
+    fake.raise_for_status = MagicMock()
+    return fake
+
+
+def test_screen_layer3_drops_when_llm_says_drop(monkeypatch):
+    fake = _layer3_response("scrubsync: KEEP\npornhub: DROP\n")
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        kept, dropped = _screen_layer3(["scrubsync", "pornhub"], api_key="sk-fake")
+    assert kept == ["scrubsync"]
+    assert dropped == [("pornhub", "adjacency")]
+
+
+def test_screen_layer3_keeps_when_llm_says_keep(monkeypatch):
+    fake = _layer3_response("alpha: KEEP\nbeta: KEEP\n")
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        kept, dropped = _screen_layer3(["alpha", "beta"], api_key="sk-fake")
+    assert kept == ["alpha", "beta"]
+    assert dropped == []
+
+
+def test_screen_layer3_silently_continues_on_api_failure(monkeypatch):
+    with patch("portfolio.suggest.requests.post",
+               side_effect=ConnectionError("down")):
+        kept, dropped = _screen_layer3(["alpha"], api_key="sk-fake")
+    assert kept == ["alpha"]
+    assert dropped == []
+
+
+def test_screen_layer3_handles_messy_llm_output(monkeypatch):
+    """Whitespace tolerance, missing entries default to KEEP, extra commentary
+    around the verdict word — all parsed safely."""
+    fake = _layer3_response(
+        "  scrubsync : KEEP \n"
+        "PORNHUB:DROP — well-known adult site\n"
+        "extra commentary here\n"
+        # 'unmentioned' is missing from output: defaults to KEEP
+    )
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        kept, dropped = _screen_layer3(
+            ["scrubsync", "pornhub", "unmentioned"], api_key="sk-fake"
+        )
+    assert "scrubsync" in kept
+    assert "unmentioned" in kept
+    assert ("pornhub", "adjacency") in dropped
+
+
+def test_screen_layer3_skipped_when_api_key_missing():
+    kept, dropped = _screen_layer3(["alpha"], api_key="")
+    assert kept == ["alpha"]
+    assert dropped == []
+
+
+# ---------- Pipeline / integration ----------
+
+
+def test_screen_pipeline_local_first_skips_apis(monkeypatch):
+    """A name caught by Layer 1 must never reach the API layers."""
+    api_calls = []
+
+    def track_post(url, **kw):
+        api_calls.append(url)
+        return MagicMock()  # would normally fail validation, but shouldn't be called
+
+    with patch("portfolio.suggest.requests.post", side_effect=track_post):
+        kept, dropped = screen_for_content_strict(["pornhub"], api_key="sk-fake")
+    # Local layer caught it; no APIs hit.
+    # (Layer 2/3 receive empty list and skip since `kept` is empty.)
+    assert kept == []
+    assert dropped == [("pornhub", "local")]
+    assert api_calls == []
+
+
+def test_screen_no_api_key_runs_layer1_only():
+    """With no api_key, only Layer 1 runs; Layers 2/3 are bypassed."""
+    kept, dropped = screen_for_content_strict(
+        ["pornhub", "scrubsync"], api_key="",
+    )
+    assert kept == ["scrubsync"]
+    assert dropped == [("pornhub", "local")]
+
+
+def test_screen_pipeline_calls_log_fn_when_dropping(monkeypatch):
+    """Single dim summary line; never lists flagged terms."""
+    logs = []
+    kept, dropped = screen_for_content_strict(
+        ["pornhub", "scrubsync"], api_key="",
+        log_fn=logs.append,
+    )
+    assert len(logs) == 1
+    assert "filtered" in logs[0].lower()
+    assert "pornhub" not in logs[0]  # don't display flagged terms
+    assert "1" in logs[0]
+
+
+def test_screen_pipeline_no_log_when_nothing_dropped():
+    logs = []
+    kept, dropped = screen_for_content_strict(
+        ["scrubsync", "doffeasy"], api_key="",
+        log_fn=logs.append,
+    )
+    assert logs == []
+    assert dropped == []
+
+
+def test_screen_thresholds_are_strict_constants():
+    """Sanity-pin the strict thresholds so a future refactor can't loosen
+    them silently."""
+    assert MODERATION_THRESHOLD_SEXUAL == 0.05
+    assert MODERATION_THRESHOLD_SEXUAL_MINORS == 0.01
+
+
+def test_local_blocklist_has_expected_terms():
+    expected = {"porn", "xxx", "milf", "bdsm", "smut", "nsfw",
+                "fetish", "kink", "slut", "whore", "fuck", "cunt",
+                "twat", "fap", "incest", "pedo"}
+    assert LOCAL_PORN_BLOCKLIST == expected
+
+
+def test_local_blocklist_excludes_short_ambiguous_terms():
+    """Critical: these short terms are deliberately NOT in the blocklist
+    (they substring into innocent words)."""
+    for term in ["sex", "ass", "dick", "tit", "anal", "oral", "cock"]:
+        assert term not in LOCAL_PORN_BLOCKLIST
+
+
+# ---------- brainstorm() integration ----------
+
+
+def test_brainstorm_calls_screen_after_extract(monkeypatch):
+    """brainstorm runs the screen on extracted names before returning."""
+    fake = MagicMock()
+    fake.json.return_value = {"output_text": "scrubsync\npornhub\n"}
+    fake.raise_for_status = MagicMock()
+
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        cands = brainstorm(
+            "idea", Strategy("trendy", "Trendy", "desc"),
+            history=[], api_key="sk-test",
+        )
+    names = [c.name for c in cands]
+    assert "scrubsync" in names
+    assert "pornhub" not in names  # caught by Layer 1
+
+
+def test_brainstorm_logs_filter_count_when_present(monkeypatch):
+    fake = MagicMock()
+    fake.json.return_value = {"output_text": "scrubsync\npornhub\n"}
+    fake.raise_for_status = MagicMock()
+
+    logs = []
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        cands = brainstorm(
+            "idea", Strategy("trendy", "Trendy", "desc"),
+            history=[], api_key="sk-test", log_fn=logs.append,
+        )
+    # The screen logs once when something was dropped.
+    assert any("filtered" in m.lower() for m in logs)

@@ -943,6 +943,16 @@ def _domain_suggest_validation(
         if not valid_names:
             console.print("[yellow]No valid names parsed — try again or press Enter to proceed.[/]")
             continue
+        # v3.D 2026-05-08: strict porn screen on user-supplied names too.
+        from .suggest import screen_for_content_strict
+        valid_names, screen_dropped = screen_for_content_strict(
+            valid_names, openai_key, log_fn=_log,
+        )
+        if screen_dropped:
+            console.print(f"[yellow]Filtered {len(screen_dropped)} of your name(s) (content policy)[/]")
+        if not valid_names:
+            console.print("[yellow]No valid names remained after the content screen — try again or press Enter to proceed.[/]")
+            continue
         console.print(f"[dim]Probing {len(valid_names)} user-supplied name(s)...[/]")
         user_cands = [Candidate(name=n, strategy="user") for n in valid_names]
         user_rows = build_grid(

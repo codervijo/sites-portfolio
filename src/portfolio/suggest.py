@@ -32,6 +32,47 @@ OPENAI_MODEL = "gpt-5-mini"
 OPENAI_TIMEOUT = 90.0
 DEFAULT_CANDIDATES_PER_STRATEGY = 12
 
+# v3.D 2026-05-08: strict 3-layer porn screen. Always-on; no opt-out flag.
+OPENAI_MODERATIONS_URL = "https://api.openai.com/v1/moderations"
+OPENAI_MODERATION_MODEL = "omni-moderation-latest"
+OPENAI_MODERATION_TIMEOUT = 30.0
+
+# Layer 1: substring blocklist. Each term either never appears in innocent
+# English words, or appears so rarely as a brand-name fragment that the
+# false-positive cost is acceptable. Short ambiguous terms (sex, ass, tit,
+# dick) are deliberately omitted — they substring into innocent words like
+# essex/asset/title/dictionary; Layer 2/3 catch those contextually.
+LOCAL_PORN_BLOCKLIST: frozenset[str] = frozenset({
+    "porn", "xxx", "milf", "bdsm", "smut", "nsfw",
+    "fetish", "kink", "slut", "whore", "fuck", "cunt",
+    "twat", "fap", "incest", "pedo",
+})
+
+# Layer 2: drop a name if its OpenAI moderation `category_scores` exceed
+# either threshold. Default flag threshold is ~0.5; we use a much stricter
+# 0.05 / 0.01 cut. No hate/violence filter — this is porn-only.
+MODERATION_THRESHOLD_SEXUAL = 0.05
+MODERATION_THRESHOLD_SEXUAL_MINORS = 0.01
+
+# Layer 3: gpt-5-mini adjacency + brand-collision check. The exact prompt
+# the user signed off on. Names are appended one-per-line at runtime.
+_LAYER3_ADJACENCY_PROMPT = """\
+For each name below, answer DROP if any of these apply:
+1. The name has any sexual, adult, or vulgar connotation in English or major \
+languages — even mild or indirect.
+2. The name is a misspelling, variant, or close phonetic/visual match of a \
+popular pornography site or adult brand (e.g. pornhub, xvideos, redtube, \
+xnxx, brazzers, youporn, etc.).
+3. The name shares the same stem as a popular adult site (would be a \
+different-TLD version of one).
+Otherwise KEEP. Be strict — when in doubt, DROP.
+
+Output one line per name in this exact format: <name>: DROP or <name>: KEEP
+
+Names:
+{names}
+"""
+
 # v3.D default ladder. .com .app .dev are the credible primaries; .xyz / .site / .co
 # are the cheap-validation lane; .ai / .io kept for power-user `--tlds` overrides.
 DEFAULT_TLDS = (".com", ".app", ".dev", ".xyz", ".site", ".co")
@@ -560,6 +601,142 @@ def _extract_names(text: str) -> list[str]:
     return out
 
 
+# ---------- v3.D strict porn screen (3 layers) ----------
+
+
+def _screen_layer1(names: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
+    """Substring match against LOCAL_PORN_BLOCKLIST. Returns (kept, dropped)."""
+    kept: list[str] = []
+    dropped: list[tuple[str, str]] = []
+    for n in names:
+        lo = n.lower()
+        if any(term in lo for term in LOCAL_PORN_BLOCKLIST):
+            dropped.append((n, "local"))
+        else:
+            kept.append(n)
+    return kept, dropped
+
+
+def _screen_layer2(names: list[str], api_key: str) -> tuple[list[str], list[tuple[str, str]]]:
+    """OpenAI moderation API. Drops names whose `sexual` or `sexual/minors`
+    category_score exceeds the strict thresholds. Silently passes through on
+    any API failure (returns input list unchanged)."""
+    if not names or not api_key:
+        return list(names), []
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    body = {"model": OPENAI_MODERATION_MODEL, "input": list(names)}
+    try:
+        r = requests.post(OPENAI_MODERATIONS_URL, headers=headers, json=body,
+                          timeout=OPENAI_MODERATION_TIMEOUT)
+        r.raise_for_status()
+        payload = r.json()
+    except Exception:
+        return list(names), []
+    results = payload.get("results")
+    if not isinstance(results, list) or len(results) != len(names):
+        return list(names), []
+    kept: list[str] = []
+    dropped: list[tuple[str, str]] = []
+    for name, res in zip(names, results):
+        if not isinstance(res, dict):
+            kept.append(name)
+            continue
+        scores = res.get("category_scores") or {}
+        sexual = scores.get("sexual", 0) or 0
+        minors = scores.get("sexual/minors", 0) or 0
+        try:
+            sexual_f = float(sexual)
+            minors_f = float(minors)
+        except (TypeError, ValueError):
+            kept.append(name)
+            continue
+        if sexual_f > MODERATION_THRESHOLD_SEXUAL or minors_f > MODERATION_THRESHOLD_SEXUAL_MINORS:
+            dropped.append((name, "moderation"))
+        else:
+            kept.append(name)
+    return kept, dropped
+
+
+def _screen_layer3(names: list[str], api_key: str) -> tuple[list[str], list[tuple[str, str]]]:
+    """gpt-5-mini adjacency + adult-brand-collision check. Sends the candidate
+    list with the locked prompt, parses DROP/KEEP per name. Silently passes
+    through on any API failure (returns input list unchanged). Names not
+    explicitly DROP'd by the model default to KEEP."""
+    if not names or not api_key:
+        return list(names), []
+    prompt = _LAYER3_ADJACENCY_PROMPT.format(names="\n".join(names))
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    body = {"model": OPENAI_MODEL, "input": prompt}
+    try:
+        r = requests.post(OPENAI_RESPONSES_URL, headers=headers, json=body, timeout=OPENAI_TIMEOUT)
+        r.raise_for_status()
+        text = _parse_openai_text(r.json())
+    except Exception:
+        return list(names), []
+    if not text:
+        return list(names), []
+    # Parse "<name>: DROP" / "<name>: KEEP" lines (case-insensitive, whitespace-tolerant)
+    flagged: set[str] = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if ":" not in line:
+            continue
+        name_part, _, verdict = line.partition(":")
+        name_lo = name_part.strip().lower()
+        verdict_up = verdict.strip().upper()
+        if not name_lo:
+            continue
+        # Match the verdict word at the start (be tolerant of trailing commentary)
+        if verdict_up.startswith("DROP"):
+            flagged.add(name_lo)
+    kept: list[str] = []
+    dropped: list[tuple[str, str]] = []
+    for n in names:
+        if n.lower() in flagged:
+            dropped.append((n, "adjacency"))
+        else:
+            kept.append(n)
+    return kept, dropped
+
+
+def screen_for_content_strict(
+    names: list[str],
+    api_key: str,
+    log_fn=None,
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """v3.D: strict 3-layer porn / adult-content screen.
+
+    Always-on; no opt-out. Layers run cheapest-first; a name dropped at any
+    layer never reaches the next:
+
+      1. Local blocklist (substring match, instant, offline)
+      2. OpenAI moderation API (free, batched; sexual category, strict
+         thresholds — 0.05 sexual, 0.01 sexual/minors)
+      3. gpt-5-mini adjacency check (catches subtle cases + misspellings or
+         different-TLD variants of popular adult brands)
+
+    Layers 2 and 3 silently pass through on API failure (no key, network
+    error, bad payload) — the brainstorm pipeline never breaks because of
+    the screen. Layer 1 always runs.
+
+    Returns `(kept, dropped_with_reasons)`. Each dropped entry is
+    `(name, "local" | "moderation" | "adjacency")`.
+
+    `log_fn(msg)` if provided is called once with a single dim summary line
+    (does not list flagged terms — those don't get displayed).
+    """
+    kept, dropped1 = _screen_layer1(names)
+    kept, dropped2 = _screen_layer2(kept, api_key)
+    kept, dropped3 = _screen_layer3(kept, api_key)
+    dropped = dropped1 + dropped2 + dropped3
+    if dropped and log_fn is not None:
+        log_fn(f"  filtered {len(dropped)} name(s) (content)")
+    return kept, dropped
+
+
+# ---------- brainstorm ----------
+
+
 def brainstorm(
     idea: str,
     strategy: Strategy,
@@ -567,11 +744,15 @@ def brainstorm(
     api_key: str,
     n: int = DEFAULT_CANDIDATES_PER_STRATEGY,
     vocab_terms: list[str] | None = None,
+    log_fn=None,
 ) -> list[Candidate]:
     """Single brainstorm call. Returns Candidate objects (no scoring yet — that's per TLD).
 
     v3.D: when `vocab_terms` is non-empty, the prompt receives a must-reference
     (or inspiration-only) anchor block depending on `strategy.require_anchors`.
+
+    v3.D 2026-05-08: every brainstormed name passes through `screen_for_content_strict`
+    before being returned. Always-on; no opt-out.
     """
     prompt = _brainstorm_prompt(idea, strategy, history, n, vocab_terms=vocab_terms)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -581,13 +762,15 @@ def brainstorm(
     text = _parse_openai_text(r.json())
     names = _extract_names(text)
     seen = set(history)
-    out: list[Candidate] = []
+    deduped: list[str] = []
     for n_ in names:
         if n_ in seen:
             continue
         seen.add(n_)
-        out.append(Candidate(name=n_, strategy=strategy.name))
-    return out
+        deduped.append(n_)
+    # Strict 3-layer porn screen — always-on, no opt-out.
+    kept, _dropped = screen_for_content_strict(deduped, api_key, log_fn=log_fn)
+    return [Candidate(name=k, strategy=strategy.name) for k in kept]
 
 
 def _normalize_avail_check(avail_check):
@@ -1036,7 +1219,8 @@ def run_validation_pipeline(
             continue
         log(f"strategy '{s.name}': brainstorming...")
         try:
-            cands = brainstorm(topic, s, history, api_key, n=n_per_strategy, vocab_terms=vocab_terms)
+            cands = brainstorm(topic, s, history, api_key, n=n_per_strategy,
+                               vocab_terms=vocab_terms, log_fn=log_fn)
         except Exception as e:
             log(f"strategy '{s.name}': failed ({e})")
             continue
