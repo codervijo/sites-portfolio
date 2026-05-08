@@ -1010,8 +1010,11 @@ def build_grid(
             anchors_matched=anchors,
         ))
 
-    # Sort: score desc, anchor count desc, length asc (shorter wins ties).
-    rows.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
+    # v4.A 2026-05-08: grid sorts alphabetically by name for the finalists
+    # workflow (scan-by-leading-letter beats scan-by-rank when you're building
+    # a shortlist). Score is still computed and exposed on the row; only the
+    # display order changes.
+    rows.sort(key=lambda r: r.name.lower())
     return rows
 
 

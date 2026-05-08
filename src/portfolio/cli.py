@@ -796,16 +796,23 @@ def parse_expand_input(s: str, rows) -> tuple[int | None, str | None]:
 # prompts (was N | N.tld | eN | "Add your own names?" auto-loop) with a
 # numbered chooser. Re-shown after every non-terminating action; only
 # successful registration or `q` exits.
-# v3.E menu items. Slots 3, 4, 6, 7 are reserved for v4.A features
-# (finalists, ask AI, widen) — when those land, MENU_ITEMS gets the
-# corresponding entries inserted in those positions. Stable numbering
-# preserves muscle memory across the v3 → v4 transition.
+# Menu items. (key, label, coming_soon). Slots 3 and 4 are reserved for
+# v4.C (ask AI, widen) and not present yet. Slot 7 (decide from shortlist)
+# is stubbed in v4.A as coming-soon for v4.B; slot 6 (mark/unmark shortlist)
+# is active in v4.A. Stable numbering preserves muscle memory across phases.
 MENU_ITEMS = [
     ("1", "Pick a row to register",                    False),
     ("2", "Expand a row (full-ladder detail)",         False),
     ("5", "Add my own names to the grid",              False),
+    ("6", "Mark / unmark for shortlist",               False),
+    ("7", "Decide from shortlist",                     True),  # v4.B
     ("8", "Show TLD reference (pricing, SEO, vibe)",   False),
 ]
+
+
+COMING_SOON_HINTS = {
+    "7": "Decide from shortlist is coming in v4.B — pick another option.",
+}
 
 
 # v3.E 2026-05-08: per-TLD reference card. Surfaced via menu option 8 so the
@@ -995,15 +1002,23 @@ def _render_tld_reference() -> None:
     console.print(f"[dim]{TLD_REFERENCE_SUMMARY}[/]")
 
 
-def _render_menu() -> None:
+def _render_menu(shortlist_count: int = 0) -> None:
+    """Render the post-grid menu. When shortlist_count > 0, item 6's label
+    gets a "(N marked)" suffix so the user can see at a glance how big their
+    finalists list has grown."""
     console.print("\n[bold]What do you want to do next?[/]")
-    for key, label, _ in MENU_ITEMS:
-        console.print(f"  {key}. {label}")
+    for key, label, coming_soon in MENU_ITEMS:
+        line = f"  {key}. {label}"
+        if key == "6" and shortlist_count > 0:
+            line += f" ({shortlist_count} marked)"
+        if coming_soon:
+            line += "  [dim](coming soon)[/]"
+        console.print(line)
     console.print("  q. Quit")
 
 
 def _menu_keys_hint() -> str:
-    """Format the active menu keys for the bad-input hint, e.g. '1, 2, 5, 8'."""
+    """Format the menu keys for the bad-input hint, e.g. '1, 2, 5, 6, 7, 8'."""
     return ", ".join(k for k, _, _ in MENU_ITEMS)
 
 
@@ -1050,6 +1065,105 @@ def _menu_expand(rows, tld_list, max_price, show_renewal):
     return _expand_and_pick(rows[idx], tld_list, max_price, show_renewal=show_renewal)
 
 
+def parse_shortlist_input(s: str, rows) -> tuple[str | None, str | None, str | None]:
+    """Parse a shortlist sub-prompt input. Returns `(action, name, error)`.
+
+    Accepts:
+      - `m N` / `m <name>` → ("mark", name, None)
+      - `u N` / `u <name>` → ("unmark", name, None)
+      - `p` → ("print", None, None)
+      - empty / `b` → ("back", None, None)
+
+    Resolves row-number to name via the rows list. Validates that names exist
+    in the rows (case-insensitive). Returns ("error", None, "...") on any
+    parse failure.
+    """
+    s = s.strip().lower()
+    if not s or s == "b":
+        return "back", None, None
+    if s == "p":
+        return "print", None, None
+    parts = s.split(None, 1)
+    if len(parts) != 2:
+        return None, None, f"'{s}': expected `m N`, `m <name>`, `u N`, `u <name>`, `p`, or `b`"
+    verb, target = parts[0], parts[1].strip()
+    if verb not in ("m", "u"):
+        return None, None, f"unknown verb '{verb}' — use m, u, p, or b"
+    if not target:
+        return None, None, f"missing target after '{verb}'"
+    # Resolve row index → name
+    if target.isdigit():
+        idx = int(target) - 1
+        if idx < 0 or idx >= len(rows):
+            return None, None, f"row {target} out of range (1-{len(rows)})"
+        name = rows[idx].name
+    else:
+        # Resolve by name (exact, case-insensitive). Strip optional .tld suffix.
+        name_part = target.split(".", 1)[0] if "." in target else target
+        match = next((r for r in rows if r.name.lower() == name_part), None)
+        if match is None:
+            return None, None, f"no row matches '{name_part}'"
+        name = match.name
+    action = "mark" if verb == "m" else "unmark"
+    return action, name, None
+
+
+def _print_shortlist(shortlist: list[str], rows) -> None:
+    """Pretty-print the current shortlist with each finalist's pick TLD + price."""
+    if not shortlist:
+        console.print("[yellow]Shortlist is empty.[/]")
+        return
+    console.print(f"\n[bold]Shortlist ({len(shortlist)}):[/]")
+    by_name = {r.name: r for r in rows}
+    for i, name in enumerate(shortlist, 1):
+        row = by_name.get(name)
+        if row is None:
+            console.print(f"  {i}. {name}  [dim](not in current grid)[/]")
+            continue
+        pick = row.pick_label or "-"
+        # Surface the price of the picked TLD if known.
+        price_s = ""
+        if row.pick_tld:
+            cell = row.cells.get(row.pick_tld)
+            if cell and cell.price is not None:
+                price_s = f"  ${cell.price:.0f}"
+        console.print(f"  {i}. [bold]{name}[/]  Pick: [cyan]{pick}[/]{price_s}")
+
+
+def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
+    """Sub-prompt for menu option 6. Single action per invocation (consistent
+    with other menu options); the outer menu loop re-shows after each action.
+    Returns the (possibly-modified) shortlist."""
+    sub = typer.prompt(
+        "Action? (m N | m <name> | u N | u <name> | p list | b back)",
+        default="", show_default=False,
+    )
+    action, name, err = parse_shortlist_input(sub, rows)
+    if err:
+        console.print(f"[red]{err}[/]")
+        return shortlist
+    if action == "back":
+        return shortlist
+    if action == "print":
+        _print_shortlist(shortlist, rows)
+        return shortlist
+    if action == "mark":
+        if name in shortlist:
+            console.print(f"[yellow]{name} is already on the shortlist.[/]")
+            return shortlist
+        new_shortlist = shortlist + [name]
+        console.print(f"[green]✓[/] Marked [bold]{name}[/]  ({len(new_shortlist)} marked)")
+        return new_shortlist
+    if action == "unmark":
+        if name not in shortlist:
+            console.print(f"[yellow]{name} is not on the shortlist.[/]")
+            return shortlist
+        new_shortlist = [n for n in shortlist if n != name]
+        console.print(f"[green]✓[/] Unmarked [bold]{name}[/]  ({len(new_shortlist)} marked)")
+        return new_shortlist
+    return shortlist  # unreachable
+
+
 def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,
                     max_price, pricing_dict, avail_fn, show_renewal, log_fn):
     """Sub-prompt for menu option 5. Returns the (possibly-merged) rows list.
@@ -1091,7 +1205,8 @@ def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,
         return rows
     user_names = {r.name for r in user_rows}
     merged = user_rows + [r for r in rows if r.name not in user_names]
-    merged.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
+    # v4.A: alphabetical, matching build_grid.
+    merged.sort(key=lambda r: r.name.lower())
     _render_grid(merged, tld_list, show_renewal=show_renewal)
     return merged
 
@@ -1230,10 +1345,13 @@ def _domain_suggest_validation(
     # v3.E 2026-05-08: post-grid menu. Replaces the inline pick + add-names
     # loops. Re-shown after every non-terminating action; terminates only on
     # successful pick (→ post_pick_flow) or `q`.
+    # v4.A 2026-05-08: shortlist persists across menu iterations (list of
+    # names, so it survives grid mutations from add-names / future widen).
     selected_row = None
     selected_tld = None
+    shortlist: list[str] = []
     while selected_row is None:
-        _render_menu()
+        _render_menu(shortlist_count=len(shortlist))
         choice = typer.prompt(">", default="", show_default=False).strip().lower()
         if choice == "q":
             console.print("[yellow]No domain selected.[/]")
@@ -1261,8 +1379,14 @@ def _domain_suggest_validation(
                 avail_fn=avail_fn, show_renewal=show_renewal, log_fn=_log,
             )
             continue
+        if choice == "6":
+            shortlist = _menu_shortlist(rows, shortlist)
+            continue
         if choice == "8":
             _render_tld_reference()
+            continue
+        if choice in COMING_SOON_HINTS:
+            console.print(f"[dim]{COMING_SOON_HINTS[choice]}[/]")
             continue
         console.print(f"[red]Type {_menu_keys_hint()} or q.[/]")
 

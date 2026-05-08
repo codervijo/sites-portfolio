@@ -1264,6 +1264,9 @@ def test_v3d_build_grid_populates_anchors_matched():
 
 
 def test_v3d_build_grid_ranks_multi_anchor_above_single_anchor():
+    """Score still rewards multi-anchor names (used by v4.B decide flow).
+    v4.A flipped the grid display to alphabetical, so we assert on the score
+    field directly rather than display order."""
     cands = [
         Candidate(name="scrubsync", strategy="t"),  # 1 anchor
         Candidate(name="scrubsfit", strategy="t"),  # 2 anchors
@@ -1274,9 +1277,9 @@ def test_v3d_build_grid_ranks_multi_anchor_above_single_anchor():
     rows = build_grid(cands, "x", [".com", ".app"], _build_avail(avail),
                       max_price=20.0,
                       vocab_terms=["scrubs", "fit"])
-    # Order: scrubsfit (2 anchors) > scrubsync (1) > flowsync (0)
-    names = [r.name for r in rows]
-    assert names == ["scrubsfit", "scrubsync", "flowsync"]
+    by_name = {r.name: r for r in rows}
+    assert by_name["scrubsfit"].score > by_name["scrubsync"].score
+    assert by_name["scrubsync"].score > by_name["flowsync"].score
 
 
 def test_v3d_build_grid_length_breaks_score_ties():
@@ -1663,44 +1666,280 @@ def test_brainstorm_logs_filter_count_when_present(monkeypatch):
 # =============================================================================
 
 
-def test_v3e_menu_items_only_active_features():
-    """v3.E ships menu slots 1, 2, 5, 8 only; 3/4/6/7 are reserved for v4.A
-    (finalists / ask AI / widen) and not present in MENU_ITEMS yet."""
+def test_v3e_menu_items_v4a_lineup():
+    """v4.A adds menu slots 6 (active mark/unmark) and 7 (coming-soon stub
+    for v4.B decide). Slots 3 and 4 still reserved for v4.C."""
     from portfolio.cli import MENU_ITEMS
     keys = [k for k, _, _ in MENU_ITEMS]
-    assert keys == ["1", "2", "5", "8"]
+    assert keys == ["1", "2", "5", "6", "7", "8"]
 
 
-def test_v3e_menu_items_all_active():
-    """Every entry in MENU_ITEMS for v3.E is active (no coming-soon stubs)."""
+def test_v3e_menu_items_only_seven_is_coming_soon():
+    """v4.A: only item 7 (decide) carries the coming-soon flag."""
     from portfolio.cli import MENU_ITEMS
-    for _, _, coming_soon in MENU_ITEMS:
-        assert coming_soon is False
+    by_key = {k: cs for k, _, cs in MENU_ITEMS}
+    assert by_key["1"] is False
+    assert by_key["2"] is False
+    assert by_key["5"] is False
+    assert by_key["6"] is False
+    assert by_key["7"] is True   # v4.B
+    assert by_key["8"] is False
 
 
 def test_v3e_menu_keys_hint_format():
     """The bad-input hint is generated from MENU_ITEMS — keeps in sync."""
     from portfolio.cli import _menu_keys_hint
-    assert _menu_keys_hint() == "1, 2, 5, 8"
+    assert _menu_keys_hint() == "1, 2, 5, 6, 7, 8"
 
 
 def test_v3e_render_menu_includes_active_items_and_quit():
-    """Snapshot-ish: _render_menu prints the four active items + 'q. Quit'."""
+    """Snapshot-ish: _render_menu prints all six items + 'q. Quit'."""
     from portfolio.cli import _render_menu, console
     with console.capture() as cap:
         _render_menu()
     out = cap.get()
-    for key in ("1.", "2.", "5.", "8.", "q."):
+    for key in ("1.", "2.", "5.", "6.", "7.", "8.", "q."):
         assert key in out
 
 
-def test_v3e_render_menu_does_not_show_coming_soon():
-    """v3.E menu has no '(coming soon)' annotation since stubs were dropped."""
+def test_v3e_render_menu_marks_seven_as_coming_soon():
+    """Item 7 carries the (coming soon) annotation; items 1/2/5/6/8 do not."""
     from portfolio.cli import _render_menu, console
     with console.capture() as cap:
         _render_menu()
     out = cap.get()
-    assert "coming soon" not in out
+    # Exactly one (coming soon) annotation in v4.A.
+    assert out.count("coming soon") == 1
+    # Verify it's attached to line 7 by checking that line.
+    assert "7. Decide from shortlist" in out
+
+
+# =============================================================================
+# v4.A — alphabetical grid sort + shortlist mark/unmark
+# =============================================================================
+
+
+def test_v4a_grid_sorts_alphabetically_by_name():
+    """v4.A: build_grid output is ordered by name ascending, not by score."""
+    cands = [
+        Candidate(name="zulu", strategy="t"),
+        Candidate(name="alpha", strategy="t"),
+        Candidate(name="mike", strategy="t"),
+    ]
+    avail = {f"{c.name}{t}": (True, 11.0)
+             for c in cands for t in (".com", ".app")}
+    rows = build_grid(cands, "x", [".com", ".app"], _build_avail(avail), max_price=20.0)
+    names = [r.name for r in rows]
+    assert names == ["alpha", "mike", "zulu"]
+
+
+def test_v4a_grid_alphabetical_is_case_insensitive():
+    """Sort key uses .lower() so Zebra doesn't sort before alpha."""
+    cands = [Candidate(name="Zebra", strategy="t"),
+             Candidate(name="alpha", strategy="t")]
+    avail = {f"{c.name}{t}": (True, 11.0)
+             for c in cands for t in (".com",)}
+    rows = build_grid(cands, "x", [".com"], _build_avail(avail), max_price=20.0)
+    assert [r.name for r in rows] == ["alpha", "Zebra"]
+
+
+# ---------- parse_shortlist_input ----------
+
+
+def test_v4a_parse_shortlist_mark_by_row_number():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t")]
+    action, name, err = parse_shortlist_input("m 2", rows)
+    assert err is None
+    assert action == "mark"
+    assert name == "beta"
+
+
+def test_v4a_parse_shortlist_mark_by_name():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t")]
+    action, name, err = parse_shortlist_input("m alpha", rows)
+    assert err is None
+    assert action == "mark"
+    assert name == "alpha"
+
+
+def test_v4a_parse_shortlist_unmark_by_row_number():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, name, err = parse_shortlist_input("u 1", rows)
+    assert err is None
+    assert action == "unmark"
+    assert name == "alpha"
+
+
+def test_v4a_parse_shortlist_print_action():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, _, err = parse_shortlist_input("p", rows)
+    assert err is None
+    assert action == "print"
+
+
+def test_v4a_parse_shortlist_back_action():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, _, err = parse_shortlist_input("b", rows)
+    assert err is None
+    assert action == "back"
+
+
+def test_v4a_parse_shortlist_empty_input_treated_as_back():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, _, err = parse_shortlist_input("", rows)
+    assert err is None
+    assert action == "back"
+
+
+def test_v4a_parse_shortlist_strips_tld_suffix_from_name():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, name, err = parse_shortlist_input("m alpha.com", rows)
+    assert err is None
+    assert action == "mark"
+    assert name == "alpha"
+
+
+def test_v4a_parse_shortlist_row_out_of_range_errors():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, _, err = parse_shortlist_input("m 99", rows)
+    assert action is None
+    assert err is not None
+    assert "out of range" in err
+
+
+def test_v4a_parse_shortlist_unknown_name_errors():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, _, err = parse_shortlist_input("m beta", rows)
+    assert action is None
+    assert err is not None
+    assert "no row matches" in err
+
+
+def test_v4a_parse_shortlist_unknown_verb_errors():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, _, err = parse_shortlist_input("x alpha", rows)
+    assert action is None
+    assert err is not None
+
+
+# ---------- _menu_shortlist (state-mutating helper) ----------
+
+
+def test_v4a_menu_shortlist_marks_name():
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="m beta"):
+        new = _menu_shortlist(rows, [])
+    assert new == ["beta"]
+
+
+def test_v4a_menu_shortlist_unmarks_name():
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="u alpha"):
+        new = _menu_shortlist(rows, ["alpha", "beta"])
+    assert new == ["beta"]
+
+
+def test_v4a_menu_shortlist_double_mark_is_idempotent():
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="m alpha"):
+        new = _menu_shortlist(rows, ["alpha"])
+    # Already marked → no change, no duplicate
+    assert new == ["alpha"]
+
+
+def test_v4a_menu_shortlist_unmark_when_not_marked_is_noop():
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="u alpha"):
+        new = _menu_shortlist(rows, [])
+    assert new == []
+
+
+def test_v4a_menu_shortlist_back_returns_unchanged():
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="b"):
+        new = _menu_shortlist(rows, ["alpha"])
+    assert new == ["alpha"]
+
+
+def test_v4a_menu_shortlist_print_does_not_modify():
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="p"):
+        new = _menu_shortlist(rows, ["alpha"])
+    assert new == ["alpha"]
+
+
+def test_v4a_render_menu_shows_shortlist_count_when_nonzero():
+    """Item 6's label gets a "(N marked)" suffix when shortlist is non-empty."""
+    from portfolio.cli import _render_menu, console
+    with console.capture() as cap:
+        _render_menu(shortlist_count=3)
+    out = cap.get()
+    assert "(3 marked)" in out
+
+
+def test_v4a_render_menu_no_count_suffix_when_empty():
+    from portfolio.cli import _render_menu, console
+    with console.capture() as cap:
+        _render_menu(shortlist_count=0)
+    out = cap.get()
+    assert "marked)" not in out
+
+
+def test_v4a_print_shortlist_handles_empty():
+    """_print_shortlist prints a graceful message for empty list."""
+    from portfolio.cli import _print_shortlist, console
+    with console.capture() as cap:
+        _print_shortlist([], [])
+    out = cap.get()
+    assert "empty" in out.lower()
+
+
+def test_v4a_print_shortlist_renders_finalists_with_pick():
+    from portfolio.cli import _print_shortlist, console
+    from portfolio.suggest import GridRow, CellState
+    rows = [
+        GridRow(name="alpha", strategy="t",
+                pick_tld=".com", pick_label=".com",
+                cells={".com": CellState(domain="alpha.com",
+                                          available=True, price=11.0)}),
+    ]
+    with console.capture() as cap:
+        _print_shortlist(["alpha"], rows)
+    out = cap.get()
+    assert "alpha" in out
+    assert ".com" in out
+    assert "$11" in out
+
+
+def test_v4a_print_shortlist_handles_orphaned_name():
+    """If a shortlisted name is no longer in the grid (rare edge case after
+    aggressive grid mutations), surface it gracefully."""
+    from portfolio.cli import _print_shortlist, console
+    with console.capture() as cap:
+        _print_shortlist(["ghost"], [])
+    out = cap.get()
+    assert "ghost" in out
+    assert "not in current grid" in out
 
 
 # ---------- _menu_pick ----------
