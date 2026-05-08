@@ -1775,12 +1775,15 @@ def test_v4a_parse_shortlist_unmark_by_row_number():
     assert names == ["alpha"]
 
 
-def test_v4a_parse_shortlist_print_action():
+def test_v4a_parse_shortlist_p_no_longer_special_action():
+    """v4.A polish: explicit 'p' is gone. A bare 'p' falls through to
+    implicit-mark of target 'p' (which won't resolve)."""
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, _, errs = parse_shortlist_input("p", rows)
-    assert errs == []
-    assert action == "print"
+    action, names, errs = parse_shortlist_input("p", rows)
+    assert action == "mark"
+    assert names == []
+    assert any("no row matches" in e for e in errs)
 
 
 def test_v4a_parse_shortlist_back_action():
@@ -2003,12 +2006,22 @@ def test_v4a_menu_shortlist_back_returns_unchanged():
     assert new == ["alpha"]
 
 
-def test_v4a_menu_shortlist_print_does_not_modify():
+def test_v4a_menu_shortlist_auto_prints_on_entry():
+    """Selecting menu 6 auto-prints the current shortlist before prompting,
+    so the user doesn't have to type 'p' to see their state."""
     from portfolio.cli import _menu_shortlist
     rows = [GridRow(name="alpha", strategy="t")]
-    with patch("portfolio.cli.typer.prompt", return_value="p"):
-        new = _menu_shortlist(rows, ["alpha"])
-    assert new == ["alpha"]
+    captured = {}
+    real_print = __import__("portfolio.cli", fromlist=["_print_shortlist"])._print_shortlist
+
+    def fake_print(short, rs):
+        captured["called"] = True
+        return real_print(short, rs)
+
+    with patch("portfolio.cli._print_shortlist", side_effect=fake_print), \
+         patch("portfolio.cli.typer.prompt", return_value="b"):
+        _menu_shortlist(rows, ["alpha"])
+    assert captured.get("called") is True
 
 
 def test_v4a_render_menu_shows_shortlist_count_when_nonzero():

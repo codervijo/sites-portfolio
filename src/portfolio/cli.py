@@ -1071,7 +1071,6 @@ def parse_shortlist_input(s: str, rows) -> tuple[str | None, list[str], list[str
     Accepts (single OR multi-target; comma- and/or whitespace-separated):
       - `m N` / `m N1 N2 ...` / `m alpha beta` → ("mark", [...], [...])
       - `u N` / `u N1, N2`                      → ("unmark", [...], [...])
-      - `p` → ("print", [], [])
       - empty / `b` → ("back", [], [])
       - **bare targets without a verb** → implicit mark, e.g. `39 18`
         becomes `("mark", ["row39name", "row18name"], [])`.
@@ -1080,12 +1079,14 @@ def parse_shortlist_input(s: str, rows) -> tuple[str | None, list[str], list[str
     list while valid targets accumulate in names — partial successes succeed.
     A pure parse failure (missing targets after `m`/`u`) returns
     `(None, [], [error])`.
+
+    Note: the `p` (print) action was removed in v4.A polish — the shortlist
+    is auto-printed when the user enters the sub-prompt, so an explicit
+    print verb is redundant.
     """
     s = s.strip().lower()
     if not s or s == "b":
         return "back", [], []
-    if s == "p":
-        return "print", [], []
     parts = s.split(None, 1)
     first = parts[0]
     if first in ("m", "u"):
@@ -1146,10 +1147,15 @@ def _print_shortlist(shortlist: list[str], rows) -> None:
 def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
     """Sub-prompt for menu option 6. Multi-target per invocation
     (`m 5 7 12` or `m 5,7,12` marks three at once). The outer menu loop
-    re-shows after each action. Returns the (possibly-modified) shortlist."""
+    re-shows after each action. Returns the (possibly-modified) shortlist.
+
+    v4.A polish 2026-05-08: the current shortlist is auto-printed on entry
+    so the user always knows their state before deciding what to do.
+    """
+    _print_shortlist(shortlist, rows)
     sub = typer.prompt(
         "Action? (just type N or names to mark, e.g. '39 18' or 'alpha beta'; "
-        "u to unmark, p to list, b to back)",
+        "u to unmark, b to back)",
         default="", show_default=False,
     )
     action, names, errors = parse_shortlist_input(sub, rows)
@@ -1158,9 +1164,6 @@ def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
     if action is None:
         return shortlist
     if action == "back":
-        return shortlist
-    if action == "print":
-        _print_shortlist(shortlist, rows)
         return shortlist
     if action == "mark":
         new = list(shortlist)
