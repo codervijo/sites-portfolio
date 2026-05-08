@@ -1065,47 +1065,53 @@ def _menu_expand(rows, tld_list, max_price, show_renewal):
     return _expand_and_pick(rows[idx], tld_list, max_price, show_renewal=show_renewal)
 
 
-def parse_shortlist_input(s: str, rows) -> tuple[str | None, str | None, str | None]:
-    """Parse a shortlist sub-prompt input. Returns `(action, name, error)`.
+def parse_shortlist_input(s: str, rows) -> tuple[str | None, list[str], list[str]]:
+    """Parse a shortlist sub-prompt input. Returns `(action, names, errors)`.
 
-    Accepts:
-      - `m N` / `m <name>` → ("mark", name, None)
-      - `u N` / `u <name>` → ("unmark", name, None)
-      - `p` → ("print", None, None)
-      - empty / `b` → ("back", None, None)
+    Accepts (single OR multi-target; comma- and/or whitespace-separated):
+      - `m N` / `m N1 N2 ...` / `m alpha beta` → ("mark", [...], [...])
+      - `u N` / `u N1, N2`                      → ("unmark", [...], [...])
+      - `p` → ("print", [], [])
+      - empty / `b` → ("back", [], [])
 
-    Resolves row-number to name via the rows list. Validates that names exist
-    in the rows (case-insensitive). Returns ("error", None, "...") on any
-    parse failure.
+    Per-target errors (out-of-range, unknown name) accumulate in the errors
+    list while valid targets accumulate in names — partial successes succeed.
+    A pure parse failure (unknown verb / missing targets) returns
+    `(None, [], [error])`.
     """
     s = s.strip().lower()
     if not s or s == "b":
-        return "back", None, None
+        return "back", [], []
     if s == "p":
-        return "print", None, None
+        return "print", [], []
     parts = s.split(None, 1)
-    if len(parts) != 2:
-        return None, None, f"'{s}': expected `m N`, `m <name>`, `u N`, `u <name>`, `p`, or `b`"
-    verb, target = parts[0], parts[1].strip()
+    if len(parts) < 2:
+        return None, [], [f"'{s}': expected `m N`, `m <name>`, `u N`, `u <name>`, `p`, or `b`"]
+    verb, rest = parts[0], parts[1].strip()
     if verb not in ("m", "u"):
-        return None, None, f"unknown verb '{verb}' — use m, u, p, or b"
-    if not target:
-        return None, None, f"missing target after '{verb}'"
-    # Resolve row index → name
-    if target.isdigit():
-        idx = int(target) - 1
-        if idx < 0 or idx >= len(rows):
-            return None, None, f"row {target} out of range (1-{len(rows)})"
-        name = rows[idx].name
-    else:
-        # Resolve by name (exact, case-insensitive). Strip optional .tld suffix.
-        name_part = target.split(".", 1)[0] if "." in target else target
-        match = next((r for r in rows if r.name.lower() == name_part), None)
-        if match is None:
-            return None, None, f"no row matches '{name_part}'"
-        name = match.name
+        return None, [], [f"unknown verb '{verb}' — use m, u, p, or b"]
+    # Tokenize targets — accept comma OR whitespace separators.
+    targets = [t for t in re.split(r"[,\s]+", rest) if t]
+    if not targets:
+        return None, [], [f"missing target(s) after '{verb}'"]
+    resolved: list[str] = []
+    errors: list[str] = []
+    for target in targets:
+        if target.isdigit():
+            idx = int(target) - 1
+            if idx < 0 or idx >= len(rows):
+                errors.append(f"row {target} out of range (1-{len(rows)})")
+                continue
+            resolved.append(rows[idx].name)
+        else:
+            name_part = target.split(".", 1)[0] if "." in target else target
+            match = next((r for r in rows if r.name.lower() == name_part), None)
+            if match is None:
+                errors.append(f"no row matches '{name_part}'")
+                continue
+            resolved.append(match.name)
     action = "mark" if verb == "m" else "unmark"
-    return action, name, None
+    return action, resolved, errors
 
 
 def _print_shortlist(shortlist: list[str], rows) -> None:
@@ -1131,16 +1137,17 @@ def _print_shortlist(shortlist: list[str], rows) -> None:
 
 
 def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
-    """Sub-prompt for menu option 6. Single action per invocation (consistent
-    with other menu options); the outer menu loop re-shows after each action.
-    Returns the (possibly-modified) shortlist."""
+    """Sub-prompt for menu option 6. Multi-target per invocation
+    (`m 5 7 12` or `m 5,7,12` marks three at once). The outer menu loop
+    re-shows after each action. Returns the (possibly-modified) shortlist."""
     sub = typer.prompt(
-        "Action? (m N | m <name> | u N | u <name> | p list | b back)",
+        "Action? (m N1 N2... | m <name1> <name2>... | u ... | p list | b back)",
         default="", show_default=False,
     )
-    action, name, err = parse_shortlist_input(sub, rows)
-    if err:
+    action, names, errors = parse_shortlist_input(sub, rows)
+    for err in errors:
         console.print(f"[red]{err}[/]")
+    if action is None:
         return shortlist
     if action == "back":
         return shortlist
@@ -1148,28 +1155,42 @@ def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
         _print_shortlist(shortlist, rows)
         return shortlist
     if action == "mark":
-        if name in shortlist:
-            console.print(f"[yellow]{name} is already on the shortlist.[/]")
-            return shortlist
-        new_shortlist = shortlist + [name]
-        console.print(f"[green]✓[/] Marked [bold]{name}[/]  ({len(new_shortlist)} marked)")
-        return new_shortlist
+        new = list(shortlist)
+        for name in names:
+            if name in new:
+                console.print(f"[yellow]{name} is already on the shortlist.[/]")
+                continue
+            new.append(name)
+            console.print(f"[green]✓[/] Marked [bold]{name}[/]")
+        if len(new) != len(shortlist):
+            console.print(f"[dim]Shortlist now: {len(new)} marked[/]")
+        return new
     if action == "unmark":
-        if name not in shortlist:
-            console.print(f"[yellow]{name} is not on the shortlist.[/]")
-            return shortlist
-        new_shortlist = [n for n in shortlist if n != name]
-        console.print(f"[green]✓[/] Unmarked [bold]{name}[/]  ({len(new_shortlist)} marked)")
-        return new_shortlist
+        new = list(shortlist)
+        for name in names:
+            if name not in new:
+                console.print(f"[yellow]{name} is not on the shortlist.[/]")
+                continue
+            new.remove(name)
+            console.print(f"[green]✓[/] Unmarked [bold]{name}[/]")
+        if len(new) != len(shortlist):
+            console.print(f"[dim]Shortlist now: {len(new)} marked[/]")
+        return new
     return shortlist  # unreachable
 
 
 def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,
                     max_price, pricing_dict, avail_fn, show_renewal, log_fn):
     """Sub-prompt for menu option 5. Returns the (possibly-merged) rows list.
-    Empty input or all-rejected names returns the rows unchanged."""
+    Empty input or all-rejected names returns the rows unchanged.
+
+    v4.A 2026-05-08: after collecting seeds, optionally invokes
+    `expand_user_seeds` to ask gpt-5-mini for plurals / near-synonyms /
+    prefix-suffix riffs / adjacent anchors. Default Y so the user doesn't
+    have to type every variation; pass n to skip.
+    """
     from .suggest import (
-        Candidate, FULL_LADDER, build_grid,
+        Candidate, FULL_LADDER, build_grid, expand_user_seeds,
         filter_pickable_rows, screen_for_content_strict,
     )
     sub = typer.prompt(
@@ -1191,7 +1212,23 @@ def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,
         console.print(f"[yellow]Filtered {len(screen_dropped)} of your name(s) (content policy)[/]")
     if not valid_names:
         return rows
-    console.print(f"[dim]Probing {len(valid_names)} user-supplied name(s)...[/]")
+
+    # Offer to expand via AI — default Y; n skips.
+    if openai_key and typer.confirm(
+        "Expand with AI to get plurals, near-synonyms, etc.?",
+        default=True,
+    ):
+        console.print(f"[dim]Asking gpt-5-mini for variants of {len(valid_names)} seed(s)...[/]")
+        variants = expand_user_seeds(
+            valid_names, topic, vocab_terms, openai_key, log_fn=log_fn,
+        )
+        if variants:
+            console.print(f"[dim]+ {len(variants)} variant(s): {', '.join(variants)}[/]")
+            valid_names = valid_names + variants
+        else:
+            console.print("[dim](no variants returned; using your seeds as-is)[/]")
+
+    console.print(f"[dim]Probing {len(valid_names)} name(s)...[/]")
     user_cands = [Candidate(name=n, strategy="user") for n in valid_names]
     user_rows = build_grid(
         user_cands, topic, tld_list, avail_fn,

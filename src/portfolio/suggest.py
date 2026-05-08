@@ -773,6 +773,87 @@ def brainstorm(
     return [Candidate(name=k, strategy=strategy.name) for k in kept]
 
 
+# v4.A 2026-05-08: AI seed-expansion for option 5 (Add my own names).
+# When the user provides a few seed names, this asks gpt-5-mini for a batch
+# of closely-related variants (plurals, near-synonyms, prefix/suffix riffs,
+# alternative concept anchors) so the user doesn't have to type every variation
+# they want to consider.
+_SEED_EXPANSION_PROMPT = """\
+The user wants more domain name candidates similar to the seeds below.
+Generate 12-18 closely-related variants. Include a mix of:
+- plural / singular forms of the seeds
+- near-synonyms / adjacent concepts
+- prefix or suffix riffs (e.g. "scrubs" → "scrubsly", "myscrubs", "scrubsr")
+- alternative concept anchors that fit the topic
+
+Topic:
+{topic}
+{anchor_block}
+Seed names provided by the user:
+{seeds}
+
+Strict rules:
+- under 12 characters per name (excluding TLD)
+- no hyphens, no digits
+- pronounceable / brandable / easy to say
+- DO NOT repeat any of the seed names
+- return ONLY names, lowercase, one per line, NO TLDs, NO commentary, NO numbering
+"""
+
+
+def expand_user_seeds(
+    seeds: list[str],
+    topic: str,
+    vocab_terms: list[str] | None,
+    api_key: str,
+    log_fn=None,
+) -> list[str]:
+    """Ask gpt-5-mini for closely-related variants of `seeds`. Used by the
+    option-5 (Add my own names) flow when the user wants to broaden their
+    own input automatically.
+
+    Returns a deduplicated list of variants (excluding the seeds themselves).
+    Empty list on API failure or if `seeds` is empty. Variants pass through
+    the same strict porn screen as `brainstorm()` — always-on.
+    """
+    if not seeds:
+        return []
+    if vocab_terms:
+        anchor_block = (
+            "\nConcept anchors (use as inspiration; not strictly required):\n"
+            f"{', '.join(vocab_terms)}\n"
+        )
+    else:
+        anchor_block = ""
+    prompt = _SEED_EXPANSION_PROMPT.format(
+        topic=topic.strip(),
+        anchor_block=anchor_block,
+        seeds=", ".join(seeds),
+    )
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    body = {"model": OPENAI_MODEL, "input": prompt}
+    try:
+        r = requests.post(OPENAI_RESPONSES_URL, headers=headers, json=body, timeout=OPENAI_TIMEOUT)
+        r.raise_for_status()
+    except Exception as e:
+        if log_fn:
+            log_fn(f"seed expansion failed: {type(e).__name__}: {e}; using seeds only")
+        return []
+    text = _parse_openai_text(r.json())
+    names = _extract_names(text)
+    seed_set = {s.lower() for s in seeds}
+    seen: set[str] = set(seed_set)
+    out: list[str] = []
+    for n in names:
+        if n in seen:
+            continue
+        seen.add(n)
+        out.append(n)
+    # Strict 3-layer porn screen on the variants too.
+    kept, _dropped = screen_for_content_strict(out, api_key, log_fn=log_fn)
+    return kept
+
+
 def _normalize_avail_check(avail_check):
     """Adapter so render_options accepts both the new 3-tuple
     `(avail, price, error)` callables (post-2026-05-06) and any old

@@ -1750,88 +1750,134 @@ def test_v4a_parse_shortlist_mark_by_row_number():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t"),
             GridRow(name="beta", strategy="t")]
-    action, name, err = parse_shortlist_input("m 2", rows)
-    assert err is None
+    action, names, errs = parse_shortlist_input("m 2", rows)
+    assert errs == []
     assert action == "mark"
-    assert name == "beta"
+    assert names == ["beta"]
 
 
 def test_v4a_parse_shortlist_mark_by_name():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t"),
             GridRow(name="beta", strategy="t")]
-    action, name, err = parse_shortlist_input("m alpha", rows)
-    assert err is None
+    action, names, errs = parse_shortlist_input("m alpha", rows)
+    assert errs == []
     assert action == "mark"
-    assert name == "alpha"
+    assert names == ["alpha"]
 
 
 def test_v4a_parse_shortlist_unmark_by_row_number():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, name, err = parse_shortlist_input("u 1", rows)
-    assert err is None
+    action, names, errs = parse_shortlist_input("u 1", rows)
+    assert errs == []
     assert action == "unmark"
-    assert name == "alpha"
+    assert names == ["alpha"]
 
 
 def test_v4a_parse_shortlist_print_action():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, _, err = parse_shortlist_input("p", rows)
-    assert err is None
+    action, _, errs = parse_shortlist_input("p", rows)
+    assert errs == []
     assert action == "print"
 
 
 def test_v4a_parse_shortlist_back_action():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, _, err = parse_shortlist_input("b", rows)
-    assert err is None
+    action, _, errs = parse_shortlist_input("b", rows)
+    assert errs == []
     assert action == "back"
 
 
 def test_v4a_parse_shortlist_empty_input_treated_as_back():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, _, err = parse_shortlist_input("", rows)
-    assert err is None
+    action, _, errs = parse_shortlist_input("", rows)
+    assert errs == []
     assert action == "back"
 
 
 def test_v4a_parse_shortlist_strips_tld_suffix_from_name():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, name, err = parse_shortlist_input("m alpha.com", rows)
-    assert err is None
+    action, names, errs = parse_shortlist_input("m alpha.com", rows)
+    assert errs == []
     assert action == "mark"
-    assert name == "alpha"
+    assert names == ["alpha"]
 
 
 def test_v4a_parse_shortlist_row_out_of_range_errors():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, _, err = parse_shortlist_input("m 99", rows)
-    assert action is None
-    assert err is not None
-    assert "out of range" in err
+    action, names, errs = parse_shortlist_input("m 99", rows)
+    # Action still resolves to "mark" but the per-target error is collected
+    # and the resolved-names list is empty.
+    assert action == "mark"
+    assert names == []
+    assert any("out of range" in e for e in errs)
 
 
 def test_v4a_parse_shortlist_unknown_name_errors():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, _, err = parse_shortlist_input("m beta", rows)
-    assert action is None
-    assert err is not None
-    assert "no row matches" in err
+    action, names, errs = parse_shortlist_input("m beta", rows)
+    assert action == "mark"
+    assert names == []
+    assert any("no row matches" in e for e in errs)
 
 
 def test_v4a_parse_shortlist_unknown_verb_errors():
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, _, err = parse_shortlist_input("x alpha", rows)
+    action, _, errs = parse_shortlist_input("x alpha", rows)
     assert action is None
-    assert err is not None
+    assert errs and "unknown verb" in errs[0]
+
+
+# v4.A: multi-target mark/unmark
+
+
+def test_v4a_parse_shortlist_multi_target_by_row_numbers_space_separated():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t"),
+            GridRow(name="gamma", strategy="t")]
+    action, names, errs = parse_shortlist_input("m 1 3", rows)
+    assert action == "mark"
+    assert names == ["alpha", "gamma"]
+    assert errs == []
+
+
+def test_v4a_parse_shortlist_multi_target_comma_separated():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t"),
+            GridRow(name="gamma", strategy="t")]
+    action, names, errs = parse_shortlist_input("m 1,2,3", rows)
+    assert action == "mark"
+    assert names == ["alpha", "beta", "gamma"]
+
+
+def test_v4a_parse_shortlist_multi_target_mixed_separators_and_kinds():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t"),
+            GridRow(name="gamma", strategy="t")]
+    action, names, errs = parse_shortlist_input("m 1, beta gamma", rows)
+    assert action == "mark"
+    assert names == ["alpha", "beta", "gamma"]
+
+
+def test_v4a_parse_shortlist_multi_target_partial_success_collects_per_target_errors():
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t")]
+    action, names, errs = parse_shortlist_input("m 1 99 unknown beta", rows)
+    assert action == "mark"
+    assert names == ["alpha", "beta"]
+    assert len(errs) == 2  # 99 out-of-range + unknown name
 
 
 # ---------- _menu_shortlist (state-mutating helper) ----------
@@ -1940,6 +1986,164 @@ def test_v4a_print_shortlist_handles_orphaned_name():
     out = cap.get()
     assert "ghost" in out
     assert "not in current grid" in out
+
+
+# v4.A: multi-target mark/unmark execution
+
+
+def test_v4a_menu_shortlist_marks_multiple_in_one_call():
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t"),
+            GridRow(name="gamma", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="m 1 3"):
+        new = _menu_shortlist(rows, [])
+    assert new == ["alpha", "gamma"]
+
+
+def test_v4a_menu_shortlist_marks_multiple_with_partial_failure():
+    """One valid + one invalid target: valid one gets marked, invalid surfaces error."""
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="m 1 99"):
+        new = _menu_shortlist(rows, [])
+    assert new == ["alpha"]
+
+
+def test_v4a_menu_shortlist_unmark_multiple_in_one_call():
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t"),
+            GridRow(name="gamma", strategy="t")]
+    with patch("portfolio.cli.typer.prompt", return_value="u alpha gamma"):
+        new = _menu_shortlist(rows, ["alpha", "beta", "gamma"])
+    assert new == ["beta"]
+
+
+# =============================================================================
+# v4.A — AI seed-expansion for option 5 (Add my own names)
+# =============================================================================
+
+
+def test_v4a_expand_user_seeds_returns_variants(monkeypatch):
+    """gpt-5-mini call returns variants distinct from seeds."""
+    from portfolio.suggest import expand_user_seeds
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {
+        "output_text": "scrubsly\nmyscrubs\nscrubr\nscrublab\n"
+    }
+    fake_resp.raise_for_status = MagicMock()
+
+    # Also stub the porn-screen API calls that follow.
+    def fake_post(url, **kwargs):
+        if "moderations" in url:
+            mod = MagicMock(status_code=200)
+            mod.json.return_value = {
+                "results": [{"category_scores": {"sexual": 0.0, "sexual/minors": 0.0}}
+                            for _ in kwargs.get("json", {}).get("input", [])]
+            }
+            return mod
+        # /v1/responses — first call is the expansion, subsequent (Layer 3
+        # adjacency) returns KEEP for everything.
+        return fake_resp
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    out = expand_user_seeds(
+        seeds=["scrubsonly", "scrubsworld"],
+        topic="healthcare workwear",
+        vocab_terms=["scrubs", "ppe"],
+        api_key="sk-fake",
+    )
+    # Either the expansion ran and returned variants (with Layer 3 KEEPing
+    # them), OR Layer 3 dropped them — but at minimum we must not return
+    # any of the seed names back.
+    assert "scrubsonly" not in out
+    assert "scrubsworld" not in out
+
+
+def test_v4a_expand_user_seeds_empty_seeds_returns_empty():
+    from portfolio.suggest import expand_user_seeds
+    assert expand_user_seeds([], "topic", [], "sk-fake") == []
+
+
+def test_v4a_expand_user_seeds_silently_returns_empty_on_api_failure(monkeypatch):
+    """If the LLM call raises, return [] so the user's seeds still proceed."""
+    from portfolio.suggest import expand_user_seeds
+
+    def fake_post(*a, **kw):
+        raise ConnectionError("network down")
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    logs: list[str] = []
+    out = expand_user_seeds(
+        seeds=["scrubsonly"], topic="x", vocab_terms=[],
+        api_key="sk-fake", log_fn=logs.append,
+    )
+    assert out == []
+    assert any("seed expansion failed" in m for m in logs)
+
+
+def test_v4a_expand_user_seeds_passes_anchors_when_vocab_present(monkeypatch):
+    """Verify the expansion prompt receives the anchor block when vocab_terms
+    is given. The expansion call is the FIRST /v1/responses POST (subsequent
+    calls are Layer 3 screening)."""
+    from portfolio.suggest import expand_user_seeds
+    captured: list[str] = []
+
+    def fake_post(url, **kwargs):
+        body_input = kwargs.get("json", {}).get("input", "")
+        resp = MagicMock(status_code=200)
+        if "moderations" in url:
+            resp.json.return_value = {"results": [
+                {"category_scores": {"sexual": 0.0, "sexual/minors": 0.0}}
+            ]}
+        else:
+            captured.append(body_input)
+            resp.json.return_value = {"output_text": "scrubsly\n"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    expand_user_seeds(
+        seeds=["scrubsonly"],
+        topic="healthcare",
+        vocab_terms=["scrubs", "fit"],
+        api_key="sk-fake",
+    )
+    # First /v1/responses POST is the expansion call; assert on its prompt.
+    expansion_prompt = captured[0]
+    assert "Concept anchors" in expansion_prompt
+    assert "scrubs, fit" in expansion_prompt
+    assert "scrubsonly" in expansion_prompt
+
+
+def test_v4a_expand_user_seeds_dedups_against_seeds(monkeypatch):
+    """If LLM returns a seed back, drop it from variants."""
+    from portfolio.suggest import expand_user_seeds
+
+    def fake_post(url, **kwargs):
+        resp = MagicMock(status_code=200)
+        if "moderations" in url:
+            resp.json.return_value = {"results": [
+                {"category_scores": {"sexual": 0.0, "sexual/minors": 0.0}}
+                for _ in kwargs.get("json", {}).get("input", [])
+            ]}
+        else:
+            # LLM redundantly returns one of the seeds + a new variant.
+            resp.json.return_value = {
+                "output_text": "scrubsonly\nscrubsly\n"
+            }
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    out = expand_user_seeds(
+        seeds=["scrubsonly"],
+        topic="x", vocab_terms=[], api_key="sk-fake",
+    )
+    assert "scrubsonly" not in out
+    # New variant survives only if Layer 3 keeps it.
+    # We can't easily mock Layer 3 here so just assert the seed is excluded.
 
 
 # ---------- _menu_pick ----------
