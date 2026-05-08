@@ -991,6 +991,63 @@ def test_v3d_pipeline_handles_vocab_extraction_failure(monkeypatch):
     assert len(rows) >= 1
 
 
+# ---------- v3.D parse_pick_input (TLD override) ----------
+
+
+def test_v3d_parse_pick_plain_number():
+    from portfolio.cli import parse_pick_input
+    idx, tld, err = parse_pick_input("5", n_rows=15, columns=[".com", ".app"])
+    assert idx == 4
+    assert tld is None
+    assert err is None
+
+
+def test_v3d_parse_pick_with_tld_override():
+    from portfolio.cli import parse_pick_input
+    idx, tld, err = parse_pick_input("5.xyz", n_rows=15, columns=[".com", ".app", ".xyz"])
+    assert idx == 4
+    assert tld == ".xyz"
+    assert err is None
+
+
+def test_v3d_parse_pick_uppercase_normalized():
+    from portfolio.cli import parse_pick_input
+    idx, tld, err = parse_pick_input("3.APP", n_rows=15, columns=[".com", ".app"])
+    assert idx == 2
+    assert tld == ".app"
+    assert err is None
+
+
+def test_v3d_parse_pick_row_out_of_range():
+    from portfolio.cli import parse_pick_input
+    idx, tld, err = parse_pick_input("99", n_rows=15, columns=[".com"])
+    assert idx is None
+    assert err is not None
+    assert "out of range" in err
+
+
+def test_v3d_parse_pick_tld_not_in_columns():
+    from portfolio.cli import parse_pick_input
+    idx, tld, err = parse_pick_input("5.tech", n_rows=15, columns=[".com", ".app"])
+    assert idx is None
+    assert err is not None
+    assert ".tech" in err
+
+
+def test_v3d_parse_pick_garbage_input():
+    from portfolio.cli import parse_pick_input
+    idx, tld, err = parse_pick_input("foo", n_rows=15, columns=[".com"])
+    assert idx is None
+    assert err is not None
+
+
+def test_v3d_parse_pick_empty():
+    from portfolio.cli import parse_pick_input
+    idx, tld, err = parse_pick_input("", n_rows=15, columns=[".com"])
+    assert idx is None
+    assert err == "empty input"
+
+
 def test_v3d_pipeline_dedupes_across_strategies():
     """Same name appearing in two strategies should produce one row, not two."""
     strategies = [

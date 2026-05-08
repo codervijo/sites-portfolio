@@ -729,6 +729,32 @@ def domain_suggest(
     )
 
 
+def parse_pick_input(s: str, n_rows: int, columns: list[str]) -> tuple[int | None, str | None, str | None]:
+    """Parse the picker's `N` or `N.tld` input.
+
+    Returns `(row_idx_0based, override_tld_or_None, error_msg_or_None)`. Either
+    a successful parse (idx + optional tld, no error) or `(None, None, err)`.
+    The override TLD must be one of the displayed columns; out-of-range row
+    indexes and unknown TLDs are surfaced as errors.
+    """
+    s = s.strip().lower()
+    if not s:
+        return None, None, "empty input"
+    if "." in s:
+        digit_part, tld_part = s.split(".", 1)
+        tld = "." + tld_part
+    else:
+        digit_part, tld = s, None
+    if not digit_part.isdigit():
+        return None, None, f"'{s}': expected a row number (e.g. 5 or 5.app)"
+    idx = int(digit_part) - 1
+    if idx < 0 or idx >= n_rows:
+        return None, None, f"row {digit_part} out of range (1-{n_rows})"
+    if tld is not None and tld not in columns:
+        return None, None, f"TLD {tld} not in displayed columns; choose from {' '.join(columns)}"
+    return idx, tld, None
+
+
 def _domain_suggest_validation(
     *,
     topic: str,
@@ -831,31 +857,50 @@ def _domain_suggest_validation(
     if non_interactive:
         return
 
-    pick_prompt = f"\nPick row 1-{len(rows)}, 'q' to quit"
+    pick_prompt = f"\nPick row 1-{len(rows)} (or N.tld to override TLD, e.g. 5.xyz), 'q' to quit"
     choice = typer.prompt(pick_prompt, default="q", show_default=False).strip().lower()
-    if choice == "q" or not choice.isdigit():
+    if choice == "q" or not choice:
         console.print("[yellow]No domain selected.[/]")
         return
-    idx = int(choice) - 1
-    if idx < 0 or idx >= len(rows):
-        console.print("[red]Out of range.[/]")
+
+    idx, override_tld, parse_err = parse_pick_input(choice, len(rows), tld_list)
+    if parse_err:
+        console.print(f"[red]{parse_err}[/]")
         return
 
     row = rows[idx]
-    if row.pick_tld is None:
-        console.print("[red]Row has no recommended TLD (likely .com poisoned). Aborting.[/]")
-        return
+    if override_tld is not None:
+        cell = row.cells.get(override_tld)
+        if cell is None:
+            console.print(f"[red]{override_tld} not in this row.[/]")
+            return
+        if cell.available is False:
+            console.print(f"[red]{row.name}{override_tld} is taken.[/]")
+            return
+        if cell.over_max:
+            console.print(f"[red]{row.name}{override_tld} is priced over --max-price (${cell.price:.2f}). Raise --max-price to register.[/]")
+            return
+        pick_tld = override_tld
+    else:
+        if row.pick_tld is None:
+            console.print("[red]Row has no recommended TLD (likely .com poisoned). Override with N.tld (e.g. 5.app) to pick anyway.[/]")
+            return
+        pick_tld = row.pick_tld
 
-    selected = f"{row.name}{row.pick_tld}"
+    selected = f"{row.name}{pick_tld}"
+    selected_cell = row.cells.get(pick_tld)
+    is_unverified = selected_cell is not None and selected_cell.available is None
     console.print(f"\n[green]✅ Selected:[/] [bold]{selected}[/]")
+    if is_unverified:
+        console.print("[dim](RDAP can't verify this TLD — final availability check happens at registrar checkout.)[/]")
 
     # Defense bundle: offer to grab .com and/or .app at standard price (manual cart).
     bundle: list[str] = []
     com_cell = row.cells.get(".com")
     app_cell = row.cells.get(".app")
-    if row.pick_tld != ".com" and com_cell is not None and com_cell.available is True and not com_cell.over_max:
+    if pick_tld != ".com" and com_cell is not None and com_cell.available is True and not com_cell.over_max:
         bundle.append(".com")
-    if row.pick_tld != ".app" and app_cell is not None and app_cell.available is True and not app_cell.over_max:
+    if pick_tld != ".app" and app_cell is not None and app_cell.available is True and not app_cell.over_max:
         bundle.append(".app")
 
     if bundle:
@@ -867,8 +912,10 @@ def _domain_suggest_validation(
             console.print(f"[cyan]Bundle cart URL:[/] {url}")
             console.print("[dim](Bundle items are manual click-through; never auto-charged.)[/]")
 
-    # Auto-register prompt for the primary domain only.
-    if typer.confirm(f"Register {selected} now via Porkbun API?", default=False):
+    # Auto-register prompt for the primary domain only — only when we have a confirmed-available cell.
+    if is_unverified:
+        console.print(f"[cyan]Register manually (verify availability first):[/] {porkbun_cart_url([selected])}")
+    elif typer.confirm(f"Register {selected} now via Porkbun API?", default=False):
         pk_key = env.get("PORKBUN_API_KEY", "").strip()
         pk_secret = env.get("PORKBUN_SECRET_API_KEY", "").strip()
         result = register_domain(selected, pk_key, pk_secret)
