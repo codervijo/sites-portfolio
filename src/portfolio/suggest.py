@@ -305,6 +305,18 @@ def cache_get(topic: str, strategies: list[Strategy]) -> dict | None:
     return payload
 
 
+def clear_brainstorm_cache(topic: str, strategies: list[Strategy]) -> bool:
+    """v4.D polish: delete the on-disk brainstorm + vocab cache for this
+    `(topic, strategies)` pair. Used by the post-grid "Rerun fresh" menu
+    option. Returns True if a cache file was deleted, False if there was
+    nothing to clear."""
+    p = _cache_path(topic, strategies)
+    if p.exists():
+        p.unlink()
+        return True
+    return False
+
+
 def cache_set(
     topic: str,
     strategies: list[Strategy],

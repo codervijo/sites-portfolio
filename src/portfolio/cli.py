@@ -819,6 +819,7 @@ MENU_ITEMS = [
     ("6", "Mark / unmark for shortlist",               False),
     ("7", "Decide from shortlist",                     False),
     ("8", "Show TLD reference (pricing, SEO, vibe)",   False),
+    ("9", "Rerun fresh (bypass cache)",                False),  # v4.D polish
 ]
 
 
@@ -1722,6 +1723,34 @@ def _domain_suggest_validation(
             continue
         if choice == "8":
             _render_tld_reference()
+            continue
+        if choice == "9":
+            from .suggest import clear_brainstorm_cache
+            cleared = clear_brainstorm_cache(topic, all_strategies)
+            if cleared:
+                console.print("[dim]Brainstorm cache cleared.[/]")
+            console.print("[dim]Re-running pipeline (fresh)...[/]")
+            rows, vocab_terms = run_validation_pipeline(
+                topic=topic, api_key=openai_key,
+                strategies=all_strategies,
+                columns=tld_list, avail_check=avail_fn,
+                max_price=max_price, pricing_dict=pricing_dict,
+                cache_payload=None,
+                cache_save_fn=_save_cache,
+                log_fn=_log,
+            )
+            rows = filter_pickable_rows(rows)
+            if not rows:
+                console.print("[yellow]No pickable candidates after rerun. Try refining the topic.[/]")
+                continue
+            _render_grid(rows, tld_list, show_renewal=show_renewal)
+            if shortlist:
+                missing = [n for n in shortlist if not any(r.name == n for r in rows)]
+                if missing:
+                    console.print(
+                        f"[yellow]Note: shortlist has {len(missing)} name(s) not in the new grid: "
+                        f"{', '.join(missing)}[/]"
+                    )
             continue
         if choice in COMING_SOON_HINTS:
             console.print(f"[dim]{COMING_SOON_HINTS[choice]}[/]")

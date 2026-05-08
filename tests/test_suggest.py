@@ -1666,11 +1666,11 @@ def test_brainstorm_logs_filter_count_when_present(monkeypatch):
 # =============================================================================
 
 
-def test_v3e_menu_items_v4c_lineup():
-    """v4.C activates slots 3 (Ask AI) and 4 (Widen). All eight slots filled."""
+def test_v3e_menu_items_v4d_polish_lineup():
+    """v4.D polish adds slot 9 (Rerun fresh). Nine slots total."""
     from portfolio.cli import MENU_ITEMS
     keys = [k for k, _, _ in MENU_ITEMS]
-    assert keys == ["1", "2", "3", "4", "5", "6", "7", "8"]
+    assert keys == ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
 
 def test_v3e_menu_items_all_active_in_v4b():
@@ -1683,16 +1683,16 @@ def test_v3e_menu_items_all_active_in_v4b():
 def test_v3e_menu_keys_hint_format():
     """The bad-input hint is generated from MENU_ITEMS — keeps in sync."""
     from portfolio.cli import _menu_keys_hint
-    assert _menu_keys_hint() == "1, 2, 3, 4, 5, 6, 7, 8"
+    assert _menu_keys_hint() == "1, 2, 3, 4, 5, 6, 7, 8, 9"
 
 
 def test_v3e_render_menu_includes_active_items_and_quit():
-    """Snapshot-ish: _render_menu prints all six items + 'q. Quit'."""
+    """Snapshot-ish: _render_menu prints all nine items + 'q. Quit'."""
     from portfolio.cli import _render_menu, console
     with console.capture() as cap:
         _render_menu()
     out = cap.get()
-    for key in ("1.", "2.", "5.", "6.", "7.", "8.", "q."):
+    for key in ("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "q."):
         assert key in out
 
 
@@ -1709,6 +1709,37 @@ def test_v3e_render_menu_no_coming_soon_in_v4b():
 # =============================================================================
 # v4.A — alphabetical grid sort + shortlist mark/unmark
 # =============================================================================
+
+
+# v4.D polish — clear_brainstorm_cache + Rerun fresh menu option
+
+
+def test_v4d_clear_brainstorm_cache_returns_false_when_no_cache(tmp_path, monkeypatch):
+    from portfolio.suggest import clear_brainstorm_cache
+    monkeypatch.setattr(suggest, "CACHE_DIR", tmp_path / "cache")
+    strategies = [Strategy(name="t", label="T", description="d")]
+    assert clear_brainstorm_cache("never-cached", strategies) is False
+
+
+def test_v4d_clear_brainstorm_cache_deletes_existing_file(tmp_path, monkeypatch):
+    from portfolio.suggest import cache_set, cache_get, clear_brainstorm_cache
+    monkeypatch.setattr(suggest, "CACHE_DIR", tmp_path / "cache")
+    strategies = [Strategy(name="t", label="T", description="d")]
+    cache_set("topic", strategies, {"t": [Candidate(name="alpha", strategy="t")]})
+    assert cache_get("topic", strategies) is not None
+    deleted = clear_brainstorm_cache("topic", strategies)
+    assert deleted is True
+    assert cache_get("topic", strategies) is None
+
+
+def test_v4d_clear_brainstorm_cache_idempotent(tmp_path, monkeypatch):
+    """Calling twice in a row: first deletes, second returns False."""
+    from portfolio.suggest import cache_set, clear_brainstorm_cache
+    monkeypatch.setattr(suggest, "CACHE_DIR", tmp_path / "cache")
+    strategies = [Strategy(name="t", label="T", description="d")]
+    cache_set("topic", strategies, {"t": [Candidate(name="alpha", strategy="t")]})
+    assert clear_brainstorm_cache("topic", strategies) is True
+    assert clear_brainstorm_cache("topic", strategies) is False
 
 
 def test_v4a_grid_sorts_alphabetically_by_name():

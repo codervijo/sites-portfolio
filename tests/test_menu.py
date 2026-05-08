@@ -21,8 +21,9 @@ from portfolio.menu import (
 
 
 def test_v4d_menu_groups_three_groups():
+    """Build first (most common entry-point), Manage second, Reports last."""
     names = [g for g, _ in MENU_GROUPS]
-    assert names == ["Manage", "Build", "Reports"]
+    assert names == ["Build", "Manage", "Reports"]
 
 
 def test_v4d_menu_groups_keys_unique_and_sequential():
@@ -33,15 +34,17 @@ def test_v4d_menu_groups_keys_unique_and_sequential():
 
 
 def test_v4d_find_command_returns_known_keys():
+    """v4.D 2026-05-08 reorder: Build is now first (1=domain suggest);
+    Manage starts at 4 (4=summary)."""
     cmd = find_command("1")
-    assert cmd is not None
-    assert cmd.label == "summary"
-    assert cmd.cli_args == ["summary"]
-
-    cmd = find_command("5")
     assert cmd is not None
     assert "domain suggest" in cmd.label
     assert cmd.cli_args == ["domain", "suggest"]
+
+    cmd = find_command("4")
+    assert cmd is not None
+    assert cmd.label == "summary"
+    assert cmd.cli_args == ["summary"]
 
 
 def test_v4d_find_command_returns_none_for_unknown_key():
@@ -89,15 +92,16 @@ def test_v4d_render_top_menu_includes_descriptions():
 
 
 def test_v4d_collect_args_no_positionals_no_options():
-    """A command with neither (e.g. summary) returns just its base cli_args."""
-    cmd = find_command("1")  # summary
+    """A command with neither (e.g. summary, key 4 post-reorder) returns
+    just its base cli_args."""
+    cmd = find_command("4")  # summary
     args = collect_args(cmd)
     assert args == ["summary"]
 
 
 def test_v4d_collect_args_required_positional(monkeypatch):
     """Required positional → prompt → append to args."""
-    cmd = find_command("2")  # project status
+    cmd = find_command("5")  # project status
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "iotnews")
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
@@ -106,7 +110,7 @@ def test_v4d_collect_args_required_positional(monkeypatch):
 
 def test_v4d_collect_args_required_positional_empty_returns_none(monkeypatch):
     """Empty required positional → cancel back to menu."""
-    cmd = find_command("2")  # project status (required name)
+    cmd = find_command("5")  # project status (required name)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "")
     args = collect_args(cmd)
     assert args is None
@@ -143,7 +147,7 @@ def test_v4d_collect_args_skipped_optional_uses_default(monkeypatch):
 
 def test_v4d_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
     """A (y/n)-described option in y mode → emit `--flag` alone (no value)."""
-    cmd = find_command("5")  # domain suggest (--browse, --with-abstract are y/n)
+    cmd = find_command("1")  # domain suggest (--browse, --with-abstract are y/n)
     # Sequence: positional "topic", confirm "use defaults?" → No,
     # then walk options: --max-price (skip), --browse "y", --with-abstract "n"
     prompt_iter = iter(["my topic", "", "y", "n"])
@@ -215,8 +219,8 @@ def test_v4d_run_menu_handles_unknown_choice_then_quit(monkeypatch):
 
 
 def test_v4d_run_menu_dispatches_simple_command_then_quits(monkeypatch):
-    """Pick 1 (summary, no positionals/options), then q."""
-    prompts = iter(["1", "q"])
+    """Pick 4 (summary, no positionals/options), then q."""
+    prompts = iter(["4", "q"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompts))
     captured = {}
@@ -231,9 +235,9 @@ def test_v4d_run_menu_dispatches_simple_command_then_quits(monkeypatch):
 
 
 def test_v4d_run_menu_cancelled_positional_returns_to_menu(monkeypatch):
-    """User picks a command requiring a positional, types nothing → returns to
-    menu without dispatching. Then quits."""
-    prompts = iter(["2", "", "q"])
+    """User picks a command requiring a positional (5 = project status),
+    types nothing → returns to menu without dispatching. Then quits."""
+    prompts = iter(["5", "", "q"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompts))
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
