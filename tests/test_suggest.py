@@ -1828,12 +1828,89 @@ def test_v4a_parse_shortlist_unknown_name_errors():
     assert any("no row matches" in e for e in errs)
 
 
-def test_v4a_parse_shortlist_unknown_verb_errors():
+def test_v4a_parse_shortlist_unknown_first_token_falls_through_to_implicit_mark():
+    """v4.A 2026-05-08 forgiveness: a first token that isn't m/u/p/b is now
+    treated as a mark target (implicit-mark). 'x alpha' becomes mark of
+    targets ['x', 'alpha'] — neither resolves so two per-target errors,
+    but action is still 'mark'."""
     from portfolio.cli import parse_shortlist_input
     rows = [GridRow(name="alpha", strategy="t")]
-    action, _, errs = parse_shortlist_input("x alpha", rows)
+    action, names, errs = parse_shortlist_input("x alpha", rows)
+    assert action == "mark"
+    # 'alpha' resolves; 'x' doesn't.
+    assert names == ["alpha"]
+    assert len(errs) == 1
+    assert "no row matches" in errs[0]
+
+
+# v4.A: implicit-mark shortcut
+
+
+def test_v4a_parse_shortlist_implicit_mark_single_row_number():
+    """`39` (without 'm' verb) is treated as 'mark row 39'."""
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name=f"r{i}", strategy="t") for i in range(50)]
+    action, names, errs = parse_shortlist_input("39", rows)
+    assert action == "mark"
+    assert names == ["r38"]  # row 39 → 0-indexed 38
+    assert errs == []
+
+
+def test_v4a_parse_shortlist_implicit_mark_multi_row_numbers():
+    """`39 18` (without 'm' verb) marks both rows."""
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name=f"r{i}", strategy="t") for i in range(50)]
+    action, names, errs = parse_shortlist_input("39 18", rows)
+    assert action == "mark"
+    assert names == ["r38", "r17"]
+    assert errs == []
+
+
+def test_v4a_parse_shortlist_implicit_mark_by_names():
+    """`alpha beta` (without 'm' verb) marks both names."""
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t")]
+    action, names, errs = parse_shortlist_input("alpha beta", rows)
+    assert action == "mark"
+    assert names == ["alpha", "beta"]
+    assert errs == []
+
+
+def test_v4a_parse_shortlist_explicit_m_still_works():
+    """Explicit `m N` continues to work alongside implicit shortcut."""
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, names, errs = parse_shortlist_input("m 1", rows)
+    assert action == "mark"
+    assert names == ["alpha"]
+
+
+def test_v4a_parse_shortlist_explicit_u_still_works_after_implicit_mark_change():
+    """Implicit-mark only kicks in when the first token isn't m/u/p/b."""
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, names, errs = parse_shortlist_input("u 1", rows)
+    assert action == "unmark"
+    assert names == ["alpha"]
+
+
+def test_v4a_parse_shortlist_implicit_mark_with_comma_separation():
+    """Implicit-mark accepts the same separators (comma + whitespace) as explicit."""
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name=f"r{i}", strategy="t") for i in range(10)]
+    action, names, errs = parse_shortlist_input("1,3,5", rows)
+    assert action == "mark"
+    assert names == ["r0", "r2", "r4"]
+
+
+def test_v4a_parse_shortlist_explicit_m_no_target_errors():
+    """`m` with no targets is still an error (we don't silently default)."""
+    from portfolio.cli import parse_shortlist_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    action, _, errs = parse_shortlist_input("m", rows)
     assert action is None
-    assert errs and "unknown verb" in errs[0]
+    assert errs and "missing target" in errs[0]
 
 
 # v4.A: multi-target mark/unmark

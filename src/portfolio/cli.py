@@ -1073,10 +1073,12 @@ def parse_shortlist_input(s: str, rows) -> tuple[str | None, list[str], list[str
       - `u N` / `u N1, N2`                      → ("unmark", [...], [...])
       - `p` → ("print", [], [])
       - empty / `b` → ("back", [], [])
+      - **bare targets without a verb** → implicit mark, e.g. `39 18`
+        becomes `("mark", ["row39name", "row18name"], [])`.
 
     Per-target errors (out-of-range, unknown name) accumulate in the errors
     list while valid targets accumulate in names — partial successes succeed.
-    A pure parse failure (unknown verb / missing targets) returns
+    A pure parse failure (missing targets after `m`/`u`) returns
     `(None, [], [error])`.
     """
     s = s.strip().lower()
@@ -1085,11 +1087,16 @@ def parse_shortlist_input(s: str, rows) -> tuple[str | None, list[str], list[str
     if s == "p":
         return "print", [], []
     parts = s.split(None, 1)
-    if len(parts) < 2:
-        return None, [], [f"'{s}': expected `m N`, `m <name>`, `u N`, `u <name>`, `p`, or `b`"]
-    verb, rest = parts[0], parts[1].strip()
-    if verb not in ("m", "u"):
-        return None, [], [f"unknown verb '{verb}' — use m, u, p, or b"]
+    first = parts[0]
+    if first in ("m", "u"):
+        if len(parts) < 2:
+            return None, [], [f"missing target(s) after '{first}'"]
+        verb = first
+        rest = parts[1].strip()
+    else:
+        # Implicit mark — treat the entire input as targets.
+        verb = "m"
+        rest = s
     # Tokenize targets — accept comma OR whitespace separators.
     targets = [t for t in re.split(r"[,\s]+", rest) if t]
     if not targets:
@@ -1141,7 +1148,8 @@ def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
     (`m 5 7 12` or `m 5,7,12` marks three at once). The outer menu loop
     re-shows after each action. Returns the (possibly-modified) shortlist."""
     sub = typer.prompt(
-        "Action? (m N1 N2... | m <name1> <name2>... | u ... | p list | b back)",
+        "Action? (just type N or names to mark, e.g. '39 18' or 'alpha beta'; "
+        "u to unmark, p to list, b to back)",
         default="", show_default=False,
     )
     action, names, errors = parse_shortlist_input(sub, rows)
