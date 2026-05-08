@@ -1663,59 +1663,44 @@ def test_brainstorm_logs_filter_count_when_present(monkeypatch):
 # =============================================================================
 
 
-def test_v3e_menu_items_includes_pick_and_quit_keys():
+def test_v3e_menu_items_only_active_features():
+    """v3.E ships menu slots 1, 2, 5, 8 only; 3/4/6/7 are reserved for v4.A
+    (finalists / ask AI / widen) and not present in MENU_ITEMS yet."""
     from portfolio.cli import MENU_ITEMS
     keys = [k for k, _, _ in MENU_ITEMS]
-    assert "1" in keys
-    assert "2" in keys
-    assert "5" in keys
-    assert "8" in keys
-    # Coming-soon items still appear as menu entries (just labeled).
-    assert "3" in keys
-    assert "4" in keys
-    assert "6" in keys
-    assert "7" in keys
+    assert keys == ["1", "2", "5", "8"]
 
 
-def test_v3e_menu_items_label_active_vs_coming_soon():
+def test_v3e_menu_items_all_active():
+    """Every entry in MENU_ITEMS for v3.E is active (no coming-soon stubs)."""
     from portfolio.cli import MENU_ITEMS
-    by_key = {k: (label, coming_soon) for k, label, coming_soon in MENU_ITEMS}
-    # Items shipped in this commit
-    assert by_key["1"][1] is False  # Pick — active
-    assert by_key["2"][1] is False  # Expand — active
-    assert by_key["5"][1] is False  # Add own names — active
-    assert by_key["8"][1] is False  # TLD reference — active
-    # Items still stubbed
-    assert by_key["3"][1] is True   # Ask AI — coming soon
-    assert by_key["4"][1] is True   # Widen — coming soon
-    assert by_key["6"][1] is True   # Mark — coming soon
-    assert by_key["7"][1] is True   # Decide — coming soon
+    for _, _, coming_soon in MENU_ITEMS:
+        assert coming_soon is False
 
 
-def test_v3e_coming_soon_hints_match_stubbed_items():
-    from portfolio.cli import COMING_SOON_HINTS, MENU_ITEMS
-    stubbed_keys = {k for k, _, cs in MENU_ITEMS if cs}
-    assert set(COMING_SOON_HINTS.keys()) == stubbed_keys
+def test_v3e_menu_keys_hint_format():
+    """The bad-input hint is generated from MENU_ITEMS — keeps in sync."""
+    from portfolio.cli import _menu_keys_hint
+    assert _menu_keys_hint() == "1, 2, 5, 8"
 
 
-def test_v3e_render_menu_includes_all_items_and_quit():
-    """Snapshot-ish: _render_menu prints all 8 numbered items + 'q. Quit'."""
+def test_v3e_render_menu_includes_active_items_and_quit():
+    """Snapshot-ish: _render_menu prints the four active items + 'q. Quit'."""
     from portfolio.cli import _render_menu, console
     with console.capture() as cap:
         _render_menu()
     out = cap.get()
-    for key in ("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "q."):
+    for key in ("1.", "2.", "5.", "8.", "q."):
         assert key in out
 
 
-def test_v3e_render_menu_marks_coming_soon_items():
-    """Items 3, 4, 6, 7 carry a `(coming soon)` annotation."""
+def test_v3e_render_menu_does_not_show_coming_soon():
+    """v3.E menu has no '(coming soon)' annotation since stubs were dropped."""
     from portfolio.cli import _render_menu, console
     with console.capture() as cap:
         _render_menu()
     out = cap.get()
-    # The annotation appears once per stubbed item
-    assert out.count("coming soon") == 4
+    assert "coming soon" not in out
 
 
 # ---------- _menu_pick ----------

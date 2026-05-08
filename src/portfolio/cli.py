@@ -796,15 +796,15 @@ def parse_expand_input(s: str, rows) -> tuple[int | None, str | None]:
 # prompts (was N | N.tld | eN | "Add your own names?" auto-loop) with a
 # numbered chooser. Re-shown after every non-terminating action; only
 # successful registration or `q` exits.
+# v3.E menu items. Slots 3, 4, 6, 7 are reserved for v4.A features
+# (finalists, ask AI, widen) — when those land, MENU_ITEMS gets the
+# corresponding entries inserted in those positions. Stable numbering
+# preserves muscle memory across the v3 → v4 transition.
 MENU_ITEMS = [
-    ("1", "Pick a row to register",          False),
-    ("2", "Expand a row (full-ladder detail)", False),
-    ("3", "Ask AI about a name",             True),  # coming-soon stub
-    ("4", "Widen search — more candidates",  True),
-    ("5", "Add my own names to the grid",    False),
-    ("6", "Mark / unmark for shortlist",     True),
-    ("7", "Decide from shortlist",           True),
-    ("8", "Show TLD reference (pricing, SEO, vibe)", False),
+    ("1", "Pick a row to register",                    False),
+    ("2", "Expand a row (full-ladder detail)",         False),
+    ("5", "Add my own names to the grid",              False),
+    ("8", "Show TLD reference (pricing, SEO, vibe)",   False),
 ]
 
 
@@ -997,10 +997,14 @@ def _render_tld_reference() -> None:
 
 def _render_menu() -> None:
     console.print("\n[bold]What do you want to do next?[/]")
-    for key, label, coming_soon in MENU_ITEMS:
-        suffix = "  [dim](coming soon)[/]" if coming_soon else ""
-        console.print(f"  {key}. {label}{suffix}")
+    for key, label, _ in MENU_ITEMS:
+        console.print(f"  {key}. {label}")
     console.print("  q. Quit")
+
+
+def _menu_keys_hint() -> str:
+    """Format the active menu keys for the bad-input hint, e.g. '1, 2, 5, 8'."""
+    return ", ".join(k for k, _, _ in MENU_ITEMS)
 
 
 def _menu_pick(rows, tld_list):
@@ -1090,14 +1094,6 @@ def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,
     merged.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
     _render_grid(merged, tld_list, show_renewal=show_renewal)
     return merged
-
-
-COMING_SOON_HINTS = {
-    "3": "Ask AI is coming soon — pick another option.",
-    "4": "Widen search is coming soon — pick another option.",
-    "6": "Mark/unmark for shortlist is coming soon — pick another option.",
-    "7": "Decide from shortlist is coming soon — pick another option.",
-}
 
 
 def _parse_user_added_names(raw: str) -> tuple[list[str], list[str]]:
@@ -1268,10 +1264,7 @@ def _domain_suggest_validation(
         if choice == "8":
             _render_tld_reference()
             continue
-        if choice in COMING_SOON_HINTS:
-            console.print(f"[dim]{COMING_SOON_HINTS[choice]}[/]")
-            continue
-        console.print("[red]Type 1-8 or q.[/]")
+        console.print(f"[red]Type {_menu_keys_hint()} or q.[/]")
 
     _post_pick_flow(
         row=selected_row,
