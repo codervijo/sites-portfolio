@@ -818,7 +818,7 @@ def _domain_suggest_validation(
     cfg_t.add_row("topic", topic)
     cfg_t.add_row("max price", f"${max_price:.2f}/yr (pass --max-price=999 to disable)")
     cfg_t.add_row("TLD columns", " ".join(tld_list))
-    cfg_t.add_row("availability", "RDAP (auth-free); .tech/.site/.online → '?' (broken endpoint)")
+    cfg_t.add_row("availability", "RDAP (auth-free); Radix-hosted TLDs queried with verify=False")
     cfg_t.add_row("pricing", "Porkbun /pricing/get (public, cached 7d)")
     cfg_t.add_row("brainstorm", "OpenAI gpt-5-mini (vocab anchored)")
     cfg_t.add_row("strategies", f"{len(all_strategies)} ({', '.join(s.name for s in all_strategies)})")
@@ -935,8 +935,23 @@ def _domain_suggest_validation(
         console.print("  " + ", ".join(vocab_terms))
 
 
+def _renewal_cliff_marker(price: float | None, renewal: float | None) -> str:
+    """Inline cell marker showing the renewal-cliff multiplier when significant.
+
+    Returns ` ↑Nx` when renewal/registration > 2.0 (so the bait-and-switch
+    TLDs get visual flagging without a separate column). Returns "" when
+    either price is missing or the cliff is mild (≤ 2x).
+    """
+    if price is None or renewal is None or price <= 0:
+        return ""
+    ratio = renewal / price
+    if ratio <= 2.0:
+        return ""
+    return f" [yellow]↑{ratio:.0f}x[/]"
+
+
 def _cell_str(state, show_renewal: bool = False) -> str:
-    """Format one grid cell: ✓ $N / ✗ live|park / ? / $N!"""
+    """Format one grid cell: ✓ $N [↑Nx] / ✗ live|park / ? / $N!"""
     if state.over_max:
         # Available but priced out; surface so user sees the option exists.
         if state.available is True and state.price is not None:
@@ -946,9 +961,10 @@ def _cell_str(state, show_renewal: bool = False) -> str:
         return "[yellow]?[/]"
     if state.available is True:
         price_s = f"${state.price:.0f}" if state.price is not None else "-"
+        cliff = _renewal_cliff_marker(state.price, state.renewal)
         if show_renewal and state.renewal is not None:
-            return f"[green]✓[/] {price_s}\n[dim]r ${state.renewal:.0f}[/]"
-        return f"[green]✓[/] {price_s}"
+            return f"[green]✓[/] {price_s}{cliff}\n[dim]r ${state.renewal:.0f}[/]"
+        return f"[green]✓[/] {price_s}{cliff}"
     if state.available is False:
         if state.com_class == "live-site":
             return "[red]✗ live[/]"
@@ -963,18 +979,23 @@ def _cell_str(state, show_renewal: bool = False) -> str:
 
 
 def _render_grid(rows, columns: list[str], show_renewal: bool = False) -> None:
-    """Render the v3.D registrar grid (rows = names, cols = TLDs + Pick + Why)."""
+    """Render the v3.D registrar grid: rows = names, cols = TLD cells + Anchors
+    + Pick + Why. Anchors column shows vocab terms found in the name (the row
+    differentiator); cliff markers (↑Nx) on cells flag renewal bait-and-switch
+    (the column differentiator)."""
     t = Table(box=None, padding=(0, 1))
     t.add_column("#", justify="right")
     t.add_column("Name", style="bold")
     for c in columns:
         t.add_column(c, justify="left")
+    t.add_column("Anchors", style="magenta")
     t.add_column("Pick", style="cyan")
     t.add_column("Why")
     for i, row in enumerate(rows, 1):
         cells_rendered = [_cell_str(row.cells.get(c), show_renewal=show_renewal) if row.cells.get(c) else "-" for c in columns]
+        anchors = " · ".join(row.anchors_matched) if row.anchors_matched else "-"
         pick = row.pick_label or "-"
-        t.add_row(str(i), row.name, *cells_rendered, pick, row.why)
+        t.add_row(str(i), row.name, *cells_rendered, anchors, pick, row.why)
     console.print(t)
 
 

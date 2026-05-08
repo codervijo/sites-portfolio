@@ -41,9 +41,12 @@ DEFAULT_TLDS = (".com", ".app", ".dev", ".xyz", ".site", ".co")
 # render in the grid as `?` cells (manual verify at registrar).
 FULL_LADDER = (".com", ".app", ".dev", ".co", ".ai", ".io", ".xyz", ".shop", ".life", ".info", ".pro")
 
-# RDAP endpoints that consistently fail (Radix-host SSL chain). Domain checks
-# skip these and surface `?` cells; the user verifies at the registrar.
-BROKEN_RDAP_TLDS = frozenset({".tech", ".site", ".online", ".store", ".fun"})
+# Historically: TLDs whose RDAP endpoints (rdap.radix.host) had a broken SSL
+# chain. As of 2026-05-07 we route those calls with `verify=False` (see
+# availability.RDAP_HOSTS_INSECURE), so checks succeed and these TLDs are no
+# longer special-cased. The constant is kept empty to preserve backward-compat
+# for any external callers; remove on the next major refactor.
+BROKEN_RDAP_TLDS: frozenset[str] = frozenset()
 
 # v3.D TLD tier reweighting based on validation-mode track record:
 # .app and .dev are stable, low-renewal, modern — alongside .com.
@@ -77,6 +80,8 @@ TLD_TIER = {
 # v3.D defense bonuses. Applied in score_name when com_status is provided.
 SCORE_BONUS_COM_AVAILABLE = 5     # .com is registerable → slice defendable
 SCORE_PENALTY_COM_LIVE = -20      # .com is a live competing site → brand poisoned
+SCORE_BONUS_PER_VOCAB_ANCHOR = 5  # +5 per vocab term that appears in the name
+                                  # (multi-anchor names rank higher; tiebreaker)
 
 # Porkbun /domain/create endpoint (v3.D auto-register).
 PORKBUN_DOMAIN_CREATE_URL = "https://api.porkbun.com/api/json/v3/domain/create"
@@ -145,6 +150,10 @@ class GridRow:
     `cells[tld]` is a CellState describing avail/price/classification. Pick is the
     recommended TLD for this row (or None if all options are skip-worthy). Why is
     a one-line rationale to render in the table.
+
+    `anchors_matched`: vocab terms (from extract_vocab) that appear as substrings
+    in `name`. Used both as a row differentiator column and as a tiebreaker
+    in ranking (more anchors → ranks higher among same-pick rows).
     """
     name: str
     strategy: str
@@ -153,6 +162,7 @@ class GridRow:
     pick_label: str = ""        # e.g. ".app +bundle" or "skip"
     why: str = ""
     score: int = 0
+    anchors_matched: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -294,6 +304,7 @@ def score_name(
     topic: str,
     tld: str,
     com_status: str | None = None,
+    vocab_terms: list[str] | None = None,
 ) -> tuple[int, list[str]]:
     """SEO-weighted score for a name+TLD pair given a topic. Returns (score, notes).
 
@@ -301,6 +312,11 @@ def score_name(
     the .com — `available` adds a small bonus (defendable), `live-site` poisons
     the row (the .com is a competing live brand). All other classes (parked,
     for-sale, forwarder, taken) are neutral.
+
+    v3.D (2026-05-08): when `vocab_terms` is provided, each term that appears
+    as a substring of `name` adds `SCORE_BONUS_PER_VOCAB_ANCHOR`. Acts as a row
+    tiebreaker so multi-anchor names rank above single-anchor names when their
+    .com (or other Pick-TLD) status is otherwise identical.
     """
     notes: list[str] = []
     s = 0
@@ -345,6 +361,14 @@ def score_name(
     elif com_status == "live-site":
         s += SCORE_PENALTY_COM_LIVE
         notes.append("com-poisoned")
+
+    # v3.D vocab-anchor bonus: +5 per vocab term found in name. Differentiates
+    # multi-anchor names from single-anchor ones when other fields are equal.
+    if vocab_terms:
+        n_anchors = sum(1 for v in vocab_terms if v and v in base)
+        if n_anchors:
+            s += SCORE_BONUS_PER_VOCAB_ANCHOR * n_anchors
+            notes.append(f"anchors:{n_anchors}")
 
     return s, notes
 
@@ -665,6 +689,21 @@ def _classify_com(domain: str, classifier_fn=None) -> str | None:
     return None
 
 
+def _anchors_in(name: str, vocab_terms: list[str] | None) -> list[str]:
+    """Return the subset of vocab_terms (in order, deduped) that appear as
+    substrings of `name`. Empty list if vocab_terms is empty or None."""
+    if not vocab_terms:
+        return []
+    base = name.lower()
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in vocab_terms:
+        if v and v not in seen and v in base:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
 def build_grid(
     candidates: list[Candidate],
     topic: str,
@@ -674,6 +713,7 @@ def build_grid(
     pricing_dict: dict | None = None,
     com_classifier=None,
     full_ladder: list[str] | None = None,
+    vocab_terms: list[str] | None = None,
 ) -> list[GridRow]:
     """Build a registrar-grid row per candidate name.
 
@@ -740,13 +780,18 @@ def build_grid(
         # Compute pick + why.
         pick_tld, pick_label, why = _decide_pick(c.name, cells, columns, com_status, max_price)
 
+        anchors = _anchors_in(c.name, vocab_terms)
+
         # Score = best score among available TLDs the user might pick (bias
-        # toward the recommended tld).
+        # toward the recommended tld). Vocab-anchor bonus differentiates names
+        # with the same Pick-TLD status.
         if pick_tld:
-            score, _ = score_name(c.name, topic, pick_tld, com_status=com_status)
+            score, _ = score_name(c.name, topic, pick_tld,
+                                  com_status=com_status, vocab_terms=vocab_terms)
         else:
             # No clear pick — use .com tier as the placeholder so poisoned rows sort last.
-            score, _ = score_name(c.name, topic, ".com", com_status=com_status)
+            score, _ = score_name(c.name, topic, ".com",
+                                  com_status=com_status, vocab_terms=vocab_terms)
 
         rows.append(GridRow(
             name=c.name,
@@ -756,9 +801,11 @@ def build_grid(
             pick_label=pick_label,
             why=why,
             score=score,
+            anchors_matched=anchors,
         ))
 
-    rows.sort(key=lambda r: -r.score)
+    # Sort: score desc, anchor count desc, length asc (shorter wins ties).
+    rows.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
     return rows
 
 
@@ -991,5 +1038,6 @@ def run_validation_pipeline(
         pricing_dict=pricing_dict,
         com_classifier=com_classifier,
         full_ladder=list(FULL_LADDER),
+        vocab_terms=vocab_terms,
     )
     return rows, vocab_terms

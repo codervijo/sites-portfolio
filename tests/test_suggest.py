@@ -432,23 +432,10 @@ def test_v3d_default_tlds_has_app_dev_xyz_site_co():
     assert DEFAULT_TLDS == (".com", ".app", ".dev", ".xyz", ".site", ".co")
 
 
-def test_v3d_full_ladder_excludes_radix_broken():
-    # Tier with broken Radix RDAP must NOT appear in the availability ladder
-    for broken in (".tech", ".site", ".online", ".store", ".fun"):
-        # .site is in DEFAULT_TLDS for the column display, but not the FULL_LADDER scan
-        if broken == ".site":
-            continue
-        assert broken not in FULL_LADDER
-
-
-def test_v3d_broken_rdap_tlds_set():
-    assert ".tech" in BROKEN_RDAP_TLDS
-    assert ".site" in BROKEN_RDAP_TLDS
-    assert ".online" in BROKEN_RDAP_TLDS
-    assert ".store" in BROKEN_RDAP_TLDS
-    assert ".fun" in BROKEN_RDAP_TLDS
-    assert ".com" not in BROKEN_RDAP_TLDS
-    assert ".app" not in BROKEN_RDAP_TLDS
+def test_v3d_broken_rdap_tlds_now_empty():
+    # As of 2026-05-07 we route Radix calls with verify=False; no TLDs are
+    # special-cased anymore. The constant is preserved (empty) for external callers.
+    assert BROKEN_RDAP_TLDS == frozenset()
 
 
 # ---------- v3.D TLD tier reweight ----------
@@ -864,22 +851,25 @@ def test_v3d_build_grid_skip_when_com_is_live_site():
     assert rows[0].score == clean_score + SCORE_PENALTY_COM_LIVE
 
 
-def test_v3d_build_grid_broken_rdap_tlds_show_question_mark():
+def test_v3d_build_grid_checks_site_via_avail_fn():
+    # 2026-05-07: .site is no longer special-cased — it goes through the same
+    # avail callable as everything else. (The verify=False routing happens in
+    # availability.rdap_check, not in build_grid.)
     cands = [Candidate(name="scrubs", strategy="t")]
     avail = {
         "scrubs.com": (True, 11.0),
         "scrubs.app": (True, 11.0),
+        "scrubs.site": (True, 2.0),
     }
-    # .site is in BROKEN_RDAP_TLDS — must surface as ? not call avail check
     called = []
     def check(d):
         called.append(d)
         return avail.get(d, (False, None)) + (None,)
 
     rows = build_grid(cands, "topic", [".com", ".app", ".site"], check, max_price=20.0)
-    assert "scrubs.site" not in called
-    assert rows[0].cells[".site"].available is None
-    assert rows[0].cells[".site"].error is None  # gap, not error
+    assert "scrubs.site" in called
+    assert rows[0].cells[".site"].available is True
+    assert rows[0].cells[".site"].price == 2.0
 
 
 def test_v3d_build_grid_over_max_price_marked():
@@ -1046,6 +1036,138 @@ def test_v3d_parse_pick_empty():
     idx, tld, err = parse_pick_input("", n_rows=15, columns=[".com"])
     assert idx is None
     assert err == "empty input"
+
+
+# ---------- v3.D vocab-anchor scoring + ranking ----------
+
+
+def test_v3d_vocab_anchor_bonus_added_to_score():
+    s_no, _ = score_name("scrubsync", "x", ".com")
+    s_yes, notes = score_name("scrubsync", "x", ".com",
+                              vocab_terms=["scrubs", "ppe"])
+    # Two anchors don't both match; only "scrubs" appears in "scrubsync"
+    assert s_yes == s_no + 5
+    assert any("anchors:1" in n for n in notes)
+
+
+def test_v3d_multi_anchor_name_outranks_single_anchor():
+    s1, _ = score_name("scrubfit", "x", ".com",
+                       vocab_terms=["scrubs", "fit", "ppe"])
+    s2, _ = score_name("flowsync", "x", ".com",
+                       vocab_terms=["scrubs", "fit", "ppe"])
+    # scrubfit matches "fit" (and not "scrubs" since "s" is missing) → 1 anchor
+    # flowsync matches none → 0 anchors
+    assert s1 > s2
+
+
+def test_v3d_two_anchors_outrank_one():
+    s_two, _ = score_name("scrubsfit", "x", ".com",
+                          vocab_terms=["scrubs", "fit", "ppe"])
+    s_one, _ = score_name("scrubsync", "x", ".com",
+                          vocab_terms=["scrubs", "fit", "ppe"])
+    # scrubsfit matches both "scrubs" and "fit" → 2 anchors → +10
+    # scrubsync matches "scrubs" only → 1 anchor → +5
+    assert s_two == s_one + 5
+
+
+def test_v3d_no_vocab_terms_no_bonus():
+    s1, _ = score_name("scrubsync", "x", ".com")
+    s2, _ = score_name("scrubsync", "x", ".com", vocab_terms=[])
+    assert s1 == s2
+
+
+def test_v3d_anchors_in_helper():
+    from portfolio.suggest import _anchors_in
+    assert _anchors_in("scrubsfit", ["scrubs", "fit", "ppe"]) == ["scrubs", "fit"]
+    assert _anchors_in("flowsync", ["scrubs", "fit"]) == []
+    assert _anchors_in("scrubs", None) == []
+    assert _anchors_in("scrubs", []) == []
+
+
+def test_v3d_anchors_in_dedupes_repeated_terms():
+    from portfolio.suggest import _anchors_in
+    # Even if vocab list has dups, output is unique
+    assert _anchors_in("scrubsfit", ["scrubs", "scrubs", "fit"]) == ["scrubs", "fit"]
+
+
+def test_v3d_build_grid_populates_anchors_matched():
+    cands = [Candidate(name="scrubsfit", strategy="t"),
+             Candidate(name="flowsync", strategy="t")]
+    avail = {f"{c.name}{t}": (True, 11.0)
+             for c in cands for t in (".com", ".app")}
+    rows = build_grid(cands, "x", [".com", ".app"], _build_avail(avail),
+                      max_price=20.0,
+                      vocab_terms=["scrubs", "fit", "ppe"])
+    by_name = {r.name: r for r in rows}
+    assert by_name["scrubsfit"].anchors_matched == ["scrubs", "fit"]
+    assert by_name["flowsync"].anchors_matched == []
+
+
+def test_v3d_build_grid_ranks_multi_anchor_above_single_anchor():
+    cands = [
+        Candidate(name="scrubsync", strategy="t"),  # 1 anchor
+        Candidate(name="scrubsfit", strategy="t"),  # 2 anchors
+        Candidate(name="flowsync", strategy="t"),   # 0 anchors
+    ]
+    avail = {f"{c.name}{t}": (True, 11.0)
+             for c in cands for t in (".com", ".app")}
+    rows = build_grid(cands, "x", [".com", ".app"], _build_avail(avail),
+                      max_price=20.0,
+                      vocab_terms=["scrubs", "fit"])
+    # Order: scrubsfit (2 anchors) > scrubsync (1) > flowsync (0)
+    names = [r.name for r in rows]
+    assert names == ["scrubsfit", "scrubsync", "flowsync"]
+
+
+def test_v3d_build_grid_length_breaks_score_ties():
+    """When score and anchor count are equal, shorter name wins."""
+    cands = [
+        Candidate(name="scrub", strategy="t"),     # short, 1 anchor
+        Candidate(name="scrubblah", strategy="t"), # longer, 1 anchor
+    ]
+    # Same anchor count (both match "scrub" since it's a substring), same TLD.
+    avail = {f"{c.name}{t}": (True, 11.0)
+             for c in cands for t in (".com",)}
+    rows = build_grid(cands, "x", [".com"], _build_avail(avail),
+                      max_price=20.0,
+                      vocab_terms=["scrub"])
+    # `scrub` (5 chars) ranks above `scrubblah` (9 chars) — but only when
+    # the short-length scoring bonus also matches. Both names ≤9 chars so
+    # both get +6. Both match "scrub" → +5 each. Score-equal: length tiebreaks.
+    names = [r.name for r in rows]
+    assert names[0] == "scrub"
+
+
+# ---------- v3.D renewal-cliff cell marker ----------
+
+
+def test_v3d_renewal_cliff_marker_present_when_renewal_high():
+    from portfolio.cli import _renewal_cliff_marker
+    # .site: $2 reg / $30 renewal → 15x
+    out = _renewal_cliff_marker(price=2.0, renewal=30.0)
+    assert "↑15x" in out
+
+
+def test_v3d_renewal_cliff_marker_absent_when_close():
+    from portfolio.cli import _renewal_cliff_marker
+    # .com: $11 reg / $11 renewal → 1x → no marker
+    assert _renewal_cliff_marker(price=11.0, renewal=11.0) == ""
+    # .xyz: $2 reg / $13 renewal → 6.5x → marker
+    assert "↑" in _renewal_cliff_marker(price=2.0, renewal=13.0)
+
+
+def test_v3d_renewal_cliff_marker_skips_when_data_missing():
+    from portfolio.cli import _renewal_cliff_marker
+    assert _renewal_cliff_marker(None, None) == ""
+    assert _renewal_cliff_marker(2.0, None) == ""
+    assert _renewal_cliff_marker(None, 30.0) == ""
+
+
+def test_v3d_renewal_cliff_threshold_at_two_x():
+    """Boundary: ratio ≤ 2.0 → no marker; ratio > 2.0 → marker."""
+    from portfolio.cli import _renewal_cliff_marker
+    assert _renewal_cliff_marker(10.0, 20.0) == ""    # exactly 2x: no marker
+    assert "↑" in _renewal_cliff_marker(10.0, 20.5)   # just over 2x: marker
 
 
 def test_v3d_pipeline_dedupes_across_strategies():
