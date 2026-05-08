@@ -701,7 +701,7 @@ def domain_suggest(
         "--tlds",
         help="Comma-separated TLDs to scan in priority order (default: .com,.app,.dev,.xyz,.site,.co)",
     ),
-    max_price: float = typer.Option(20.0, "--max-price", help="Filter out candidates priced above this USD/yr (default 20; pass a big number e.g. 999 to disable)"),
+    max_price: float = typer.Option(10.0, "--max-price", help="Filter out candidates priced above this USD/yr (default 10; pass a big number e.g. 999 to disable)"),
     strategies: int = typer.Option(0, "--strategies", help="Limit to first N strategies (0 = all)"),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Dump ranked candidates and exit; no prompts"),
     no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the brainstorm + vocab cache"),
@@ -881,7 +881,7 @@ def _domain_suggest_validation(
     cfg_t.add_column("key", style="dim")
     cfg_t.add_column("value")
     cfg_t.add_row("topic", topic)
-    cfg_t.add_row("max price", f"${max_price:.2f}/yr (pass --max-price=999 to disable)")
+    cfg_t.add_row("max price", f"${max_price:.2f}/yr (pass --max-price=N to override; 999 disables)")
     cfg_t.add_row("TLD columns", " ".join(tld_list))
     cfg_t.add_row("availability", "RDAP + DoH fallback (Google then Cloudflare)")
     cfg_t.add_row("pricing", "Porkbun /pricing/get (public, cached 7d)")
@@ -923,32 +923,44 @@ def _domain_suggest_validation(
     if non_interactive:
         return
 
-    # v3.D 2026-05-08: optional user-supplied names. Run them through the same
-    # availability + pricing + anchor pipeline; merge into the grid; re-render.
-    add_input = typer.prompt(
-        "\nAdd your own names? (comma-separated, no TLDs; Enter to skip)",
-        default="", show_default=False,
-    ).strip()
-    if add_input:
+    # v3.D 2026-05-08: optional user-supplied names. Loops until the user hits
+    # Enter (satisfied with the grid). Each round runs the new names through
+    # the same availability + pricing + anchor pipeline and re-renders.
+    round_n = 0
+    while True:
+        round_n += 1
+        prompt_msg = (
+            "\nAdd your own names? (comma-separated, no TLDs; Enter to skip)"
+            if round_n == 1
+            else "\nAdd more names? (Enter to proceed to picker)"
+        )
+        add_input = typer.prompt(prompt_msg, default="", show_default=False).strip()
+        if not add_input:
+            break
         valid_names, rejected = _parse_user_added_names(add_input)
         for r in rejected:
             console.print(f"[yellow]skipping {r}[/]")
-        if valid_names:
-            console.print(f"[dim]Probing {len(valid_names)} user-supplied name(s)...[/]")
-            user_cands = [Candidate(name=n, strategy="user") for n in valid_names]
-            user_rows = build_grid(
-                user_cands, topic, tld_list, avail_fn,
-                max_price=max_price, pricing_dict=pricing_dict,
-                full_ladder=list(FULL_LADDER),
-                vocab_terms=vocab_terms,
-            )
-            user_rows = filter_pickable_rows(user_rows)
-            # Merge: user-added rows replace LLM rows of same name.
-            user_names = {r.name for r in user_rows}
-            merged = user_rows + [r for r in rows if r.name not in user_names]
-            merged.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
-            rows = merged
-            _render_grid(rows, tld_list, show_renewal=show_renewal)
+        if not valid_names:
+            console.print("[yellow]No valid names parsed — try again or press Enter to proceed.[/]")
+            continue
+        console.print(f"[dim]Probing {len(valid_names)} user-supplied name(s)...[/]")
+        user_cands = [Candidate(name=n, strategy="user") for n in valid_names]
+        user_rows = build_grid(
+            user_cands, topic, tld_list, avail_fn,
+            max_price=max_price, pricing_dict=pricing_dict,
+            full_ladder=list(FULL_LADDER),
+            vocab_terms=vocab_terms,
+        )
+        user_rows = filter_pickable_rows(user_rows)
+        if not user_rows:
+            console.print(f"[yellow]None of those names had a pickable cell under --max-price=${max_price:.2f}.[/]")
+            continue
+        # Merge: user-added rows replace any existing rows of the same name.
+        user_names = {r.name for r in user_rows}
+        merged = user_rows + [r for r in rows if r.name not in user_names]
+        merged.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
+        rows = merged
+        _render_grid(rows, tld_list, show_renewal=show_renewal)
 
     # Picker loop with expand support.
     selected_row = None
