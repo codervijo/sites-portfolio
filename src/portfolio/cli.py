@@ -1146,48 +1146,42 @@ def _print_shortlist(shortlist: list[str], rows) -> None:
 
 def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
     """Sub-prompt for menu option 6. Multi-target per invocation
-    (`m 5 7 12` or `m 5,7,12` marks three at once). The outer menu loop
-    re-shows after each action. Returns the (possibly-modified) shortlist.
+    (`m 5 7 12` or `m 5,7,12` marks three at once).
 
-    v4.A polish 2026-05-08: the current shortlist is auto-printed on entry
-    so the user always knows their state before deciding what to do.
+    v4.A polish 2026-05-08: stays in this sub-prompt loop until the user
+    types `b` (back). Each iteration auto-prints the current shortlist so
+    the user sees their state after every modification. Returns the
+    (possibly-modified) shortlist when `b` is pressed.
     """
-    _print_shortlist(shortlist, rows)
-    sub = typer.prompt(
-        "Action? (just type N or names to mark, e.g. '39 18' or 'alpha beta'; "
-        "u to unmark, b to back)",
-        default="", show_default=False,
-    )
-    action, names, errors = parse_shortlist_input(sub, rows)
-    for err in errors:
-        console.print(f"[red]{err}[/]")
-    if action is None:
-        return shortlist
-    if action == "back":
-        return shortlist
-    if action == "mark":
-        new = list(shortlist)
-        for name in names:
-            if name in new:
-                console.print(f"[yellow]{name} is already on the shortlist.[/]")
-                continue
-            new.append(name)
-            console.print(f"[green]✓[/] Marked [bold]{name}[/]")
-        if len(new) != len(shortlist):
-            console.print(f"[dim]Shortlist now: {len(new)} marked[/]")
-        return new
-    if action == "unmark":
-        new = list(shortlist)
-        for name in names:
-            if name not in new:
-                console.print(f"[yellow]{name} is not on the shortlist.[/]")
-                continue
-            new.remove(name)
-            console.print(f"[green]✓[/] Unmarked [bold]{name}[/]")
-        if len(new) != len(shortlist):
-            console.print(f"[dim]Shortlist now: {len(new)} marked[/]")
-        return new
-    return shortlist  # unreachable
+    current = list(shortlist)
+    while True:
+        _print_shortlist(current, rows)
+        sub = typer.prompt(
+            "Action? (just type N or names to mark, e.g. '39 18' or 'alpha beta'; "
+            "u to unmark, b to back)",
+            default="", show_default=False,
+        )
+        action, names, errors = parse_shortlist_input(sub, rows)
+        for err in errors:
+            console.print(f"[red]{err}[/]")
+        if action == "back":
+            return current
+        if action is None:
+            continue
+        if action == "mark":
+            for name in names:
+                if name in current:
+                    console.print(f"[yellow]{name} is already on the shortlist.[/]")
+                    continue
+                current.append(name)
+                console.print(f"[green]✓[/] Marked [bold]{name}[/]")
+        elif action == "unmark":
+            for name in names:
+                if name not in current:
+                    console.print(f"[yellow]{name} is not on the shortlist.[/]")
+                    continue
+                current.remove(name)
+                console.print(f"[green]✓[/] Unmarked [bold]{name}[/]")
 
 
 def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,

@@ -1964,10 +1964,12 @@ def test_v4a_parse_shortlist_multi_target_partial_success_collects_per_target_er
 
 
 def test_v4a_menu_shortlist_marks_name():
+    """Each test feeds the action then 'b' so the v4.A loop exits."""
     from portfolio.cli import _menu_shortlist
     rows = [GridRow(name="alpha", strategy="t"),
             GridRow(name="beta", strategy="t")]
-    with patch("portfolio.cli.typer.prompt", return_value="m beta"):
+    prompts = iter(["m beta", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
         new = _menu_shortlist(rows, [])
     assert new == ["beta"]
 
@@ -1976,7 +1978,8 @@ def test_v4a_menu_shortlist_unmarks_name():
     from portfolio.cli import _menu_shortlist
     rows = [GridRow(name="alpha", strategy="t"),
             GridRow(name="beta", strategy="t")]
-    with patch("portfolio.cli.typer.prompt", return_value="u alpha"):
+    prompts = iter(["u alpha", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
         new = _menu_shortlist(rows, ["alpha", "beta"])
     assert new == ["beta"]
 
@@ -1984,16 +1987,17 @@ def test_v4a_menu_shortlist_unmarks_name():
 def test_v4a_menu_shortlist_double_mark_is_idempotent():
     from portfolio.cli import _menu_shortlist
     rows = [GridRow(name="alpha", strategy="t")]
-    with patch("portfolio.cli.typer.prompt", return_value="m alpha"):
+    prompts = iter(["m alpha", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
         new = _menu_shortlist(rows, ["alpha"])
-    # Already marked → no change, no duplicate
     assert new == ["alpha"]
 
 
 def test_v4a_menu_shortlist_unmark_when_not_marked_is_noop():
     from portfolio.cli import _menu_shortlist
     rows = [GridRow(name="alpha", strategy="t")]
-    with patch("portfolio.cli.typer.prompt", return_value="u alpha"):
+    prompts = iter(["u alpha", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
         new = _menu_shortlist(rows, [])
     assert new == []
 
@@ -2004,6 +2008,19 @@ def test_v4a_menu_shortlist_back_returns_unchanged():
     with patch("portfolio.cli.typer.prompt", return_value="b"):
         new = _menu_shortlist(rows, ["alpha"])
     assert new == ["alpha"]
+
+
+def test_v4a_menu_shortlist_loops_until_b():
+    """Multiple actions accumulate in one menu-6 visit until 'b'."""
+    from portfolio.cli import _menu_shortlist
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t"),
+            GridRow(name="gamma", strategy="t")]
+    # Mark alpha → mark beta → unmark alpha → mark gamma → back
+    prompts = iter(["m alpha", "m beta", "u alpha", "m gamma", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
+        new = _menu_shortlist(rows, [])
+    assert new == ["beta", "gamma"]
 
 
 def test_v4a_menu_shortlist_auto_prints_on_entry():
@@ -2086,7 +2103,8 @@ def test_v4a_menu_shortlist_marks_multiple_in_one_call():
     rows = [GridRow(name="alpha", strategy="t"),
             GridRow(name="beta", strategy="t"),
             GridRow(name="gamma", strategy="t")]
-    with patch("portfolio.cli.typer.prompt", return_value="m 1 3"):
+    prompts = iter(["m 1 3", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
         new = _menu_shortlist(rows, [])
     assert new == ["alpha", "gamma"]
 
@@ -2095,7 +2113,8 @@ def test_v4a_menu_shortlist_marks_multiple_with_partial_failure():
     """One valid + one invalid target: valid one gets marked, invalid surfaces error."""
     from portfolio.cli import _menu_shortlist
     rows = [GridRow(name="alpha", strategy="t")]
-    with patch("portfolio.cli.typer.prompt", return_value="m 1 99"):
+    prompts = iter(["m 1 99", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
         new = _menu_shortlist(rows, [])
     assert new == ["alpha"]
 
@@ -2105,7 +2124,8 @@ def test_v4a_menu_shortlist_unmark_multiple_in_one_call():
     rows = [GridRow(name="alpha", strategy="t"),
             GridRow(name="beta", strategy="t"),
             GridRow(name="gamma", strategy="t")]
-    with patch("portfolio.cli.typer.prompt", return_value="u alpha gamma"):
+    prompts = iter(["u alpha gamma", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
         new = _menu_shortlist(rows, ["alpha", "beta", "gamma"])
     assert new == ["beta"]
 
