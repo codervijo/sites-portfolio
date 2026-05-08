@@ -339,6 +339,139 @@ def test_checker_rate_limits_between_calls(monkeypatch):
 # ---------- back-compat shim ----------
 
 
+# ---------- DoH fallback (dns_check) ----------
+
+
+def test_dns_check_taken_via_google_doh(monkeypatch):
+    """Status=0 + Answer array → registered (False)."""
+    fake = MagicMock(status_code=200)
+    fake.json.return_value = {"Status": 0, "Answer": [{"name": "stripe.site",
+                                                       "type": 2, "TTL": 3600,
+                                                       "data": "ns1.example.com."}]}
+    monkeypatch.setattr(availability.requests, "get", lambda *a, **kw: fake)
+    res = availability.dns_check("stripe.site")
+    assert res.available is False
+    assert res.backend == "doh"
+
+
+def test_dns_check_available_via_google_doh(monkeypatch):
+    """Status=3 (NXDOMAIN) → available (True)."""
+    fake = MagicMock(status_code=200)
+    fake.json.return_value = {"Status": 3, "Answer": []}
+    monkeypatch.setattr(availability.requests, "get", lambda *a, **kw: fake)
+    res = availability.dns_check("definitely-unregistered-test.site")
+    assert res.available is True
+    assert res.backend == "doh"
+
+
+def test_dns_check_falls_back_to_cloudflare_when_google_fails(monkeypatch):
+    """If the Google DoH call fails, dns_check tries Cloudflare."""
+    google_fail = MagicMock(status_code=500)
+    cloudflare_ok = MagicMock(status_code=200)
+    cloudflare_ok.json.return_value = {"Status": 0, "Answer": [{"data": "ns1."}]}
+
+    calls = {"n": 0}
+    def fake_get(url, **kw):
+        calls["n"] += 1
+        return google_fail if calls["n"] == 1 else cloudflare_ok
+
+    monkeypatch.setattr(availability.requests, "get", fake_get)
+    res = availability.dns_check("foo.site")
+    assert res.available is False
+    assert calls["n"] == 2  # tried both
+
+
+def test_dns_check_unknown_when_both_resolvers_fail(monkeypatch):
+    """If both resolvers fail/error, return None with the error trail."""
+    monkeypatch.setattr(availability.requests, "get",
+                        MagicMock(side_effect=ConnectionError("blocked")))
+    res = availability.dns_check("foo.site")
+    assert res.available is None
+    assert res.error is not None
+
+
+def test_rdap_check_falls_back_to_doh_on_network_failure(tmp_path, monkeypatch):
+    """When the RDAP call raises (e.g. Cujo SSL intercept), rdap_check falls
+    back to DoH and surfaces the DoH answer."""
+    monkeypatch.setattr(availability, "RDAP_CACHE_PATH", tmp_path / "rdap.json")
+    (tmp_path / "rdap.json").write_text(json.dumps({
+        "cached_at": time.time(),
+        "services": {"site": ["https://rdap.radix.host/rdap/"]},
+    }))
+
+    doh_taken = MagicMock(status_code=200)
+    doh_taken.json.return_value = {"Status": 0, "Answer": [{"data": "ns1."}]}
+
+    calls = {"rdap": 0, "doh": 0}
+    def fake_get(url, **kw):
+        if "radix.host" in url:
+            calls["rdap"] += 1
+            raise ConnectionError("Cujo SSL intercept")
+        if "dns.google" in url or "cloudflare" in url:
+            calls["doh"] += 1
+            return doh_taken
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr(availability.requests, "get", fake_get)
+    # Use retries=0 so we don't hammer the fake.
+    res = availability.rdap_check("foo.site", retries=0)
+    assert res.available is False  # registered per DoH
+    assert res.backend == "doh"
+    assert calls["rdap"] == 1
+    assert calls["doh"] >= 1
+
+
+def test_rdap_check_uses_doh_when_no_rdap_endpoint(tmp_path, monkeypatch):
+    """For TLDs with no RDAP endpoint at all, DoH still gives an answer."""
+    monkeypatch.setattr(availability, "RDAP_CACHE_PATH", tmp_path / "rdap.json")
+    (tmp_path / "rdap.json").write_text(json.dumps({
+        "cached_at": time.time(),
+        "services": {},  # no endpoints for any TLD
+    }))
+
+    doh_avail = MagicMock(status_code=200)
+    doh_avail.json.return_value = {"Status": 3, "Answer": []}
+    monkeypatch.setattr(availability.requests, "get", lambda *a, **kw: doh_avail)
+    res = availability.rdap_check("foo.unknownTld")
+    assert res.available is True
+    assert res.backend == "doh"
+
+
+def test_rdap_check_doesnt_call_doh_when_rdap_succeeds(tmp_path, monkeypatch):
+    """When RDAP gives a clean 404/200, DoH is NOT called (don't waste calls)."""
+    monkeypatch.setattr(availability, "RDAP_CACHE_PATH", tmp_path / "rdap.json")
+    (tmp_path / "rdap.json").write_text(json.dumps({
+        "cached_at": time.time(),
+        "services": {"com": ["https://rdap.verisign.com/com/v1/"]},
+    }))
+    rdap_404 = MagicMock(status_code=404)
+    calls = []
+    def fake_get(url, **kw):
+        calls.append(url)
+        return rdap_404
+    monkeypatch.setattr(availability.requests, "get", fake_get)
+    res = availability.rdap_check("foo.com")
+    assert res.available is True
+    assert res.backend == "rdap"
+    # Only the RDAP URL should have been called — no DoH.
+    assert all("dns.google" not in u and "cloudflare-dns" not in u for u in calls)
+
+
+@pytest.mark.skipif(
+    not __import__("os").environ.get("PORTFOLIO_TEST_NETWORK"),
+    reason="set PORTFOLIO_TEST_NETWORK=1 to run network-bound availability tests",
+)
+def test_rdap_check_radix_real_network():
+    """Sanity check on a real network: a known-registered .site domain returns
+    False even when the user's network blocks rdap.radix.host (DoH fallback
+    handles it). Skip-by-default; gated by env var."""
+    res = rdap_check("stripe.site")
+    assert res.error is None
+    assert res.available is False
+    # Either path is acceptable — RDAP if reachable, DoH otherwise.
+    assert res.backend in ("rdap", "doh")
+
+
 def test_porkbun_check_shim_routes_to_rdap_plus_pricing(tmp_path, monkeypatch):
     """The deprecated porkbun_check function still returns sane data via the new path."""
     monkeypatch.setattr(availability, "RDAP_CACHE_PATH", tmp_path / "rdap.json")

@@ -44,6 +44,20 @@ DEFAULT_RATE_DELAY_S = 0.3
 DEFAULT_RETRIES = 1
 DEFAULT_RETRY_BACKOFF_S = 1.0
 
+# DoH (DNS-over-HTTPS) fallback for availability when RDAP fails.
+#
+# Background: some networks (Charter/Spectrum + Cujo, others) intercept
+# `rdap.radix.host` at the L4 layer, returning malformed TLS bytes. The same
+# networks often hijack plain DNS too (NXDOMAIN forging). DoH bypasses both
+# because the query is encrypted to the public resolver. We query NS records
+# (set by every registrar at registration time) — a registered domain has
+# `Status: 0` plus an `Answer` array; an unregistered one returns `Status: 3`
+# (NXDOMAIN). False-positive cases (registered but no NS configured) are rare
+# and the user re-verifies at registrar checkout anyway.
+DOH_GOOGLE_URL = "https://dns.google/resolve"
+DOH_CLOUDFLARE_URL = "https://cloudflare-dns.com/dns-query"
+DOH_TIMEOUT = 8.0
+
 
 @dataclass
 class AvailResult:
@@ -176,22 +190,78 @@ def _load_rdap_endpoints() -> dict[str, list[str]]:
     return services
 
 
+def dns_check(domain: str) -> AvailResult:
+    """DoH-based availability fallback. Queries NS records for `domain` against
+    Google's `dns.google/resolve` (with Cloudflare as backup) — both encrypt
+    the query so ISPs that hijack plain DNS or block specific RDAP hosts can't
+    interfere.
+
+    Returns:
+      - AvailResult(available=True,  backend="doh")  on Status=3 (NXDOMAIN)
+      - AvailResult(available=False, backend="doh")  on Status=0 with NS Answer
+      - AvailResult(available=None,  backend="doh", error=...) on any other status
+        or transport failure
+
+    Caveat: a registered domain with no NS configured returns NXDOMAIN here
+    (false positive available). In practice every registrar sets default NS at
+    registration time, so this is rare; the user re-verifies at checkout.
+    """
+    last_err: str | None = None
+    for url in (DOH_GOOGLE_URL, DOH_CLOUDFLARE_URL):
+        try:
+            r = requests.get(
+                url,
+                params={"name": domain, "type": "NS"},
+                headers={"accept": "application/dns-json"},
+                timeout=DOH_TIMEOUT,
+            )
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            continue
+        if r.status_code != 200:
+            last_err = f"DoH HTTP {r.status_code}"
+            continue
+        try:
+            body = r.json()
+        except Exception as e:
+            last_err = f"DoH JSON parse: {e}"
+            continue
+        status = body.get("Status")
+        if status == 3:
+            return AvailResult(available=True, price=None, backend="doh")
+        if status == 0 and body.get("Answer"):
+            return AvailResult(available=False, price=None, backend="doh")
+        last_err = f"DoH status={status}"
+    return AvailResult(available=None, price=None, backend="doh", error=last_err)
+
+
 def rdap_check(domain: str, *, retries: int = DEFAULT_RETRIES, backoff_s: float = DEFAULT_RETRY_BACKOFF_S) -> AvailResult:
-    """Check availability via RDAP. Retries `retries` times on transient errors.
+    """Check availability via RDAP, with DoH fallback when RDAP can't be reached.
 
     Returns:
       - AvailResult(available=True)   for HTTP 404 (registry confirms not registered)
       - AvailResult(available=False)  for HTTP 200 (registry returns the record)
       - AvailResult(available=None, error=None) when there's no RDAP endpoint
-        for that TLD (genuine gap, not a transient failure)
-      - AvailResult(available=None, error=...) when calls failed (auth/timeout/5xx)
+        for that TLD AND DoH gives no definitive answer
+      - AvailResult(available=None, error=...) when both RDAP and DoH failed
+
+    DoH fallback engages when:
+      (a) the RDAP call raises (network/SSL/Cujo intercept), or
+      (b) the RDAP server returns a non-200/404 we can't interpret.
+    Some networks (Charter+Cujo) intercept `rdap.radix.host` returning malformed
+    TLS — the DoH fallback routes around that by querying NS records over HTTPS.
     """
     tld = domain.rsplit(".", 1)[-1].lower() if "." in domain else ""
     services = _load_rdap_endpoints()
     urls = services.get(tld, [])
     if not urls:
+        # No RDAP endpoint for this TLD. Try DoH as a last-resort signal.
+        dns_result = dns_check(domain)
+        if dns_result.available is not None:
+            return AvailResult(available=dns_result.available, price=None,
+                               backend="doh", error=None)
         return AvailResult(available=None, price=None, backend="rdap",
-                           error=None)  # genuine gap, no error
+                           error=None)  # genuine gap
     base = urls[0].rstrip("/")
     last_err: str | None = None
     for attempt in range(retries + 1):
@@ -202,7 +272,8 @@ def rdap_check(domain: str, *, retries: int = DEFAULT_RETRIES, backoff_s: float 
             if attempt < retries:
                 time.sleep(backoff_s)
                 continue
-            return AvailResult(available=None, price=None, backend="rdap", error=last_err)
+            # All retries exhausted — try DoH fallback.
+            return _rdap_or_doh_fallback(domain, last_err)
         if r.status_code == 404:
             return AvailResult(available=True, price=None, backend="rdap")
         if r.status_code == 200:
@@ -211,9 +282,19 @@ def rdap_check(domain: str, *, retries: int = DEFAULT_RETRIES, backoff_s: float 
             last_err = f"RDAP HTTP {r.status_code}"
             time.sleep(backoff_s)
             continue
-        return AvailResult(available=None, price=None, backend="rdap",
-                           error=f"RDAP HTTP {r.status_code}")
-    return AvailResult(available=None, price=None, backend="rdap", error=last_err)
+        # Non-success non-retryable status — try DoH fallback.
+        return _rdap_or_doh_fallback(domain, f"RDAP HTTP {r.status_code}")
+    return _rdap_or_doh_fallback(domain, last_err)
+
+
+def _rdap_or_doh_fallback(domain: str, rdap_err: str | None) -> AvailResult:
+    """Used when RDAP fails to give a definitive answer. Tries DoH; returns
+    DoH's answer if definitive, else surfaces the original RDAP error."""
+    dns_result = dns_check(domain)
+    if dns_result.available is not None:
+        return AvailResult(available=dns_result.available, price=None,
+                           backend="doh", error=None)
+    return AvailResult(available=None, price=None, backend="rdap", error=rdap_err)
 
 
 # ---------- AvailabilityChecker (composes RDAP + Porkbun pricing) ----------
