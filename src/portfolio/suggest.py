@@ -779,6 +779,85 @@ def brainstorm(
     return [Candidate(name=k, strategy=strategy.name) for k in kept]
 
 
+# v4.C 2026-05-08: widen-search prompt template. Used by `widen_brainstorm`
+# when the user asks for more candidates beyond what the strategies produced.
+# Differs from `_BRAINSTORM_PROMPT` in that it doesn't follow a single named
+# strategy — it asks the model to diversify across patterns we haven't
+# already covered, with optional user guidance.
+_WIDEN_PROMPT = """\
+Generate {n} additional product domain name candidates for this idea:
+
+{topic}
+{anchor_block}{guidance_block}
+Avoid these names already proposed (do not repeat them or trivial
+variants):
+{history}
+
+Try patterns we haven't covered yet — compound words, alternative
+concept anchors, prefix/suffix riffs, foreign-language roots,
+"X for Y" patterns. Diversify away from the existing list.
+
+Strict rules:
+- under 12 characters per name (excluding TLD)
+- no hyphens, no digits
+- pronounceable / brandable / easy to say
+- DO NOT repeat any of the avoid-list names
+- return ONLY names, lowercase, one per line, NO TLDs, NO commentary, NO numbering
+"""
+
+
+def widen_brainstorm(
+    topic: str,
+    history: list[str],
+    vocab_terms: list[str] | None,
+    guidance: str,
+    api_key: str,
+    n: int = 18,
+    log_fn=None,
+) -> list[Candidate]:
+    """v4.C: ask gpt-5-mini for more candidates beyond what the strategies
+    produced. `history` is the existing names (to avoid repeating). `guidance`
+    is an optional user steer like "shorter" or "foreign roots". Returns
+    Candidate objects with `strategy="widen"` after passing through the
+    standard porn screen.
+    """
+    if vocab_terms:
+        anchor_block = (
+            "\nConcept anchors (use as inspiration; not strictly required):\n"
+            f"{', '.join(vocab_terms)}\n"
+        )
+    else:
+        anchor_block = ""
+    guidance_block = f"\nUser guidance: {guidance.strip()}\n" if guidance and guidance.strip() else ""
+    prompt = _WIDEN_PROMPT.format(
+        n=n,
+        topic=topic.strip(),
+        anchor_block=anchor_block,
+        guidance_block=guidance_block,
+        history=", ".join(sorted(set(history))) if history else "(none yet)",
+    )
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    body = {"model": OPENAI_MODEL, "input": prompt}
+    try:
+        r = requests.post(OPENAI_RESPONSES_URL, headers=headers, json=body, timeout=OPENAI_TIMEOUT)
+        r.raise_for_status()
+    except Exception as e:
+        if log_fn:
+            log_fn(f"widen failed: {type(e).__name__}: {e}")
+        return []
+    text = _parse_openai_text(r.json())
+    names = _extract_names(text)
+    seen = {h.lower() for h in history}
+    deduped: list[str] = []
+    for nm in names:
+        if nm in seen:
+            continue
+        seen.add(nm)
+        deduped.append(nm)
+    kept, _dropped = screen_for_content_strict(deduped, api_key, log_fn=log_fn)
+    return [Candidate(name=k, strategy="widen") for k in kept]
+
+
 # v4.A 2026-05-08: AI seed-expansion for option 5 (Add my own names).
 # When the user provides a few seed names, this asks gpt-5-mini for a batch
 # of closely-related variants (plurals, near-synonyms, prefix/suffix riffs,

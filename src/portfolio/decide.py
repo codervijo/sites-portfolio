@@ -13,12 +13,18 @@ testable (no console output; all I/O is HTTP).
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import quote_plus
 
 import requests
 
+from .data import ROOT
 from .suggest import OPENAI_MODEL, OPENAI_RESPONSES_URL, OPENAI_TIMEOUT, _parse_openai_text
+
+ASK_CACHE_DIR = ROOT / "data" / "cache" / "suggest" / "ask"
 
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 BRAVE_SEARCH_TIMEOUT = 15.0
@@ -210,6 +216,98 @@ def compute_five_year_cost(reg_price: float | None,
 
 
 # ---------- Step 5/6: phone & memory test parsers ----------
+
+
+# ---------- v4.C Ask AI about a name ----------
+
+
+_ASK_DEFAULT_QUESTION = (
+    "Why was this name chosen and how does it relate to the topic?"
+)
+
+_ASK_AI_PROMPT = """\
+The user is evaluating a candidate domain name and wants a short
+explanation. Answer in 1-3 sentences. Be concrete and specific to the
+candidate; don't restate the topic verbatim.
+
+Topic:
+{topic}
+{anchor_block}
+Candidate name: {name}
+
+User question: {question}
+"""
+
+
+def _topic_hash_for_ask(topic: str) -> str:
+    return hashlib.sha256(topic.strip().lower().encode()).hexdigest()[:16]
+
+
+def _question_hash(question: str) -> str:
+    return hashlib.sha256(question.strip().lower().encode()).hexdigest()[:12]
+
+
+def _ask_cache_path(topic: str) -> Path:
+    return ASK_CACHE_DIR / f"{_topic_hash_for_ask(topic)}.json"
+
+
+def _load_ask_cache(topic: str) -> dict[str, str]:
+    p = _ask_cache_path(topic)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_ask_cache(topic: str, payload: dict[str, str]) -> None:
+    p = _ask_cache_path(topic)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, indent=2))
+
+
+def _ask_cache_key(name: str, question: str) -> str:
+    return f"{name.lower()}|{_question_hash(question)}"
+
+
+def ask_ai_about_name(
+    name: str,
+    topic: str,
+    vocab_terms: list[str] | None,
+    question: str,
+    api_key: str,
+    no_cache: bool = False,
+) -> str:
+    """v4.C: gpt-5-mini call answering `question` about candidate `name`
+    in the context of `topic` + vocab anchors. Cached on disk by
+    (topic-hash, name, question-hash) so repeat asks are free across
+    sessions. Returns the model's 1-3 sentence answer; raises on HTTP
+    error so callers can fall back gracefully.
+    """
+    q = (question or _ASK_DEFAULT_QUESTION).strip()
+    cache_key = _ask_cache_key(name, q)
+    if not no_cache:
+        cached = _load_ask_cache(topic).get(cache_key)
+        if cached:
+            return cached
+    if vocab_terms:
+        anchor_block = f"\nConcept anchors: {', '.join(vocab_terms)}\n"
+    else:
+        anchor_block = ""
+    prompt = _ASK_AI_PROMPT.format(
+        topic=topic.strip(), anchor_block=anchor_block, name=name, question=q,
+    )
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    body = {"model": OPENAI_MODEL, "input": prompt}
+    r = requests.post(OPENAI_RESPONSES_URL, headers=headers, json=body, timeout=OPENAI_TIMEOUT)
+    r.raise_for_status()
+    answer = _parse_openai_text(r.json()).strip() or "(no answer returned)"
+    if not no_cache:
+        cache = _load_ask_cache(topic)
+        cache[cache_key] = answer
+        _save_ask_cache(topic, cache)
+    return answer
 
 
 def parse_test_response(s: str, finalist_names: list[str]) -> tuple[list[str], list[str]]:

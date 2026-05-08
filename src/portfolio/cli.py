@@ -803,9 +803,11 @@ def parse_expand_input(s: str, rows) -> tuple[int | None, str | None]:
 MENU_ITEMS = [
     ("1", "Pick a row to register",                    False),
     ("2", "Expand a row (full-ladder detail)",         False),
+    ("3", "Ask AI about a name",                       False),  # v4.C
+    ("4", "Widen search — more candidates",            False),  # v4.C
     ("5", "Add my own names to the grid",              False),
     ("6", "Mark / unmark for shortlist",               False),
-    ("7", "Decide from shortlist",                     False),  # v4.B
+    ("7", "Decide from shortlist",                     False),
     ("8", "Show TLD reference (pricing, SEO, vibe)",   False),
 ]
 
@@ -1142,6 +1144,89 @@ def _print_shortlist(shortlist: list[str], rows) -> None:
             if cell and cell.price is not None:
                 price_s = f"  ${cell.price:.0f}"
         console.print(f"  {i}. [bold]{name}[/]  Pick: [cyan]{pick}[/]{price_s}")
+
+
+# v4.C 2026-05-08: ask-AI-about-a-name (option 3) orchestrator.
+
+
+def _menu_ask_ai(rows, topic: str, vocab_terms: list[str] | None,
+                 openai_key: str) -> None:
+    """Sub-prompt for menu option 3. Accepts `<name>` (uses default question)
+    or `<name> <free-form question>`. Resolves name against current rows
+    case-insensitively (with .tld suffix tolerated). Caches via decide module."""
+    from .decide import ask_ai_about_name
+    if not openai_key:
+        console.print("[red]OPENAI_API_KEY not set — Ask AI requires it.[/]")
+        return
+    sub = typer.prompt(
+        "Which name to ask about? (e.g. 'scrubsync' or 'scrubsync is it too clinical?')",
+        default="", show_default=False,
+    ).strip()
+    if not sub:
+        return
+    parts = sub.split(None, 1)
+    name_token = parts[0].split(".", 1)[0].lower() if "." in parts[0] else parts[0].lower()
+    question = parts[1].strip() if len(parts) >= 2 else ""
+    # Resolve name against current rows.
+    match = next((r for r in rows if r.name.lower() == name_token), None)
+    if match is None:
+        console.print(f"[red]No row matches '{name_token}' — type a name from the grid.[/]")
+        return
+    console.print(f"[dim]asking gpt-5-mini about [bold]{match.name}[/]...[/]")
+    try:
+        answer = ask_ai_about_name(match.name, topic, vocab_terms, question, openai_key)
+    except Exception as e:
+        console.print(f"[red]Ask AI failed: {type(e).__name__}: {e}[/]")
+        return
+    console.print(f"\n[bold]{match.name}[/]")
+    console.print(f"  {answer}\n")
+
+
+# v4.C 2026-05-08: widen-search (option 4) orchestrator.
+
+
+def _menu_widen(rows, *, topic: str, vocab_terms: list[str] | None,
+                tld_list: list[str], max_price: float, pricing_dict: dict | None,
+                avail_fn, show_renewal: bool, openai_key: str, log_fn):
+    """Sub-prompt for menu option 4. Asks the user for optional guidance
+    ("shorter", "foreign roots", etc.), calls widen_brainstorm, probes
+    availability, merges into the grid. Returns the (possibly-merged)
+    rows list."""
+    from .suggest import (
+        FULL_LADDER, build_grid, filter_pickable_rows, widen_brainstorm,
+    )
+    if not openai_key:
+        console.print("[red]OPENAI_API_KEY not set — Widen requires it.[/]")
+        return rows
+    guidance = typer.prompt(
+        "Guidance? (optional, e.g. 'shorter', 'foreign roots'; Enter for none)",
+        default="", show_default=False,
+    ).strip()
+    history = [r.name for r in rows]
+    console.print("[dim]asking gpt-5-mini for widened candidates...[/]")
+    new_cands = widen_brainstorm(
+        topic=topic, history=history, vocab_terms=vocab_terms,
+        guidance=guidance, api_key=openai_key, log_fn=log_fn,
+    )
+    if not new_cands:
+        console.print("[yellow]No new candidates returned. Try different guidance or run again.[/]")
+        return rows
+    console.print(f"[dim]+ {len(new_cands)} new name(s): {', '.join(c.name for c in new_cands)}[/]")
+    new_rows = build_grid(
+        new_cands, topic, tld_list, avail_fn,
+        max_price=max_price, pricing_dict=pricing_dict,
+        full_ladder=list(FULL_LADDER),
+        vocab_terms=vocab_terms,
+    )
+    new_rows = filter_pickable_rows(new_rows)
+    if not new_rows:
+        console.print(f"[yellow]Widen produced names but none had a pickable cell under --max-price=${max_price:.2f}.[/]")
+        return rows
+    new_names = {r.name for r in new_rows}
+    merged = new_rows + [r for r in rows if r.name not in new_names]
+    merged.sort(key=lambda r: r.name.lower())
+    _render_grid(merged, tld_list, show_renewal=show_renewal)
+    return merged
 
 
 # v4.B 2026-05-08: decide-from-shortlist orchestrator + helpers.
@@ -1587,6 +1672,18 @@ def _domain_suggest_validation(
                 break
             # back from expand → re-render grid then re-show menu
             _render_grid(rows, tld_list, show_renewal=show_renewal)
+            continue
+        if choice == "3":
+            _menu_ask_ai(rows, topic=topic, vocab_terms=vocab_terms,
+                         openai_key=openai_key)
+            continue
+        if choice == "4":
+            rows = _menu_widen(
+                rows, topic=topic, vocab_terms=vocab_terms,
+                tld_list=tld_list, max_price=max_price,
+                pricing_dict=pricing_dict, avail_fn=avail_fn,
+                show_renewal=show_renewal, openai_key=openai_key, log_fn=_log,
+            )
             continue
         if choice == "5":
             rows = _menu_add_names(

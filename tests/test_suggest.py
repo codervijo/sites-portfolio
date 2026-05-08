@@ -1666,12 +1666,11 @@ def test_brainstorm_logs_filter_count_when_present(monkeypatch):
 # =============================================================================
 
 
-def test_v3e_menu_items_v4a_lineup():
-    """v4.A adds menu slots 6 (active mark/unmark) and 7 (coming-soon stub
-    for v4.B decide). Slots 3 and 4 still reserved for v4.C."""
+def test_v3e_menu_items_v4c_lineup():
+    """v4.C activates slots 3 (Ask AI) and 4 (Widen). All eight slots filled."""
     from portfolio.cli import MENU_ITEMS
     keys = [k for k, _, _ in MENU_ITEMS]
-    assert keys == ["1", "2", "5", "6", "7", "8"]
+    assert keys == ["1", "2", "3", "4", "5", "6", "7", "8"]
 
 
 def test_v3e_menu_items_all_active_in_v4b():
@@ -1684,7 +1683,7 @@ def test_v3e_menu_items_all_active_in_v4b():
 def test_v3e_menu_keys_hint_format():
     """The bad-input hint is generated from MENU_ITEMS — keeps in sync."""
     from portfolio.cli import _menu_keys_hint
-    assert _menu_keys_hint() == "1, 2, 5, 6, 7, 8"
+    assert _menu_keys_hint() == "1, 2, 3, 4, 5, 6, 7, 8"
 
 
 def test_v3e_render_menu_includes_active_items_and_quit():
@@ -2747,3 +2746,317 @@ def test_v4b_render_decide_table_includes_renewal_and_defense():
     assert "↑" in out
     # Defense: .com is available → "com avail"
     assert ".com avail" in out
+
+
+# =============================================================================
+# v4.C — widen + ask AI
+# =============================================================================
+
+
+def test_v4c_widen_brainstorm_returns_candidates(monkeypatch):
+    from portfolio.suggest import widen_brainstorm
+
+    fake_widen_resp = MagicMock(status_code=200)
+    fake_widen_resp.json.return_value = {
+        "output_text": "scrubsly\nfitkit\nppefly\nblockedtopic\n"
+    }
+    fake_widen_resp.raise_for_status = MagicMock()
+
+    def fake_post(url, **kwargs):
+        if "moderations" in url:
+            mod = MagicMock(status_code=200)
+            mod.json.return_value = {"results": [
+                {"category_scores": {"sexual": 0.0, "sexual/minors": 0.0}}
+                for _ in kwargs.get("json", {}).get("input", [])
+            ]}
+            return mod
+        return fake_widen_resp
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    cands = widen_brainstorm(
+        topic="x", history=["existing1"], vocab_terms=["scrubs"],
+        guidance="", api_key="ok",
+    )
+    assert all(c.strategy == "widen" for c in cands)
+    names = [c.name for c in cands]
+    # Returned names should not include any history entry
+    assert "existing1" not in names
+
+
+def test_v4c_widen_brainstorm_dedups_against_history(monkeypatch):
+    from portfolio.suggest import widen_brainstorm
+
+    def fake_post(url, **kwargs):
+        if "moderations" in url:
+            mod = MagicMock(status_code=200)
+            mod.json.return_value = {"results": [
+                {"category_scores": {"sexual": 0.0, "sexual/minors": 0.0}}
+                for _ in kwargs.get("json", {}).get("input", [])
+            ]}
+            return mod
+        # LLM redundantly returns "existing1" (in history) plus new
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "existing1\nfresh\n"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    cands = widen_brainstorm(
+        topic="x", history=["existing1"], vocab_terms=[],
+        guidance="", api_key="ok",
+    )
+    names = [c.name for c in cands]
+    assert "existing1" not in names
+
+
+def test_v4c_widen_brainstorm_includes_guidance_in_prompt(monkeypatch):
+    from portfolio.suggest import widen_brainstorm
+    captured: list[str] = []
+
+    def fake_post(url, **kwargs):
+        if "moderations" in url:
+            mod = MagicMock(status_code=200)
+            mod.json.return_value = {"results": []}
+            return mod
+        captured.append(kwargs.get("json", {}).get("input", ""))
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "fresh\n"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    widen_brainstorm(
+        topic="x", history=[], vocab_terms=[],
+        guidance="shorter", api_key="ok",
+    )
+    # First /v1/responses POST is the widen call
+    assert "shorter" in captured[0]
+    assert "User guidance" in captured[0]
+
+
+def test_v4c_widen_brainstorm_silent_on_api_failure(monkeypatch):
+    from portfolio.suggest import widen_brainstorm
+
+    def fake_post(*a, **kw):
+        raise ConnectionError("network down")
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    logs: list[str] = []
+    out = widen_brainstorm(
+        topic="x", history=[], vocab_terms=[],
+        guidance="", api_key="ok", log_fn=logs.append,
+    )
+    assert out == []
+    assert any("widen failed" in m for m in logs)
+
+
+# ---------- ask_ai_about_name ----------
+
+
+def test_v4c_ask_ai_returns_answer(tmp_path, monkeypatch):
+    from portfolio import decide
+    monkeypatch.setattr(decide, "ASK_CACHE_DIR", tmp_path / "ask")
+
+    fake = MagicMock(status_code=200)
+    fake.json.return_value = {"output_text": "Doff means to remove PPE."}
+    fake.raise_for_status = MagicMock()
+
+    monkeypatch.setattr("portfolio.decide.requests.post", lambda *a, **kw: fake)
+    out = decide.ask_ai_about_name(
+        "doffeasy", "healthcare workwear", ["scrubs", "ppe"],
+        "what does doff mean?", "ok",
+    )
+    assert "remove PPE" in out
+
+
+def test_v4c_ask_ai_caches_answer(tmp_path, monkeypatch):
+    """Second ask of the same (topic, name, question) → cache hit, no API call."""
+    from portfolio import decide
+    monkeypatch.setattr(decide, "ASK_CACHE_DIR", tmp_path / "ask")
+
+    call_count = {"n": 0}
+
+    def fake_post(*a, **kw):
+        call_count["n"] += 1
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "Cached answer."}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    decide.ask_ai_about_name("alpha", "topic", [], "q1", "ok")
+    decide.ask_ai_about_name("alpha", "topic", [], "q1", "ok")
+    assert call_count["n"] == 1
+
+
+def test_v4c_ask_ai_different_questions_dont_collide(tmp_path, monkeypatch):
+    from portfolio import decide
+    monkeypatch.setattr(decide, "ASK_CACHE_DIR", tmp_path / "ask")
+
+    answers = iter(["answer one", "answer two"])
+
+    def fake_post(*a, **kw):
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": next(answers)}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    a1 = decide.ask_ai_about_name("alpha", "topic", [], "q1", "ok")
+    a2 = decide.ask_ai_about_name("alpha", "topic", [], "q2", "ok")
+    assert a1 != a2
+
+
+def test_v4c_ask_ai_no_cache_flag_skips_cache(tmp_path, monkeypatch):
+    from portfolio import decide
+    monkeypatch.setattr(decide, "ASK_CACHE_DIR", tmp_path / "ask")
+
+    call_count = {"n": 0}
+
+    def fake_post(*a, **kw):
+        call_count["n"] += 1
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "answer"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    decide.ask_ai_about_name("alpha", "topic", [], "q1", "ok", no_cache=True)
+    decide.ask_ai_about_name("alpha", "topic", [], "q1", "ok", no_cache=True)
+    assert call_count["n"] == 2  # both calls hit the API
+
+
+def test_v4c_ask_ai_default_question_used_when_question_empty(tmp_path, monkeypatch):
+    from portfolio import decide
+    monkeypatch.setattr(decide, "ASK_CACHE_DIR", tmp_path / "ask")
+
+    captured: list[str] = []
+
+    def fake_post(url, **kwargs):
+        captured.append(kwargs.get("json", {}).get("input", ""))
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "answer"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    decide.ask_ai_about_name("alpha", "topic", [], "", "ok")
+    sent = captured[0]
+    assert "Why was this name chosen" in sent
+
+
+# ---------- _menu_ask_ai integration ----------
+
+
+def test_v4c_menu_ask_ai_resolves_name_and_calls(monkeypatch):
+    from portfolio.cli import _menu_ask_ai
+
+    fake = MagicMock(status_code=200)
+    fake.json.return_value = {"output_text": "Some explanation."}
+    fake.raise_for_status = MagicMock()
+    monkeypatch.setattr("portfolio.decide.requests.post", lambda *a, **kw: fake)
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: "alpha what is this?")
+
+    rows = [GridRow(name="alpha", strategy="t")]
+    # Should not raise; just runs to completion.
+    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+
+
+def test_v4c_menu_ask_ai_unknown_name_warns(monkeypatch):
+    from portfolio.cli import _menu_ask_ai
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: "ghost")
+    rows = [GridRow(name="alpha", strategy="t")]
+    # No raise; helper just prints the warning.
+    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+
+
+def test_v4c_menu_ask_ai_no_openai_key_warns(monkeypatch):
+    from portfolio.cli import _menu_ask_ai
+    rows = [GridRow(name="alpha", strategy="t")]
+    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="")  # warns, returns
+
+
+def test_v4c_menu_ask_ai_empty_input_returns_silently(monkeypatch):
+    from portfolio.cli import _menu_ask_ai
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: "")
+    rows = [GridRow(name="alpha", strategy="t")]
+    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+
+
+# ---------- _menu_widen integration ----------
+
+
+def test_v4c_menu_widen_merges_new_rows(monkeypatch):
+    from portfolio.cli import _menu_widen
+
+    # Mock LLM widen call → 2 fresh names
+    def fake_post(url, **kwargs):
+        if "moderations" in url:
+            mod = MagicMock(status_code=200)
+            mod.json.return_value = {"results": [
+                {"category_scores": {"sexual": 0.0, "sexual/minors": 0.0}}
+                for _ in kwargs.get("json", {}).get("input", [])
+            ]}
+            return mod
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "fresh1\nfresh2\n"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: "")  # no guidance
+
+    avail = {f"{name}{tld}": (True, 11.0, None)
+             for name in ("fresh1", "fresh2")
+             for tld in (".com", ".app", ".dev", ".xyz", ".site", ".co",
+                         ".ai", ".io", ".shop", ".life", ".info", ".pro")}
+
+    def fake_avail(d):
+        return avail.get(d, (False, None, None))
+
+    rows_before = [GridRow(name="existing", strategy="t",
+                           pick_tld=".com", pick_label=".com")]
+    merged = _menu_widen(
+        rows_before, topic="x", vocab_terms=[], tld_list=[".com", ".app"],
+        max_price=20.0, pricing_dict={}, avail_fn=fake_avail,
+        show_renewal=False, openai_key="ok", log_fn=None,
+    )
+    names = {r.name for r in merged}
+    assert "fresh1" in names
+    assert "fresh2" in names
+    assert "existing" in names
+
+
+def test_v4c_menu_widen_no_openai_key_returns_unchanged():
+    from portfolio.cli import _menu_widen
+    rows_before = [GridRow(name="existing", strategy="t")]
+    merged = _menu_widen(
+        rows_before, topic="x", vocab_terms=[], tld_list=[".com"],
+        max_price=20.0, pricing_dict={}, avail_fn=lambda d: (False, None, None),
+        show_renewal=False, openai_key="", log_fn=None,
+    )
+    assert merged is rows_before
+
+
+def test_v4c_menu_widen_empty_response_keeps_grid_unchanged(monkeypatch):
+    from portfolio.cli import _menu_widen
+
+    def fake_post(*a, **kw):
+        raise ConnectionError("nope")
+
+    monkeypatch.setattr("portfolio.suggest.requests.post", fake_post)
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: "")
+
+    rows_before = [GridRow(name="existing", strategy="t",
+                           pick_tld=".com", pick_label=".com")]
+    merged = _menu_widen(
+        rows_before, topic="x", vocab_terms=[], tld_list=[".com"],
+        max_price=20.0, pricing_dict={}, avail_fn=lambda d: (False, None, None),
+        show_renewal=False, openai_key="ok", log_fn=None,
+    )
+    assert merged is rows_before
