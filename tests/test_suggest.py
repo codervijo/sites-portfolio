@@ -30,7 +30,9 @@ from portfolio.suggest import (
 
 def test_score_basic_com_short():
     s, notes = score_name("flow", "anything", ".com")
-    assert s > 30
+    # 2026-05-08: TLD tier weight reduced from ×5 to ×1; .com short is now 20
+    # (10 tier + 10 short), not 60. Score is still positive and signals .com.
+    assert s >= 20
     assert "tld:.com(10)" in notes
     assert "short" in notes
 
@@ -981,6 +983,161 @@ def test_v3d_pipeline_handles_vocab_extraction_failure(monkeypatch):
     assert len(rows) >= 1
 
 
+# ---------- v3.D filter_pickable_rows ----------
+
+
+def test_v3d_filter_pickable_keeps_rows_with_available_cell():
+    from portfolio.suggest import filter_pickable_rows
+    cands = [Candidate(name="goodname", strategy="t"),
+             Candidate(name="alltaken", strategy="t")]
+    avail = {
+        "goodname.com": (True, 11.0),
+        "alltaken.com": (False, None),
+        "alltaken.app": (False, None),
+    }
+    rows = build_grid(cands, "x", [".com", ".app"], _build_avail(avail), max_price=20.0)
+    filtered = filter_pickable_rows(rows)
+    names = [r.name for r in filtered]
+    assert "goodname" in names
+    assert "alltaken" not in names
+
+
+def test_v3d_filter_pickable_drops_rows_with_only_over_max():
+    from portfolio.suggest import filter_pickable_rows
+    cands = [Candidate(name="expensive", strategy="t")]
+    avail = {"expensive.com": (True, 200.0)}  # available but over max
+    rows = build_grid(cands, "x", [".com"], _build_avail(avail), max_price=20.0)
+    filtered = filter_pickable_rows(rows)
+    assert filtered == []
+
+
+def test_v3d_filter_pickable_drops_rows_with_only_unknown_cells():
+    from portfolio.suggest import filter_pickable_rows
+    cands = [Candidate(name="unknown", strategy="t")]
+    # Avail callable returns (None, None, None) — all unknowns
+    def check(d):
+        return None, None, None
+    rows = build_grid(cands, "x", [".com"], check, max_price=20.0)
+    filtered = filter_pickable_rows(rows)
+    # `?`-only rows have nothing pickable per the filter rule.
+    assert filtered == []
+
+
+# ---------- v3.D parse_expand_input ----------
+
+
+def test_v3d_parse_expand_by_row_number():
+    from portfolio.cli import parse_expand_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t")]
+    idx, err = parse_expand_input("e2", rows)
+    assert err is None
+    assert idx == 1
+
+
+def test_v3d_parse_expand_by_name_exact():
+    from portfolio.cli import parse_expand_input
+    rows = [GridRow(name="alpha", strategy="t"),
+            GridRow(name="beta", strategy="t")]
+    idx, err = parse_expand_input("e beta", rows)
+    assert err is None
+    assert idx == 1
+
+
+def test_v3d_parse_expand_by_full_domain():
+    from portfolio.cli import parse_expand_input
+    rows = [GridRow(name="codebeacon", strategy="t")]
+    idx, err = parse_expand_input("e codebeacon.site", rows)
+    assert err is None
+    assert idx == 0
+
+
+def test_v3d_parse_expand_by_prefix_when_unique():
+    from portfolio.cli import parse_expand_input
+    rows = [GridRow(name="codebeacon", strategy="t"),
+            GridRow(name="handoffhub", strategy="t")]
+    idx, err = parse_expand_input("e code", rows)
+    assert err is None
+    assert idx == 0
+
+
+def test_v3d_parse_expand_ambiguous_prefix_errors():
+    from portfolio.cli import parse_expand_input
+    rows = [GridRow(name="scrubsync", strategy="t"),
+            GridRow(name="scrubsfit", strategy="t")]
+    idx, err = parse_expand_input("e scrub", rows)
+    assert idx is None
+    assert err is not None
+    assert "ambiguous" in err.lower()
+
+
+def test_v3d_parse_expand_no_match_errors():
+    from portfolio.cli import parse_expand_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    idx, err = parse_expand_input("e nothere", rows)
+    assert idx is None
+    assert err is not None
+
+
+def test_v3d_parse_expand_row_out_of_range():
+    from portfolio.cli import parse_expand_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    idx, err = parse_expand_input("e99", rows)
+    assert idx is None
+    assert "out of range" in err
+
+
+def test_v3d_parse_expand_not_an_expand_command():
+    from portfolio.cli import parse_expand_input
+    rows = [GridRow(name="alpha", strategy="t")]
+    idx, err = parse_expand_input("5", rows)
+    assert idx is None
+
+
+# ---------- v3.D _parse_user_added_names ----------
+
+
+def test_v3d_parse_user_names_basic():
+    from portfolio.cli import _parse_user_added_names
+    valid, rejected = _parse_user_added_names("alpha, beta, gamma")
+    assert valid == ["alpha", "beta", "gamma"]
+    assert rejected == []
+
+
+def test_v3d_parse_user_names_strips_tld_suffix():
+    from portfolio.cli import _parse_user_added_names
+    valid, _ = _parse_user_added_names("alpha.com, beta.app")
+    assert valid == ["alpha", "beta"]
+
+
+def test_v3d_parse_user_names_rejects_invalid_chars():
+    from portfolio.cli import _parse_user_added_names
+    valid, rejected = _parse_user_added_names("alpha, b3-ta!, gamma")
+    assert "alpha" in valid
+    assert "gamma" in valid
+    assert any("b3-ta!" in r for r in rejected)
+
+
+def test_v3d_parse_user_names_rejects_too_long():
+    from portfolio.cli import _parse_user_added_names
+    valid, rejected = _parse_user_added_names("waytoolongbrandname, ok")
+    assert "ok" in valid
+    assert any("waytoolong" in r for r in rejected)
+
+
+def test_v3d_parse_user_names_dedups():
+    from portfolio.cli import _parse_user_added_names
+    valid, _ = _parse_user_added_names("alpha, alpha, beta, alpha")
+    assert valid == ["alpha", "beta"]
+
+
+def test_v3d_parse_user_names_empty_input():
+    from portfolio.cli import _parse_user_added_names
+    valid, rejected = _parse_user_added_names("")
+    assert valid == []
+    assert rejected == []
+
+
 # ---------- v3.D parse_pick_input (TLD override) ----------
 
 
@@ -1046,7 +1203,8 @@ def test_v3d_vocab_anchor_bonus_added_to_score():
     s_yes, notes = score_name("scrubsync", "x", ".com",
                               vocab_terms=["scrubs", "ppe"])
     # Two anchors don't both match; only "scrubs" appears in "scrubsync"
-    assert s_yes == s_no + 5
+    # Vocab bonus bumped to +10 per match in 2026-05-08.
+    assert s_yes == s_no + 10
     assert any("anchors:1" in n for n in notes)
 
 
@@ -1065,9 +1223,10 @@ def test_v3d_two_anchors_outrank_one():
                           vocab_terms=["scrubs", "fit", "ppe"])
     s_one, _ = score_name("scrubsync", "x", ".com",
                           vocab_terms=["scrubs", "fit", "ppe"])
-    # scrubsfit matches both "scrubs" and "fit" → 2 anchors → +10
-    # scrubsync matches "scrubs" only → 1 anchor → +5
-    assert s_two == s_one + 5
+    # scrubsfit matches both "scrubs" and "fit" → 2 anchors → +20
+    # scrubsync matches "scrubs" only → 1 anchor → +10
+    # Difference: +10 (one extra anchor at the new +10/match weight).
+    assert s_two == s_one + 10
 
 
 def test_v3d_no_vocab_terms_no_bonus():

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from datetime import date
 
@@ -707,7 +708,6 @@ def domain_suggest(
     browse: bool = typer.Option(False, "--browse", help="Use legacy per-strategy round-by-round flow (v2.A)"),
     show_renewal: bool = typer.Option(False, "--show-renewal", help="Show renewal price column alongside registration"),
     with_abstract: bool = typer.Option(False, "--with-abstract", help="Include the abstract-brandable strategy in the run"),
-    top_n: int = typer.Option(15, "--top-n", help="Validation-mode: max grid rows shown (default 15)"),
 ) -> None:
     """Brainstorm domain names for an idea, score them, check availability + price.
 
@@ -725,7 +725,6 @@ def domain_suggest(
         no_cache=no_cache,
         show_renewal=show_renewal,
         with_abstract=with_abstract,
-        top_n=top_n,
     )
 
 
@@ -755,6 +754,70 @@ def parse_pick_input(s: str, n_rows: int, columns: list[str]) -> tuple[int | Non
     return idx, tld, None
 
 
+def parse_expand_input(s: str, rows) -> tuple[int | None, str | None]:
+    """Parse the picker's expand command: `eN` or `e <name>`.
+
+    Returns `(row_idx_0based, error_msg_or_None)`. Accepts:
+      - `e5` / `e 5`  → row index lookup
+      - `e codebeacon` / `e codebeacon.site` → name lookup (case-insensitive,
+        prefix match acceptable; `.tld` suffix stripped)
+
+    Returns `(None, "...")` on no-match or ambiguous-match (multiple prefix
+    matches when rows differ).
+    """
+    s = s.strip().lower()
+    if not s.startswith("e"):
+        return None, "not an expand command"
+    rest = s[1:].strip()
+    if not rest:
+        return None, "empty expand target — try 'e5' or 'e <name>'"
+    if rest.isdigit():
+        idx = int(rest) - 1
+        if idx < 0 or idx >= len(rows):
+            return None, f"row {rest} out of range (1-{len(rows)})"
+        return idx, None
+    # Strip optional `.tld` suffix
+    name_part = rest.split(".", 1)[0] if "." in rest else rest
+    if not re.match(r"^[a-z][a-z0-9]*$", name_part):
+        return None, f"'{rest}' isn't a valid name or row number"
+    matches = [(i, r) for i, r in enumerate(rows) if r.name.lower() == name_part]
+    if not matches:
+        # Try prefix match if no exact
+        matches = [(i, r) for i, r in enumerate(rows) if r.name.lower().startswith(name_part)]
+    if not matches:
+        return None, f"no row matches '{name_part}'"
+    if len(matches) > 1:
+        names = ", ".join(r.name for _, r in matches[:5])
+        return None, f"'{name_part}' is ambiguous: {names}"
+    return matches[0][0], None
+
+
+def _parse_user_added_names(raw: str) -> tuple[list[str], list[str]]:
+    """Parse a comma-separated list of user-supplied names. Returns
+    (valid_names, rejected_with_reason). Each name must be alphabetic, lowercase,
+    and ≤14 chars (matching _extract_names rules)."""
+    valid: list[str] = []
+    rejected: list[str] = []
+    seen: set[str] = set()
+    for piece in raw.replace("\n", ",").split(","):
+        n = piece.strip().lower()
+        if not n:
+            continue
+        # Strip optional .tld if user pasted full domains
+        n = n.split(".", 1)[0]
+        if not re.match(r"^[a-z][a-z0-9]*$", n):
+            rejected.append(f"{piece.strip()} (invalid chars)")
+            continue
+        if len(n) > 14:
+            rejected.append(f"{piece.strip()} (too long)")
+            continue
+        if n in seen:
+            continue
+        seen.add(n)
+        valid.append(n)
+    return valid, rejected
+
+
 def _domain_suggest_validation(
     *,
     topic: str,
@@ -764,18 +827,20 @@ def _domain_suggest_validation(
     no_cache: bool,
     show_renewal: bool,
     with_abstract: bool,
-    top_n: int,
 ) -> None:
     """v3.D validation-mode flow."""
     from .availability import AvailabilityChecker, load_porkbun_pricing
     from .suggest import (
+        Candidate,
         DEFAULT_TLDS,
         FULL_LADDER,
         PORTFOLIO_ENV,
         already_owned_matches,
+        build_grid,
         cache_get,
         cache_set,
         filter_default_strategies,
+        filter_pickable_rows,
         load_env,
         load_strategies,
         porkbun_cart_url,
@@ -818,12 +883,12 @@ def _domain_suggest_validation(
     cfg_t.add_row("topic", topic)
     cfg_t.add_row("max price", f"${max_price:.2f}/yr (pass --max-price=999 to disable)")
     cfg_t.add_row("TLD columns", " ".join(tld_list))
-    cfg_t.add_row("availability", "RDAP (auth-free); Radix-hosted TLDs queried with verify=False")
+    cfg_t.add_row("availability", "RDAP + DoH fallback (Google then Cloudflare)")
     cfg_t.add_row("pricing", "Porkbun /pricing/get (public, cached 7d)")
     cfg_t.add_row("brainstorm", "OpenAI gpt-5-mini (vocab anchored)")
     cfg_t.add_row("strategies", f"{len(all_strategies)} ({', '.join(s.name for s in all_strategies)})")
     cfg_t.add_row("cache", "BYPASSED (--no-cache)" if no_cache else "7d topic-hash hit/miss")
-    cfg_t.add_row("mode", "non-interactive" if non_interactive else "interactive (one merged grid)")
+    cfg_t.add_row("mode", "non-interactive" if non_interactive else "interactive")
     console.print(cfg_t)
     console.print()
 
@@ -845,11 +910,12 @@ def _domain_suggest_validation(
         log_fn=_log,
     )
 
-    # Limit to top-N for the picker.
-    rows = rows[:top_n]
+    # v3.D 2026-05-08: filter rows to those with at least one pickable cell
+    # (available + under price cap). Drop the rest — nothing to do with them.
+    rows = filter_pickable_rows(rows)
 
     if not rows:
-        console.print("[yellow]No candidate names produced. Try refining the topic or --no-cache.[/]")
+        console.print("[yellow]No pickable candidates — every name was either taken or priced over --max-price. Try refining the topic, raising --max-price, or --no-cache.[/]")
         raise typer.Exit(0)
 
     _render_grid(rows, tld_list, show_renewal=show_renewal)
@@ -857,44 +923,104 @@ def _domain_suggest_validation(
     if non_interactive:
         return
 
-    pick_prompt = f"\nPick row 1-{len(rows)} (or N.tld to override TLD, e.g. 5.xyz), 'q' to quit"
-    choice = typer.prompt(pick_prompt, default="q", show_default=False).strip().lower()
-    if choice == "q" or not choice:
-        console.print("[yellow]No domain selected.[/]")
-        return
+    # v3.D 2026-05-08: optional user-supplied names. Run them through the same
+    # availability + pricing + anchor pipeline; merge into the grid; re-render.
+    add_input = typer.prompt(
+        "\nAdd your own names? (comma-separated, no TLDs; Enter to skip)",
+        default="", show_default=False,
+    ).strip()
+    if add_input:
+        valid_names, rejected = _parse_user_added_names(add_input)
+        for r in rejected:
+            console.print(f"[yellow]skipping {r}[/]")
+        if valid_names:
+            console.print(f"[dim]Probing {len(valid_names)} user-supplied name(s)...[/]")
+            user_cands = [Candidate(name=n, strategy="user") for n in valid_names]
+            user_rows = build_grid(
+                user_cands, topic, tld_list, avail_fn,
+                max_price=max_price, pricing_dict=pricing_dict,
+                full_ladder=list(FULL_LADDER),
+                vocab_terms=vocab_terms,
+            )
+            user_rows = filter_pickable_rows(user_rows)
+            # Merge: user-added rows replace LLM rows of same name.
+            user_names = {r.name for r in user_rows}
+            merged = user_rows + [r for r in rows if r.name not in user_names]
+            merged.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
+            rows = merged
+            _render_grid(rows, tld_list, show_renewal=show_renewal)
 
-    idx, override_tld, parse_err = parse_pick_input(choice, len(rows), tld_list)
-    if parse_err:
-        console.print(f"[red]{parse_err}[/]")
-        return
+    # Picker loop with expand support.
+    selected_row = None
+    selected_tld = None
+    while selected_row is None:
+        pick_prompt = "\nPick row N (or N.tld), 'eN' / 'e <name>' to expand, 'q' to quit"
+        choice = typer.prompt(pick_prompt, default="q", show_default=False).strip().lower()
+        if choice == "q" or not choice:
+            console.print("[yellow]No domain selected.[/]")
+            return
 
-    row = rows[idx]
-    if override_tld is not None:
-        cell = row.cells.get(override_tld)
-        if cell is None:
-            console.print(f"[red]{override_tld} not in this row.[/]")
-            return
-        if cell.available is False:
-            console.print(f"[red]{row.name}{override_tld} is taken.[/]")
-            return
-        if cell.over_max:
-            console.print(f"[red]{row.name}{override_tld} is priced over --max-price (${cell.price:.2f}). Raise --max-price to register.[/]")
-            return
-        pick_tld = override_tld
-    else:
+        if choice.startswith("e"):
+            idx, expand_err = parse_expand_input(choice, rows)
+            if expand_err:
+                console.print(f"[red]{expand_err}[/]")
+                continue
+            scoped = _expand_and_pick(rows[idx], tld_list, max_price, show_renewal=show_renewal)
+            if scoped is None:
+                # back to grid
+                _render_grid(rows, tld_list, show_renewal=show_renewal)
+                continue
+            selected_row, selected_tld = scoped
+            break
+
+        idx, override_tld, parse_err = parse_pick_input(choice, len(rows), tld_list)
+        if parse_err:
+            console.print(f"[red]{parse_err}[/]")
+            continue
+        row = rows[idx]
+        if override_tld is not None:
+            cell = row.cells.get(override_tld)
+            if cell is None:
+                console.print(f"[red]{override_tld} not in this row.[/]")
+                continue
+            if cell.available is False:
+                console.print(f"[red]{row.name}{override_tld} is taken.[/]")
+                continue
+            if cell.over_max:
+                console.print(f"[red]{row.name}{override_tld} is priced over --max-price (${cell.price:.2f}).[/]")
+                continue
+            selected_row = row
+            selected_tld = override_tld
+            break
         if row.pick_tld is None:
-            console.print("[red]Row has no recommended TLD (likely .com poisoned). Override with N.tld (e.g. 5.app) to pick anyway.[/]")
-            return
-        pick_tld = row.pick_tld
+            console.print("[red]Row has no recommended TLD (.com poisoned). Override with N.tld (e.g. 5.app) to pick anyway.[/]")
+            continue
+        selected_row = row
+        selected_tld = row.pick_tld
+        break
 
+    _post_pick_flow(
+        row=selected_row,
+        pick_tld=selected_tld,
+        topic=topic,
+        env=env,
+        vocab_terms=vocab_terms,
+        register_domain=register_domain,
+        porkbun_cart_url=porkbun_cart_url,
+    )
+
+
+def _post_pick_flow(*, row, pick_tld, topic, env, vocab_terms,
+                    register_domain, porkbun_cart_url) -> None:
+    """Defense bundle, auto-register, next-step output. Shared between the
+    main picker and the expand-view picker."""
     selected = f"{row.name}{pick_tld}"
     selected_cell = row.cells.get(pick_tld)
     is_unverified = selected_cell is not None and selected_cell.available is None
     console.print(f"\n[green]✅ Selected:[/] [bold]{selected}[/]")
     if is_unverified:
-        console.print("[dim](RDAP can't verify this TLD — final availability check happens at registrar checkout.)[/]")
+        console.print("[dim](RDAP/DoH gap on this TLD — final availability check happens at registrar checkout.)[/]")
 
-    # Defense bundle: offer to grab .com and/or .app at standard price (manual cart).
     bundle: list[str] = []
     com_cell = row.cells.get(".com")
     app_cell = row.cells.get(".app")
@@ -912,7 +1038,6 @@ def _domain_suggest_validation(
             console.print(f"[cyan]Bundle cart URL:[/] {url}")
             console.print("[dim](Bundle items are manual click-through; never auto-charged.)[/]")
 
-    # Auto-register prompt for the primary domain only — only when we have a confirmed-available cell.
     if is_unverified:
         console.print(f"[cyan]Register manually (verify availability first):[/] {porkbun_cart_url([selected])}")
     elif typer.confirm(f"Register {selected} now via Porkbun API?", default=False):
@@ -927,12 +1052,99 @@ def _domain_suggest_validation(
     else:
         console.print(f"[cyan]Register manually:[/] {porkbun_cart_url([selected])}")
 
-    # Print next-step bootstrap command and vocab terms for paste.
     console.print("\n[bold]Next step:[/]")
     console.print(f'  portfolio bootstrap {selected} --topic="{topic}"')
     if vocab_terms:
-        console.print(f"\n[bold]Vocab terms[/] (paste into docs/prd.md after bootstrap):")
+        console.print("\n[bold]Vocab terms[/] (paste into docs/prd.md after bootstrap):")
         console.print("  " + ", ".join(vocab_terms))
+
+
+def _expand_and_pick(row, visible_columns: list[str], max_price: float,
+                     show_renewal: bool = False):
+    """Render an expanded full-ladder view for one row, then prompt for a
+    scoped pick. Returns `(row, tld)` if user picks, `None` if user typed `b`
+    (back to grid) or `q` (quit propagates as None too)."""
+    _render_expanded_row(row, max_price=max_price, show_renewal=show_renewal)
+    while True:
+        prompt = "[N | N.tld] pick · [b] back to grid · [q] quit"
+        choice = typer.prompt(f"\n{prompt}", default="b", show_default=False).strip().lower()
+        if choice == "q":
+            console.print("[yellow]No domain selected.[/]")
+            raise typer.Exit(0)
+        if choice == "b" or not choice:
+            return None
+        # Pick is "N" or "N.tld" but here N is irrelevant — single-row context.
+        # Accept ".tld" or "tld" or full "N.tld" (any digit).
+        if choice.startswith("."):
+            tld = choice
+        elif "." in choice:
+            tld = "." + choice.split(".", 1)[1]
+        else:
+            # Treat as bare TLD without dot, e.g. "app" → ".app"
+            tld = "." + choice
+        cell = row.cells.get(tld)
+        if cell is None:
+            console.print(f"[red]{tld} wasn't probed for this row.[/]")
+            continue
+        if cell.available is False:
+            console.print(f"[red]{row.name}{tld} is taken.[/]")
+            continue
+        if cell.over_max:
+            console.print(f"[red]{row.name}{tld} is priced over --max-price (${cell.price:.2f}).[/]")
+            continue
+        return row, tld
+
+
+def _render_expanded_row(row, max_price: float, show_renewal: bool = False) -> None:
+    """Render the expanded full-ladder view for one row."""
+    console.print(f"\n─── [bold]{row.name}[/] ───────────────────")
+    if row.anchors_matched:
+        console.print(f"  [magenta]Anchors:[/] {' · '.join(row.anchors_matched)}")
+    else:
+        console.print("  [magenta]Anchors:[/] [dim](none)[/]")
+    console.print(f"  [cyan]Strategy:[/] {row.strategy}")
+    pick_label = row.pick_label or "-"
+    console.print(f"  [cyan]Pick:[/] {pick_label}  [dim]{row.why}[/]")
+    console.print()
+
+    t = Table(box=None, padding=(0, 2))
+    t.add_column("TLD")
+    t.add_column("Avail")
+    t.add_column("Reg", justify="right")
+    t.add_column("Renew", justify="right")
+    t.add_column("Notes")
+    # Sort cells by TLD tier desc so good options appear first.
+    from .suggest import TLD_TIER
+    sorted_tlds = sorted(row.cells.keys(), key=lambda t: -TLD_TIER.get(t.lower(), 0))
+    for tld in sorted_tlds:
+        c = row.cells[tld]
+        if c.available is True:
+            avail = "[green]✓[/]"
+        elif c.available is False:
+            if c.com_class == "live-site":
+                avail = "[red]✗ live[/]"
+            elif c.com_class == "parked":
+                avail = "[yellow]✗ park[/]"
+            elif c.com_class == "for-sale":
+                avail = "[yellow]✗ sale[/]"
+            else:
+                avail = "[red]✗[/]"
+        elif c.error:
+            avail = "[red bold]✕[/]"
+        else:
+            avail = "[yellow]?[/]"
+        reg = f"${c.price:.2f}" if c.price is not None else "-"
+        renew = f"${c.renewal:.2f}" if c.renewal is not None else "-"
+        notes = []
+        if c.over_max:
+            notes.append("over --max-price")
+        cliff = _renewal_cliff_marker(c.price, c.renewal)
+        if cliff:
+            # cliff includes leading space + rich tag; strip the space for column form
+            notes.append(cliff.strip())
+        notes_s = " · ".join(notes) if notes else ""
+        t.add_row(tld, avail, reg, renew, notes_s)
+    console.print(t)
 
 
 def _renewal_cliff_marker(price: float | None, renewal: float | None) -> str:

@@ -80,8 +80,10 @@ TLD_TIER = {
 # v3.D defense bonuses. Applied in score_name when com_status is provided.
 SCORE_BONUS_COM_AVAILABLE = 5     # .com is registerable → slice defendable
 SCORE_PENALTY_COM_LIVE = -20      # .com is a live competing site → brand poisoned
-SCORE_BONUS_PER_VOCAB_ANCHOR = 5  # +5 per vocab term that appears in the name
-                                  # (multi-anchor names rank higher; tiebreaker)
+SCORE_BONUS_PER_VOCAB_ANCHOR = 10 # +10 per vocab term that appears in the name
+                                  # (concept density is the primary validity
+                                  # signal; bumped from +5 in 2026-05-08 when
+                                  # TLD-tier weight dropped from ×5 to ×1)
 
 # Porkbun /domain/create endpoint (v3.D auto-register).
 PORKBUN_DOMAIN_CREATE_URL = "https://api.porkbun.com/api/json/v3/domain/create"
@@ -299,6 +301,12 @@ def already_owned_matches(topic: str) -> list[str]:
     return sorted(set(matches))
 
 
+# v3.D 2026-05-08: TLD tier weight reduced from ×5 (max 50, dominated score) to
+# ×1 (max 10, light nudge). Domain validity (anchor density, name shape) now
+# drives ranking; TLD prestige is informational, not the primary signal.
+SCORE_TLD_TIER_WEIGHT = 1
+
+
 def score_name(
     name: str,
     topic: str,
@@ -322,7 +330,7 @@ def score_name(
     s = 0
 
     tier = TLD_TIER.get(tld.lower(), 2)
-    s += tier * 5
+    s += tier * SCORE_TLD_TIER_WEIGHT
     notes.append(f"tld:{tld}({tier})")
 
     base = name.lower()
@@ -687,6 +695,21 @@ def _classify_com(domain: str, classifier_fn=None) -> str | None:
     except Exception:
         return None
     return None
+
+
+def filter_pickable_rows(rows: list[GridRow]) -> list[GridRow]:
+    """Drop rows that have nothing the user can buy. Keeps a row if any of its
+    cells is `available=True` AND not over `--max-price`. Rows where every TLD
+    is taken or every available TLD is over the price cap are eliminated — the
+    user has no action on them.
+
+    `?` cells (RDAP/DoH gaps) and `over_max` cells don't count as pickable.
+    """
+    out: list[GridRow] = []
+    for r in rows:
+        if any(cell.available is True and not cell.over_max for cell in r.cells.values()):
+            out.append(r)
+    return out
 
 
 def _anchors_in(name: str, vocab_terms: list[str] | None) -> list[str]:
