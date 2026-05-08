@@ -18,8 +18,18 @@ from .check import (
 )
 from .data import PORTFOLIO_JSON, cleanup as run_cleanup, load_domains, load_plan
 
-app = typer.Typer(help="Manage your domain portfolio.", add_completion=False, no_args_is_help=True)
+app = typer.Typer(help="Manage your domain portfolio.", add_completion=False)
 console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def _root_callback(ctx: typer.Context) -> None:
+    """v4.D: when `portfolio` is invoked with no subcommand (e.g. `make run`
+    with no ARGS), drop into the grouped interactive menu. Existing
+    subcommands continue to work unchanged when invoked explicitly."""
+    if ctx.invoked_subcommand is None:
+        from .menu import run_menu
+        run_menu()
 
 
 @app.command()
