@@ -1151,27 +1151,39 @@ def _print_shortlist(shortlist: list[str], rows) -> None:
 
 def _menu_ask_ai(rows, topic: str, vocab_terms: list[str] | None,
                  openai_key: str) -> None:
-    """Sub-prompt for menu option 3. Accepts `<name>` (uses default question)
-    or `<name> <free-form question>`. Resolves name against current rows
-    case-insensitively (with .tld suffix tolerated). Caches via decide module."""
+    """Sub-prompt for menu option 3. Forgiving parser: scans the full input
+    for any token that matches a row name (case-insensitive, .tld stripped).
+    First match wins; the entire input becomes the question.
+
+    Accepts:
+      - `donready`                            → name=donready, default Q
+      - `donready is this clinical?`          → name=donready, question=full input
+      - `what is donready`                    → name=donready, question=full input
+      - `compare donready vs scrubsync`       → name=donready (first match), Q=full input
+    """
     from .decide import ask_ai_about_name
     if not openai_key:
         console.print("[red]OPENAI_API_KEY not set — Ask AI requires it.[/]")
         return
     sub = typer.prompt(
-        "Which name to ask about? (e.g. 'scrubsync' or 'scrubsync is it too clinical?')",
+        "Which name to ask about? (e.g. 'donready' or 'what is donready')",
         default="", show_default=False,
     ).strip()
     if not sub:
         return
-    parts = sub.split(None, 1)
-    name_token = parts[0].split(".", 1)[0].lower() if "." in parts[0] else parts[0].lower()
-    question = parts[1].strip() if len(parts) >= 2 else ""
-    # Resolve name against current rows.
-    match = next((r for r in rows if r.name.lower() == name_token), None)
+    # Token-scan for first matching row name.
+    name_lookup = {r.name.lower(): r for r in rows}
+    tokens = re.findall(r"[a-z][a-z0-9]*", sub.lower())
+    match = next((name_lookup[t] for t in tokens if t in name_lookup), None)
     if match is None:
-        console.print(f"[red]No row matches '{name_token}' — type a name from the grid.[/]")
+        sample = ", ".join(r.name for r in rows[:6])
+        more = "..." if len(rows) > 6 else ""
+        console.print(f"[red]No row name found in your input. Try one of:[/] {sample}{more}")
         return
+    # Whether the user typed just the name (use default question) or wrote
+    # a sentence (use the whole input as the question).
+    only_name = sub.strip().lower() == match.name.lower()
+    question = "" if only_name else sub
     console.print(f"[dim]asking gpt-5-mini about [bold]{match.name}[/]...[/]")
     try:
         answer = ask_ai_about_name(match.name, topic, vocab_terms, question, openai_key)

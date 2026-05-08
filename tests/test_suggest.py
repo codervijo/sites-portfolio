@@ -2972,6 +2972,80 @@ def test_v4c_menu_ask_ai_unknown_name_warns(monkeypatch):
     _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
 
 
+def test_v4c_menu_ask_ai_finds_name_anywhere_in_input(monkeypatch):
+    """v4.C polish: scan the whole input for a row-name token, not just
+    the first word. 'what is donready' should resolve to donready."""
+    from portfolio.cli import _menu_ask_ai
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["body"] = kwargs.get("json", {})
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "donready means ready to don."}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: "what is donready")
+    rows = [GridRow(name="donready", strategy="t"),
+            GridRow(name="scrubsync", strategy="t")]
+    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+    sent = captured["body"]["input"]
+    # The candidate name passed to the prompt should be donready,
+    # and the question should be the full input.
+    assert "Candidate name: donready" in sent
+    assert "what is donready" in sent
+
+
+def test_v4c_menu_ask_ai_first_matching_token_wins(monkeypatch):
+    """When multiple row names appear in input, the first matching token
+    is chosen (left-to-right scan)."""
+    from portfolio.cli import _menu_ask_ai
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["body"] = kwargs.get("json", {})
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "answer"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: "compare scrubsync vs donready")
+    rows = [GridRow(name="donready", strategy="t"),
+            GridRow(name="scrubsync", strategy="t")]
+    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+    sent = captured["body"]["input"]
+    # First token in the input that matches is "scrubsync".
+    assert "Candidate name: scrubsync" in sent
+
+
+def test_v4c_menu_ask_ai_bare_name_uses_default_question(monkeypatch):
+    """When user types just the name with no surrounding words, the
+    default question is used (not the input itself, which would be
+    redundant)."""
+    from portfolio.cli import _menu_ask_ai
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["body"] = kwargs.get("json", {})
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "default-answer"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    monkeypatch.setattr("portfolio.cli.typer.prompt",
+                        lambda *a, **kw: "donready")
+    rows = [GridRow(name="donready", strategy="t")]
+    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+    sent = captured["body"]["input"]
+    # The default question should appear in the prompt.
+    assert "Why was this name chosen" in sent
+
+
 def test_v4c_menu_ask_ai_no_openai_key_warns(monkeypatch):
     from portfolio.cli import _menu_ask_ai
     rows = [GridRow(name="alpha", strategy="t")]
