@@ -2121,7 +2121,16 @@ def bootstrap(
         console.print(f"[red]bootstrap failed:[/] {e}")
         raise typer.Exit(2)
 
-    console.print(f"[green]✓[/] Bootstrapped [bold]{result.project_dir}[/]  [dim](path={result.path}, stack={result.stack})[/]")
+    _render_bootstrap_summary(result, domain)
+
+
+def _render_bootstrap_summary(result, domain: str) -> None:
+    """Post-bootstrap report: header, file inventory, tree view, conformance
+    pass/fail, predicted live URL, grouped next-step commands."""
+    console.print(
+        f"[green]✓[/] Bootstrapped [bold]{result.project_dir}[/]  "
+        f"[dim](path={result.path}, stack={result.stack})[/]"
+    )
 
     if result.files_copied:
         console.print(f"\n[bold]Copied from genai/ ({len(result.files_copied)}):[/]")
@@ -2144,15 +2153,92 @@ def bootstrap(
     else:
         console.print("\n[yellow]✗[/] git init failed — initialize manually")
 
+    # v4.D polish 2026-05-08: tree view of the actual scaffold.
+    _render_project_tree(result.project_dir)
+
     if result.warnings:
         console.print(f"\n[yellow]Warnings ({len(result.warnings)}):[/]")
         for w in result.warnings:
             console.print(f"  • {w}")
 
-    if result.next_steps:
-        console.print("\n[bold]Next steps:[/]")
-        for step in result.next_steps:
-            console.print(f"  {step}")
+    # Conformance quick-check against the new project.
+    _render_bootstrap_conformance(domain)
+
+    # Predicted live URL.
+    console.print(f"\n[bold]Live URL after deploy:[/]  [cyan]https://{domain}/[/]")
+
+    # Grouped next steps with concrete commands.
+    console.print("\n[bold]Next steps:[/]")
+    console.print("  [bold cyan]Local dev[/]")
+    console.print(f"    cd sites/{domain}")
+    console.print("    make deps           [dim]# install dependencies via the central builder[/]")
+    console.print("    make dev            [dim]# start the dev server[/]")
+    console.print("  [bold cyan]Deploy[/]")
+    console.print(f"    portfolio deploy {domain}     [dim]# create GH repo + Cloudflare Pages project[/]")
+    console.print("  [bold cyan]Verify after deploy[/]")
+    console.print(f"    portfolio check                            [dim]# refresh check snapshot[/]")
+    console.print(f"    portfolio project status {domain}      [dim]# full conformance report[/]")
+
+
+def _render_project_tree(project_dir) -> None:
+    """Print a top-level tree of the bootstrapped project (one level deep,
+    plus a count for any subdirectories that have entries). Skips .git and
+    node_modules to avoid noise."""
+    from pathlib import Path
+    p = Path(project_dir)
+    if not p.exists():
+        return
+    SKIP = {".git", "node_modules", "dist", ".venv", "__pycache__"}
+    entries = sorted(p.iterdir(), key=lambda e: (e.is_file(), e.name.lower()))
+    console.print(f"\n[bold]Project tree:[/]  [dim]{p.name}/[/]")
+    for entry in entries:
+        if entry.name in SKIP:
+            continue
+        if entry.is_dir():
+            children = [c for c in entry.iterdir() if c.name not in SKIP]
+            count = len(children)
+            console.print(f"  ├── [bold cyan]{entry.name}/[/]  [dim]({count} entries)[/]")
+        else:
+            console.print(f"  ├── {entry.name}")
+
+
+def _render_bootstrap_conformance(domain: str) -> None:
+    """Run a quick conformance check on the freshly-bootstrapped project and
+    print pass/fail per rule. Re-uses the same logic as `project status` so
+    the user sees what the standard report would show."""
+    try:
+        from .project import build_status
+    except Exception:
+        return  # quiet: don't break bootstrap if project module is unavailable
+
+    try:
+        result = build_status(domain)
+    except Exception as e:
+        console.print(f"\n[yellow]Conformance check skipped:[/] {type(e).__name__}: {e}")
+        return
+
+    if result.get("error"):
+        console.print(f"\n[yellow]Conformance check skipped:[/] {result.get('error')}")
+        return
+
+    conf = result.get("conformance", {})
+    passed = conf.get("passed", [])
+    failed = conf.get("failed", [])
+    skipped = conf.get("skipped", [])
+
+    console.print(f"\n[bold]Conformance ({len(passed)} pass · {len(failed)} fail · {len(skipped)} skip):[/]")
+    for rule in passed:
+        console.print(f"  [green]✓[/] {rule}")
+    for f in failed:
+        rule = f.get("rule", "?")
+        reason = f.get("reason", "")
+        console.print(f"  [red]✗[/] {rule}  [dim]— {reason}[/]")
+    if skipped:
+        console.print(
+            "  [dim]skipped: "
+            + ", ".join(s.get("rule", "?") for s in skipped)
+            + "[/]"
+        )
 
 
 @app.command()
