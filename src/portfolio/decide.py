@@ -1,7 +1,7 @@
 """v4.B decide-from-shortlist module.
 
 Houses the six decision-aid steps invoked by menu option 7:
-  1. Brand-collision check (Brave Search API; AI fallback)
+  1. Brand-collision check (gpt-5-mini)
   2. USPTO TESS URL builders (manual click-through)
   3. Brand-extensibility (gpt-5-mini)
   4. 5-year cost projection (computed)
@@ -26,59 +26,21 @@ from .suggest import OPENAI_MODEL, OPENAI_RESPONSES_URL, OPENAI_TIMEOUT, _parse_
 
 ASK_CACHE_DIR = ROOT / "data" / "cache" / "suggest" / "ask"
 
-BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
-BRAVE_SEARCH_TIMEOUT = 15.0
-
-
-@dataclass
-class SearchHit:
-    """One Brave Search result row, trimmed to the fields we display."""
-    title: str
-    url: str
-    description: str
-
 
 @dataclass
 class CollisionResult:
     """Brand-collision verdict for one finalist."""
     name: str
-    backend: str          # "brave" | "ai" | "skipped"
-    hits: list[SearchHit]   # Brave: top 3 results; AI: empty
-    ai_verdict: str | None = None  # only for "ai" backend
+    backend: str          # "ai" | "skipped"
+    ai_verdict: str | None = None
     error: str | None = None
 
 
-# ---------- Brave Search (Step 1 primary) ----------
-
-
-def brave_search(query: str, api_key: str, count: int = 3) -> list[SearchHit]:
-    """Query Brave Search API for `query`. Returns up to `count` hits.
-
-    Raises on HTTP/network errors so the caller can fall back. Empty list
-    means the search succeeded but returned no web results.
-    """
-    headers = {
-        "X-Subscription-Token": api_key,
-        "Accept": "application/json",
-    }
-    params = {"q": query, "count": count}
-    r = requests.get(BRAVE_SEARCH_URL, headers=headers, params=params,
-                     timeout=BRAVE_SEARCH_TIMEOUT)
-    r.raise_for_status()
-    body = r.json()
-    web = body.get("web") or {}
-    results = web.get("results") or []
-    out: list[SearchHit] = []
-    for entry in results[:count]:
-        out.append(SearchHit(
-            title=str(entry.get("title", "")).strip(),
-            url=str(entry.get("url", "")).strip(),
-            description=str(entry.get("description", "")).strip(),
-        ))
-    return out
-
-
-# ---------- AI fallback for collision ----------
+# ---------- Brand-collision check (gpt-5-mini) ----------
+# Brave Search was previously the primary backend with AI as fallback. As of
+# 2026-05-08 Brave's free tier is gone, so we go AI-only. The AI catches
+# famous-brand collisions reliably; for niche brands, manual due-diligence
+# (Step 2 USPTO + your own Google) remains the catch-all.
 
 
 _AI_COLLISION_PROMPT = """\
@@ -109,36 +71,20 @@ def assess_brand_collision_via_ai(name: str, api_key: str) -> str:
     return _parse_openai_text(r.json()).strip() or "No verdict returned."
 
 
-def check_brand_collision(name: str, brave_key: str, openai_key: str) -> CollisionResult:
-    """Step 1. Try Brave Search if `brave_key` is present; on failure or
-    missing key, fall back to gpt-5-mini scan. Always returns a
-    `CollisionResult` (never raises) so the decide flow keeps moving.
+def check_brand_collision(name: str, openai_key: str) -> CollisionResult:
+    """Step 1. AI-only brand-collision check via gpt-5-mini. Always returns
+    a `CollisionResult` (never raises) so the decide flow keeps moving.
+    Returns backend="skipped" if no API key or the call fails.
     """
-    if brave_key:
-        try:
-            hits = brave_search(f'"{name}"', brave_key, count=3)
-            return CollisionResult(name=name, backend="brave", hits=hits)
-        except Exception as e:
-            err = f"Brave search failed: {type(e).__name__}: {e}"
-            # Fall through to AI fallback.
-            if openai_key:
-                try:
-                    verdict = assess_brand_collision_via_ai(name, openai_key)
-                    return CollisionResult(name=name, backend="ai", hits=[],
-                                           ai_verdict=verdict, error=err)
-                except Exception as e2:
-                    return CollisionResult(name=name, backend="skipped", hits=[],
-                                           error=f"{err}; AI fallback also failed: {e2}")
-            return CollisionResult(name=name, backend="skipped", hits=[], error=err)
-    if openai_key:
-        try:
-            verdict = assess_brand_collision_via_ai(name, openai_key)
-            return CollisionResult(name=name, backend="ai", hits=[], ai_verdict=verdict)
-        except Exception as e:
-            return CollisionResult(name=name, backend="skipped", hits=[],
-                                   error=f"AI fallback failed: {type(e).__name__}: {e}")
-    return CollisionResult(name=name, backend="skipped", hits=[],
-                           error="no BRAVE_SEARCH_API_KEY or OPENAI_API_KEY")
+    if not openai_key:
+        return CollisionResult(name=name, backend="skipped",
+                               error="no OPENAI_API_KEY")
+    try:
+        verdict = assess_brand_collision_via_ai(name, openai_key)
+        return CollisionResult(name=name, backend="ai", ai_verdict=verdict)
+    except Exception as e:
+        return CollisionResult(name=name, backend="skipped",
+                               error=f"AI call failed: {type(e).__name__}: {e}")
 
 
 # ---------- Step 2: USPTO TESS URL builder ----------

@@ -144,12 +144,6 @@ OPENAI_API_KEY=
 PORKBUN_API_KEY=
 PORKBUN_SECRET_API_KEY=
 
-# Optional for `portfolio domain suggest` decide step (v4.B).
-# BRAVE_SEARCH_API_KEY: free tier ~2k queries/month at api.search.brave.com.
-# When unset, the brand-collision check falls back to a gpt-5-mini scan of
-# the candidate name against well-known brands (uses OPENAI_API_KEY only).
-BRAVE_SEARCH_API_KEY=
-
 # Required for `portfolio deploy <domain>` Cloudflare Pages step (v3.C).
 # CF_API_TOKEN: create at https://dash.cloudflare.com/profile/api-tokens
 #   with permission `Account / Cloudflare Pages: Edit` (scoped to your account).

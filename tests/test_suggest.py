@@ -2452,92 +2452,7 @@ def test_v3e_render_tld_reference_includes_validation_summary():
 # =============================================================================
 
 
-def test_v4b_brave_search_parses_results(monkeypatch):
-    from portfolio.decide import brave_search
-    fake_resp = MagicMock(status_code=200)
-    fake_resp.json.return_value = {
-        "web": {
-            "results": [
-                {"title": "ScrubSync", "url": "https://scrubsync.example/",
-                 "description": "Healthcare scheduling SaaS"},
-                {"title": "Other", "url": "https://other.example/",
-                 "description": "Some other site"},
-            ]
-        }
-    }
-    fake_resp.raise_for_status = MagicMock()
-    monkeypatch.setattr("portfolio.decide.requests.get", lambda *a, **kw: fake_resp)
-    hits = brave_search("scrubsync", "key", count=3)
-    assert len(hits) == 2
-    assert hits[0].title == "ScrubSync"
-    assert hits[0].url == "https://scrubsync.example/"
-
-
-def test_v4b_brave_search_passes_subscription_token(monkeypatch):
-    from portfolio.decide import brave_search
-    captured = {}
-
-    def fake_get(url, **kwargs):
-        captured["headers"] = kwargs.get("headers", {})
-        captured["params"] = kwargs.get("params", {})
-        resp = MagicMock(status_code=200)
-        resp.json.return_value = {"web": {"results": []}}
-        resp.raise_for_status = MagicMock()
-        return resp
-
-    monkeypatch.setattr("portfolio.decide.requests.get", fake_get)
-    brave_search("foo", "my-token", count=5)
-    assert captured["headers"]["X-Subscription-Token"] == "my-token"
-    assert captured["params"]["q"] == "foo"
-    assert captured["params"]["count"] == 5
-
-
-def test_v4b_brave_search_handles_no_results(monkeypatch):
-    from portfolio.decide import brave_search
-    fake_resp = MagicMock(status_code=200)
-    fake_resp.json.return_value = {"web": {"results": []}}
-    fake_resp.raise_for_status = MagicMock()
-    monkeypatch.setattr("portfolio.decide.requests.get", lambda *a, **kw: fake_resp)
-    assert brave_search("foo", "key") == []
-
-
-def test_v4b_check_brand_collision_uses_brave_when_keyed(monkeypatch):
-    from portfolio.decide import check_brand_collision
-    fake_resp = MagicMock(status_code=200)
-    fake_resp.json.return_value = {
-        "web": {"results": [{"title": "Alpha", "url": "https://alpha/", "description": ""}]}
-    }
-    fake_resp.raise_for_status = MagicMock()
-    monkeypatch.setattr("portfolio.decide.requests.get", lambda *a, **kw: fake_resp)
-    result = check_brand_collision("alpha", brave_key="bk", openai_key="ok")
-    assert result.backend == "brave"
-    assert result.hits[0].title == "Alpha"
-
-
-def test_v4b_check_brand_collision_falls_back_to_ai_on_brave_error(monkeypatch):
-    from portfolio.decide import check_brand_collision
-    call_count = {"n": 0}
-
-    def fake_get(*a, **kw):
-        # Brave call fails
-        raise ConnectionError("brave down")
-
-    def fake_post(*a, **kw):
-        call_count["n"] += 1
-        resp = MagicMock(status_code=200)
-        resp.json.return_value = {"output_text": "No notable brand match."}
-        resp.raise_for_status = MagicMock()
-        return resp
-
-    monkeypatch.setattr("portfolio.decide.requests.get", fake_get)
-    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
-    result = check_brand_collision("alpha", brave_key="bk", openai_key="ok")
-    assert result.backend == "ai"
-    assert "No notable" in result.ai_verdict
-    assert call_count["n"] == 1
-
-
-def test_v4b_check_brand_collision_uses_ai_when_no_brave_key(monkeypatch):
+def test_v4b_check_brand_collision_uses_ai(monkeypatch):
     from portfolio.decide import check_brand_collision
 
     def fake_post(*a, **kw):
@@ -2547,16 +2462,29 @@ def test_v4b_check_brand_collision_uses_ai_when_no_brave_key(monkeypatch):
         return resp
 
     monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
-    result = check_brand_collision("stripe", brave_key="", openai_key="ok")
+    result = check_brand_collision("stripe", openai_key="ok")
     assert result.backend == "ai"
     assert "Stripe" in result.ai_verdict
 
 
-def test_v4b_check_brand_collision_skipped_when_no_keys():
+def test_v4b_check_brand_collision_skipped_when_no_key():
     from portfolio.decide import check_brand_collision
-    result = check_brand_collision("alpha", brave_key="", openai_key="")
+    result = check_brand_collision("alpha", openai_key="")
     assert result.backend == "skipped"
     assert result.error is not None
+
+
+def test_v4b_check_brand_collision_skipped_on_api_failure(monkeypatch):
+    from portfolio.decide import check_brand_collision
+
+    def fake_post(*a, **kw):
+        raise ConnectionError("nope")
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    result = check_brand_collision("alpha", openai_key="ok")
+    assert result.backend == "skipped"
+    assert result.error is not None
+    assert "failed" in result.error.lower()
 
 
 def test_v4b_uspto_tess_url_quotes_name():
@@ -2680,7 +2608,7 @@ def test_v4b_menu_decide_empty_shortlist_returns_none(monkeypatch):
     rows = [_build_finalist_row("alpha")]
     out = _menu_decide(rows, shortlist=[], tld_list=[".com"],
                       max_price=20.0, topic="x", vocab_terms=[],
-                      brave_key="", openai_key="")
+                      openai_key="")
     assert out is None
 
 
@@ -2703,7 +2631,7 @@ def test_v4b_menu_decide_b_returns_none_after_walking_steps(monkeypatch):
     rows = [_build_finalist_row("alpha")]
     out = _menu_decide(rows, shortlist=["alpha"], tld_list=[".com"],
                       max_price=20.0, topic="x", vocab_terms=[],
-                      brave_key="", openai_key="ok")
+                      openai_key="ok")
     assert out is None
 
 
@@ -2725,7 +2653,7 @@ def test_v4b_menu_decide_pick_returns_row_and_tld(monkeypatch):
     rows = [_build_finalist_row("alpha", pick_tld=".com")]
     out = _menu_decide(rows, shortlist=["alpha"], tld_list=[".com"],
                       max_price=20.0, topic="x", vocab_terms=[],
-                      brave_key="", openai_key="ok")
+                      openai_key="ok")
     assert out is not None
     row, tld = out
     assert row.name == "alpha"
@@ -2972,10 +2900,12 @@ def test_v4c_menu_ask_ai_unknown_name_warns(monkeypatch):
     _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
 
 
-def test_v4c_menu_ask_ai_finds_name_anywhere_in_input(monkeypatch):
+def test_v4c_menu_ask_ai_finds_name_anywhere_in_input(tmp_path, monkeypatch):
     """v4.C polish: scan the whole input for a row-name token, not just
     the first word. 'what is donready' should resolve to donready."""
+    from portfolio import decide
     from portfolio.cli import _menu_ask_ai
+    monkeypatch.setattr(decide, "ASK_CACHE_DIR", tmp_path / "ask")
     captured = {}
 
     def fake_post(url, **kwargs):
@@ -2990,7 +2920,7 @@ def test_v4c_menu_ask_ai_finds_name_anywhere_in_input(monkeypatch):
                         lambda *a, **kw: "what is donready")
     rows = [GridRow(name="donready", strategy="t"),
             GridRow(name="scrubsync", strategy="t")]
-    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+    _menu_ask_ai(rows, topic="x-uniq-1", vocab_terms=[], openai_key="ok")
     sent = captured["body"]["input"]
     # The candidate name passed to the prompt should be donready,
     # and the question should be the full input.
@@ -2998,10 +2928,12 @@ def test_v4c_menu_ask_ai_finds_name_anywhere_in_input(monkeypatch):
     assert "what is donready" in sent
 
 
-def test_v4c_menu_ask_ai_first_matching_token_wins(monkeypatch):
+def test_v4c_menu_ask_ai_first_matching_token_wins(tmp_path, monkeypatch):
     """When multiple row names appear in input, the first matching token
     is chosen (left-to-right scan)."""
+    from portfolio import decide
     from portfolio.cli import _menu_ask_ai
+    monkeypatch.setattr(decide, "ASK_CACHE_DIR", tmp_path / "ask")
     captured = {}
 
     def fake_post(url, **kwargs):
@@ -3016,17 +2948,19 @@ def test_v4c_menu_ask_ai_first_matching_token_wins(monkeypatch):
                         lambda *a, **kw: "compare scrubsync vs donready")
     rows = [GridRow(name="donready", strategy="t"),
             GridRow(name="scrubsync", strategy="t")]
-    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+    _menu_ask_ai(rows, topic="x-uniq-2", vocab_terms=[], openai_key="ok")
     sent = captured["body"]["input"]
     # First token in the input that matches is "scrubsync".
     assert "Candidate name: scrubsync" in sent
 
 
-def test_v4c_menu_ask_ai_bare_name_uses_default_question(monkeypatch):
+def test_v4c_menu_ask_ai_bare_name_uses_default_question(tmp_path, monkeypatch):
     """When user types just the name with no surrounding words, the
     default question is used (not the input itself, which would be
     redundant)."""
+    from portfolio import decide
     from portfolio.cli import _menu_ask_ai
+    monkeypatch.setattr(decide, "ASK_CACHE_DIR", tmp_path / "ask")
     captured = {}
 
     def fake_post(url, **kwargs):
@@ -3040,7 +2974,7 @@ def test_v4c_menu_ask_ai_bare_name_uses_default_question(monkeypatch):
     monkeypatch.setattr("portfolio.cli.typer.prompt",
                         lambda *a, **kw: "donready")
     rows = [GridRow(name="donready", strategy="t")]
-    _menu_ask_ai(rows, topic="x", vocab_terms=[], openai_key="ok")
+    _menu_ask_ai(rows, topic="x-uniq-3", vocab_terms=[], openai_key="ok")
     sent = captured["body"]["input"]
     # The default question should appear in the prompt.
     assert "Why was this name chosen" in sent

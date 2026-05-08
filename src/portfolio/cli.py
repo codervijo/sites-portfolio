@@ -1285,22 +1285,13 @@ def _render_decide_table(finalists, max_price: float) -> None:
     console.print(t)
 
 
-def _decide_step1_brand_collision(finalists, brave_key: str, openai_key: str) -> None:
+def _decide_step1_brand_collision(finalists, openai_key: str) -> None:
     from .decide import check_brand_collision
-    backend_label = "Brave Search" if brave_key else "AI fallback (gpt-5-mini)"
-    console.print(f"\n[bold]Step 1/6 — Brand collision check[/]  [dim]({backend_label})[/]")
+    console.print("\n[bold]Step 1/6 — Brand collision check[/]  [dim](gpt-5-mini)[/]")
     for row in finalists:
-        result = check_brand_collision(row.name, brave_key, openai_key)
+        result = check_brand_collision(row.name, openai_key)
         console.print(f"  [bold]{row.name}[/]")
-        if result.backend == "brave":
-            if not result.hits:
-                console.print("    [dim](no notable results)[/]")
-            for hit in result.hits:
-                title = hit.title or "(no title)"
-                console.print(f"    · [bold]{title}[/]")
-                if hit.url:
-                    console.print(f"      [dim]{hit.url}[/]")
-        elif result.backend == "ai":
+        if result.backend == "ai":
             console.print(f"    {result.ai_verdict}")
         else:
             err = result.error or "skipped"
@@ -1376,7 +1367,7 @@ def _decide_step6_memory_test(finalists) -> list[str]:
 
 def _menu_decide(rows, shortlist: list[str], tld_list: list[str],
                  max_price: float, topic: str, vocab_terms: list[str] | None,
-                 brave_key: str, openai_key: str):
+                 openai_key: str):
     """Menu option 7 orchestrator. Returns (row, tld) pick or None."""
     finalists = [r for r in rows if r.name in shortlist]
     if not finalists:
@@ -1384,7 +1375,7 @@ def _menu_decide(rows, shortlist: list[str], tld_list: list[str],
         return None
 
     _render_decide_table(finalists, max_price=max_price)
-    _decide_step1_brand_collision(finalists, brave_key, openai_key)
+    _decide_step1_brand_collision(finalists, openai_key)
     _decide_step2_uspto(finalists)
     _decide_step3_extensibility(finalists, topic, vocab_terms, openai_key)
     _decide_step4_cost(finalists)
@@ -1709,11 +1700,10 @@ def _domain_suggest_validation(
             shortlist = _menu_shortlist(rows, shortlist)
             continue
         if choice == "7":
-            brave_key = env.get("BRAVE_SEARCH_API_KEY", "").strip()
             result = _menu_decide(
                 rows, shortlist, tld_list, max_price,
                 topic=topic, vocab_terms=vocab_terms,
-                brave_key=brave_key, openai_key=openai_key,
+                openai_key=openai_key,
             )
             if result is not None:
                 selected_row, selected_tld = result
