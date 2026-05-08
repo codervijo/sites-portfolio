@@ -792,6 +792,171 @@ def parse_expand_input(s: str, rows) -> tuple[int | None, str | None]:
     return matches[0][0], None
 
 
+# v3.E 2026-05-08: post-grid menu. The menu replaces all the inline picker
+# prompts (was N | N.tld | eN | "Add your own names?" auto-loop) with a
+# numbered chooser. Re-shown after every non-terminating action; only
+# successful registration or `q` exits.
+MENU_ITEMS = [
+    ("1", "Pick a row to register",          False),
+    ("2", "Expand a row (full-ladder detail)", False),
+    ("3", "Ask AI about a name",             True),  # coming-soon stub
+    ("4", "Widen search — more candidates",  True),
+    ("5", "Add my own names to the grid",    False),
+    ("6", "Mark / unmark for shortlist",     True),
+    ("7", "Decide from shortlist",           True),
+    ("8", "Show TLD reference (pricing, SEO, vibe)", False),
+]
+
+
+# v3.E 2026-05-08: per-TLD quick-reference card. Surfaced via menu option 8 so
+# the user can recall the grade/cost/SEO trade-offs without leaving the tool.
+# Cost values mirror the Porkbun pricing dict at time of writing; renewal-cliff
+# multiplier shown explicitly so the bait-and-switch TLDs are obvious.
+TLD_REFERENCE = [
+    # tld    grade   reg     renew    vibe                                trust          best-for / catch
+    (".com", "A+",   "$11",  "$11",   "universal default",                "high",        "the gold standard; catch: collision risk if a name is taken"),
+    (".app", "A",    "$11",  "$15",   "modern apps / SaaS, HSTS-preloaded","high",       "best non-.com for app-flavored MVPs; catch: pigeonholes non-app brands"),
+    (".dev", "A",    "$11",  "$13",   "developer tools / technical",      "high in tech","strongest for dev-targeting; catch: reads 'staging' to non-tech audiences"),
+    (".co",  "B+",   "$10",  "$27",   "global ccTLD (Colombia), .com-ish","mid-high",    "good fallback when .com is taken; catch: 2.7× renewal cliff"),
+    (".xyz", "B+",   "$2",   "$13",   "cheap-and-cheerful, web3-legit",   "mid-high in tech","best cheap-grab for validation; catch: 'scammy' read with older audiences"),
+    (".ai",  "A-",   "$83",  "$83",   "AI startup signal (Anguilla)",     "high in tech","specialized fit; catch: $83/yr — too steep for validation"),
+    (".io",  "B",    "$28",  "$52",   "tech / startup default",           "high in tech","tech vibe; catch: $28 reg + ~2× renewal cliff"),
+    (".site","C",    "$2",   "$30",   "generic, 'this is a site'",        "low-mid",     "throwaway prototypes only; catch: 15× renewal cliff"),
+    (".shop","C",    "$2",   "$31",   "e-commerce-flavored",              "low-mid",     "narrow fit; catch: 15× renewal cliff"),
+    (".life","C",    "$2",   "$29",   "generic lifestyle",                "low-mid",     "generic; catch: 14× renewal cliff"),
+    (".info","C+",   "$3",   "$22",   "informational (dated)",            "mid",         "info-tier; catch: 7× renewal cliff, dated feel"),
+    (".pro", "C+",   "$3",   "$22",   "professional services",            "mid",         "narrow positioning; catch: 7× renewal cliff, dated feel"),
+]
+
+
+def _render_tld_reference() -> None:
+    """Print the per-TLD quick-reference card. Same data the user asked for
+    earlier — grade, cost, vibe, trust, best-for / catch."""
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title="[bold]TLD reference — pricing, SEO, vibe[/]",
+              title_justify="left")
+    t.add_column("TLD")
+    t.add_column("Grade")
+    t.add_column("Reg", justify="right")
+    t.add_column("Renew", justify="right")
+    t.add_column("Vibe")
+    t.add_column("Trust")
+    t.add_column("Best-for / catch")
+    for tld, grade, reg, renew, vibe, trust, notes in TLD_REFERENCE:
+        # Color the grade so A+/A stand out.
+        grade_color = {"A+": "green", "A": "green", "A-": "green",
+                       "B+": "cyan", "B": "cyan",
+                       "C+": "yellow", "C": "yellow"}.get(grade, "white")
+        t.add_row(tld, f"[{grade_color}]{grade}[/]", reg, renew, vibe, trust, notes)
+    console.print(t)
+    console.print("[dim](Renewal cliff = renewal/registration. Anything above 2× shown as ↑Nx in cells.)[/]")
+
+
+def _render_menu() -> None:
+    console.print("\n[bold]What do you want to do next?[/]")
+    for key, label, coming_soon in MENU_ITEMS:
+        suffix = "  [dim](coming soon)[/]" if coming_soon else ""
+        console.print(f"  {key}. {label}{suffix}")
+    console.print("  q. Quit")
+
+
+def _menu_pick(rows, tld_list):
+    """Sub-prompt for menu option 1. Returns (row, tld) on success or None."""
+    sub = typer.prompt("Which row? (N or N.tld)", default="", show_default=False).strip().lower()
+    if not sub:
+        return None
+    idx, override_tld, err = parse_pick_input(sub, len(rows), tld_list)
+    if err:
+        console.print(f"[red]{err}[/]")
+        return None
+    row = rows[idx]
+    if override_tld is not None:
+        cell = row.cells.get(override_tld)
+        if cell is None:
+            console.print(f"[red]{override_tld} not in this row.[/]")
+            return None
+        if cell.available is False:
+            console.print(f"[red]{row.name}{override_tld} is taken.[/]")
+            return None
+        if cell.over_max:
+            console.print(f"[red]{row.name}{override_tld} is priced over --max-price (${cell.price:.2f}).[/]")
+            return None
+        return row, override_tld
+    if row.pick_tld is None:
+        console.print("[red]Row has no recommended TLD (.com poisoned). Use N.tld syntax to override.[/]")
+        return None
+    return row, row.pick_tld
+
+
+def _menu_expand(rows, tld_list, max_price, show_renewal):
+    """Sub-prompt for menu option 2. Reuses parse_expand_input by prefixing 'e '
+    so user can type a bare row number or name. Returns (row, tld) if user
+    picked from the expanded view, otherwise None."""
+    sub = typer.prompt("Which row? (number or name)", default="", show_default=False).strip().lower()
+    if not sub:
+        return None
+    cmd = "e " + sub
+    idx, err = parse_expand_input(cmd, rows)
+    if err:
+        console.print(f"[red]{err}[/]")
+        return None
+    return _expand_and_pick(rows[idx], tld_list, max_price, show_renewal=show_renewal)
+
+
+def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,
+                    max_price, pricing_dict, avail_fn, show_renewal, log_fn):
+    """Sub-prompt for menu option 5. Returns the (possibly-merged) rows list.
+    Empty input or all-rejected names returns the rows unchanged."""
+    from .suggest import (
+        Candidate, FULL_LADDER, build_grid,
+        filter_pickable_rows, screen_for_content_strict,
+    )
+    sub = typer.prompt(
+        "Names to add (comma-separated, no TLDs)",
+        default="", show_default=False,
+    ).strip()
+    if not sub:
+        return rows
+    valid_names, rejected = _parse_user_added_names(sub)
+    for r in rejected:
+        console.print(f"[yellow]skipping {r}[/]")
+    if not valid_names:
+        console.print("[yellow]No valid names parsed.[/]")
+        return rows
+    valid_names, screen_dropped = screen_for_content_strict(
+        valid_names, openai_key, log_fn=log_fn,
+    )
+    if screen_dropped:
+        console.print(f"[yellow]Filtered {len(screen_dropped)} of your name(s) (content policy)[/]")
+    if not valid_names:
+        return rows
+    console.print(f"[dim]Probing {len(valid_names)} user-supplied name(s)...[/]")
+    user_cands = [Candidate(name=n, strategy="user") for n in valid_names]
+    user_rows = build_grid(
+        user_cands, topic, tld_list, avail_fn,
+        max_price=max_price, pricing_dict=pricing_dict,
+        full_ladder=list(FULL_LADDER),
+        vocab_terms=vocab_terms,
+    )
+    user_rows = filter_pickable_rows(user_rows)
+    if not user_rows:
+        console.print(f"[yellow]None of those names had a pickable cell under --max-price=${max_price:.2f}.[/]")
+        return rows
+    user_names = {r.name for r in user_rows}
+    merged = user_rows + [r for r in rows if r.name not in user_names]
+    merged.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
+    _render_grid(merged, tld_list, show_renewal=show_renewal)
+    return merged
+
+
+COMING_SOON_HINTS = {
+    "3": "Ask AI is coming soon — pick another option.",
+    "4": "Widen search is coming soon — pick another option.",
+    "6": "Mark/unmark for shortlist is coming soon — pick another option.",
+    "7": "Decide from shortlist is coming soon — pick another option.",
+}
+
+
 def _parse_user_added_names(raw: str) -> tuple[list[str], list[str]]:
     """Parse a comma-separated list of user-supplied names. Returns
     (valid_names, rejected_with_reason). Each name must be alphabetic, lowercase,
@@ -923,103 +1088,47 @@ def _domain_suggest_validation(
     if non_interactive:
         return
 
-    # v3.D 2026-05-08: optional user-supplied names. Loops until the user hits
-    # Enter (satisfied with the grid). Each round runs the new names through
-    # the same availability + pricing + anchor pipeline and re-renders.
-    round_n = 0
-    while True:
-        round_n += 1
-        prompt_msg = (
-            "\nAdd your own names? (comma-separated, no TLDs; Enter to skip)"
-            if round_n == 1
-            else "\nAdd more names? (Enter to proceed to picker)"
-        )
-        add_input = typer.prompt(prompt_msg, default="", show_default=False).strip()
-        if not add_input:
-            break
-        valid_names, rejected = _parse_user_added_names(add_input)
-        for r in rejected:
-            console.print(f"[yellow]skipping {r}[/]")
-        if not valid_names:
-            console.print("[yellow]No valid names parsed — try again or press Enter to proceed.[/]")
-            continue
-        # v3.D 2026-05-08: strict porn screen on user-supplied names too.
-        from .suggest import screen_for_content_strict
-        valid_names, screen_dropped = screen_for_content_strict(
-            valid_names, openai_key, log_fn=_log,
-        )
-        if screen_dropped:
-            console.print(f"[yellow]Filtered {len(screen_dropped)} of your name(s) (content policy)[/]")
-        if not valid_names:
-            console.print("[yellow]No valid names remained after the content screen — try again or press Enter to proceed.[/]")
-            continue
-        console.print(f"[dim]Probing {len(valid_names)} user-supplied name(s)...[/]")
-        user_cands = [Candidate(name=n, strategy="user") for n in valid_names]
-        user_rows = build_grid(
-            user_cands, topic, tld_list, avail_fn,
-            max_price=max_price, pricing_dict=pricing_dict,
-            full_ladder=list(FULL_LADDER),
-            vocab_terms=vocab_terms,
-        )
-        user_rows = filter_pickable_rows(user_rows)
-        if not user_rows:
-            console.print(f"[yellow]None of those names had a pickable cell under --max-price=${max_price:.2f}.[/]")
-            continue
-        # Merge: user-added rows replace any existing rows of the same name.
-        user_names = {r.name for r in user_rows}
-        merged = user_rows + [r for r in rows if r.name not in user_names]
-        merged.sort(key=lambda r: (-r.score, -len(r.anchors_matched), len(r.name)))
-        rows = merged
-        _render_grid(rows, tld_list, show_renewal=show_renewal)
-
-    # Picker loop with expand support.
+    # v3.E 2026-05-08: post-grid menu. Replaces the inline pick + add-names
+    # loops. Re-shown after every non-terminating action; terminates only on
+    # successful pick (→ post_pick_flow) or `q`.
     selected_row = None
     selected_tld = None
     while selected_row is None:
-        pick_prompt = "\nPick row N (or N.tld), 'eN' / 'e <name>' to expand, 'q' to quit"
-        choice = typer.prompt(pick_prompt, default="q", show_default=False).strip().lower()
-        if choice == "q" or not choice:
+        _render_menu()
+        choice = typer.prompt(">", default="", show_default=False).strip().lower()
+        if choice == "q":
             console.print("[yellow]No domain selected.[/]")
             return
-
-        if choice.startswith("e"):
-            idx, expand_err = parse_expand_input(choice, rows)
-            if expand_err:
-                console.print(f"[red]{expand_err}[/]")
-                continue
-            scoped = _expand_and_pick(rows[idx], tld_list, max_price, show_renewal=show_renewal)
-            if scoped is None:
-                # back to grid
-                _render_grid(rows, tld_list, show_renewal=show_renewal)
-                continue
-            selected_row, selected_tld = scoped
-            break
-
-        idx, override_tld, parse_err = parse_pick_input(choice, len(rows), tld_list)
-        if parse_err:
-            console.print(f"[red]{parse_err}[/]")
+        if choice == "1":
+            result = _menu_pick(rows, tld_list)
+            if result is not None:
+                selected_row, selected_tld = result
+                break
+            # else: error printed by _menu_pick; re-show menu
             continue
-        row = rows[idx]
-        if override_tld is not None:
-            cell = row.cells.get(override_tld)
-            if cell is None:
-                console.print(f"[red]{override_tld} not in this row.[/]")
-                continue
-            if cell.available is False:
-                console.print(f"[red]{row.name}{override_tld} is taken.[/]")
-                continue
-            if cell.over_max:
-                console.print(f"[red]{row.name}{override_tld} is priced over --max-price (${cell.price:.2f}).[/]")
-                continue
-            selected_row = row
-            selected_tld = override_tld
-            break
-        if row.pick_tld is None:
-            console.print("[red]Row has no recommended TLD (.com poisoned). Override with N.tld (e.g. 5.app) to pick anyway.[/]")
+        if choice == "2":
+            result = _menu_expand(rows, tld_list, max_price, show_renewal)
+            if result is not None:
+                selected_row, selected_tld = result
+                break
+            # back from expand → re-render grid then re-show menu
+            _render_grid(rows, tld_list, show_renewal=show_renewal)
             continue
-        selected_row = row
-        selected_tld = row.pick_tld
-        break
+        if choice == "5":
+            rows = _menu_add_names(
+                rows, topic=topic, openai_key=openai_key,
+                vocab_terms=vocab_terms, tld_list=tld_list,
+                max_price=max_price, pricing_dict=pricing_dict,
+                avail_fn=avail_fn, show_renewal=show_renewal, log_fn=_log,
+            )
+            continue
+        if choice == "8":
+            _render_tld_reference()
+            continue
+        if choice in COMING_SOON_HINTS:
+            console.print(f"[dim]{COMING_SOON_HINTS[choice]}[/]")
+            continue
+        console.print("[red]Type 1-8 or q.[/]")
 
     _post_pick_flow(
         row=selected_row,

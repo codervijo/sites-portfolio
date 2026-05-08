@@ -1656,3 +1656,230 @@ def test_brainstorm_logs_filter_count_when_present(monkeypatch):
         )
     # The screen logs once when something was dropped.
     assert any("filtered" in m.lower() for m in logs)
+
+
+# =============================================================================
+# v3.E — post-grid menu (cli.py)
+# =============================================================================
+
+
+def test_v3e_menu_items_includes_pick_and_quit_keys():
+    from portfolio.cli import MENU_ITEMS
+    keys = [k for k, _, _ in MENU_ITEMS]
+    assert "1" in keys
+    assert "2" in keys
+    assert "5" in keys
+    assert "8" in keys
+    # Coming-soon items still appear as menu entries (just labeled).
+    assert "3" in keys
+    assert "4" in keys
+    assert "6" in keys
+    assert "7" in keys
+
+
+def test_v3e_menu_items_label_active_vs_coming_soon():
+    from portfolio.cli import MENU_ITEMS
+    by_key = {k: (label, coming_soon) for k, label, coming_soon in MENU_ITEMS}
+    # Items shipped in this commit
+    assert by_key["1"][1] is False  # Pick — active
+    assert by_key["2"][1] is False  # Expand — active
+    assert by_key["5"][1] is False  # Add own names — active
+    assert by_key["8"][1] is False  # TLD reference — active
+    # Items still stubbed
+    assert by_key["3"][1] is True   # Ask AI — coming soon
+    assert by_key["4"][1] is True   # Widen — coming soon
+    assert by_key["6"][1] is True   # Mark — coming soon
+    assert by_key["7"][1] is True   # Decide — coming soon
+
+
+def test_v3e_coming_soon_hints_match_stubbed_items():
+    from portfolio.cli import COMING_SOON_HINTS, MENU_ITEMS
+    stubbed_keys = {k for k, _, cs in MENU_ITEMS if cs}
+    assert set(COMING_SOON_HINTS.keys()) == stubbed_keys
+
+
+def test_v3e_render_menu_includes_all_items_and_quit():
+    """Snapshot-ish: _render_menu prints all 8 numbered items + 'q. Quit'."""
+    from portfolio.cli import _render_menu, console
+    with console.capture() as cap:
+        _render_menu()
+    out = cap.get()
+    for key in ("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "q."):
+        assert key in out
+
+
+def test_v3e_render_menu_marks_coming_soon_items():
+    """Items 3, 4, 6, 7 carry a `(coming soon)` annotation."""
+    from portfolio.cli import _render_menu, console
+    with console.capture() as cap:
+        _render_menu()
+    out = cap.get()
+    # The annotation appears once per stubbed item
+    assert out.count("coming soon") == 4
+
+
+# ---------- _menu_pick ----------
+
+
+def _make_grid_row(name: str, picks: dict | None = None):
+    """Helper: GridRow with cells populated for testing menu actions."""
+    from portfolio.suggest import GridRow, CellState
+    row = GridRow(name=name, strategy="t",
+                  pick_tld=".com", pick_label=".com", why=".com available",
+                  score=10)
+    if picks is None:
+        picks = {".com": (True, 11.0), ".app": (True, 11.0)}
+    for tld, (avail, price) in picks.items():
+        row.cells[tld] = CellState(domain=f"{name}{tld}", available=avail, price=price)
+    return row
+
+
+def test_v3e_menu_pick_returns_row_and_tld_on_valid_input():
+    from portfolio.cli import _menu_pick
+    rows = [_make_grid_row("alpha"), _make_grid_row("beta")]
+    with patch("portfolio.cli.typer.prompt", return_value="2"):
+        result = _menu_pick(rows, [".com", ".app"])
+    assert result is not None
+    row, tld = result
+    assert row.name == "beta"
+    assert tld == ".com"
+
+
+def test_v3e_menu_pick_handles_tld_override():
+    from portfolio.cli import _menu_pick
+    rows = [_make_grid_row("alpha")]
+    with patch("portfolio.cli.typer.prompt", return_value="1.app"):
+        result = _menu_pick(rows, [".com", ".app"])
+    assert result is not None
+    _, tld = result
+    assert tld == ".app"
+
+
+def test_v3e_menu_pick_returns_none_on_empty_input():
+    from portfolio.cli import _menu_pick
+    rows = [_make_grid_row("alpha")]
+    with patch("portfolio.cli.typer.prompt", return_value=""):
+        assert _menu_pick(rows, [".com"]) is None
+
+
+def test_v3e_menu_pick_returns_none_on_out_of_range():
+    from portfolio.cli import _menu_pick
+    rows = [_make_grid_row("alpha")]
+    with patch("portfolio.cli.typer.prompt", return_value="99"):
+        assert _menu_pick(rows, [".com"]) is None
+
+
+def test_v3e_menu_pick_rejects_taken_override():
+    from portfolio.cli import _menu_pick
+    rows = [_make_grid_row("alpha", picks={".com": (False, None), ".app": (True, 11.0)})]
+    with patch("portfolio.cli.typer.prompt", return_value="1.com"):
+        assert _menu_pick(rows, [".com", ".app"]) is None
+
+
+# ---------- _menu_expand ----------
+
+
+def test_v3e_menu_expand_prefixes_e_for_parser():
+    """User types `5` at the expand sub-prompt — the helper prepends `e ` so
+    parse_expand_input recognizes it."""
+    from portfolio.cli import _menu_expand
+    rows = [_make_grid_row("alpha"), _make_grid_row("beta")]
+    # Mock typer.prompt to return "1" first (which row), then "b" (back) inside _expand_and_pick.
+    prompts = iter(["1", "b"])
+    with patch("portfolio.cli.typer.prompt", side_effect=lambda *a, **kw: next(prompts)):
+        result = _menu_expand(rows, [".com"], max_price=20.0, show_renewal=False)
+    # `b` from expand view → None back to menu
+    assert result is None
+
+
+def test_v3e_menu_expand_returns_none_on_empty_input():
+    from portfolio.cli import _menu_expand
+    rows = [_make_grid_row("alpha")]
+    with patch("portfolio.cli.typer.prompt", return_value=""):
+        assert _menu_expand(rows, [".com"], 20.0, False) is None
+
+
+def test_v3e_menu_expand_returns_none_on_unknown_name():
+    from portfolio.cli import _menu_expand
+    rows = [_make_grid_row("alpha")]
+    with patch("portfolio.cli.typer.prompt", return_value="nothere"):
+        assert _menu_expand(rows, [".com"], 20.0, False) is None
+
+
+# ---------- _menu_add_names ----------
+
+
+def test_v3e_menu_add_names_empty_input_returns_rows_unchanged():
+    from portfolio.cli import _menu_add_names
+    rows_before = [_make_grid_row("alpha")]
+    with patch("portfolio.cli.typer.prompt", return_value=""):
+        rows_after = _menu_add_names(
+            rows_before, topic="x", openai_key="",
+            vocab_terms=[], tld_list=[".com"],
+            max_price=20.0, pricing_dict={}, avail_fn=lambda d: (True, 11.0, None),
+            show_renewal=False, log_fn=None,
+        )
+    assert rows_after is rows_before
+
+
+def test_v3e_menu_add_names_merges_validated_names():
+    """When user types valid names, _menu_add_names probes them and merges."""
+    from portfolio.cli import _menu_add_names
+    rows_before = [_make_grid_row("alpha")]
+    avail_map = {f"newone{t}": (True, 11.0, None) for t in (".com", ".app", ".dev",
+                                                              ".xyz", ".site", ".co",
+                                                              ".ai", ".io", ".shop",
+                                                              ".life", ".info", ".pro")}
+
+    def fake_avail(d):
+        return avail_map.get(d, (False, None, None))
+
+    # Stub screen_for_content_strict (no API key → only Layer 1 runs anyway,
+    # but make sure the function returns the names through).
+    def stub_screen(names, api_key, log_fn=None):
+        return list(names), []
+
+    with patch("portfolio.cli.typer.prompt", return_value="newone"), \
+         patch("portfolio.suggest.screen_for_content_strict", side_effect=stub_screen):
+        rows_after = _menu_add_names(
+            rows_before, topic="x", openai_key="",
+            vocab_terms=[], tld_list=[".com", ".app"],
+            max_price=20.0, pricing_dict={}, avail_fn=fake_avail,
+            show_renewal=False, log_fn=None,
+        )
+    names_after = [r.name for r in rows_after]
+    assert "newone" in names_after
+    assert "alpha" in names_after  # original survived
+
+
+# ---------- TLD reference (option 8) ----------
+
+
+def test_v3e_tld_reference_constant_has_expected_tlds():
+    from portfolio.cli import TLD_REFERENCE
+    tlds = [t for t, *_ in TLD_REFERENCE]
+    # The four the user explicitly graded earlier must all appear
+    for required in (".com", ".app", ".dev", ".xyz", ".site", ".co",
+                     ".ai", ".io", ".shop", ".life", ".info", ".pro"):
+        assert required in tlds, f"missing {required}"
+
+
+def test_v3e_tld_reference_grades_are_valid():
+    """Every grade is one of A+/A/A-/B+/B/C+/C — same scheme used in chat."""
+    from portfolio.cli import TLD_REFERENCE
+    valid_grades = {"A+", "A", "A-", "B+", "B", "C+", "C"}
+    for tld, grade, *_ in TLD_REFERENCE:
+        assert grade in valid_grades, f"{tld} has unexpected grade {grade}"
+
+
+def test_v3e_render_tld_reference_prints_table_and_known_tlds():
+    from portfolio.cli import _render_tld_reference, console
+    with console.capture() as cap:
+        _render_tld_reference()
+    out = cap.get()
+    # Spot-check a few known TLDs and grades appear in the output.
+    assert ".com" in out
+    assert ".site" in out
+    assert ".xyz" in out
+    assert "A+" in out
+    assert "C" in out
