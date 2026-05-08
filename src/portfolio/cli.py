@@ -808,48 +808,191 @@ MENU_ITEMS = [
 ]
 
 
-# v3.E 2026-05-08: per-TLD quick-reference card. Surfaced via menu option 8 so
-# the user can recall the grade/cost/SEO trade-offs without leaving the tool.
-# Cost values mirror the Porkbun pricing dict at time of writing; renewal-cliff
-# multiplier shown explicitly so the bait-and-switch TLDs are obvious.
+# v3.E 2026-05-08: per-TLD reference card. Surfaced via menu option 8 so the
+# user can recall the operator / SEO / vibe / catch detail without leaving
+# the tool. Card format mirrors the chat reference verbatim for the four
+# TLDs the user emphasized (.app .dev .xyz .site) and matches that detail
+# level for the rest of the default + full ladder.
 TLD_REFERENCE = [
-    # tld    grade   reg     renew    vibe                                trust          best-for / catch
-    (".com", "A+",   "$11",  "$11",   "universal default",                "high",        "the gold standard; catch: collision risk if a name is taken"),
-    (".app", "A",    "$11",  "$15",   "modern apps / SaaS, HSTS-preloaded","high",       "best non-.com for app-flavored MVPs; catch: pigeonholes non-app brands"),
-    (".dev", "A",    "$11",  "$13",   "developer tools / technical",      "high in tech","strongest for dev-targeting; catch: reads 'staging' to non-tech audiences"),
-    (".co",  "B+",   "$10",  "$27",   "global ccTLD (Colombia), .com-ish","mid-high",    "good fallback when .com is taken; catch: 2.7× renewal cliff"),
-    (".xyz", "B+",   "$2",   "$13",   "cheap-and-cheerful, web3-legit",   "mid-high in tech","best cheap-grab for validation; catch: 'scammy' read with older audiences"),
-    (".ai",  "A-",   "$83",  "$83",   "AI startup signal (Anguilla)",     "high in tech","specialized fit; catch: $83/yr — too steep for validation"),
-    (".io",  "B",    "$28",  "$52",   "tech / startup default",           "high in tech","tech vibe; catch: $28 reg + ~2× renewal cliff"),
-    (".site","C",    "$2",   "$30",   "generic, 'this is a site'",        "low-mid",     "throwaway prototypes only; catch: 15× renewal cliff"),
-    (".shop","C",    "$2",   "$31",   "e-commerce-flavored",              "low-mid",     "narrow fit; catch: 15× renewal cliff"),
-    (".life","C",    "$2",   "$29",   "generic lifestyle",                "low-mid",     "generic; catch: 14× renewal cliff"),
-    (".info","C+",   "$3",   "$22",   "informational (dated)",            "mid",         "info-tier; catch: 7× renewal cliff, dated feel"),
-    (".pro", "C+",   "$3",   "$22",   "professional services",            "mid",         "narrow positioning; catch: 7× renewal cliff, dated feel"),
+    {
+        "tld": ".com",
+        "grade": "A+",
+        "operator": "Verisign",
+        "reg": "$11",
+        "renew": "$11",
+        "vibe": "universal default; the global brand standard",
+        "trust": "highest — recognized everywhere; what users type by default",
+        "seo": "no penalty; baseline for everything else",
+        "best_for": "any commercial site you intend to keep",
+        "catch": "high collision risk; most short names already taken",
+    },
+    {
+        "tld": ".app",
+        "grade": "A",
+        "operator": "Google Registry (2018)",
+        "reg": "$11",
+        "renew": "$15",
+        "vibe": "modern app/SaaS, app-store adjacent",
+        "trust": "high — Google-run, HSTS-preloaded (entire TLD forces HTTPS)",
+        "seo": "no penalty",
+        "best_for": "validation MVPs, mobile/web apps",
+        "catch": "none meaningful",
+    },
+    {
+        "tld": ".dev",
+        "grade": "A",
+        "operator": "Google Registry (2019)",
+        "reg": "$11",
+        "renew": "$13",
+        "vibe": "developer tools, technical projects",
+        "trust": "very high in tech audiences; HSTS-preloaded",
+        "seo": "no penalty",
+        "best_for": "dev tools, libraries, technical MVPs",
+        "catch": "reads \"internal/staging\" to non-technical audiences",
+    },
+    {
+        "tld": ".co",
+        "grade": "B+",
+        "operator": ".CO Internet S.A.S (2010)",
+        "reg": "$10",
+        "renew": "$27",
+        "vibe": "Colombia ccTLD repurposed as a global .com alternative",
+        "trust": "mid-high; mainstream-recognized after Twitter t.co et al.",
+        "seo": "no penalty",
+        "best_for": "fallback when .com is taken and you want a similar feel",
+        "catch": "2.7× renewal cliff; users still type .com by reflex",
+    },
+    {
+        "tld": ".xyz",
+        "grade": "B+",
+        "operator": "XYZ.com LLC (2014)",
+        "reg": "$2",
+        "renew": "$13",
+        "vibe": "cheap-and-cheerful; legitimized by Alphabet (abc.xyz), Ethereum/ENS, web3 generally",
+        "trust": "medium-high in tech, mixed in mainstream",
+        "seo": "no penalty (one of the largest gTLDs by volume)",
+        "best_for": "crypto-adjacent, experimental, Gen-Z-ish brands",
+        "catch": "still reads \"scammy\" to some older/non-tech users",
+    },
+    {
+        "tld": ".ai",
+        "grade": "A-",
+        "operator": "Government of Anguilla",
+        "reg": "$83",
+        "renew": "$83",
+        "vibe": "AI startup signal; specialized but instantly read",
+        "trust": "high in tech; carries clear positioning",
+        "seo": "no penalty",
+        "best_for": "AI/ML products you intend to keep long-term",
+        "catch": "$83/yr — too steep for cheap validation",
+    },
+    {
+        "tld": ".io",
+        "grade": "B",
+        "operator": "Internet Computer Bureau (British Indian Ocean Territory)",
+        "reg": "$28",
+        "renew": "$52",
+        "vibe": "tech/startup default; reads developer-flavored",
+        "trust": "high in tech; mainstream-aware",
+        "seo": "no penalty",
+        "best_for": "tech products willing to pay the premium",
+        "catch": "$28 reg + ~2× renewal cliff; price-capped out for cheap validation",
+    },
+    {
+        "tld": ".site",
+        "grade": "C",
+        "operator": "Radix Registry",
+        "reg": "$2",
+        "renew": "$30",
+        "vibe": "generic, literal (\"this is a site\")",
+        "trust": "low-mid; over-represented in parked-domain and spam datasets",
+        "seo": "no penalty per Google, but signals \"low-effort\"",
+        "best_for": "throwaway prototypes you'll let expire",
+        "catch": "15× renewal cliff; weakest brand of the cheap tier",
+    },
+    {
+        "tld": ".shop",
+        "grade": "C",
+        "operator": "GMO Registry",
+        "reg": "$2",
+        "renew": "$31",
+        "vibe": "e-commerce-flavored; literally retail",
+        "trust": "low-mid; locked to retail positioning",
+        "seo": "no penalty per Google; reads narrow",
+        "best_for": "e-commerce experiments / one-product stores",
+        "catch": "15× renewal cliff; pigeonholes non-retail brands",
+    },
+    {
+        "tld": ".life",
+        "grade": "C",
+        "operator": "Identity Digital (formerly Donuts)",
+        "reg": "$2",
+        "renew": "$29",
+        "vibe": "generic lifestyle; vague",
+        "trust": "low-mid; lacks definition",
+        "seo": "no penalty; just unmemorable",
+        "best_for": "lifestyle/wellness experiments; throwaways",
+        "catch": "14× renewal cliff; brand is too soft to anchor anything",
+    },
+    {
+        "tld": ".info",
+        "grade": "C+",
+        "operator": "Identity Digital",
+        "reg": "$3",
+        "renew": "$22",
+        "vibe": "informational sites; reads dated (early-2000s)",
+        "trust": "mid; recognized but unfashionable",
+        "seo": "no penalty technically; \"info\" suffix can read SEO-bait",
+        "best_for": "reference / informational properties; not products",
+        "catch": "7× renewal cliff; dated feel limits brand growth",
+    },
+    {
+        "tld": ".pro",
+        "grade": "C+",
+        "operator": "Identity Digital",
+        "reg": "$3",
+        "renew": "$22",
+        "vibe": "professional services; was originally identity-verified",
+        "trust": "mid; fine but narrow",
+        "seo": "no penalty",
+        "best_for": "individual practitioners, professional portfolios",
+        "catch": "7× renewal cliff; \".pro\" reads niche, not product",
+    },
 ]
+
+# Closing summary the user asked for verbatim — anchors the trade-offs
+# in the validation-pipeline context.
+TLD_REFERENCE_SUMMARY = (
+    "For your validation pipeline: .app and .dev are honest peers of .com "
+    "(low renewal, dev-credible). .xyz is the cheap-grab that doesn't punish "
+    "you on renewal. .site is fine for week-1 experiments but don't keep them."
+)
 
 
 def _render_tld_reference() -> None:
-    """Print the per-TLD quick-reference card. Same data the user asked for
-    earlier — grade, cost, vibe, trust, best-for / catch."""
-    t = Table(box=None, padding=(0, 1), show_header=True,
-              title="[bold]TLD reference — pricing, SEO, vibe[/]",
-              title_justify="left")
-    t.add_column("TLD")
-    t.add_column("Grade")
-    t.add_column("Reg", justify="right")
-    t.add_column("Renew", justify="right")
-    t.add_column("Vibe")
-    t.add_column("Trust")
-    t.add_column("Best-for / catch")
-    for tld, grade, reg, renew, vibe, trust, notes in TLD_REFERENCE:
-        # Color the grade so A+/A stand out.
-        grade_color = {"A+": "green", "A": "green", "A-": "green",
-                       "B+": "cyan", "B": "cyan",
-                       "C+": "yellow", "C": "yellow"}.get(grade, "white")
-        t.add_row(tld, f"[{grade_color}]{grade}[/]", reg, renew, vibe, trust, notes)
-    console.print(t)
-    console.print("[dim](Renewal cliff = renewal/registration. Anything above 2× shown as ↑Nx in cells.)[/]")
+    """Print the per-TLD reference. One card per TLD with operator, reg/renew,
+    vibe, trust, SEO, best-for, catch. Closes with a one-paragraph summary
+    that frames the trade-offs in validation-pipeline terms."""
+    grade_color = {
+        "A+": "green", "A": "green", "A-": "green",
+        "B+": "cyan",  "B": "cyan",
+        "C+": "yellow", "C": "yellow",
+    }
+    console.print("\n[bold]TLD reference — pricing, SEO, vibe[/]\n")
+    for entry in TLD_REFERENCE:
+        color = grade_color.get(entry["grade"], "white")
+        console.print(
+            f"  [bold]{entry['tld']}[/]    Grade: [{color}]{entry['grade']}[/]"
+        )
+        console.print(f"    operator   {entry['operator']}")
+        console.print(f"    reg/renew  {entry['reg']} / {entry['renew']}")
+        console.print(f"    vibe       {entry['vibe']}")
+        console.print(f"    trust      {entry['trust']}")
+        console.print(f"    SEO        {entry['seo']}")
+        console.print(f"    best for   {entry['best_for']}")
+        console.print(f"    catch      {entry['catch']}")
+        console.print()
+    console.print(f"[dim]{TLD_REFERENCE_SUMMARY}[/]")
 
 
 def _render_menu() -> None:

@@ -1857,8 +1857,7 @@ def test_v3e_menu_add_names_merges_validated_names():
 
 def test_v3e_tld_reference_constant_has_expected_tlds():
     from portfolio.cli import TLD_REFERENCE
-    tlds = [t for t, *_ in TLD_REFERENCE]
-    # The four the user explicitly graded earlier must all appear
+    tlds = [e["tld"] for e in TLD_REFERENCE]
     for required in (".com", ".app", ".dev", ".xyz", ".site", ".co",
                      ".ai", ".io", ".shop", ".life", ".info", ".pro"):
         assert required in tlds, f"missing {required}"
@@ -1868,18 +1867,51 @@ def test_v3e_tld_reference_grades_are_valid():
     """Every grade is one of A+/A/A-/B+/B/C+/C — same scheme used in chat."""
     from portfolio.cli import TLD_REFERENCE
     valid_grades = {"A+", "A", "A-", "B+", "B", "C+", "C"}
-    for tld, grade, *_ in TLD_REFERENCE:
-        assert grade in valid_grades, f"{tld} has unexpected grade {grade}"
+    for entry in TLD_REFERENCE:
+        assert entry["grade"] in valid_grades, f"{entry['tld']} has unexpected grade {entry['grade']}"
 
 
-def test_v3e_render_tld_reference_prints_table_and_known_tlds():
+def test_v3e_tld_reference_each_entry_has_full_card_fields():
+    """Every entry must have all the fields the renderer prints."""
+    from portfolio.cli import TLD_REFERENCE
+    required_keys = {"tld", "grade", "operator", "reg", "renew",
+                     "vibe", "trust", "seo", "best_for", "catch"}
+    for entry in TLD_REFERENCE:
+        missing = required_keys - set(entry.keys())
+        assert not missing, f"{entry.get('tld', '?')} missing fields: {missing}"
+
+
+def test_v3e_render_tld_reference_prints_card_format_for_known_tlds():
+    """Card output includes operator/SEO/vibe lines, not just a tabular row."""
     from portfolio.cli import _render_tld_reference, console
     with console.capture() as cap:
         _render_tld_reference()
     out = cap.get()
-    # Spot-check a few known TLDs and grades appear in the output.
-    assert ".com" in out
-    assert ".site" in out
-    assert ".xyz" in out
+    # TLDs the user explicitly graded
+    for tld in (".com", ".app", ".dev", ".xyz", ".site"):
+        assert tld in out
+    # Card format markers — the labels printed for every entry
+    assert "operator" in out
+    assert "reg/renew" in out
+    assert "trust" in out
+    assert "SEO" in out
+    assert "best for" in out
+    assert "catch" in out
+    # Grades present
     assert "A+" in out
     assert "C" in out
+    # The Google Registry citation for .app / .dev appears verbatim
+    assert "Google Registry (2018)" in out
+    assert "Google Registry (2019)" in out
+    # Renewal-cliff annotation for .site present
+    assert "$30" in out
+
+
+def test_v3e_render_tld_reference_includes_validation_summary():
+    from portfolio.cli import _render_tld_reference, console
+    with console.capture() as cap:
+        _render_tld_reference()
+    out = cap.get()
+    # The closing summary line should land at the bottom of the output.
+    assert "validation pipeline" in out
+    assert ".app and .dev are honest peers" in out
