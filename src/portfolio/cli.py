@@ -698,14 +698,248 @@ def domain_suggest(
     tlds: str = typer.Option(
         "",
         "--tlds",
-        help="Comma-separated TLDs to scan in priority order (default: .com,.ai,.io,.app,.dev,.tech,.co,.site,.online)",
+        help="Comma-separated TLDs to scan in priority order (default: .com,.app,.dev,.xyz,.site,.co)",
     ),
     max_price: float = typer.Option(20.0, "--max-price", help="Filter out candidates priced above this USD/yr (default 20; pass a big number e.g. 999 to disable)"),
     strategies: int = typer.Option(0, "--strategies", help="Limit to first N strategies (0 = all)"),
     non_interactive: bool = typer.Option(False, "--non-interactive", help="Dump ranked candidates and exit; no prompts"),
-    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the brainstorm cache"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass the brainstorm + vocab cache"),
+    browse: bool = typer.Option(False, "--browse", help="Use legacy per-strategy round-by-round flow (v2.A)"),
+    show_renewal: bool = typer.Option(False, "--show-renewal", help="Show renewal price column alongside registration"),
+    with_abstract: bool = typer.Option(False, "--with-abstract", help="Include the abstract-brandable strategy in the run"),
+    top_n: int = typer.Option(15, "--top-n", help="Validation-mode: max grid rows shown (default 15)"),
 ) -> None:
-    """Brainstorm domain names for an idea, score them, check availability + price."""
+    """Brainstorm domain names for an idea, score them, check availability + price.
+
+    Default flow (v3.D validation mode): vocab anchor → registrar grid → one pick → optional auto-register.
+    Legacy flow (v2.A per-strategy rounds): pass --browse.
+    """
+    if browse:
+        _domain_suggest_browse(topic, tlds, max_price, strategies, non_interactive, no_cache)
+        return
+    _domain_suggest_validation(
+        topic=topic,
+        tlds=tlds,
+        max_price=max_price,
+        non_interactive=non_interactive,
+        no_cache=no_cache,
+        show_renewal=show_renewal,
+        with_abstract=with_abstract,
+        top_n=top_n,
+    )
+
+
+def _domain_suggest_validation(
+    *,
+    topic: str,
+    tlds: str,
+    max_price: float,
+    non_interactive: bool,
+    no_cache: bool,
+    show_renewal: bool,
+    with_abstract: bool,
+    top_n: int,
+) -> None:
+    """v3.D validation-mode flow."""
+    from .availability import AvailabilityChecker, load_porkbun_pricing
+    from .suggest import (
+        DEFAULT_TLDS,
+        FULL_LADDER,
+        PORTFOLIO_ENV,
+        already_owned_matches,
+        cache_get,
+        cache_set,
+        filter_default_strategies,
+        load_env,
+        load_strategies,
+        porkbun_cart_url,
+        register_domain,
+        run_validation_pipeline,
+    )
+
+    env = load_env()
+    openai_key = env.get("OPENAI_API_KEY", "").strip()
+    if not openai_key:
+        console.print(f"[red]OPENAI_API_KEY is not set.[/]  Edit [dim]{PORTFOLIO_ENV}[/] and try again.")
+        raise typer.Exit(2)
+
+    tld_list = [t.strip() if t.strip().startswith(".") else f".{t.strip()}" for t in tlds.split(",") if t.strip()] if tlds else list(DEFAULT_TLDS)
+    all_strategies = filter_default_strategies(load_strategies(), with_abstract=with_abstract)
+
+    owned = already_owned_matches(topic)
+    if owned:
+        console.print(f"[cyan]Already own ({len(owned)} match{'es' if len(owned) > 1 else ''}):[/]")
+        for o in owned:
+            console.print(f"  • {o}")
+        if not non_interactive:
+            cont = typer.confirm("Continue with new candidate brainstorm?", default=True)
+            if not cont:
+                raise typer.Exit(0)
+
+    cached = None if no_cache else cache_get(topic, all_strategies)
+
+    def _log(msg: str) -> None:
+        console.print(f"[dim]{msg}[/]")
+
+    checker = AvailabilityChecker(log_fn=_log)
+    avail_fn = checker.make_check_callable()
+    pricing_dict = load_porkbun_pricing()
+
+    # Config summary.
+    cfg_t = Table(box=None, padding=(0, 1), show_header=False, title="[bold]Search config (v3.D validation mode)[/]", title_justify="left")
+    cfg_t.add_column("key", style="dim")
+    cfg_t.add_column("value")
+    cfg_t.add_row("topic", topic)
+    cfg_t.add_row("max price", f"${max_price:.2f}/yr (pass --max-price=999 to disable)")
+    cfg_t.add_row("TLD columns", " ".join(tld_list))
+    cfg_t.add_row("availability", "RDAP (auth-free); .tech/.site/.online → '?' (broken endpoint)")
+    cfg_t.add_row("pricing", "Porkbun /pricing/get (public, cached 7d)")
+    cfg_t.add_row("brainstorm", "OpenAI gpt-5-mini (vocab anchored)")
+    cfg_t.add_row("strategies", f"{len(all_strategies)} ({', '.join(s.name for s in all_strategies)})")
+    cfg_t.add_row("cache", "BYPASSED (--no-cache)" if no_cache else "7d topic-hash hit/miss")
+    cfg_t.add_row("mode", "non-interactive" if non_interactive else "interactive (one merged grid)")
+    console.print(cfg_t)
+    console.print()
+
+    cache_payload = cached if cached else None
+
+    def _save_cache(cands_by_strat, vocab_terms):
+        cache_set(topic, all_strategies, cands_by_strat, vocab_terms=vocab_terms)
+
+    rows, vocab_terms = run_validation_pipeline(
+        topic=topic,
+        api_key=openai_key,
+        strategies=all_strategies,
+        columns=tld_list,
+        avail_check=avail_fn,
+        max_price=max_price,
+        pricing_dict=pricing_dict,
+        cache_payload=cache_payload,
+        cache_save_fn=None if no_cache else _save_cache,
+        log_fn=_log,
+    )
+
+    # Limit to top-N for the picker.
+    rows = rows[:top_n]
+
+    if not rows:
+        console.print("[yellow]No candidate names produced. Try refining the topic or --no-cache.[/]")
+        raise typer.Exit(0)
+
+    _render_grid(rows, tld_list, show_renewal=show_renewal)
+
+    if non_interactive:
+        return
+
+    pick_prompt = f"\nPick row 1-{len(rows)}, 'q' to quit"
+    choice = typer.prompt(pick_prompt, default="q", show_default=False).strip().lower()
+    if choice == "q" or not choice.isdigit():
+        console.print("[yellow]No domain selected.[/]")
+        return
+    idx = int(choice) - 1
+    if idx < 0 or idx >= len(rows):
+        console.print("[red]Out of range.[/]")
+        return
+
+    row = rows[idx]
+    if row.pick_tld is None:
+        console.print("[red]Row has no recommended TLD (likely .com poisoned). Aborting.[/]")
+        return
+
+    selected = f"{row.name}{row.pick_tld}"
+    console.print(f"\n[green]✅ Selected:[/] [bold]{selected}[/]")
+
+    # Defense bundle: offer to grab .com and/or .app at standard price (manual cart).
+    bundle: list[str] = []
+    com_cell = row.cells.get(".com")
+    app_cell = row.cells.get(".app")
+    if row.pick_tld != ".com" and com_cell is not None and com_cell.available is True and not com_cell.over_max:
+        bundle.append(".com")
+    if row.pick_tld != ".app" and app_cell is not None and app_cell.available is True and not app_cell.over_max:
+        bundle.append(".app")
+
+    if bundle:
+        bundle_doms = [f"{row.name}{t}" for t in bundle]
+        bundle_str = " + ".join(bundle_doms)
+        bundle_prompt = f"Defense bundle available: {bundle_str}. Open Porkbun cart with bundle? [y/N]"
+        if typer.confirm(bundle_prompt, default=False):
+            url = porkbun_cart_url([selected] + bundle_doms)
+            console.print(f"[cyan]Bundle cart URL:[/] {url}")
+            console.print("[dim](Bundle items are manual click-through; never auto-charged.)[/]")
+
+    # Auto-register prompt for the primary domain only.
+    if typer.confirm(f"Register {selected} now via Porkbun API?", default=False):
+        pk_key = env.get("PORKBUN_API_KEY", "").strip()
+        pk_secret = env.get("PORKBUN_SECRET_API_KEY", "").strip()
+        result = register_domain(selected, pk_key, pk_secret)
+        if result.ok:
+            console.print(f"[green]✓ Registered {selected}[/]" + (f" (order {result.order_id})" if result.order_id else ""))
+        else:
+            console.print(f"[red]Auto-register failed:[/] {result.detail}")
+            console.print(f"[cyan]Manual checkout:[/] {porkbun_cart_url([selected])}")
+    else:
+        console.print(f"[cyan]Register manually:[/] {porkbun_cart_url([selected])}")
+
+    # Print next-step bootstrap command and vocab terms for paste.
+    console.print("\n[bold]Next step:[/]")
+    console.print(f'  portfolio bootstrap {selected} --topic="{topic}"')
+    if vocab_terms:
+        console.print(f"\n[bold]Vocab terms[/] (paste into docs/prd.md after bootstrap):")
+        console.print("  " + ", ".join(vocab_terms))
+
+
+def _cell_str(state, show_renewal: bool = False) -> str:
+    """Format one grid cell: ✓ $N / ✗ live|park / ? / $N!"""
+    if state.over_max:
+        # Available but priced out; surface so user sees the option exists.
+        if state.available is True and state.price is not None:
+            return f"[dim]${state.price:.0f}![/]"
+        if state.available is False:
+            return "[red]✗[/]"
+        return "[yellow]?[/]"
+    if state.available is True:
+        price_s = f"${state.price:.0f}" if state.price is not None else "-"
+        if show_renewal and state.renewal is not None:
+            return f"[green]✓[/] {price_s}\n[dim]r ${state.renewal:.0f}[/]"
+        return f"[green]✓[/] {price_s}"
+    if state.available is False:
+        if state.com_class == "live-site":
+            return "[red]✗ live[/]"
+        if state.com_class == "parked":
+            return "[yellow]✗ park[/]"
+        if state.com_class == "for-sale":
+            return "[yellow]✗ sale[/]"
+        return "[red]✗[/]"
+    if state.error:
+        return "[red bold]✕[/]"
+    return "[yellow]?[/]"
+
+
+def _render_grid(rows, columns: list[str], show_renewal: bool = False) -> None:
+    """Render the v3.D registrar grid (rows = names, cols = TLDs + Pick + Why)."""
+    t = Table(box=None, padding=(0, 1))
+    t.add_column("#", justify="right")
+    t.add_column("Name", style="bold")
+    for c in columns:
+        t.add_column(c, justify="left")
+    t.add_column("Pick", style="cyan")
+    t.add_column("Why")
+    for i, row in enumerate(rows, 1):
+        cells_rendered = [_cell_str(row.cells.get(c), show_renewal=show_renewal) if row.cells.get(c) else "-" for c in columns]
+        pick = row.pick_label or "-"
+        t.add_row(str(i), row.name, *cells_rendered, pick, row.why)
+    console.print(t)
+
+
+def _domain_suggest_browse(
+    topic: str,
+    tlds: str,
+    max_price: float,
+    strategies: int,
+    non_interactive: bool,
+    no_cache: bool,
+) -> None:
+    """v2.A legacy per-strategy round-by-round flow (preserved behind --browse)."""
     from .availability import AvailabilityChecker
     from .suggest import (
         DEFAULT_TLDS,
@@ -718,20 +952,16 @@ def domain_suggest(
         load_env,
         load_strategies,
         render_options,
+        PORTFOLIO_ENV,
     )
-
-    from .suggest import PORTFOLIO_ENV
 
     env = load_env()
     openai_key = env.get("OPENAI_API_KEY", "").strip()
     if not openai_key:
-        console.print(
-            f"[red]OPENAI_API_KEY is not set.[/]  Edit [dim]{PORTFOLIO_ENV}[/] and try again."
-        )
+        console.print(f"[red]OPENAI_API_KEY is not set.[/]  Edit [dim]{PORTFOLIO_ENV}[/] and try again.")
         raise typer.Exit(2)
 
     tld_list = [t.strip() if t.strip().startswith(".") else f".{t.strip()}" for t in tlds.split(",") if t.strip()] if tlds else list(DEFAULT_TLDS)
-
     all_strategies = load_strategies()
     if strategies > 0:
         all_strategies = all_strategies[:strategies]
@@ -749,40 +979,26 @@ def domain_suggest(
     cached = None if no_cache else cache_get(topic, all_strategies)
     if cached:
         console.print(f"[dim](using cached brainstorm; {len(cached.get('candidates_by_strategy', {}))} strategies)[/]")
-        candidates_by_strategy = {
-            k: [Candidate(**c) for c in v]
-            for k, v in cached["candidates_by_strategy"].items()
-        }
+        candidates_by_strategy = {k: [Candidate(**c) for c in v] for k, v in cached["candidates_by_strategy"].items()}
     else:
         candidates_by_strategy = {}
 
-    # Per-check log so the user sees the script working through each (name, TLD).
-    # Prints inline; rendered at the same indent level as table rows that follow.
     def _log_check(msg: str) -> None:
         console.print(f"[dim]{msg}[/]")
 
     checker = AvailabilityChecker(log_fn=_log_check)
     avail_fn = checker.make_check_callable()
 
-    # Config summary — shown once at the start so the user knows what's being used.
-    cfg_t = Table(box=None, padding=(0, 1), show_header=False, title="[bold]Search config[/]", title_justify="left")
-    cfg_t.add_column("key", style="dim")
-    cfg_t.add_column("value")
+    cfg_t = Table(box=None, padding=(0, 1), show_header=False, title="[bold]Search config (browse mode / v2.A)[/]", title_justify="left")
+    cfg_t.add_column("key", style="dim"); cfg_t.add_column("value")
     cfg_t.add_row("topic", topic)
-    cfg_t.add_row("max price", f"${max_price:.2f}/yr (pass --max-price=999 to disable)")
+    cfg_t.add_row("max price", f"${max_price:.2f}/yr")
     cfg_t.add_row("TLD ladder", " ".join(tld_list))
-    cfg_t.add_row("availability", "RDAP (auth-free)")
-    cfg_t.add_row("pricing", "Porkbun /pricing/get (public, cached 7d)")
-    cfg_t.add_row("brainstorm", "OpenAI gpt-5-mini")
     cfg_t.add_row("strategies", f"{len(all_strategies)} ({', '.join(s.name for s in all_strategies)})")
-    cfg_t.add_row("brainstorm cache", "BYPASSED (--no-cache)" if no_cache else "7d topic-hash hit/miss")
-    cfg_t.add_row("mode", "non-interactive (dump + exit)" if non_interactive else "interactive (per-strategy round)")
-    console.print(cfg_t)
-    console.print()
+    console.print(cfg_t); console.print()
 
     history: list[str] = []
     selected: str | None = None
-
     for idx, strategy in enumerate(all_strategies, 1):
         if selected:
             break
@@ -794,8 +1010,6 @@ def domain_suggest(
             cands = cached_cands
             console.print(f"[dim](cached: {len(cands)} candidates)[/]")
         else:
-            if cached_cands is not None:
-                console.print(f"[dim](cached entry was empty — re-brainstorming)[/]")
             console.print("[dim]Brainstorming via OpenAI gpt-5-mini...[/]")
             try:
                 cands = brainstorm(topic, strategy, history, openai_key)
@@ -803,7 +1017,6 @@ def domain_suggest(
                 console.print(f"[red]brainstorm failed:[/] {e}")
                 continue
             if not cands:
-                console.print("[yellow]brainstorm returned 0 names — skipping (not caching empty result)[/]")
                 continue
             candidates_by_strategy[strategy.name] = cands
             cache_set(topic, all_strategies, candidates_by_strategy)
@@ -812,83 +1025,37 @@ def domain_suggest(
 
         options = render_options(cands, topic, tld_list, avail_fn)
         options = filter_by_max_price(options, max_price)
-        # Show confirmed-available AND unknown (RDAP has coverage gaps); only hide fully-taken (False).
         showable = [o for o in options if o.available is not False]
-
         if not showable:
-            console.print("[yellow]No available or candidate domains in this round (all taken or filtered out by --max-price).[/]")
+            console.print("[yellow]No available or candidate domains in this round.[/]")
             continue
 
-        unknown_n = sum(1 for o in showable if o.available is None and o.error is None)
-        error_n = sum(1 for o in showable if o.error is not None)
-        if unknown_n:
-            console.print(
-                f"[dim]({unknown_n} marked '?' — RDAP has no endpoint for that TLD; verify at the registrar.)[/]"
-            )
-        if error_n:
-            console.print(
-                f"[red]({error_n} marked '✕' — check failed after retry; may be transient. Re-run to retry.)[/]"
-            )
-
         top = showable[:5]
-
         t = Table(box=None, padding=(0, 1))
-        t.add_column("#", justify="right")
-        t.add_column("Name")
-        t.add_column("TLD")
-        t.add_column("Avail", justify="center")
-        t.add_column("Price", justify="right")
-        t.add_column("Score", justify="right")
+        t.add_column("#", justify="right"); t.add_column("Name"); t.add_column("TLD")
+        t.add_column("Avail", justify="center"); t.add_column("Price", justify="right"); t.add_column("Score", justify="right")
         for i, o in enumerate(top, 1):
             price_s = f"${o.price:,.2f}" if o.price is not None else "-"
-            if o.available is True:
-                avail_s = "[green]✓[/]"
-            elif o.available is False:
-                avail_s = "[red]✗[/]"
-            elif o.error is not None:
-                avail_s = "[red bold]✕[/]"  # check failed after retry
-            else:
-                avail_s = "[yellow]?[/]"     # genuine RDAP gap
+            avail_s = "[green]✓[/]" if o.available is True else ("[red]✗[/]" if o.available is False else ("[red bold]✕[/]" if o.error else "[yellow]?[/]"))
             t.add_row(str(i), o.name, o.tld, avail_s, price_s, str(o.score))
         console.print(t)
 
         if non_interactive:
             continue
 
-        prompt_msg = "\nPick (1-{n}), 'n' for next strategy, 'c' for custom name, or 'q' to quit".format(n=len(top))
-        choice = typer.prompt(prompt_msg, default="n", show_default=False).strip().lower()
+        choice = typer.prompt(f"\nPick (1-{len(top)}), 'n' next, 'q' quit", default="n", show_default=False).strip().lower()
         if choice == "q":
-            console.print("[yellow]Aborted.[/]")
-            raise typer.Exit(0)
-        if choice == "n" or choice == "":
+            console.print("[yellow]Aborted.[/]"); raise typer.Exit(0)
+        if choice in ("n", ""):
             continue
-        if choice == "c":
-            custom = typer.prompt("Type custom name (no TLD)", default="").strip().lower()
-            if not custom:
-                continue
-            for tld in tld_list:
-                d = f"{custom}{tld}"
-                a, p, err = avail_fn(d)
-                if a is True:
-                    selected = d
-                    if p is not None:
-                        console.print(f"[dim]price: ${p:,.2f}[/]")
-                    break
-                console.print(f"[dim]{d}: {'taken' if a is False else ('error: ' + err if err else 'unknown')}[/]")
-            if not selected:
-                console.print("[yellow]Custom name not available in any TLD on the ladder.[/]")
-                continue
-        elif choice.isdigit() and 1 <= int(choice) <= len(top):
+        if choice.isdigit() and 1 <= int(choice) <= len(top):
             selected = top[int(choice) - 1].domain
 
     if selected:
         console.print(f"\n[green]✅ Selected:[/] [bold]{selected}[/]")
-        console.print(
-            f"[cyan]Go register at:[/] https://porkbun.com/checkout/search?q={selected}"
-        )
-        console.print("[dim]After you register, run `portfolio cleanup` (with the updated registrar CSV) to add it to your portfolio.[/]")
+        console.print(f"[cyan]Register at:[/] https://porkbun.com/checkout/search?q={selected}")
     elif not non_interactive:
-        console.print("\n[yellow]No domain selected. Try refining the topic or running again with --strategies=N to limit.[/]")
+        console.print("\n[yellow]No domain selected.[/]")
 
 
 @app.command()

@@ -396,3 +396,627 @@ def test_ensure_portfolio_env_does_not_overwrite(tmp_path, monkeypatch):
     monkeypatch.setattr(suggest, "PORTFOLIO_ENV", target)
     suggest.ensure_portfolio_env()
     assert "mykey" in target.read_text()
+
+
+# =============================================================================
+# v3.D — Validation-mode suggest: vocab anchor + registrar grid + register
+# =============================================================================
+
+from portfolio.suggest import (
+    BROKEN_RDAP_TLDS,
+    CellState,
+    DEFAULT_TLDS,
+    FULL_LADDER,
+    GridRow,
+    RegisterResult,
+    SCORE_BONUS_COM_AVAILABLE,
+    SCORE_PENALTY_COM_LIVE,
+    _decide_pick,
+    _extract_vocab_terms,
+    _money_from_pricing,
+    _vocab_prompt,
+    _brainstorm_prompt,
+    build_grid,
+    extract_vocab,
+    filter_default_strategies,
+    porkbun_cart_url,
+    register_domain,
+    run_validation_pipeline,
+)
+
+
+# ---------- v3.D defaults ----------
+
+
+def test_v3d_default_tlds_has_app_dev_xyz_site_co():
+    assert DEFAULT_TLDS == (".com", ".app", ".dev", ".xyz", ".site", ".co")
+
+
+def test_v3d_full_ladder_excludes_radix_broken():
+    # Tier with broken Radix RDAP must NOT appear in the availability ladder
+    for broken in (".tech", ".site", ".online", ".store", ".fun"):
+        # .site is in DEFAULT_TLDS for the column display, but not the FULL_LADDER scan
+        if broken == ".site":
+            continue
+        assert broken not in FULL_LADDER
+
+
+def test_v3d_broken_rdap_tlds_set():
+    assert ".tech" in BROKEN_RDAP_TLDS
+    assert ".site" in BROKEN_RDAP_TLDS
+    assert ".online" in BROKEN_RDAP_TLDS
+    assert ".store" in BROKEN_RDAP_TLDS
+    assert ".fun" in BROKEN_RDAP_TLDS
+    assert ".com" not in BROKEN_RDAP_TLDS
+    assert ".app" not in BROKEN_RDAP_TLDS
+
+
+# ---------- v3.D TLD tier reweight ----------
+
+
+def test_v3d_app_and_dev_promoted_to_tier_9():
+    assert suggest.TLD_TIER[".app"] == 9
+    assert suggest.TLD_TIER[".dev"] == 9
+
+
+def test_v3d_xyz_at_tier_6():
+    assert suggest.TLD_TIER[".xyz"] == 6
+
+
+def test_v3d_site_at_tier_5():
+    assert suggest.TLD_TIER[".site"] == 5
+
+
+def test_v3d_app_outranks_io_in_score():
+    s_app, _ = score_name("scrubs", "x", ".app")
+    s_io, _ = score_name("scrubs", "x", ".io")
+    assert s_app > s_io
+
+
+# ---------- v3.D defense bonuses ----------
+
+
+def test_v3d_score_bonus_when_com_available():
+    s_no, _ = score_name("scrubsync", "x", ".app")
+    s_def, notes = score_name("scrubsync", "x", ".app", com_status="available")
+    assert s_def == s_no + SCORE_BONUS_COM_AVAILABLE
+    assert "com-defendable" in notes
+
+
+def test_v3d_score_penalty_when_com_live():
+    s_no, _ = score_name("scrubsync", "x", ".app")
+    s_pois, notes = score_name("scrubsync", "x", ".app", com_status="live-site")
+    assert s_pois == s_no + SCORE_PENALTY_COM_LIVE
+    assert "com-poisoned" in notes
+
+
+def test_v3d_score_neutral_for_parked_com():
+    s_no, _ = score_name("scrubsync", "x", ".app")
+    s_park, _ = score_name("scrubsync", "x", ".app", com_status="parked")
+    # `parked` is not handled — no bonus, no penalty
+    assert s_park == s_no
+
+
+# ---------- v3.D strategies schema v2 ----------
+
+
+def test_v3d_load_strategies_with_require_anchors(tmp_path):
+    p = tmp_path / "strategies.json"
+    p.write_text(json.dumps({
+        "schema_version": 2,
+        "strategies": [
+            {"name": "trendy", "label": "T", "description": "d", "require_anchors": True},
+            {"name": "abstract", "label": "A", "description": "d", "require_anchors": False},
+        ],
+    }))
+    out = load_strategies(p)
+    assert out[0].require_anchors is True
+    assert out[1].require_anchors is False
+
+
+def test_v3d_load_strategies_legacy_v1_defaults_require_anchors_true(tmp_path):
+    p = tmp_path / "strategies.json"
+    p.write_text(json.dumps({
+        "schema_version": 1,
+        "strategies": [{"name": "old", "label": "O", "description": "d"}],
+    }))
+    out = load_strategies(p)
+    assert out[0].require_anchors is True
+
+
+def test_v3d_filter_default_drops_abstract():
+    strategies = [
+        Strategy(name="trendy", label="T", description="d"),
+        Strategy(name="abstract-brandable", label="A", description="d", require_anchors=False),
+    ]
+    out = filter_default_strategies(strategies, with_abstract=False)
+    names = [s.name for s in out]
+    assert "trendy" in names
+    assert "abstract-brandable" not in names
+
+
+def test_v3d_filter_with_abstract_keeps_all():
+    strategies = [
+        Strategy(name="trendy", label="T", description="d"),
+        Strategy(name="abstract-brandable", label="A", description="d", require_anchors=False),
+    ]
+    out = filter_default_strategies(strategies, with_abstract=True)
+    names = [s.name for s in out]
+    assert "abstract-brandable" in names
+
+
+def test_v3d_real_strategies_json_has_require_anchors_field():
+    """Sanity-check: the shipped data/strategies.json already has v3.D schema."""
+    out = load_strategies()
+    by_name = {s.name: s for s in out}
+    assert by_name["abstract-brandable"].require_anchors is False
+    assert by_name["trendy"].require_anchors is True
+
+
+# ---------- v3.D prompt anchor injection ----------
+
+
+def test_v3d_brainstorm_prompt_required_anchors():
+    s = Strategy(name="t", label="T", description="d", require_anchors=True)
+    prompt = _brainstorm_prompt("idea", s, [], 12, vocab_terms=["scrubs", "ppe"])
+    assert "must reference" in prompt.lower() or "must reference at least one" in prompt
+    assert "scrubs, ppe" in prompt
+
+
+def test_v3d_brainstorm_prompt_inspiration_anchors():
+    s = Strategy(name="abstract", label="A", description="d", require_anchors=False)
+    prompt = _brainstorm_prompt("idea", s, [], 12, vocab_terms=["scrubs", "ppe"])
+    assert "inspiration" in prompt.lower()
+    assert "scrubs, ppe" in prompt
+
+
+def test_v3d_brainstorm_prompt_no_anchor_block_when_empty_vocab():
+    s = Strategy(name="t", label="T", description="d", require_anchors=True)
+    prompt = _brainstorm_prompt("idea", s, [], 12, vocab_terms=[])
+    assert "concept anchors" not in prompt.lower()
+
+
+# ---------- v3.D vocab extraction ----------
+
+
+def test_v3d_vocab_prompt_contains_topic_and_example():
+    p = _vocab_prompt("smart layer between healthcare workers and their workwear")
+    assert "smart layer between healthcare workers" in p
+    assert "leash" in p  # worked example
+    assert "do not produce" in p.lower() or "bad terms" in p.lower()
+
+
+def test_v3d_extract_vocab_terms_basic():
+    text = "scrubs\ngown\nbadge\nshift\nfit\n"
+    out = _extract_vocab_terms(text)
+    assert out == ["scrubs", "gown", "badge", "shift", "fit"]
+
+
+def test_v3d_extract_vocab_caps_at_9_chars():
+    text = "compliance\nshift\nregulatory\nfit\n"  # compliance(10) and regulatory(10) too long
+    out = _extract_vocab_terms(text)
+    assert "shift" in out
+    assert "fit" in out
+    assert "compliance" not in out
+    assert "regulatory" not in out
+
+
+def test_v3d_extract_vocab_strips_numbering_and_dedups():
+    text = "1. scrubs\n2) scrubs\n- gown\n* badge\n"
+    out = _extract_vocab_terms(text)
+    # scrubs deduplicated
+    assert out.count("scrubs") == 1
+    assert "gown" in out
+    assert "badge" in out
+
+
+def test_v3d_extract_vocab_rejects_digits_and_phrases():
+    text = "scrub3s\nshift handover\nfit\n"
+    out = _extract_vocab_terms(text)
+    assert "scrub3s" not in out
+    assert "shift handover" not in out
+    assert "fit" in out
+
+
+def test_v3d_extract_vocab_via_openai_mocked():
+    """End-to-end vocab call: mock requests.post and verify parsed output."""
+    fake_resp = MagicMock()
+    fake_resp.json.return_value = {
+        "output_text": "scrubs\ngown\nbadge\nshift\nfit\nppe\nlaundry\n"
+    }
+    fake_resp.raise_for_status = MagicMock()
+
+    with patch("portfolio.suggest.requests.post", return_value=fake_resp) as mock_post:
+        terms = extract_vocab("healthcare workwear", api_key="sk-fake")
+
+    assert "scrubs" in terms
+    assert "ppe" in terms
+    # Verify prompt was sent to the right endpoint with the topic embedded
+    assert mock_post.call_args.kwargs["json"]["model"] == suggest.OPENAI_MODEL
+    assert "healthcare workwear" in mock_post.call_args.kwargs["json"]["input"]
+
+
+# ---------- v3.D cache extension ----------
+
+
+def test_v3d_cache_set_includes_vocab_terms(tmp_path, monkeypatch):
+    monkeypatch.setattr(suggest, "CACHE_DIR", tmp_path / "cache")
+    strategies = [Strategy(name="t", label="T", description="d")]
+    cands = {"t": [Candidate(name="scrubs", strategy="t")]}
+    p = cache_set("topic", strategies, cands, vocab_terms=["scrubs", "gown"])
+    assert p.exists()
+    payload = json.loads(p.read_text())
+    assert payload["vocab_terms"] == ["scrubs", "gown"]
+
+
+def test_v3d_cache_get_returns_vocab_terms(tmp_path, monkeypatch):
+    monkeypatch.setattr(suggest, "CACHE_DIR", tmp_path / "cache")
+    strategies = [Strategy(name="t", label="T", description="d")]
+    cands = {"t": [Candidate(name="scrubs", strategy="t")]}
+    cache_set("topic", strategies, cands, vocab_terms=["scrubs"])
+    out = cache_get("topic", strategies)
+    assert out is not None
+    assert out["vocab_terms"] == ["scrubs"]
+
+
+def test_v3d_cache_set_omits_vocab_when_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(suggest, "CACHE_DIR", tmp_path / "cache")
+    strategies = [Strategy(name="t", label="T", description="d")]
+    cands = {"t": [Candidate(name="scrubs", strategy="t")]}
+    p = cache_set("topic", strategies, cands)
+    payload = json.loads(p.read_text())
+    assert "vocab_terms" not in payload
+
+
+# ---------- v3.D porkbun cart url ----------
+
+
+def test_v3d_porkbun_cart_url_single():
+    assert porkbun_cart_url(["scrubsync.app"]) == "https://porkbun.com/checkout/search?q=scrubsync.app"
+
+
+def test_v3d_porkbun_cart_url_bundle():
+    url = porkbun_cart_url(["scrubsync.app", "scrubsync.com", "scrubsync.dev"])
+    assert "scrubsync.app+scrubsync.com+scrubsync.dev" in url
+
+
+# ---------- v3.D register_domain ----------
+
+
+def test_v3d_register_missing_keys_returns_failure():
+    result = register_domain("test.com", api_key="", secret_key="")
+    assert result.ok is False
+    assert "API keys" in result.detail
+
+
+def test_v3d_register_success_parses_order_id():
+    fake = MagicMock()
+    fake.status_code = 200
+    fake.json.return_value = {"status": "SUCCESS", "orderId": "ord_123"}
+
+    with patch("portfolio.suggest.requests.post", return_value=fake) as mock_post:
+        result = register_domain("scrubsync.app", api_key="k", secret_key="s")
+
+    assert result.ok is True
+    assert result.order_id == "ord_123"
+    assert "scrubsync.app" in result.detail
+    body = mock_post.call_args.kwargs["json"]
+    assert body["domain"] == "scrubsync.app"
+    assert body["apikey"] == "k"
+    assert body["secretapikey"] == "s"
+
+
+def test_v3d_register_porkbun_error_status():
+    fake = MagicMock()
+    fake.status_code = 200
+    fake.json.return_value = {"status": "ERROR", "message": "domain not available"}
+
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        result = register_domain("taken.com", api_key="k", secret_key="s")
+
+    assert result.ok is False
+    assert "domain not available" in result.detail
+
+
+def test_v3d_register_http_error():
+    fake = MagicMock()
+    fake.status_code = 500
+    fake.json.return_value = {"message": "server explode"}
+
+    with patch("portfolio.suggest.requests.post", return_value=fake):
+        result = register_domain("test.com", api_key="k", secret_key="s")
+
+    assert result.ok is False
+    assert "server explode" in result.detail or "500" in result.detail
+
+
+def test_v3d_register_network_exception():
+    with patch("portfolio.suggest.requests.post", side_effect=ConnectionError("no net")):
+        result = register_domain("test.com", api_key="k", secret_key="s")
+    assert result.ok is False
+    assert "ConnectionError" in result.detail or "failed" in result.detail
+
+
+# ---------- v3.D _money_from_pricing ----------
+
+
+def test_v3d_money_from_pricing_registration():
+    pricing = {"app": {"registration": "10.81", "renewal": "14.93"}}
+    assert _money_from_pricing(pricing, ".app") == 10.81
+    assert _money_from_pricing(pricing, ".app", key="renewal") == 14.93
+
+
+def test_v3d_money_from_pricing_missing():
+    assert _money_from_pricing({}, ".app") is None
+    assert _money_from_pricing({"app": {}}, ".app") is None
+
+
+# ---------- v3.D _decide_pick ----------
+
+
+def _state(domain, available=True, price=10.0, over_max=False, com_class=None):
+    return CellState(domain=domain, available=available, price=price,
+                     over_max=over_max, com_class=com_class)
+
+
+def test_v3d_pick_skip_when_com_live():
+    cells = {".com": _state("x.com", available=False, com_class="live-site"),
+             ".app": _state("x.app", available=True)}
+    pick, label, why = _decide_pick("x", cells, [".com", ".app"], "live-site", max_price=20.0)
+    assert pick is None
+    assert label == "skip"
+    assert "competing" in why
+
+
+def test_v3d_pick_com_when_available():
+    cells = {".com": _state("x.com", available=True),
+             ".app": _state("x.app", available=True)}
+    pick, label, why = _decide_pick("x", cells, [".com", ".app"], "available", max_price=20.0)
+    assert pick == ".com"
+    assert ".com" in why
+
+
+def test_v3d_pick_app_with_bundle_when_com_available():
+    cells = {".com": _state("x.com", available=True),
+             ".app": _state("x.app", available=True)}
+    pick, label, why = _decide_pick("x", cells, [".app"], "available", max_price=20.0)
+    # .com not in visible columns, but available → bundle hint
+    assert pick == ".app"
+    assert "+bundle" in label
+
+
+def test_v3d_pick_cheap_when_premium_unavailable():
+    cells = {".com": _state("x.com", available=False),
+             ".app": _state("x.app", available=False),
+             ".dev": _state("x.dev", available=False),
+             ".xyz": _state("x.xyz", available=True, price=2.0)}
+    pick, label, why = _decide_pick("x", cells, [".com", ".app", ".dev", ".xyz"], None, 20.0)
+    assert pick == ".xyz"
+    assert "cheap" in why
+
+
+def test_v3d_pick_question_mark_when_only_unknown():
+    cells = {".com": _state("x.com", available=False),
+             ".site": _state("x.site", available=None)}
+    pick, label, why = _decide_pick("x", cells, [".com", ".site"], None, 20.0)
+    assert pick == ".site"
+    assert "verify" in label.lower()
+
+
+def test_v3d_pick_none_when_nothing_available():
+    cells = {".com": _state("x.com", available=False),
+             ".app": _state("x.app", available=False)}
+    pick, label, why = _decide_pick("x", cells, [".com", ".app"], None, 20.0)
+    assert pick is None
+    assert label == "skip"
+
+
+# ---------- v3.D build_grid ----------
+
+
+def _build_avail(map_):
+    """Make a (avail, price, error) callable from a {domain: (avail, price)} dict."""
+    def _check(d):
+        if d in map_:
+            v = map_[d]
+            return v[0], v[1], None
+        return False, None, None
+    return _check
+
+
+def test_v3d_build_grid_simple_all_available():
+    cands = [Candidate(name="scrubs", strategy="t")]
+    avail = {f"scrubs{t}": (True, 10.0) for t in (".com", ".app", ".dev", ".xyz", ".site", ".co")}
+    rows = build_grid(cands, "topic", [".com", ".app", ".dev"], _build_avail(avail), max_price=20.0)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.name == "scrubs"
+    assert row.pick_tld == ".com"
+
+
+def test_v3d_build_grid_picks_app_when_com_taken_but_classifier_not_live():
+    cands = [Candidate(name="scrubs", strategy="t")]
+    avail = {
+        "scrubs.com": (False, None),
+        "scrubs.app": (True, 11.0),
+        "scrubs.dev": (True, 11.0),
+    }
+    classifier = lambda d: "parked"
+    rows = build_grid(cands, "topic", [".com", ".app", ".dev"], _build_avail(avail),
+                      max_price=20.0, com_classifier=classifier)
+    assert rows[0].pick_tld == ".app"
+    assert rows[0].cells[".com"].com_class == "parked"
+
+
+def test_v3d_build_grid_skip_when_com_is_live_site():
+    cands = [Candidate(name="scrubs", strategy="t")]
+    avail = {
+        "scrubs.com": (False, None),
+        "scrubs.app": (True, 11.0),
+    }
+    classifier = lambda d: "live-site"
+    rows = build_grid(cands, "topic", [".com", ".app"], _build_avail(avail),
+                      max_price=20.0, com_classifier=classifier)
+    assert rows[0].pick_tld is None
+    assert rows[0].pick_label == "skip"
+    # Score must be penalized vs a clean baseline (same name, no .com poison).
+    clean_score, _ = score_name("scrubs", "topic", ".com", com_status=None)
+    assert rows[0].score == clean_score + SCORE_PENALTY_COM_LIVE
+
+
+def test_v3d_build_grid_broken_rdap_tlds_show_question_mark():
+    cands = [Candidate(name="scrubs", strategy="t")]
+    avail = {
+        "scrubs.com": (True, 11.0),
+        "scrubs.app": (True, 11.0),
+    }
+    # .site is in BROKEN_RDAP_TLDS — must surface as ? not call avail check
+    called = []
+    def check(d):
+        called.append(d)
+        return avail.get(d, (False, None)) + (None,)
+
+    rows = build_grid(cands, "topic", [".com", ".app", ".site"], check, max_price=20.0)
+    assert "scrubs.site" not in called
+    assert rows[0].cells[".site"].available is None
+    assert rows[0].cells[".site"].error is None  # gap, not error
+
+
+def test_v3d_build_grid_over_max_price_marked():
+    cands = [Candidate(name="scrubs", strategy="t")]
+    avail = {
+        "scrubs.com": (True, 80.0),       # over max
+        "scrubs.app": (True, 11.0),
+    }
+    rows = build_grid(cands, "topic", [".com", ".app"], _build_avail(avail), max_price=20.0)
+    assert rows[0].cells[".com"].over_max is True
+    assert rows[0].cells[".app"].over_max is False
+    # Over-max .com shouldn't be picked
+    assert rows[0].pick_tld == ".app"
+
+
+def test_v3d_build_grid_renewal_from_pricing_dict():
+    cands = [Candidate(name="scrubs", strategy="t")]
+    avail = {"scrubs.app": (True, 10.81)}
+    pricing = {"app": {"registration": "10.81", "renewal": "14.93"}}
+    rows = build_grid(cands, "topic", [".app"], _build_avail(avail),
+                      max_price=20.0, pricing_dict=pricing)
+    assert rows[0].cells[".app"].renewal == 14.93
+
+
+# ---------- v3.D run_validation_pipeline ----------
+
+
+def test_v3d_pipeline_uses_cached_vocab(tmp_path, monkeypatch):
+    monkeypatch.setattr(suggest, "CACHE_DIR", tmp_path / "cache")
+    strategies = [Strategy(name="t", label="T", description="d")]
+
+    cache_payload = {
+        "vocab_terms": ["scrubs", "ppe"],
+        "candidates_by_strategy": {"t": [{"name": "scrubsync", "strategy": "t",
+                                          "score_base": 0, "score_notes": []}]},
+    }
+
+    avail = {"scrubsync.com": (True, 11.0)}
+    rows, vocab = run_validation_pipeline(
+        topic="x", api_key="sk-fake", strategies=strategies,
+        columns=[".com"], avail_check=_build_avail(avail), max_price=20.0,
+        cache_payload=cache_payload,
+    )
+    # Vocab loaded from cache; no OpenAI call needed
+    assert vocab == ["scrubs", "ppe"]
+    assert len(rows) == 1
+    assert rows[0].name == "scrubsync"
+
+
+def test_v3d_pipeline_extracts_vocab_when_no_cache(monkeypatch):
+    """End-to-end: vocab extraction + brainstorm both mocked."""
+    strategies = [Strategy(name="t", label="T", description="d", require_anchors=True)]
+
+    fake_vocab_resp = MagicMock()
+    fake_vocab_resp.json.return_value = {"output_text": "scrubs\nppe\nshift\n"}
+    fake_vocab_resp.raise_for_status = MagicMock()
+
+    fake_brainstorm_resp = MagicMock()
+    fake_brainstorm_resp.json.return_value = {"output_text": "scrubsync\nppefit\n"}
+    fake_brainstorm_resp.raise_for_status = MagicMock()
+
+    # First request.post → vocab; subsequent → brainstorms
+    responses = [fake_vocab_resp, fake_brainstorm_resp]
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return responses.pop(0)
+
+    avail = {"scrubsync.com": (True, 11.0), "ppefit.com": (True, 11.0)}
+    with patch("portfolio.suggest.requests.post", side_effect=fake_post):
+        rows, vocab = run_validation_pipeline(
+            topic="healthcare workwear", api_key="sk-fake",
+            strategies=strategies, columns=[".com"],
+            avail_check=_build_avail(avail), max_price=20.0,
+        )
+
+    assert "scrubs" in vocab
+    assert "ppe" in vocab
+    assert len(rows) == 2
+    names = {r.name for r in rows}
+    assert "scrubsync" in names
+    assert "ppefit" in names
+
+
+def test_v3d_pipeline_handles_vocab_extraction_failure(monkeypatch):
+    """If vocab extraction fails, pipeline proceeds with empty anchors (no crash)."""
+    strategies = [Strategy(name="t", label="T", description="d", require_anchors=True)]
+
+    fake_brainstorm_resp = MagicMock()
+    fake_brainstorm_resp.json.return_value = {"output_text": "scrubsync\n"}
+    fake_brainstorm_resp.raise_for_status = MagicMock()
+
+    call_count = {"n": 0}
+    def fake_post(url, headers=None, json=None, timeout=None):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            # Vocab extraction call → simulate HTTP 500
+            raise ConnectionError("vocab API down")
+        return fake_brainstorm_resp
+
+    avail = {"scrubsync.com": (True, 11.0)}
+    with patch("portfolio.suggest.requests.post", side_effect=fake_post):
+        rows, vocab = run_validation_pipeline(
+            topic="x", api_key="sk-fake",
+            strategies=strategies, columns=[".com"],
+            avail_check=_build_avail(avail), max_price=20.0,
+        )
+
+    # No vocab, but pipeline still produced rows
+    assert vocab == []
+    assert len(rows) >= 1
+
+
+def test_v3d_pipeline_dedupes_across_strategies():
+    """Same name appearing in two strategies should produce one row, not two."""
+    strategies = [
+        Strategy(name="a", label="A", description="d"),
+        Strategy(name="b", label="B", description="d"),
+    ]
+
+    fake_vocab = MagicMock()
+    fake_vocab.json.return_value = {"output_text": "scrubs\n"}
+    fake_vocab.raise_for_status = MagicMock()
+
+    fake_brainstorm = MagicMock()
+    fake_brainstorm.json.return_value = {"output_text": "scrubsync\n"}
+    fake_brainstorm.raise_for_status = MagicMock()
+
+    responses = [fake_vocab, fake_brainstorm, fake_brainstorm]  # vocab + 2 strategies
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return responses.pop(0)
+
+    avail = {"scrubsync.com": (True, 11.0)}
+    with patch("portfolio.suggest.requests.post", side_effect=fake_post):
+        rows, _ = run_validation_pipeline(
+            topic="x", api_key="sk-fake",
+            strategies=strategies, columns=[".com"],
+            avail_check=_build_avail(avail), max_price=20.0,
+        )
+
+    names = [r.name for r in rows]
+    assert names.count("scrubsync") == 1
