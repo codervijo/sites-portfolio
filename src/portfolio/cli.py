@@ -699,6 +699,113 @@ def list_all() -> None:
     console.print(t)
 
 
+checks_app = typer.Typer(help="Universal check catalog (v5.A).", no_args_is_help=True)
+app.add_typer(checks_app, name="checks")
+
+
+_SEVERITY_COLOR = {"error": "red", "warn": "yellow", "info": "cyan"}
+
+
+@checks_app.command("list")
+def checks_list(
+    category: str = typer.Option("", "--category", "-c", help="Filter by category"),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON instead of a table"),
+) -> None:
+    """List every check in the catalog (optionally filtered by category)."""
+    from .checks import list_checks
+    specs = list_checks(category=category or None)
+    if json_out:
+        import json as _json
+        typer.echo(_json.dumps([{
+            "id": s.id, "name": s.name, "category": s.category,
+            "severity": s.severity, "description": s.description,
+        } for s in specs], indent=2))
+        return
+    if not specs:
+        console.print(f"[yellow]No checks match category={category!r}.[/]")
+        raise typer.Exit(1)
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title=f"[bold]Check catalog ({len(specs)} checks)[/]",
+              title_justify="left")
+    t.add_column("ID")
+    t.add_column("Name")
+    t.add_column("Cat")
+    t.add_column("Severity")
+    t.add_column("Description")
+    for s in specs:
+        sev_color = _SEVERITY_COLOR.get(s.severity, "white")
+        t.add_row(s.id, s.name, s.category,
+                  f"[{sev_color}]{s.severity}[/]", s.description)
+    console.print(t)
+
+
+@checks_app.command("describe")
+def checks_describe(
+    check_id: str = typer.Argument(..., help="Check ID (e.g. CHECK_001)"),
+) -> None:
+    """Print full detail for one check: id, name, category, severity,
+    description, module path."""
+    from .checks import get_check
+    try:
+        spec = get_check(check_id)
+    except KeyError:
+        console.print(f"[red]Unknown check: {check_id}[/]")
+        console.print("[dim]Run `portfolio checks list` to see what's available.[/]")
+        raise typer.Exit(1)
+    sev_color = _SEVERITY_COLOR.get(spec.severity, "white")
+    console.print(f"\n[bold]{spec.id}[/]  [dim]{spec.name}[/]")
+    console.print(f"  category    {spec.category}")
+    console.print(f"  severity    [{sev_color}]{spec.severity}[/]")
+    console.print(f"  description {spec.description}")
+    console.print(f"  module      [dim]{spec.module_name}[/]\n")
+
+
+@checks_app.command("run")
+def checks_run(
+    repo_path: str = typer.Argument(..., help="Project / repo path to run checks against"),
+    category: str = typer.Option("", "--category", "-c", help="Filter by category"),
+    check_id: str = typer.Option("", "--check", help="Run a single check by ID"),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON instead of a table"),
+) -> None:
+    """Run catalog checks against a repo. Convenience wrapper around the
+    registry — the v5.B `check --git` command will be the canonical
+    orchestrator for cross-repo runs."""
+    from pathlib import Path
+
+    from .checks import run_checks
+
+    path = Path(repo_path).expanduser().resolve()
+    if not path.exists():
+        console.print(f"[red]Path not found: {path}[/]")
+        raise typer.Exit(2)
+    ids = [check_id] if check_id else None
+    results = run_checks(str(path), category=category or None, ids=ids)
+    if json_out:
+        import json as _json
+        typer.echo(_json.dumps({k: {"status": v.status, "message": v.message}
+                                for k, v in results.items()}, indent=2))
+        return
+    if not results:
+        console.print("[yellow]No checks ran (filter matched nothing).[/]")
+        raise typer.Exit(1)
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title=f"[bold]Checks against {path.name}[/]",
+              title_justify="left")
+    t.add_column("ID")
+    t.add_column("Status")
+    t.add_column("Message")
+    for cid in sorted(results):
+        r = results[cid]
+        icon = {"pass": "[green]✓ pass[/]", "fail": "[red]✗ fail[/]",
+                "warn": "[yellow]~ warn[/]"}.get(r.status, r.status)
+        t.add_row(cid, icon, r.message)
+    console.print(t)
+    n_pass = sum(1 for r in results.values() if r.status == "pass")
+    n_fail = sum(1 for r in results.values() if r.status == "fail")
+    n_warn = sum(1 for r in results.values() if r.status == "warn")
+    console.print(f"\n[dim]Totals: {n_pass} pass · {n_fail} fail · {n_warn} warn[/]")
+
+
 domain_app = typer.Typer(help="Domain acquisition tooling (Power 1).", no_args_is_help=True)
 app.add_typer(domain_app, name="domain")
 

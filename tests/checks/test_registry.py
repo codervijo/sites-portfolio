@@ -165,3 +165,127 @@ def test_load_config_malformed_toml_returns_defaults(tmp_path):
     cfg = load_config(p)
     # Doesn't raise — falls back to defaults
     assert cfg.github_token == ""
+
+
+# ---------- portfolio checks {list, describe, run} CLI ----------
+
+
+def test_cli_checks_list_shows_all(capsys):
+    """`portfolio checks list` enumerates every catalog entry."""
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "list"])
+    assert result.exit_code == 0
+    out = result.stdout
+    # All 17 IDs appear
+    for n in (1, 2, 3, 12, 20, 21, 24):
+        assert f"CHECK_{n:03d}" in out
+
+
+def test_cli_checks_list_filters_by_category():
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "list", "--category", "git"])
+    assert result.exit_code == 0
+    out = result.stdout
+    assert "CHECK_020" in out
+    assert "CHECK_001" not in out  # scaffold filtered out
+
+
+def test_cli_checks_list_json():
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "list", "--json"])
+    assert result.exit_code == 0
+    import json as _json
+    parsed = _json.loads(result.stdout)
+    assert isinstance(parsed, list)
+    assert all("id" in e and "name" in e and "severity" in e for e in parsed)
+    ids = [e["id"] for e in parsed]
+    assert "CHECK_001" in ids
+
+
+def test_cli_checks_describe_known_id():
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "describe", "CHECK_006"])
+    assert result.exit_code == 0
+    out = result.stdout
+    assert "CHECK_006" in out
+    assert "has-docs-claude" in out
+    assert "scaffold" in out
+
+
+def test_cli_checks_describe_unknown_id():
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "describe", "CHECK_999"])
+    assert result.exit_code == 1
+    assert "Unknown check" in result.stdout
+
+
+def test_cli_checks_run_against_tmp(tmp_path):
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    (tmp_path / "README.md").write_text("# x")
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "run", str(tmp_path),
+                                  "--category", "scaffold"])
+    assert result.exit_code == 0
+    out = result.stdout
+    # CHECK_001 passes (we wrote README.md)
+    assert "CHECK_001" in out
+    assert "pass" in out
+    # CHECK_002 fails (no AI_AGENTS.md)
+    assert "CHECK_002" in out
+    assert "fail" in out
+
+
+def test_cli_checks_run_single_check_filter(tmp_path):
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "run", str(tmp_path),
+                                  "--check", "CHECK_001"])
+    assert result.exit_code == 0
+    out = result.stdout
+    assert "CHECK_001" in out
+    # No other checks ran
+    assert "CHECK_002" not in out
+    assert "CHECK_020" not in out
+
+
+def test_cli_checks_run_json(tmp_path):
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "run", str(tmp_path),
+                                  "--check", "CHECK_001", "--json"])
+    assert result.exit_code == 0
+    import json as _json
+    parsed = _json.loads(result.stdout)
+    assert "CHECK_001" in parsed
+    assert parsed["CHECK_001"]["status"] == "fail"
+
+
+def test_cli_checks_run_missing_path_errors():
+    from typer.testing import CliRunner
+
+    from portfolio.cli import app
+    runner = CliRunner()
+    result = runner.invoke(app, ["checks", "run", "/nonexistent/path/xyz"])
+    assert result.exit_code == 2
+    assert "not found" in result.stdout.lower()
