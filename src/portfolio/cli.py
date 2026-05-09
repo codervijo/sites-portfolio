@@ -284,12 +284,23 @@ _SEVERITY_COLOR = {"error": "red", "warn": "yellow", "info": "cyan"}
 @check_app.callback(invoke_without_command=True)
 def check_callback(
     ctx: typer.Context,
-    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all'"),
-    concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel requests"),
+    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (live-site path)"),
+    concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests (live-site path)"),
+    git: bool = typer.Option(False, "--git", help="Run scaffold + git catalog checks across repos in repos_dir (v5.B)"),
+    detail: bool = typer.Option(False, "--detail", help="Per-repo breakdown instead of summary (with --git)"),
+    check_id: str = typer.Option("", "--check", help="Run a single check across all repos (with --git)"),
+    repo: str = typer.Option("", "--repo", help="Run all applicable checks against one repo (with --git)"),
 ) -> None:
-    """When no subcommand is given, run the existing live-site check."""
+    """When no subcommand is given:
+      - default: live-site fetch + classify + snapshot (existing v1.B path)
+      - with --git: cross-repo catalog run (v5.B)
+    """
     if ctx.invoked_subcommand is not None:
         return  # subcommand will execute below
+    if git:
+        _run_check_git_mode(detail=detail, check_id=check_id, repo=repo)
+        return
+    # Default: existing live-site check
     if only not in ("wip", "all"):
         console.print(f"[red]--only must be 'wip' or 'all', got {only!r}.[/]")
         raise typer.Exit(2)
@@ -297,6 +308,183 @@ def check_callback(
     out, _ = run_check(only=only, concurrency=concurrency)
     console.print(f"[green]Snapshot:[/] {out}")
     _render_status(out)
+
+
+# ---------- v5.B: --git cross-repo catalog runner ----------
+
+
+# Categories included by --git: everything that doesn't need a live HTTP fetch
+# or external API. v5.A ships scaffold + git; v5.C will add stack/deploy/seo-meta
+# and they'll auto-include here once added to the catalog.
+_GIT_FLAG_CATEGORIES = {"scaffold", "git", "stack", "deploy"}
+
+
+def _is_likely_repo(path) -> bool:
+    """Heuristic: an immediate child of repos_dir counts as a repo if it's
+    a directory and not a hidden/special name. We don't require .git to
+    exist (a project can be missing its repo and we still want to report)."""
+    from pathlib import Path
+    p = Path(path)
+    if not p.is_dir():
+        return False
+    name = p.name
+    if name.startswith(".") or name in ("node_modules", "tarball", "__pycache__"):
+        return False
+    return True
+
+
+def _iterate_repos(repos_dir):
+    """List immediate-child directories of `repos_dir` that look like repos.
+    Sorted alphabetically for stable output."""
+    from pathlib import Path
+    base = Path(repos_dir)
+    if not base.is_dir():
+        return []
+    return sorted([p for p in base.iterdir() if _is_likely_repo(p)],
+                  key=lambda p: p.name.lower())
+
+
+def _run_check_git_mode(*, detail: bool, check_id: str, repo: str) -> None:
+    """Cross-repo catalog runner. Three render modes:
+      - default summary: one row per repo with Score / Fails / Warns
+      - --detail: full per-repo breakdown
+      - --check CHECK_xxx: one column per repo for a single check
+      - --repo <name>: full breakdown for one repo (== `check run <path>`)
+    """
+    from .checks import list_checks, load_config, run_checks
+
+    cfg = load_config()
+    repos_dir = cfg.repos_dir
+    if not repos_dir.is_dir():
+        console.print(f"[red]repos_dir not found: {repos_dir}[/]")
+        console.print("[dim]Set [git] repos_dir in ~/.config/portfolio/config.toml.[/]")
+        raise typer.Exit(2)
+
+    # Filter the catalog: scaffold/git/stack/deploy categories.
+    catalog_specs = [s for s in list_checks() if s.category in _GIT_FLAG_CATEGORIES]
+    if check_id:
+        catalog_specs = [s for s in catalog_specs if s.id == check_id]
+        if not catalog_specs:
+            console.print(f"[red]Unknown check ID: {check_id}[/]")
+            raise typer.Exit(2)
+    catalog_ids = [s.id for s in catalog_specs]
+
+    repos = _iterate_repos(repos_dir)
+
+    # Single-repo mode short-circuit
+    if repo:
+        match = next((p for p in repos if p.name.lower() == repo.lower()), None)
+        if match is None:
+            console.print(f"[red]No repo named {repo!r} in {repos_dir}.[/]")
+            raise typer.Exit(2)
+        results = run_checks(str(match), ids=catalog_ids,
+                             skip_checks=cfg.skip_checks)
+        _render_per_repo_detail(match.name, results, catalog_specs)
+        return
+
+    if not repos:
+        console.print(f"[yellow]No repos found in {repos_dir}.[/]")
+        raise typer.Exit(1)
+
+    # Run checks against every repo (sequential — speed isn't a concern).
+    console.print(f"[dim]Running {len(catalog_ids)} check(s) against {len(repos)} repo(s) in {repos_dir}...[/]")
+    per_repo: dict[str, dict] = {}
+    for p in repos:
+        per_repo[p.name] = run_checks(str(p), ids=catalog_ids,
+                                      skip_checks=cfg.skip_checks)
+
+    if check_id:
+        _render_single_check_table(check_id, per_repo, catalog_specs[0])
+        return
+    if detail:
+        for repo_name, results in per_repo.items():
+            _render_per_repo_detail(repo_name, results, catalog_specs)
+            console.print()
+        return
+    _render_summary_table(per_repo, catalog_specs)
+
+
+def _render_summary_table(per_repo: dict[str, dict], catalog_specs: list) -> None:
+    total = len(catalog_specs)
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title=f"[bold]check --git — {len(per_repo)} repos · {total} checks[/]",
+              title_justify="left")
+    t.add_column("Repo")
+    t.add_column("Score", justify="right")
+    t.add_column("Fails")
+    t.add_column("Warns")
+    rows: list[tuple[str, int, list[str], list[str]]] = []
+    for repo_name, results in per_repo.items():
+        passed = [cid for cid, r in results.items() if r.status == "pass"]
+        fails = [cid for cid, r in results.items() if r.status == "fail"]
+        warns = [cid for cid, r in results.items() if r.status == "warn"]
+        rows.append((repo_name, len(passed), fails, warns))
+    rows.sort(key=lambda r: (r[1], r[0]))  # worst score first
+    for repo_name, score, fails, warns in rows:
+        score_color = "red" if score < total * 0.5 else ("yellow" if score < total * 0.8 else "green")
+        t.add_row(
+            repo_name,
+            f"[{score_color}]{score}/{total}[/]",
+            ", ".join(fails) if fails else "[dim]—[/]",
+            ", ".join(warns) if warns else "[dim]—[/]",
+        )
+    console.print(t)
+    n_clean = sum(1 for r in rows if not r[2] and not r[3])
+    avg = sum(r[1] for r in rows) / len(rows) if rows else 0
+    console.print(
+        f"\n[dim]Totals: {len(rows)} repos · avg {avg:.1f}/{total} · "
+        f"{n_clean} all-pass[/]"
+    )
+
+
+def _render_per_repo_detail(repo_name: str, results: dict, catalog_specs: list) -> None:
+    spec_by_id = {s.id: s for s in catalog_specs}
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title=f"[bold]{repo_name}[/]",
+              title_justify="left")
+    t.add_column("ID")
+    t.add_column("Status")
+    t.add_column("Name")
+    t.add_column("Message")
+    for cid in sorted(results):
+        r = results[cid]
+        spec = spec_by_id.get(cid)
+        icon = {"pass": "[green]✓ pass[/]", "fail": "[red]✗ fail[/]",
+                "warn": "[yellow]~ warn[/]"}.get(r.status, r.status)
+        t.add_row(cid, icon, spec.name if spec else "?", r.message)
+    console.print(t)
+    n_pass = sum(1 for r in results.values() if r.status == "pass")
+    n_fail = sum(1 for r in results.values() if r.status == "fail")
+    n_warn = sum(1 for r in results.values() if r.status == "warn")
+    console.print(f"  [dim]{n_pass} pass · {n_fail} fail · {n_warn} warn[/]")
+
+
+def _render_single_check_table(check_id: str, per_repo: dict, spec) -> None:
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title=f"[bold]{check_id} — {spec.name}[/]",
+              title_justify="left")
+    t.add_column("Repo")
+    t.add_column("Status")
+    t.add_column("Message")
+    rows = []
+    for repo_name, results in per_repo.items():
+        r = results.get(check_id)
+        if r is None:
+            continue
+        rows.append((repo_name, r))
+    # Sort: fails first, then warns, then passes
+    order = {"fail": 0, "warn": 1, "pass": 2}
+    rows.sort(key=lambda x: (order.get(x[1].status, 99), x[0]))
+    for repo_name, r in rows:
+        icon = {"pass": "[green]✓ pass[/]", "fail": "[red]✗ fail[/]",
+                "warn": "[yellow]~ warn[/]"}.get(r.status, r.status)
+        t.add_row(repo_name, icon, r.message)
+    console.print(t)
+    n_pass = sum(1 for _, r in rows if r.status == "pass")
+    n_fail = sum(1 for _, r in rows if r.status == "fail")
+    n_warn = sum(1 for _, r in rows if r.status == "warn")
+    console.print(f"\n[dim]{n_pass} pass · {n_fail} fail · {n_warn} warn  "
+                  f"({spec.severity} severity)[/]")
 
 
 @check_app.command("catalog")
