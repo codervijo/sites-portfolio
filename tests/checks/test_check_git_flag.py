@@ -168,6 +168,51 @@ def test_v5b_git_repo_mode_unknown_repo_errors(tmp_path, monkeypatch):
     assert "ghost" in result.stdout
 
 
+# ---------- --domain as a synonym for --repo ----------
+
+
+def test_git_accepts_domain_as_synonym_for_repo(tmp_path, monkeypatch):
+    """`--git --domain=foo` should behave the same as `--git --repo=foo`."""
+    repos_dir = _make_repos_dir(tmp_path, ["alpha", "beta"])
+    _patch_repos_dir(monkeypatch, repos_dir)
+    runner = CliRunner()
+    result = runner.invoke(app, ["check", "--git", "--domain", "alpha"])
+    assert result.exit_code == 0
+    out = result.stdout
+    # Single-repo detail mode renders the alpha repo's check list.
+    assert "alpha" in out
+    # Should NOT show the cross-repo summary table title.
+    assert "26 repos" not in out  # no cross-repo run
+    # Should NOT include 'beta' (we filtered to alpha).
+    assert " beta " not in out
+
+
+def test_git_repo_and_domain_conflict_errors(tmp_path, monkeypatch):
+    repos_dir = _make_repos_dir(tmp_path, ["a"])
+    _patch_repos_dir(monkeypatch, repos_dir)
+    runner = CliRunner()
+    result = runner.invoke(app, [
+        "check", "--git",
+        "--repo", "alpha",
+        "--domain", "beta",
+    ])
+    assert result.exit_code == 2
+    assert "synonyms" in result.stdout.lower() or "disagree" in result.stdout.lower()
+
+
+def test_git_repo_equals_domain_does_not_conflict(tmp_path, monkeypatch):
+    """Same value passed to both flags is fine — they mean the same thing."""
+    repos_dir = _make_repos_dir(tmp_path, ["alpha"])
+    _patch_repos_dir(monkeypatch, repos_dir)
+    runner = CliRunner()
+    result = runner.invoke(app, [
+        "check", "--git",
+        "--repo", "alpha",
+        "--domain", "alpha",
+    ])
+    assert result.exit_code == 0
+
+
 # ---------- --detail mode ----------
 
 

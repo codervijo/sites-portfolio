@@ -289,10 +289,10 @@ def check_callback(
     git: bool = typer.Option(False, "--git", help="Run scaffold + git catalog checks across repos in repos_dir (v5.B)"),
     detail: bool = typer.Option(False, "--detail", help="Per-repo breakdown instead of summary (with --git)"),
     check_id: str = typer.Option("", "--check", help="Run a single check across all repos (with --git)"),
-    repo: str = typer.Option("", "--repo", help="Run all applicable checks against one repo (with --git)"),
+    repo: str = typer.Option("", "--repo", help="Filter to one project (synonym for --domain in this CLI; works with --git or --seo)"),
     seo: bool = typer.Option(False, "--seo", help="Live HTTP + GSC + CrUX runtime SEO probe (v5.D)"),
     days: int = typer.Option(28, "--days", help="GSC lookback window in days (with --seo)"),
-    domain: str = typer.Option("", "--domain", help="Run --seo against just this one domain"),
+    domain: str = typer.Option("", "--domain", help="Filter to one project (synonym for --repo; works with --git or --seo)"),
     sort_by: str = typer.Option("impressions", "--sort",
                                 help="Sort --seo table by: impressions | clicks | position | ctr"),
 ) -> None:
@@ -300,14 +300,27 @@ def check_callback(
       - default: live-site fetch + classify + snapshot (existing v1.B path)
       - with --git: cross-repo catalog run (v5.B)
       - with --seo: per-domain runtime SEO probe (v5.D)
+
+    `--repo` and `--domain` are synonyms — sites/<domain>/ is the project
+    dir, so the two concepts coincide. Either flag works in either mode.
     """
     if ctx.invoked_subcommand is not None:
         return  # subcommand will execute below
+
+    # --repo and --domain mean the same thing here; collapse to one target.
+    if repo and domain and repo.lower() != domain.lower():
+        console.print(
+            f"[red]--repo={repo!r} and --domain={domain!r} disagree.[/] "
+            "Pass only one (they're synonyms)."
+        )
+        raise typer.Exit(2)
+    target = repo or domain
+
     if git:
-        _run_check_git_mode(detail=detail, check_id=check_id, repo=repo)
+        _run_check_git_mode(detail=detail, check_id=check_id, repo=target)
         return
     if seo:
-        _run_check_seo_mode(days=days, only_domain=domain, sort_by=sort_by,
+        _run_check_seo_mode(days=days, only_domain=target, sort_by=sort_by,
                             only=only, concurrency=concurrency)
         return
     # Default: existing live-site check
