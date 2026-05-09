@@ -176,7 +176,7 @@ def test_cli_checks_list_shows_all(capsys):
 
     from portfolio.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "list"])
+    result = runner.invoke(app, ["check", "catalog"])
     assert result.exit_code == 0
     out = result.stdout
     # All 17 IDs appear
@@ -189,7 +189,7 @@ def test_cli_checks_list_filters_by_category():
 
     from portfolio.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "list", "--category", "git"])
+    result = runner.invoke(app, ["check", "catalog", "--category", "git"])
     assert result.exit_code == 0
     out = result.stdout
     assert "CHECK_020" in out
@@ -201,7 +201,7 @@ def test_cli_checks_list_json():
 
     from portfolio.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "list", "--json"])
+    result = runner.invoke(app, ["check", "catalog", "--json"])
     assert result.exit_code == 0
     import json as _json
     parsed = _json.loads(result.stdout)
@@ -216,7 +216,7 @@ def test_cli_checks_describe_known_id():
 
     from portfolio.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "describe", "CHECK_006"])
+    result = runner.invoke(app, ["check", "describe", "CHECK_006"])
     assert result.exit_code == 0
     out = result.stdout
     assert "CHECK_006" in out
@@ -229,7 +229,7 @@ def test_cli_checks_describe_unknown_id():
 
     from portfolio.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "describe", "CHECK_999"])
+    result = runner.invoke(app, ["check", "describe", "CHECK_999"])
     assert result.exit_code == 1
     assert "Unknown check" in result.stdout
 
@@ -240,7 +240,7 @@ def test_cli_checks_run_against_tmp(tmp_path):
     from portfolio.cli import app
     (tmp_path / "README.md").write_text("# x")
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "run", str(tmp_path),
+    result = runner.invoke(app, ["check", "run", str(tmp_path),
                                   "--category", "scaffold"])
     assert result.exit_code == 0
     out = result.stdout
@@ -257,7 +257,7 @@ def test_cli_checks_run_single_check_filter(tmp_path):
 
     from portfolio.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "run", str(tmp_path),
+    result = runner.invoke(app, ["check", "run", str(tmp_path),
                                   "--check", "CHECK_001"])
     assert result.exit_code == 0
     out = result.stdout
@@ -272,7 +272,7 @@ def test_cli_checks_run_json(tmp_path):
 
     from portfolio.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "run", str(tmp_path),
+    result = runner.invoke(app, ["check", "run", str(tmp_path),
                                   "--check", "CHECK_001", "--json"])
     assert result.exit_code == 0
     import json as _json
@@ -286,6 +286,6 @@ def test_cli_checks_run_missing_path_errors():
 
     from portfolio.cli import app
     runner = CliRunner()
-    result = runner.invoke(app, ["checks", "run", "/nonexistent/path/xyz"])
+    result = runner.invoke(app, ["check", "run", "/nonexistent/path/xyz"])
     assert result.exit_code == 2
     assert "not found" in result.stdout.lower()
