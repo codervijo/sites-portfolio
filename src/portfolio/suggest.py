@@ -152,6 +152,12 @@ PORKBUN_SECRET_API_KEY=
 # `gh` CLI must also be authenticated (`gh auth login`).
 CF_API_TOKEN=
 CF_ACCOUNT_ID=
+
+# Optional for `portfolio check --seo` Core Web Vitals columns (v5.D).
+# Create at https://console.cloud.google.com/apis/credentials and enable the
+# "Chrome UX Report API" on the project. When unset, the LCP/INP/CLS columns
+# show as empty but HTTP and GSC columns still work.
+CRUX_API_KEY=
 """
 
 

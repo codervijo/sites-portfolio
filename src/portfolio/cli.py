@@ -290,15 +290,24 @@ def check_callback(
     detail: bool = typer.Option(False, "--detail", help="Per-repo breakdown instead of summary (with --git)"),
     check_id: str = typer.Option("", "--check", help="Run a single check across all repos (with --git)"),
     repo: str = typer.Option("", "--repo", help="Run all applicable checks against one repo (with --git)"),
+    seo: bool = typer.Option(False, "--seo", help="Live HTTP + GSC + CrUX runtime SEO probe (v5.D)"),
+    days: int = typer.Option(28, "--days", help="GSC lookback window in days (with --seo)"),
+    domain: str = typer.Option("", "--domain", help="Run --seo against just this one domain"),
+    sort_by: str = typer.Option("impressions", "--sort",
+                                help="Sort --seo table by: impressions | clicks | position | ctr"),
 ) -> None:
     """When no subcommand is given:
       - default: live-site fetch + classify + snapshot (existing v1.B path)
       - with --git: cross-repo catalog run (v5.B)
+      - with --seo: per-domain runtime SEO probe (v5.D)
     """
     if ctx.invoked_subcommand is not None:
         return  # subcommand will execute below
     if git:
         _run_check_git_mode(detail=detail, check_id=check_id, repo=repo)
+        return
+    if seo:
+        _run_check_seo_mode(days=days, only_domain=domain, sort_by=sort_by)
         return
     # Default: existing live-site check
     if only not in ("wip", "all"):
@@ -566,6 +575,138 @@ def _render_single_check_table(check_id: str, per_repo: dict, spec) -> None:
     n_warn = sum(1 for _, r in rows if r.status == "warn")
     console.print(f"\n[dim]{n_pass} pass · {n_fail} fail · {n_warn} warn  "
                   f"({spec.severity} severity)[/]")
+
+
+# ---------- v5.D: --seo per-domain runtime probe ----------
+
+
+def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str) -> None:
+    """Driver for `portfolio check --seo`. Picks domains from the latest
+    classification snapshot (live-site + forwarder), runs HTTP/GSC/CrUX
+    probes, renders one row per domain."""
+    from .check import latest_snapshot, load_snapshot
+    from .seo_runtime import _live_domains_from_snapshot, run_seo, sort_rows
+    from .suggest import load_env
+
+    if sort_by not in ("impressions", "clicks", "position", "ctr"):
+        console.print(f"[red]--sort must be impressions|clicks|position|ctr, got {sort_by!r}[/]")
+        raise typer.Exit(2)
+
+    if only_domain:
+        domains = [only_domain.lower()]
+    else:
+        snap_path = latest_snapshot()
+        if snap_path is None:
+            console.print("[red]No check snapshot found in data/checks/.[/]")
+            console.print("[dim]Run `portfolio check` first to classify domains.[/]")
+            raise typer.Exit(2)
+        domains = _live_domains_from_snapshot(load_snapshot(snap_path))
+        if not domains:
+            console.print(f"[yellow]No live-site/forwarder domains in {snap_path.name}.[/]")
+            raise typer.Exit(1)
+        console.print(f"[dim]Snapshot: {snap_path.name} · {len(domains)} live-site/forwarder domains[/]")
+
+    env = load_env()
+    crux_key = env.get("CRUX_API_KEY", "").strip()
+    if not crux_key:
+        console.print("[dim]CRUX_API_KEY not set in portfolio.env — Core Web Vitals columns will be empty.[/]")
+
+    console.print(f"[cyan]Probing {len(domains)} domain(s) — HTTP + GSC ({days}d) + CrUX...[/]")
+
+    def progress(done: int, total: int, dom: str) -> None:
+        console.print(f"[dim]  [{done}/{total}] {dom}[/]")
+
+    rows = run_seo(domains, days=days, crux_api_key=crux_key,
+                   progress_callback=progress)
+    rows = sort_rows(rows, sort_by)
+    _render_seo_table(rows, days=days, sort_by=sort_by)
+
+
+def _fmt_int(n: int | None) -> str:
+    return f"{n:,}" if isinstance(n, int) else "—"
+
+
+def _fmt_pct(v: float | None) -> str:
+    return f"{v * 100:.1f}%" if isinstance(v, float) else "—"
+
+
+def _fmt_pos(v: float | None) -> str:
+    return f"{v:.1f}" if isinstance(v, float) else "—"
+
+
+def _fmt_ms(v: float | None) -> str:
+    if v is None:
+        return "—"
+    if v >= 1000:
+        return f"{v / 1000:.2f}s"
+    return f"{int(v)}ms"
+
+
+def _fmt_cls(v: float | None) -> str:
+    return f"{v:.2f}" if isinstance(v, float) else "—"
+
+
+def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
+    from .seo_runtime import overall_status, row_statuses
+
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title=f"[bold]check --seo · {len(rows)} domains · GSC {days}d · sort={sort_by}[/]",
+              title_justify="left")
+    t.add_column("")           # overall status emoji
+    t.add_column("Domain")
+    t.add_column("HTTP")
+    t.add_column("HSTS")
+    t.add_column("Robots")
+    t.add_column("Sitemap")
+    t.add_column("Imp", justify="right")
+    t.add_column("Clicks", justify="right")
+    t.add_column("CTR", justify="right")
+    t.add_column("Pos", justify="right")
+    t.add_column("LCP", justify="right")
+    t.add_column("INP", justify="right")
+    t.add_column("CLS", justify="right")
+
+    for row in rows:
+        s = row_statuses(row)
+        http_cell = f"{s['http']} {row.http_status}" if row.http_status is not None else f"{s['http']} err"
+        t.add_row(
+            overall_status(row),
+            row.domain,
+            http_cell,
+            s["hsts"],
+            s["robots"],
+            s["sitemap"],
+            f"{s['imp']} {_fmt_int(row.gsc_impressions)}",
+            _fmt_int(row.gsc_clicks),
+            _fmt_pct(row.gsc_ctr),
+            f"{s['pos']} {_fmt_pos(row.gsc_position)}",
+            f"{s['lcp']} {_fmt_ms(row.crux_lcp_p75)}",
+            f"{s['inp']} {_fmt_ms(row.crux_inp_p75)}",
+            f"{s['cls']} {_fmt_cls(row.crux_cls_p75)}",
+        )
+    console.print(t)
+
+    # Footer counts: how many domains hit each tier of overall status.
+    from collections import Counter
+    counts = Counter(overall_status(r) for r in rows)
+    summary_parts = []
+    for emoji, label in (("🟢", "green"), ("🟡", "yellow"),
+                         ("🟠", "orange"), ("🔴", "red"), ("⚪", "—")):
+        if counts.get(emoji):
+            summary_parts.append(f"{emoji} {counts[emoji]} {label}")
+    if summary_parts:
+        console.print("\n[dim]" + " · ".join(summary_parts) + "[/]")
+
+    # Surface GSC + CrUX status when most rows are missing data.
+    n = len(rows)
+    if n:
+        gsc_skipped = sum(1 for r in rows if r.gsc_status == "auth-skipped")
+        if gsc_skipped == n:
+            console.print("[dim]GSC: not authenticated — run `portfolio gsc auth` to enable GSC columns.[/]")
+        crux_skipped = sum(1 for r in rows if r.crux_status == "no-key")
+        if crux_skipped == n:
+            console.print("[dim]CrUX: CRUX_API_KEY missing — see portfolio.env.[/]")
+
 
 
 @check_app.command("catalog")
