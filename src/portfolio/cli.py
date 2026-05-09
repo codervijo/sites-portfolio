@@ -785,10 +785,24 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
             console.print("[dim]GSC: not authenticated — run `portfolio gsc auth` to enable GSC columns.[/]")
         if crux_uniformly_empty:
             crux_no_key = sum(1 for r in rows if r.crux_status == "no-key")
+            crux_no_data = sum(1 for r in rows if r.crux_status == "no-data")
             if crux_no_key == n:
                 console.print("[dim]CrUX columns hidden: CRUX_API_KEY missing — see portfolio.env.[/]")
+            elif crux_no_data >= n - 1:  # tolerate a single error
+                console.print(
+                    "[dim]CrUX columns hidden: API key works, but Google has no field data "
+                    "for these origins.\n"
+                    "       CrUX only publishes p75 metrics for origins above a Chrome-traffic "
+                    "threshold (~10k+ monthly visits with\n"
+                    "       metrics-reporting enabled). Personal-portfolio-scale sites typically "
+                    "fall below it.[/]"
+                )
             else:
-                console.print("[dim]CrUX columns hidden: no field data for any of these origins.[/]")
+                console.print(
+                    "[dim]CrUX columns hidden: mixed errors. Verify CRUX_API_KEY has the Chrome "
+                    "UX Report API enabled at\n"
+                    "       https://console.cloud.google.com/apis/library/chromeuxreport.googleapis.com[/]"
+                )
 
 
 
