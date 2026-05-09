@@ -7,7 +7,7 @@ from ..result import CheckResult
 
 CHECK_ID = "CHECK_005"
 CHECK_NAME = "has-docs-prd"
-CATEGORY = "scaffold"
+CATEGORY = "docs"
 SEVERITY = "warn"
 DESCRIPTION = "docs/prd.md exists — single source of truth for project spec/roadmap."
 

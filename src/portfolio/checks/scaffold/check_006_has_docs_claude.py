@@ -12,7 +12,7 @@ from ..result import CheckResult
 
 CHECK_ID = "CHECK_006"
 CHECK_NAME = "has-docs-claude"
-CATEGORY = "scaffold"
+CATEGORY = "docs"
 SEVERITY = "warn"
 DESCRIPTION = "docs/CLAUDE.md exists — per-project Claude-specific orientation."
 

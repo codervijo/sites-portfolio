@@ -36,8 +36,8 @@ def test_check_specs_have_required_fields():
         assert isinstance(s, CheckSpec)
         assert s.id.startswith("CHECK_")
         assert s.name
-        assert s.category in ("scaffold", "git", "stack", "deploy",
-                              "seo", "live", "content")
+        assert s.category in ("scaffold", "docs", "git", "ci", "stack",
+                              "deploy", "seo", "live", "content")
         assert s.severity in ("error", "warn", "info")
         assert callable(s.run)
         assert s.module_name.startswith("portfolio.checks.")
@@ -46,8 +46,13 @@ def test_check_specs_have_required_fields():
 def test_list_checks_filter_by_category():
     scaffold = list_checks(category="scaffold")
     git = list_checks(category="git")
-    assert len(scaffold) == 12
+    docs = list_checks(category="docs")
+    ci = list_checks(category="ci")
+    # CHECK_005-008 moved to docs; CHECK_024 moved to ci.
+    assert len(scaffold) == 8
     assert len(git) == 5
+    assert len(docs) >= 4
+    assert len(ci) == 1
     for s in scaffold:
         assert s.category == "scaffold"
     for s in git:
@@ -96,8 +101,10 @@ def test_run_check_traps_exceptions(tmp_path, monkeypatch):
 
 def test_run_checks_multiple(tmp_path):
     out = run_checks(str(tmp_path), category="scaffold")
-    # All 12 scaffold checks ran
-    assert len(out) == 12
+    # All scaffold checks ran (count derived from registry to avoid drift)
+    from portfolio.checks import list_checks as _list
+    expected = len(_list(category="scaffold"))
+    assert len(out) == expected
     # All return CheckResult
     for cid, r in out.items():
         assert isinstance(r, CheckResult)

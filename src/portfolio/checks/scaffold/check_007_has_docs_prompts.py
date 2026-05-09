@@ -11,7 +11,7 @@ from ..result import CheckResult
 
 CHECK_ID = "CHECK_007"
 CHECK_NAME = "has-docs-prompts"
-CATEGORY = "scaffold"
+CATEGORY = "docs"
 SEVERITY = "warn"
 DESCRIPTION = "docs/Prompts.md exists — stored-prompts log."
 

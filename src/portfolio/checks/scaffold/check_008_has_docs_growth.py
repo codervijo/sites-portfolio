@@ -7,7 +7,7 @@ from ..result import CheckResult
 
 CHECK_ID = "CHECK_008"
 CHECK_NAME = "has-docs-growth"
-CATEGORY = "scaffold"
+CATEGORY = "docs"
 SEVERITY = "warn"
 DESCRIPTION = "docs/growth.md exists — per-project growth-experiment log."
 

@@ -45,7 +45,8 @@ def _patch_repos_dir(monkeypatch, repos_dir: Path) -> None:
     lazy import in cli.py picks up the stub.
     """
     from portfolio.checks.config import CheckConfig
-    cfg = CheckConfig(repos_dir=repos_dir, github_token="", skip_checks=[])
+    cfg = CheckConfig(repos_dir=repos_dir, github_token="",
+                      skip_checks=[], ignore_repos=[])
     import portfolio.checks as checks_pkg
     monkeypatch.setattr(checks_pkg, "load_config",
                         lambda path=None: cfg)
@@ -224,3 +225,61 @@ def test_iterate_repos_filters_hidden_and_special(tmp_path):
 def test_iterate_repos_returns_empty_for_missing_dir(tmp_path):
     from portfolio.cli import _iterate_repos
     assert _iterate_repos(tmp_path / "nope") == []
+
+
+def test_iterate_repos_honors_ignore_list(tmp_path):
+    from portfolio.cli import _iterate_repos
+    (tmp_path / "alpha").mkdir()
+    (tmp_path / "portfolio").mkdir()
+    (tmp_path / "beta").mkdir()
+    repos = _iterate_repos(tmp_path, ignore=["portfolio"])
+    names = [p.name for p in repos]
+    assert names == ["alpha", "beta"]
+
+
+def test_iterate_repos_ignore_is_case_insensitive(tmp_path):
+    from portfolio.cli import _iterate_repos
+    (tmp_path / "Portfolio").mkdir()
+    (tmp_path / "real").mkdir()
+    repos = _iterate_repos(tmp_path, ignore=["portfolio"])
+    names = [p.name for p in repos]
+    assert names == ["real"]
+
+
+# ---------- ignore_repos config ----------
+
+
+def test_v5c_ignore_repos_default_skips_portfolio_repo(tmp_path, monkeypatch):
+    """When `ignore_repos` is unset, the portfolio CLI repo itself is skipped."""
+    from portfolio.checks.config import CheckConfig
+    repos_dir = tmp_path / "repos"
+    repos_dir.mkdir()
+    _git_init(repos_dir / "site-a")
+    _git_init(repos_dir / "portfolio")
+    cfg = CheckConfig(repos_dir=repos_dir, github_token="", skip_checks=[],
+                      ignore_repos=["portfolio"])
+    import portfolio.checks as checks_pkg
+    monkeypatch.setattr(checks_pkg, "load_config", lambda path=None: cfg)
+    runner = CliRunner()
+    result = runner.invoke(app, ["check", "--git"])
+    assert result.exit_code == 0
+    assert "site-a" in result.stdout
+    # The portfolio dir should not appear as a row in the repo column.
+    assert "portfolio " not in result.stdout.lower()
+
+
+# ---------- aggregate failures view ----------
+
+
+def test_v5c_aggregate_common_failures_section_present(tmp_path, monkeypatch):
+    """`check --git` adds a 'Most common failures' aggregate block."""
+    repos_dir = _make_repos_dir(tmp_path, ["a", "b", "c"])
+    _patch_repos_dir(monkeypatch, repos_dir)
+    runner = CliRunner()
+    result = runner.invoke(app, ["check", "--git"])
+    assert result.exit_code == 0
+    out = result.stdout
+    # Aggregate block heading appears.
+    assert "Most common failures" in out
+    # Bare repos all fail CHECK_005 (docs/prd.md missing) → category Docs.
+    assert "Docs" in out

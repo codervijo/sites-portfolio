@@ -313,10 +313,23 @@ def check_callback(
 # ---------- v5.B: --git cross-repo catalog runner ----------
 
 
-# Categories included by --git: everything that doesn't need a live HTTP fetch
-# or external API. v5.A ships scaffold + git; v5.C will add stack/deploy/seo-meta
-# and they'll auto-include here once added to the catalog.
-_GIT_FLAG_CATEGORIES = {"scaffold", "git", "stack", "deploy"}
+# Categories included by --git: everything that doesn't need a live HTTP
+# fetch or external API. SEO is the only excluded category (those checks
+# need either deployed-URL fetch or are too project-specific for the
+# cross-repo health view).
+_GIT_FLAG_CATEGORIES = {"scaffold", "docs", "git", "ci", "stack", "deploy"}
+
+# Render order for category-grouped output.
+_CATEGORY_ORDER = ("scaffold", "docs", "git", "ci", "stack", "deploy", "seo")
+_CATEGORY_LABEL = {
+    "scaffold": "Scaffold",
+    "docs": "Docs",
+    "git": "Git",
+    "ci": "CI",
+    "stack": "Stack",
+    "deploy": "Deploy",
+    "seo": "SEO",
+}
 
 
 def _is_likely_repo(path) -> bool:
@@ -333,15 +346,21 @@ def _is_likely_repo(path) -> bool:
     return True
 
 
-def _iterate_repos(repos_dir):
+def _iterate_repos(repos_dir, ignore: list[str] | None = None):
     """List immediate-child directories of `repos_dir` that look like repos.
-    Sorted alphabetically for stable output."""
+    Sorted alphabetically for stable output. If `ignore` is given, drop
+    repos whose name matches (case-insensitive) — the portfolio CLI repo
+    itself is filtered by default via config (see `DEFAULT_IGNORE_REPOS`)."""
     from pathlib import Path
     base = Path(repos_dir)
     if not base.is_dir():
         return []
-    return sorted([p for p in base.iterdir() if _is_likely_repo(p)],
-                  key=lambda p: p.name.lower())
+    skip_names = {n.lower() for n in (ignore or [])}
+    return sorted(
+        [p for p in base.iterdir()
+         if _is_likely_repo(p) and p.name.lower() not in skip_names],
+        key=lambda p: p.name.lower(),
+    )
 
 
 def _run_check_git_mode(*, detail: bool, check_id: str, repo: str) -> None:
@@ -369,7 +388,7 @@ def _run_check_git_mode(*, detail: bool, check_id: str, repo: str) -> None:
             raise typer.Exit(2)
     catalog_ids = [s.id for s in catalog_specs]
 
-    repos = _iterate_repos(repos_dir)
+    repos = _iterate_repos(repos_dir, ignore=cfg.ignore_repos)
 
     # Single-repo mode short-circuit
     if repo:
@@ -406,6 +425,10 @@ def _run_check_git_mode(*, detail: bool, check_id: str, repo: str) -> None:
 
 def _render_summary_table(per_repo: dict[str, dict], catalog_specs: list) -> None:
     total = len(catalog_specs)
+    spec_by_id = {s.id: s for s in catalog_specs}
+
+    # Per-repo summary table — fails/warns ordered by category so related
+    # gaps cluster visually instead of being interleaved by ID.
     t = Table(box=None, padding=(0, 1), show_header=True,
               title=f"[bold]check --git — {len(per_repo)} repos · {total} checks[/]",
               title_justify="left")
@@ -416,8 +439,10 @@ def _render_summary_table(per_repo: dict[str, dict], catalog_specs: list) -> Non
     rows: list[tuple[str, int, list[str], list[str]]] = []
     for repo_name, results in per_repo.items():
         passed = [cid for cid, r in results.items() if r.status == "pass"]
-        fails = [cid for cid, r in results.items() if r.status == "fail"]
-        warns = [cid for cid, r in results.items() if r.status == "warn"]
+        fails = _sort_ids_by_category(
+            [cid for cid, r in results.items() if r.status == "fail"], spec_by_id)
+        warns = _sort_ids_by_category(
+            [cid for cid, r in results.items() if r.status == "warn"], spec_by_id)
         rows.append((repo_name, len(passed), fails, warns))
     rows.sort(key=lambda r: (r[1], r[0]))  # worst score first
     for repo_name, score, fails, warns in rows:
@@ -436,6 +461,62 @@ def _render_summary_table(per_repo: dict[str, dict], catalog_specs: list) -> Non
         f"{n_clean} all-pass[/]"
     )
 
+    # Aggregate "most common failures" view across all repos. Surfaces the
+    # patterns worth fixing fleetwide rather than per-repo.
+    _render_common_failures(per_repo, spec_by_id, n_repos=len(rows))
+
+
+def _sort_ids_by_category(ids: list[str], spec_by_id: dict) -> list[str]:
+    """Order check IDs by (category render order, then ID) so the rendered
+    fails/warns column reads as Scaffold → Docs → Git → CI → Stack → Deploy."""
+    cat_index = {c: i for i, c in enumerate(_CATEGORY_ORDER)}
+    def key(cid: str):
+        spec = spec_by_id.get(cid)
+        cat = spec.category if spec else ""
+        return (cat_index.get(cat, len(_CATEGORY_ORDER)), cid)
+    return sorted(ids, key=key)
+
+
+def _render_common_failures(per_repo: dict[str, dict],
+                            spec_by_id: dict,
+                            *, n_repos: int,
+                            top_n: int = 10) -> None:
+    """Print "Most common failures across N repos" — top check IDs by repo
+    count, where a repo "has" a failure if status is fail or warn (skips
+    don't count). Grouped by category in render order."""
+    if n_repos == 0:
+        return
+    counts: dict[str, int] = {}
+    for results in per_repo.values():
+        for cid, r in results.items():
+            if r.status in ("fail", "warn") and "skipped" not in r.message:
+                counts[cid] = counts.get(cid, 0) + 1
+    if not counts:
+        return
+    # Filter to checks that hit ≥ 30% of repos to keep signal-noise high.
+    threshold = max(2, int(n_repos * 0.3))
+    common = [(cid, n) for cid, n in counts.items() if n >= threshold]
+    if not common:
+        return
+    cat_index = {c: i for i, c in enumerate(_CATEGORY_ORDER)}
+    common.sort(key=lambda t: (
+        cat_index.get(spec_by_id.get(t[0]).category if t[0] in spec_by_id else "",
+                      len(_CATEGORY_ORDER)),
+        -t[1],
+        t[0],
+    ))
+    common = common[:top_n]
+    console.print(f"\n[bold]Most common failures across {n_repos} repos:[/]")
+    last_cat = None
+    for cid, n in common:
+        spec = spec_by_id.get(cid)
+        cat = spec.category if spec else "?"
+        if cat != last_cat:
+            console.print(f"  [bold cyan]{_CATEGORY_LABEL.get(cat, cat)}[/]")
+            last_cat = cat
+        name = spec.name if spec else "?"
+        console.print(f"    {cid}  {name:<30}  [yellow]{n}/{n_repos}[/] repos")
+
 
 def _render_per_repo_detail(repo_name: str, results: dict, catalog_specs: list) -> None:
     spec_by_id = {s.id: s for s in catalog_specs}
@@ -446,7 +527,7 @@ def _render_per_repo_detail(repo_name: str, results: dict, catalog_specs: list) 
     t.add_column("Status")
     t.add_column("Name")
     t.add_column("Message")
-    for cid in sorted(results):
+    for cid in _sort_ids_by_category(list(results), spec_by_id):
         r = results[cid]
         spec = spec_by_id.get(cid)
         icon = {"pass": "[green]✓ pass[/]", "fail": "[red]✗ fail[/]",
@@ -2526,7 +2607,7 @@ def _render_bootstrap_conformance(domain: str) -> None:
         return
 
     cfg = load_config()
-    bootstrap_categories = {"scaffold", "stack", "deploy", "seo"}
+    bootstrap_categories = {"scaffold", "docs", "stack", "deploy", "seo"}
     catalog_specs = [s for s in list_checks() if s.category in bootstrap_categories]
     catalog_ids = [s.id for s in catalog_specs]
 

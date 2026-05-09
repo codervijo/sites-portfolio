@@ -146,3 +146,36 @@ def test_check_024_warn_empty_dir(tmp_path):
     (workflows / "README.txt").write_text("placeholder")
     r = run_check("CHECK_024", str(tmp_path))
     assert r.status == "warn"
+
+
+# CHECK_028 — last-deploy-date
+
+def test_check_028_warn_no_makefile(tmp_path):
+    _init_repo(tmp_path)
+    assert run_check("CHECK_028", str(tmp_path)).status == "warn"
+
+
+def test_check_028_warn_makefile_no_deploy_target(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "Makefile").write_text("dev:\n\techo dev\n")
+    _run(["git", "add", "Makefile"], tmp_path)
+    _run(["git", "commit", "-q", "-m", "add makefile"], tmp_path)
+    assert run_check("CHECK_028", str(tmp_path)).status == "warn"
+
+
+def test_check_028_pass_recent_deploy(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "Makefile").write_text("deploy:\n\techo deploy\n")
+    _run(["git", "add", "Makefile"], tmp_path)
+    _run(["git", "commit", "-q", "-m", "deploy: ship v1 to cf pages"], tmp_path)
+    assert run_check("CHECK_028", str(tmp_path)).status == "pass"
+
+
+def test_check_028_fail_no_deploy_commit(tmp_path):
+    _init_repo(tmp_path)
+    (tmp_path / "Makefile").write_text("deploy:\n\techo deploy\n")
+    _run(["git", "add", "Makefile"], tmp_path)
+    _run(["git", "commit", "-q", "-m", "add makefile"], tmp_path)
+    # No deploy-marker subject in any commit.
+    r = run_check("CHECK_028", str(tmp_path))
+    assert r.status == "fail"

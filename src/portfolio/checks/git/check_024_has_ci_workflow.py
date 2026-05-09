@@ -7,7 +7,7 @@ from ..result import CheckResult
 
 CHECK_ID = "CHECK_024"
 CHECK_NAME = "has-ci-workflow"
-CATEGORY = "git"
+CATEGORY = "ci"
 SEVERITY = "info"
 DESCRIPTION = "Has at least one workflow file under .github/workflows/."
 

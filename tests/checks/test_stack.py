@@ -10,6 +10,37 @@ def _write_pkg(tmp_path, **payload):
     (tmp_path / "package.json").write_text(json.dumps(payload))
 
 
+# CHECK_029 — has-live-url
+
+def test_check_029_pass_homepage(tmp_path):
+    _write_pkg(tmp_path, name="x", homepage="https://kwizicle.com/")
+    assert run_check("CHECK_029", str(tmp_path)).status == "pass"
+
+
+def test_check_029_pass_readme_with_live_marker(tmp_path):
+    _write_pkg(tmp_path, name="x")
+    (tmp_path / "README.md").write_text(
+        "# Project\n\nLive: https://kwizicle.com/\n"
+    )
+    assert run_check("CHECK_029", str(tmp_path)).status == "pass"
+
+
+def test_check_029_fail_no_url(tmp_path):
+    _write_pkg(tmp_path, name="x")
+    (tmp_path / "README.md").write_text("# project\n")
+    assert run_check("CHECK_029", str(tmp_path)).status == "fail"
+
+
+def test_check_029_warn_no_package_json(tmp_path):
+    assert run_check("CHECK_029", str(tmp_path)).status == "warn"
+
+
+def test_check_029_skips_example_dot_com(tmp_path):
+    _write_pkg(tmp_path, name="x")
+    (tmp_path / "README.md").write_text("Live: https://example.com/\n")
+    assert run_check("CHECK_029", str(tmp_path)).status == "fail"
+
+
 # CHECK_030 — has-package-json
 
 def test_check_030_pass(tmp_path):

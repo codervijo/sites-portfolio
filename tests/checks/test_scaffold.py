@@ -177,5 +177,83 @@ def test_check_012_warn_no_forward(tmp_path):
     assert r.status == "warn"
 
 
+# CHECK_025 — growth-md-nonempty
+
+def test_check_025_pass_long_body(tmp_path):
+    (tmp_path / "docs").mkdir()
+    body = "Tracking growth experiments here. " * 10  # ~340 chars
+    (tmp_path / "docs" / "growth.md").write_text(f"# Growth\n\n{body}")
+    assert run_check("CHECK_025", str(tmp_path)).status == "pass"
+
+
+def test_check_025_fail_stub(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "growth.md").write_text("# Growth\n\nTBD\n")
+    assert run_check("CHECK_025", str(tmp_path)).status == "fail"
+
+
+def test_check_025_warn_missing(tmp_path):
+    assert run_check("CHECK_025", str(tmp_path)).status == "warn"
+
+
+def test_check_025_skips_pure_headings(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "growth.md").write_text(
+        "# Growth\n## Plans\n## Experiments\n## Notes\n## TODO\n"
+    )
+    assert run_check("CHECK_025", str(tmp_path)).status == "fail"
+
+
+# CHECK_026 — claude-md-min-sections
+
+def test_check_026_pass(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "CLAUDE.md").write_text(
+        "# CLAUDE\n\n## Project\nDescription.\n\n## Commands\nmake dev\n"
+    )
+    assert run_check("CHECK_026", str(tmp_path)).status == "pass"
+
+
+def test_check_026_fail_missing_one(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "CLAUDE.md").write_text("## Project\nthing\n")
+    r = run_check("CHECK_026", str(tmp_path))
+    assert r.status == "fail"
+    assert "Commands" in r.message
+
+
+def test_check_026_warn_missing(tmp_path):
+    assert run_check("CHECK_026", str(tmp_path)).status == "warn"
+
+
+# CHECK_027 — prd-md-min-sections
+
+def test_check_027_pass_plain(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "prd.md").write_text(
+        "## Problem\n...\n## Users\n...\n"
+    )
+    assert run_check("CHECK_027", str(tmp_path)).status == "pass"
+
+
+def test_check_027_pass_numbered(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "prd.md").write_text(
+        "## 1. Problem\n...\n## 2. Users\n...\n"
+    )
+    assert run_check("CHECK_027", str(tmp_path)).status == "pass"
+
+
+def test_check_027_fail_missing(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "prd.md").write_text("## Goals\nstuff\n")
+    r = run_check("CHECK_027", str(tmp_path))
+    assert r.status == "fail"
+
+
+def test_check_027_warn_no_file(tmp_path):
+    assert run_check("CHECK_027", str(tmp_path)).status == "warn"
+
+
 def test_check_012_fail_no_makefile(tmp_path):
     assert run_check("CHECK_012", str(tmp_path)).status == "fail"

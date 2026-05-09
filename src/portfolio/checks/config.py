@@ -3,8 +3,9 @@
 Layout:
   [git]
   repos_dir = "~/work/projects/sites"   # where to scan for repos
-  github_token = ""                      # optional, enables CHECK_025-027
-  skip_checks = []                       # e.g. ["CHECK_025", "CHECK_026"]
+  github_token = ""                      # optional
+  skip_checks = []                       # e.g. ["CHECK_011"] (skip a check globally)
+  ignore_repos = ["portfolio"]           # repos to exclude from `check --git`
 """
 from __future__ import annotations
 
@@ -15,6 +16,12 @@ from pathlib import Path
 
 CONFIG_PATH_DEFAULT = Path.home() / ".config" / "portfolio" / "config.toml"
 
+# Repos that are always excluded from `check --git` even without explicit
+# config — the CLI tool itself isn't a website project, so the catalog's
+# stack/deploy/SEO checks would all skip and create noise. Users can override
+# by listing the repo in [git] ignore_repos = []  (empty list = no defaults).
+DEFAULT_IGNORE_REPOS = ["portfolio"]
+
 
 @dataclass
 class CheckConfig:
@@ -24,6 +31,7 @@ class CheckConfig:
     repos_dir: Path = field(default_factory=lambda: Path.home() / "work" / "projects" / "sites")
     github_token: str = ""
     skip_checks: list[str] = field(default_factory=list)
+    ignore_repos: list[str] = field(default_factory=lambda: list(DEFAULT_IGNORE_REPOS))
 
 
 def load_config(path: Path | None = None) -> CheckConfig:
@@ -43,8 +51,14 @@ def load_config(path: Path | None = None) -> CheckConfig:
         repos_dir = Path(os.path.expanduser(str(repos_dir_raw)))
     else:
         repos_dir = CheckConfig().repos_dir
+    if "ignore_repos" in git:
+        # User explicitly set the list (possibly empty) — honor it as-is.
+        ignore_repos = [str(s) for s in git.get("ignore_repos") or []]
+    else:
+        ignore_repos = list(DEFAULT_IGNORE_REPOS)
     return CheckConfig(
         repos_dir=repos_dir,
         github_token=str(git.get("github_token") or ""),
         skip_checks=[str(s) for s in git.get("skip_checks", []) or []],
+        ignore_repos=ignore_repos,
     )
