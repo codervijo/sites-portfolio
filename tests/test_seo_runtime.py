@@ -194,26 +194,57 @@ def test_probe_crux_http_error():
 # ---------- status emojis ----------
 
 
-def test_overall_status_red_when_any_red():
-    row = SEORow(domain="x", http_status=500, hsts=True,
+def test_overall_status_green_when_seo_signals_green():
+    """All four SEO signals (imp, pos, robots, sitemap) green → green."""
+    row = SEORow(domain="x",
                  robots_served=True, sitemap_served=True,
-                 gsc_impressions=1000, gsc_position=5.0,
-                 crux_lcp_p75=1500, crux_inp_p75=100, crux_cls_p75=0.05)
-    assert overall_status(row) == "🔴"
-
-
-def test_overall_status_green_when_everything_green():
-    row = SEORow(domain="x", http_status=200, hsts=True,
-                 robots_served=True, sitemap_served=True,
-                 gsc_impressions=1000, gsc_position=5.0,
-                 crux_lcp_p75=1500, crux_inp_p75=100, crux_cls_p75=0.05)
+                 gsc_impressions=1000, gsc_position=5.0)
     assert overall_status(row) == "🟢"
 
 
-def test_overall_status_yellow_when_only_3xx_http():
-    """A redirect with otherwise-empty data is yellow (worst non-grey is yellow)."""
-    row = SEORow(domain="x", http_status=301)
-    assert overall_status(row) == "🟡"
+def test_overall_status_red_when_no_impressions():
+    row = SEORow(domain="x",
+                 robots_served=True, sitemap_served=True,
+                 gsc_impressions=0, gsc_position=5.0)
+    assert overall_status(row) == "🔴"
+
+
+def test_overall_status_ignores_hsts():
+    """HSTS is a security signal, not SEO — must NOT affect row color."""
+    # All SEO signals green; HSTS missing should NOT pull the row away from green.
+    row_no_hsts = SEORow(domain="x", hsts=False,
+                         robots_served=True, sitemap_served=True,
+                         gsc_impressions=1000, gsc_position=5.0)
+    assert overall_status(row_no_hsts) == "🟢"
+    # And present HSTS shouldn't redeem an SEO red.
+    row_with_hsts = SEORow(domain="x", hsts=True,
+                           robots_served=False, sitemap_served=True,
+                           gsc_impressions=1000, gsc_position=5.0)
+    assert overall_status(row_with_hsts) == "🔴"
+
+
+def test_overall_status_ignores_http_status():
+    """HTTP status doesn't drive row color — failures cascade into robots/sitemap reds."""
+    row = SEORow(domain="x", http_status=500,
+                 robots_served=True, sitemap_served=True,
+                 gsc_impressions=1000, gsc_position=5.0)
+    assert overall_status(row) == "🟢"
+
+
+def test_overall_status_ignores_crux():
+    """CrUX field data is reported but doesn't drive SEO row color."""
+    row = SEORow(domain="x",
+                 robots_served=True, sitemap_served=True,
+                 gsc_impressions=1000, gsc_position=5.0,
+                 crux_lcp_p75=10000)  # very poor LCP
+    assert overall_status(row) == "🟢"
+
+
+def test_overall_status_grey_when_all_seo_signals_unknown():
+    """No SEO data at all → grey (e.g. probe failed, GSC not authed)."""
+    row = SEORow(domain="x", http_status=200, hsts=True,
+                 crux_lcp_p75=1500)
+    assert overall_status(row) == "⚪"
 
 
 def test_row_statuses_lcp_thresholds():

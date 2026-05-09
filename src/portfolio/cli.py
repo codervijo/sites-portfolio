@@ -655,7 +655,6 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
     t.add_column("")           # overall status emoji
     t.add_column("Domain")
     t.add_column("HTTP")
-    t.add_column("HSTS")
     t.add_column("Robots")
     t.add_column("Sitemap")
     t.add_column("Imp", justify="right")
@@ -673,7 +672,6 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
             overall_status(row),
             row.domain,
             http_cell,
-            s["hsts"],
             s["robots"],
             s["sitemap"],
             f"{s['imp']} {_fmt_int(row.gsc_impressions)}",
