@@ -1261,14 +1261,9 @@ def _render_project_status(result: dict) -> None:
             )
     else:
         failed = result["conformance"]["failed"]
-        own = next((f for f in failed if f["rule"] == "own-git-repo"), {})
+        own = next((f for f in failed if f["rule"] == "CHECK_020"), {})
         reason = own.get("reason", "?")
-        msg_map = {
-            "dir-missing": "[red]directory does not exist[/]",
-            "no-git": "[red]no .git found[/]",
-            "tracked-by-parent": f"[red]tracked by parent ({own.get('toplevel', '?')})[/]",
-        }
-        t.add_row("Repo", msg_map.get(reason, f"[red]{reason}[/]"))
+        t.add_row("Repo", f"[red]{reason}[/]")
     console.print(t)
 
     p = result["prompts_md"]
@@ -1307,11 +1302,18 @@ def _render_project_status(result: dict) -> None:
     if conf["failed"]:
         console.print(f"\n[red]Conformance failures ({len(conf['failed'])}):[/]")
         for f in conf["failed"]:
-            console.print(f"  ✗ [bold]{f['rule']}[/] — {f.get('reason', '?')}")
+            rule = f["rule"]
+            name = f.get("name")
+            label = f"[bold]{rule}[/] {name}" if name else f"[bold]{rule}[/]"
+            console.print(f"  ✗ {label} — {f.get('reason', '?')}")
             if f.get("fix"):
                 console.print(f"    [dim]fix: {f['fix']}[/]")
     if conf["passed"]:
-        console.print(f"[green]Passed ({len(conf['passed'])}):[/] " + ", ".join(conf["passed"]))
+        console.print(
+            f"[green]Passed ({len(conf['passed'])}):[/] [dim]"
+            + ", ".join(conf["passed"])
+            + "[/]"
+        )
     if conf["skipped"]:
         console.print(
             f"[dim]Skipped ({len(conf['skipped'])}): "

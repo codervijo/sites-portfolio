@@ -266,14 +266,6 @@ def fetch_live_status(domain: str) -> dict | None:
     }
 
 
-def has_makefile_with_targets(project_dir: Path, *targets: str) -> bool:
-    mf = project_dir / "Makefile"
-    if not mf.exists():
-        return False
-    text = mf.read_text(errors="replace")
-    return all(re.search(rf"^{re.escape(t)}\s*:", text, re.MULTILINE) for t in targets)
-
-
 def compute_verdict(
     own_repo_pass: bool,
     last_commit: dict | None,
@@ -336,77 +328,72 @@ def build_status(name: str) -> dict:
     def _skip(rule: str, reason: str) -> None:
         skipped.append({"rule": rule, "reason": reason})
 
-    if own_repo["pass"]:
-        _ok("own-git-repo")
+    # v5.E: catalog-driven conformance.
+    #
+    # Run every applicable check from the registry against the project dir
+    # and translate the registry's (status, message) shape into the legacy
+    # (passed/failed/skipped) buckets that downstream consumers + the JSON
+    # schema expect:
+    #   - pass                                    → passed
+    #   - fail                                    → failed (reason = message)
+    #   - warn whose message contains "skipped"   → skipped (these are
+    #         stack-aware "not a Vite project — skipped"-style returns)
+    #   - warn (genuine, e.g. info-severity gaps) → failed (info severity
+    #         flagged as such in the JSON for downstream filtering)
+    if project_dir.exists():
+        from .checks import list_checks, run_checks
+        # Skip categories that don't make sense for `project status`:
+        #  - `seo` runtime checks need HTTP fetch (they live under v5.D).
+        # File-system + git-log categories are all in scope.
+        applicable_categories = {
+            "scaffold", "docs", "git", "ci", "stack", "deploy", "seo",
+        }
+        spec_by_id = {s.id: s for s in list_checks() if s.category in applicable_categories}
+        results = run_checks(str(project_dir), ids=list(spec_by_id.keys()))
+        for cid in sorted(results):
+            r = results[cid]
+            spec = spec_by_id.get(cid)
+            if r.status == "pass":
+                _ok(cid)
+            elif r.status == "fail":
+                _fail(cid, reason=r.message,
+                      severity=spec.severity if spec else "warn",
+                      name=spec.name if spec else None)
+            else:  # "warn"
+                if "skipped" in r.message:
+                    _skip(cid, r.message)
+                else:
+                    _fail(cid, reason=r.message,
+                          severity=spec.severity if spec else "warn",
+                          name=spec.name if spec else None)
     else:
-        entry = {"reason": own_repo.get("reason")}
-        if "toplevel" in own_repo:
-            entry["toplevel"] = own_repo["toplevel"]
-        if own_repo.get("fix"):
-            entry["fix"] = own_repo["fix"]
-        _fail("own-git-repo", **entry)
+        # Project dir doesn't exist yet — record one synthetic skip per
+        # category so downstream renderers know to surface the underlying
+        # cause (the "Dir: ... (missing)" header) instead of N green checks.
+        _skip("project-dir-missing", f"{project_dir} does not exist")
 
+    # ---------- ad-hoc rules with no catalog equivalent ----------
+    # has-category: domain has a category in portfolio.json. Data-side, not
+    # file-system; doesn't fit the catalog's `run(repo_path)` shape.
     if plan_category:
         _ok("has-category")
     else:
         _fail("has-category", reason="domain has no category set in portfolio.json")
 
+    # live-site: deployed and classified live by the latest check snapshot.
+    # Runtime signal — could become a future runtime CHECK_xxx but isn't yet.
     if not project_dir.exists():
-        for r in ("has-prompts-md", "prompts-md-format", "has-makefile", "has-ai-agents-md", "has-growth-log", "platform-declared", "live-site"):
-            _skip(r, "dir does not exist")
+        _skip("live-site", "project dir does not exist")
+    elif deployment["platform"] == "n/a":
+        _skip("live-site", f"{deployment['kind']} project does not deploy")
+    elif deployment["live"]:
+        cls = deployment["live"]["classification"]
+        if cls == "live-site":
+            _ok("live-site")
+        else:
+            _fail("live-site", reason=f"classification is {cls!r}")
     else:
-        if prompts["exists"]:
-            _ok("has-prompts-md")
-            if prompts["format_ok"]:
-                _ok("prompts-md-format")
-            else:
-                _fail("prompts-md-format", reason=prompts["format_warning"] or "no dated H2")
-        else:
-            _fail("has-prompts-md", reason="docs/Prompts.md not found",
-                  fix=f"create {project_dir}/docs/Prompts.md with `## YYYY-MM-DD` heading")
-            _skip("prompts-md-format", "Prompts.md does not exist")
-
-        if has_makefile_with_targets(project_dir, "run", "build"):
-            _ok("has-makefile")
-        else:
-            _fail("has-makefile", reason="missing Makefile or `run`/`build` targets")
-
-        if (project_dir / "AI_AGENTS.md").exists():
-            _ok("has-ai-agents-md")
-        else:
-            _fail("has-ai-agents-md", reason="AI_AGENTS.md not found")
-
-        if (project_dir / "docs" / "growth.md").exists():
-            _ok("has-growth-log")
-        else:
-            _fail("has-growth-log",
-                  reason="docs/growth.md not found — per-project growth-experiment log",
-                  fix=f"`portfolio bootstrap` scaffolds it; for existing projects, add docs/growth.md with a dated H2 entry per experiment (see template)")
-
-        if deployment["platform"] == "n/a":
-            _ok("platform-declared")
-            _skip("live-site", f"{deployment['kind']} project does not deploy")
-        elif deployment["platform"] == "unknown":
-            _fail("platform-declared",
-                  reason="web project but no platform marker (wrangler.toml / vercel.json / netlify.toml)")
-            if deployment["live"]:
-                cls = deployment["live"]["classification"]
-                if cls == "live-site":
-                    _ok("live-site")
-                else:
-                    _fail("live-site", reason=f"classification is {cls!r}")
-            else:
-                _skip("live-site", "no check snapshot covers this domain")
-        else:
-            _ok("platform-declared")
-            if deployment["live"]:
-                cls = deployment["live"]["classification"]
-                if cls == "live-site":
-                    _ok("live-site")
-                else:
-                    _fail("live-site", reason=f"classification is {cls!r}")
-            else:
-                _skip("live-site", "no check snapshot covers this domain")
+        _skip("live-site", "no check snapshot covers this domain")
 
     return {
         "schema_version": SCHEMA_VERSION,
