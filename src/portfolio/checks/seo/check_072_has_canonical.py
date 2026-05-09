@@ -1,0 +1,24 @@
+"""CHECK_072 — index has <link rel="canonical">."""
+from __future__ import annotations
+
+from ..result import CheckResult
+from . import _is_web_project, _parse_html, _read_index_html
+
+CHECK_ID = "CHECK_072"
+CHECK_NAME = "has-canonical-link"
+CATEGORY = "seo"
+SEVERITY = "warn"
+DESCRIPTION = '<link rel="canonical" href="..."> present.'
+
+
+def run(repo_path: str) -> CheckResult:
+    if not _is_web_project(repo_path):
+        return CheckResult(status="warn", message="not a web project — skipped")
+    html = _read_index_html(repo_path)
+    if html is None:
+        return CheckResult(status="warn", message="no index.html / index.astro — skipped")
+    soup = _parse_html(html)
+    tag = soup.find("link", attrs={"rel": "canonical"})
+    if tag is None or not tag.get("href", "").strip():
+        return CheckResult(status="fail", message="<link rel=\"canonical\"> missing")
+    return CheckResult(status="pass", message=f'canonical={tag["href"]!r}')

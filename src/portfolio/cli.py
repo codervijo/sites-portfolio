@@ -2508,42 +2508,62 @@ def _render_project_tree(project_dir) -> None:
 
 
 def _render_bootstrap_conformance(domain: str) -> None:
-    """Run a quick conformance check on the freshly-bootstrapped project and
-    print pass/fail per rule. Re-uses the same logic as `project status` so
-    the user sees what the standard report would show."""
-    try:
-        from .project import build_status
-    except Exception:
-        return  # quiet: don't break bootstrap if project module is unavailable
+    """Run the universal check catalog against the freshly-bootstrapped project
+    (scaffold + stack + deploy + seo categories — git is skipped since the new
+    project hasn't been pushed yet) and print pass/fail per check.
+
+    v5.C: switched from the legacy `project.build_status` rule list to the
+    registry-based runner so a single source of truth (the catalog) drives
+    every conformance surface."""
+    from pathlib import Path
+
+    from .checks import list_checks, load_config, run_checks
+    from .data import ROOT as DATA_ROOT
+
+    project_dir = DATA_ROOT.parent / domain
+    if not project_dir.is_dir():
+        console.print(f"\n[yellow]Conformance check skipped:[/] {project_dir} not found")
+        return
+
+    cfg = load_config()
+    bootstrap_categories = {"scaffold", "stack", "deploy", "seo"}
+    catalog_specs = [s for s in list_checks() if s.category in bootstrap_categories]
+    catalog_ids = [s.id for s in catalog_specs]
 
     try:
-        result = build_status(domain)
+        results = run_checks(str(project_dir), ids=catalog_ids,
+                             skip_checks=cfg.skip_checks)
     except Exception as e:
         console.print(f"\n[yellow]Conformance check skipped:[/] {type(e).__name__}: {e}")
         return
 
-    if result.get("error"):
-        console.print(f"\n[yellow]Conformance check skipped:[/] {result.get('error')}")
-        return
+    by_id = {s.id: s for s in catalog_specs}
+    passed = [cid for cid, r in results.items() if r.status == "pass"]
+    failed = [(cid, r) for cid, r in results.items() if r.status == "fail"]
+    warned = [(cid, r) for cid, r in results.items() if r.status == "warn"]
 
-    conf = result.get("conformance", {})
-    passed = conf.get("passed", [])
-    failed = conf.get("failed", [])
-    skipped = conf.get("skipped", [])
-
-    console.print(f"\n[bold]Conformance ({len(passed)} pass · {len(failed)} fail · {len(skipped)} skip):[/]")
-    for rule in passed:
-        console.print(f"  [green]✓[/] {rule}")
-    for f in failed:
-        rule = f.get("rule", "?")
-        reason = f.get("reason", "")
-        console.print(f"  [red]✗[/] {rule}  [dim]— {reason}[/]")
-    if skipped:
-        console.print(
-            "  [dim]skipped: "
-            + ", ".join(s.get("rule", "?") for s in skipped)
-            + "[/]"
-        )
+    console.print(
+        f"\n[bold]Conformance ({len(passed)} pass · {len(failed)} fail · {len(warned)} warn):[/]"
+    )
+    for cid in sorted(passed):
+        spec = by_id[cid]
+        console.print(f"  [green]✓[/] {cid} {spec.name}")
+    for cid, r in sorted(failed):
+        spec = by_id[cid]
+        console.print(f"  [red]✗[/] {cid} {spec.name}  [dim]— {r.message}[/]")
+    if warned:
+        # Most warns are stack-aware skips ("not a Vite project — skipped"); fold them.
+        skipped = [(cid, r) for cid, r in warned if "skipped" in r.message]
+        real_warns = [(cid, r) for cid, r in warned if "skipped" not in r.message]
+        for cid, r in sorted(real_warns):
+            spec = by_id[cid]
+            console.print(f"  [yellow]![/] {cid} {spec.name}  [dim]— {r.message}[/]")
+        if skipped:
+            console.print(
+                f"  [dim]skipped ({len(skipped)}): "
+                + ", ".join(cid for cid, _ in sorted(skipped))
+                + "[/]"
+            )
 
 
 @app.command()

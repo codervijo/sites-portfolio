@@ -63,7 +63,13 @@ def test_v5b_git_summary_mode_lists_repos(tmp_path, monkeypatch):
     out = result.stdout
     assert "alpha-repo" in out
     assert "beta-repo" in out
-    assert "/17" in out  # score column shows out-of-N
+    # Score column shows out-of-N (N = scaffold + git + stack + deploy total).
+    # Derive the count dynamically so the test doesn't go stale every time
+    # the catalog grows.
+    from portfolio.cli import _GIT_FLAG_CATEGORIES
+    from portfolio.checks import list_checks
+    expected_n = sum(1 for s in list_checks() if s.category in _GIT_FLAG_CATEGORIES)
+    assert f"/{expected_n}" in out
 
 
 def test_v5b_git_summary_skips_hidden_dirs(tmp_path, monkeypatch):
