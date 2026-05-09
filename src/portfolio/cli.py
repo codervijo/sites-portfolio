@@ -307,7 +307,8 @@ def check_callback(
         _run_check_git_mode(detail=detail, check_id=check_id, repo=repo)
         return
     if seo:
-        _run_check_seo_mode(days=days, only_domain=domain, sort_by=sort_by)
+        _run_check_seo_mode(days=days, only_domain=domain, sort_by=sort_by,
+                            only=only, concurrency=concurrency)
         return
     # Default: existing live-site check
     if only not in ("wip", "all"):
@@ -580,26 +581,68 @@ def _render_single_check_table(check_id: str, per_repo: dict, spec) -> None:
 # ---------- v5.D: --seo per-domain runtime probe ----------
 
 
-def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str) -> None:
+def _seo_snapshot_needs_refresh(snap_scope: str | None, only: str) -> bool:
+    """Return True if the snapshot is missing or narrower than requested.
+
+    Refresh rules:
+      - no snapshot → refresh
+      - only=all and snapshot=wip (or unknown) → refresh
+      - only=wip → never force refresh (snapshot=wip is exact, snapshot=all is a superset)
+    """
+    if snap_scope is None:
+        return True
+    if only == "all" and snap_scope != "all":
+        return True
+    return False
+
+
+def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
+                        only: str, concurrency: int) -> None:
     """Driver for `portfolio check --seo`. Picks domains from the latest
     classification snapshot (live-site + forwarder), runs HTTP/GSC/CrUX
-    probes, renders one row per domain."""
-    from .check import latest_snapshot, load_snapshot
+    probes, renders one row per domain.
+
+    `only` is the snapshot scope: "wip" or "all". If the latest snapshot
+    on disk is narrower than requested (e.g. snapshot=wip, only=all),
+    a fresh live-site classification is run first so the SEO probe sees
+    the right population.
+    """
+    from .check import latest_snapshot, load_snapshot, run_check
     from .seo_runtime import _live_domains_from_snapshot, run_seo, sort_rows
     from .suggest import load_env
 
     if sort_by not in ("impressions", "clicks", "position", "ctr"):
         console.print(f"[red]--sort must be impressions|clicks|position|ctr, got {sort_by!r}[/]")
         raise typer.Exit(2)
+    if only not in ("wip", "all"):
+        console.print(f"[red]--only must be 'wip' or 'all', got {only!r}.[/]")
+        raise typer.Exit(2)
 
     if only_domain:
+        # --domain bypasses the snapshot entirely — trust the user.
         domains = [only_domain.lower()]
     else:
         snap_path = latest_snapshot()
-        if snap_path is None:
-            console.print("[red]No check snapshot found in data/checks/.[/]")
-            console.print("[dim]Run `portfolio check` first to classify domains.[/]")
-            raise typer.Exit(2)
+        snap_scope: str | None = None
+        if snap_path is not None:
+            try:
+                snap_scope = load_snapshot(snap_path).get("scope")
+            except (OSError, ValueError):
+                snap_scope = None
+
+        # Refresh when the snapshot is missing OR narrower than requested.
+        if _seo_snapshot_needs_refresh(snap_scope, only):
+            if snap_path is None:
+                console.print("[dim]No check snapshot on disk — running live-site classification first.[/]")
+            else:
+                console.print(
+                    f"[dim]Latest snapshot {snap_path.name} is scope={snap_scope!r}, "
+                    f"but --only={only!r} requested. Running live-site classification first.[/]"
+                )
+            console.print(f"[cyan]Classifying {only} domains (concurrency={concurrency})...[/]")
+            snap_path, _ = run_check(only=only, concurrency=concurrency)
+            console.print(f"[green]Snapshot:[/] {snap_path}")
+
         domains = _live_domains_from_snapshot(load_snapshot(snap_path))
         if not domains:
             console.print(f"[yellow]No live-site/forwarder domains in {snap_path.name}.[/]")

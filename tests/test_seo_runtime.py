@@ -339,3 +339,30 @@ def test_sort_rows_position_lower_first_none_last():
     ]
     out = sort_rows(rows, "position")
     assert [r.domain for r in out] == ["b", "a", "c"]
+
+
+# ---------- snapshot-scope refresh logic ----------
+
+
+def test_snapshot_refresh_decision():
+    """`--seo --only=all` with a `wip`-scoped snapshot must force a refresh.
+    `--only=wip` against `all`-scoped snapshot must NOT refresh."""
+    from portfolio.cli import _seo_snapshot_needs_refresh
+
+    # No snapshot at all → refresh whichever scope was asked for.
+    assert _seo_snapshot_needs_refresh(None, "wip") is True
+    assert _seo_snapshot_needs_refresh(None, "all") is True
+
+    # all-scope requested: must have an all-scope snapshot.
+    assert _seo_snapshot_needs_refresh("wip", "all") is True
+    assert _seo_snapshot_needs_refresh("all", "all") is False
+
+    # wip-scope requested: any existing snapshot is acceptable
+    # (all-scope snapshot is a superset; we filter at read time).
+    assert _seo_snapshot_needs_refresh("wip", "wip") is False
+    assert _seo_snapshot_needs_refresh("all", "wip") is False
+
+    # Unknown scope (snapshot file lacks `scope` field) → treat as
+    # only-trustworthy-for-wip; refresh if all is requested.
+    assert _seo_snapshot_needs_refresh("", "all") is True
+    assert _seo_snapshot_needs_refresh("", "wip") is False
