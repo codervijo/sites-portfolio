@@ -247,6 +247,41 @@ def test_overall_status_grey_when_all_seo_signals_unknown():
     assert overall_status(row) == "⚪"
 
 
+def test_overall_status_red_when_not_in_gsc():
+    """Domain is registered + serving but missing from Search Console
+    → red. A site Google doesn't know about is invisible to organic."""
+    row = SEORow(domain="x", http_status=200,
+                 robots_served=True, sitemap_served=True,
+                 gsc_status="not-in-gsc")
+    assert overall_status(row) == "🔴"
+
+
+def test_overall_status_green_when_in_gsc_with_traffic():
+    row = SEORow(domain="x",
+                 robots_served=True, sitemap_served=True,
+                 gsc_status="ok",
+                 gsc_impressions=1000, gsc_position=5.0)
+    assert overall_status(row) == "🟢"
+
+
+def test_overall_status_ignores_gsc_when_auth_skipped():
+    """`auth-skipped` is a tooling state ("you didn't run gsc auth"),
+    not a domain problem — must NOT pull row to red."""
+    row = SEORow(domain="x",
+                 robots_served=True, sitemap_served=True,
+                 gsc_status="auth-skipped")
+    # Robots+Sitemap green; gsc grey → green wins.
+    assert overall_status(row) == "🟢"
+
+
+def test_row_statuses_gsc_column():
+    from portfolio.seo_runtime import row_statuses
+    assert row_statuses(SEORow(domain="x", gsc_status="ok"))["gsc"] == "🟢"
+    assert row_statuses(SEORow(domain="x", gsc_status="not-in-gsc"))["gsc"] == "🔴"
+    assert row_statuses(SEORow(domain="x", gsc_status="auth-skipped"))["gsc"] == "⚪"
+    assert row_statuses(SEORow(domain="x", gsc_status="error"))["gsc"] == "⚪"
+
+
 def test_row_statuses_lcp_thresholds():
     # 2500ms = green, 4000ms = yellow, 6000ms = orange, beyond = red
     assert row_statuses(SEORow(domain="x", crux_lcp_p75=2000))["lcp"] == "🟢"

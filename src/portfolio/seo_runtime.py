@@ -321,6 +321,16 @@ def _impressions_status(imp: int | None) -> str:
     return _GREEN if imp > 0 else _RED
 
 
+def _gsc_presence_status(gsc_status: str) -> str:
+    """Whether the domain is registered as a GSC property.
+    "ok" → 🟢, "not-in-gsc" → 🔴, anything else (auth-skipped/error/unknown) → ⚪."""
+    if gsc_status == "ok":
+        return _GREEN
+    if gsc_status == "not-in-gsc":
+        return _RED
+    return _GREY
+
+
 def row_statuses(row: SEORow) -> dict[str, str]:
     """Per-column emoji status for a row. Used by the renderer."""
     return {
@@ -328,6 +338,7 @@ def row_statuses(row: SEORow) -> dict[str, str]:
         "hsts": _bool_status(row.hsts),
         "robots": _bool_status(row.robots_served),
         "sitemap": _bool_status(row.sitemap_served),
+        "gsc": _gsc_presence_status(row.gsc_status),
         "imp": _impressions_status(row.gsc_impressions),
         "pos": _position_status(row.gsc_position),
         "lcp": _status_for_higher(row.crux_lcp_p75, _LCP_MS),
@@ -342,13 +353,14 @@ _OVERALL_RANK = {_GREEN: 0, _YELLOW: 1, _ORANGE: 2, _RED: 3, _GREY: -1}
 # HSTS is a security signal (belongs in `check --security` / `--live`); HTTP
 # is observed for context but failures cascade naturally into robots/sitemap
 # reds; CrUX field-data tiering is a separate dimension shown beside but not
-# folded into the SEO overall.
-_OVERALL_KEYS = ("imp", "pos", "robots", "sitemap")
+# folded into the SEO overall. `gsc` (in-GSC vs not-in-GSC) IS a real SEO
+# signal — a site missing from Search Console is invisible to Google.
+_OVERALL_KEYS = ("imp", "pos", "robots", "sitemap", "gsc")
 
 
 def overall_status(row: SEORow) -> str:
     """Worst non-grey emoji across the SEO-signal metrics
-    (impressions, position, robots, sitemap)."""
+    (impressions, position, robots, sitemap, gsc-presence)."""
     cells = [row_statuses(row)[k] for k in _OVERALL_KEYS]
     real = [c for c in cells if c != _GREY]
     if not real:

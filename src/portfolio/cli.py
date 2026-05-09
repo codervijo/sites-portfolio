@@ -622,12 +622,37 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str) -> None:
     _render_seo_table(rows, days=days, sort_by=sort_by)
 
 
+_EMOJI_TO_RICH_COLOR = {
+    "🟢": "green",
+    "🟡": "yellow",
+    "🟠": "orange3",
+    "🔴": "red",
+    "⚪": "dim",
+}
+
+
+def _color_value(emoji: str, text: str) -> str:
+    """Wrap `text` in a Rich color tag derived from a status emoji.
+    Lets us put the color *into* the cell value (so right-justified
+    numeric columns stay aligned) instead of prepending an emoji that
+    eats horizontal space and breaks justification."""
+    color = _EMOJI_TO_RICH_COLOR.get(emoji, "default")
+    if color == "default":
+        return text
+    return f"[{color}]{text}[/]"
+
+
 def _fmt_int(n: int | None) -> str:
     return f"{n:,}" if isinstance(n, int) else "—"
 
 
-def _fmt_pct(v: float | None) -> str:
-    return f"{v * 100:.1f}%" if isinstance(v, float) else "—"
+def _fmt_pct(v: float | None, *, impressions: int | None) -> str:
+    """CTR is meaningless when there are no impressions — show `—`, not `0.0%`."""
+    if not isinstance(v, float):
+        return "—"
+    if not impressions:
+        return "—"
+    return f"{v * 100:.1f}%"
 
 
 def _fmt_pos(v: float | None) -> str:
@@ -649,39 +674,53 @@ def _fmt_cls(v: float | None) -> str:
 def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
     from .seo_runtime import overall_status, row_statuses
 
+    # Hide CrUX columns when nobody has CrUX data — saves three columns
+    # of "⚪ —" noise. We still surface a one-line footer hint so the
+    # user knows why those columns are gone.
+    crux_uniformly_empty = bool(rows) and all(
+        r.crux_status in ("no-key", "no-data", "unknown") for r in rows
+    )
+
     t = Table(box=None, padding=(0, 1), show_header=True,
               title=f"[bold]check --seo · {len(rows)} domains · GSC {days}d · sort={sort_by}[/]",
               title_justify="left")
-    t.add_column("")           # overall status emoji
+    t.add_column("SEO")
     t.add_column("Domain")
     t.add_column("HTTP")
-    t.add_column("Robots")
-    t.add_column("Sitemap")
+    t.add_column("Robots", justify="center")
+    t.add_column("Sitemap", justify="center")
+    t.add_column("GSC", justify="center")
     t.add_column("Imp", justify="right")
     t.add_column("Clicks", justify="right")
     t.add_column("CTR", justify="right")
     t.add_column("Pos", justify="right")
-    t.add_column("LCP", justify="right")
-    t.add_column("INP", justify="right")
-    t.add_column("CLS", justify="right")
+    if not crux_uniformly_empty:
+        t.add_column("LCP", justify="right")
+        t.add_column("INP", justify="right")
+        t.add_column("CLS", justify="right")
 
     for row in rows:
         s = row_statuses(row)
         http_cell = f"{s['http']} {row.http_status}" if row.http_status is not None else f"{s['http']} err"
-        t.add_row(
+        cells = [
             overall_status(row),
             row.domain,
             http_cell,
             s["robots"],
             s["sitemap"],
-            f"{s['imp']} {_fmt_int(row.gsc_impressions)}",
+            s["gsc"],
+            _color_value(s["imp"], _fmt_int(row.gsc_impressions)),
             _fmt_int(row.gsc_clicks),
-            _fmt_pct(row.gsc_ctr),
-            f"{s['pos']} {_fmt_pos(row.gsc_position)}",
-            f"{s['lcp']} {_fmt_ms(row.crux_lcp_p75)}",
-            f"{s['inp']} {_fmt_ms(row.crux_inp_p75)}",
-            f"{s['cls']} {_fmt_cls(row.crux_cls_p75)}",
-        )
+            _fmt_pct(row.gsc_ctr, impressions=row.gsc_impressions),
+            _color_value(s["pos"], _fmt_pos(row.gsc_position)),
+        ]
+        if not crux_uniformly_empty:
+            cells.extend([
+                _color_value(s["lcp"], _fmt_ms(row.crux_lcp_p75)),
+                _color_value(s["inp"], _fmt_ms(row.crux_inp_p75)),
+                _color_value(s["cls"], _fmt_cls(row.crux_cls_p75)),
+            ])
+        t.add_row(*cells)
     console.print(t)
 
     # Footer counts: how many domains hit each tier of overall status.
@@ -701,9 +740,12 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
         gsc_skipped = sum(1 for r in rows if r.gsc_status == "auth-skipped")
         if gsc_skipped == n:
             console.print("[dim]GSC: not authenticated — run `portfolio gsc auth` to enable GSC columns.[/]")
-        crux_skipped = sum(1 for r in rows if r.crux_status == "no-key")
-        if crux_skipped == n:
-            console.print("[dim]CrUX: CRUX_API_KEY missing — see portfolio.env.[/]")
+        if crux_uniformly_empty:
+            crux_no_key = sum(1 for r in rows if r.crux_status == "no-key")
+            if crux_no_key == n:
+                console.print("[dim]CrUX columns hidden: CRUX_API_KEY missing — see portfolio.env.[/]")
+            else:
+                console.print("[dim]CrUX columns hidden: no field data for any of these origins.[/]")
 
 
 
