@@ -3610,7 +3610,46 @@ def project_fix(
             for c in res.candidates:
                 console.print(f"  • {c}")
             raise typer.Exit(2)
-        console.print(f"[red]No project matches '{name}'.[/]")
+        # No match. Diagnose: is there a sites/<name>/ dir despite the
+        # missing portfolio.json entry? That's the "registered outside
+        # tracked registrars" / "stale CSV" case — surface it explicitly.
+        candidate_dir = SITES_ROOT / name
+        sites_dir_exists = candidate_dir.is_dir()
+        console.print(
+            f"[red]No project matches[/] [bold]{name}[/] "
+            f"[dim]in data/portfolio.json ({len(plan)}-domain inventory).[/]"
+        )
+        if sites_dir_exists:
+            console.print()
+            console.print(
+                f"[yellow]But the directory exists:[/]  {candidate_dir}\n"
+                f"[dim]This means {name} is registered somewhere not tracked by "
+                "your registrar CSVs (or your CSV export is stale).[/]"
+            )
+            console.print("\n[bold]Fix one of these:[/]")
+            console.print(
+                "  • [cyan]Refresh CSVs[/] — re-export from Porkbun / Namecheap / "
+                "GoDaddy into\n"
+                f"    [dim]data/domains/<registrar>.csv[/], then run "
+                f"[bold]portfolio info cleanup[/]"
+            )
+            console.print(
+                "  • [cyan]Add manually[/] — append a row to "
+                "[dim]data/domains/<registrar>.csv[/]\n"
+                f"    with at least: domain, TLD, create date, expire date. "
+                f"Then [bold]portfolio info cleanup[/]"
+            )
+            console.print(
+                "  • [cyan]Use fleetwide mode[/] — "
+                f"[bold]portfolio project fix --all --rule CHECK_xxx[/]\n"
+                "    [dim](iterates dirs directly, no resolver lookup)[/]"
+            )
+        else:
+            console.print(
+                "\n[dim]No directory at "
+                f"{candidate_dir} either. Check the spelling, or scaffold first:[/]\n"
+                f"  [bold]portfolio new bootstrap {name}[/]"
+            )
         raise typer.Exit(1)
 
     domain = res.matched
