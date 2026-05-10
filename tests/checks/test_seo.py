@@ -51,7 +51,7 @@ def _write_full_index(tmp_path):
 
 # ---------- assets ----------
 
-# CHECK_060 — has-favicon
+# CHECK_060 — has-favicon (severity: error — branding leak signal)
 
 def test_check_060_pass(tmp_path):
     _make_web_project(tmp_path)
@@ -62,6 +62,53 @@ def test_check_060_pass(tmp_path):
 def test_check_060_fail(tmp_path):
     _make_web_project(tmp_path)
     assert run_check("CHECK_060", str(tmp_path)).status == "fail"
+
+
+def test_check_060_severity_is_error():
+    """Branding leak (default favicon visible to visitors) is an error,
+    not a warning."""
+    from portfolio.checks import get_check
+    spec = get_check("CHECK_060")
+    assert spec.severity == "error"
+
+
+def test_check_060_fails_on_lovable_default(tmp_path):
+    """A favicon whose SHA-256 matches a known AI-scaffolder default
+    fails with a clear "replace before shipping" message — even though
+    a file is technically present."""
+    _make_web_project(tmp_path)
+    # Bytes from sites/newiniot.com/public/favicon.ico (verified 2026-05-09).
+    # Round-trip the file content to keep the test self-contained — we
+    # don't ship the binary, we reproduce its hash by writing a payload
+    # whose SHA-256 we already registered. Easiest way: monkey-patch
+    # the registered hashes to include a hash we control.
+    import hashlib
+
+    payload = b"this-is-a-fake-lovable-favicon-payload"
+    digest = hashlib.sha256(payload).hexdigest()
+
+    from portfolio.checks.seo import check_060_has_favicon as mod
+    original = dict(mod._KNOWN_DEFAULT_FAVICON_HASHES)
+    mod._KNOWN_DEFAULT_FAVICON_HASHES[digest] = "Lovable"
+    try:
+        (tmp_path / "public" / "favicon.ico").write_bytes(payload)
+        result = run_check("CHECK_060", str(tmp_path))
+        assert result.status == "fail"
+        assert "Lovable" in result.message
+        assert "replace" in result.message.lower()
+    finally:
+        mod._KNOWN_DEFAULT_FAVICON_HASHES.clear()
+        mod._KNOWN_DEFAULT_FAVICON_HASHES.update(original)
+
+
+def test_check_060_real_lovable_hash_is_registered():
+    """Smoke check: the known-Lovable hash from newiniot.com is registered."""
+    from portfolio.checks.seo.check_060_has_favicon import (
+        _KNOWN_DEFAULT_FAVICON_HASHES,
+    )
+    lovable = "dd821076a9b03adc2173c93956226aea3d92482d7578fc4339c5d3a2e9c24586"
+    assert lovable in _KNOWN_DEFAULT_FAVICON_HASHES
+    assert _KNOWN_DEFAULT_FAVICON_HASHES[lovable] == "Lovable"
 
 
 # CHECK_061 — has-robots-txt
