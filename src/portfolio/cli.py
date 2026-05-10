@@ -134,6 +134,110 @@ def focus(
         )
 
 
+@info_app.command("drift")
+def info_drift() -> None:
+    """Cross-check the four sources of truth and surface inconsistencies.
+
+    Read-only. Six signals:
+      1. Registered but never bootstrapped (in portfolio.json, no sites/<dir>/)
+      2. CSV-only domains (in registrar CSV, missing from portfolio.json)
+      3. Expiry mismatches (CSV expires != portfolio.json expires)
+      4. GSC orphans (verified GSC properties with no portfolio.json entry)
+      5. Deployed-but-flagged-for-deletion (live-site classification on a
+         domain in 'To be deleted immediately' category)
+      6. Duplicate across registrars (same domain in two CSVs — transfer
+         didn't clean up source)
+
+    Domains in 'To be deleted immediately' category are excluded from
+    signal 1 (they're already retired; no point flagging absence).
+    """
+    from .drift import compute_drift
+
+    report = compute_drift()
+
+    if report.is_clean() and not report.gsc_skipped and not report.snapshot_skipped:
+        console.print("[green]No drift — all four sources agree.[/]")
+        return
+
+    console.print("[bold]Drift report[/]\n")
+
+    # Signal 1: portfolio_no_dir
+    console.print("[bold]1. Registered but never bootstrapped[/] "
+                  f"[dim]({len(report.portfolio_no_dir)})[/]")
+    if report.portfolio_no_dir:
+        for d in report.portfolio_no_dir:
+            console.print(f"   {d}")
+    else:
+        console.print("   [dim]—[/]")
+    console.print()
+
+    # Signal 2: csv_only
+    console.print(f"[bold]2. CSV-only — registrar exports newer than portfolio.json[/] "
+                  f"[dim]({len(report.csv_only)})[/]")
+    if report.csv_only:
+        for domain, registrar in report.csv_only:
+            console.print(f"   {domain}  [dim]({registrar})[/]")
+        console.print(f"   [dim]→ run 'portfolio info cleanup' to consolidate[/]")
+    else:
+        console.print("   [dim]—[/]")
+    console.print()
+
+    # Signal 3: expiry_mismatches
+    console.print(f"[bold]3. Expiry mismatches — CSV vs portfolio.json[/] "
+                  f"[dim]({len(report.expiry_mismatches)})[/]")
+    if report.expiry_mismatches:
+        for ed in report.expiry_mismatches:
+            console.print(
+                f"   {ed.domain}  [dim]({ed.registrar})[/]  "
+                f"csv={ed.csv_expires} json={ed.json_expires}"
+            )
+        console.print(f"   [dim]→ run 'portfolio info cleanup' to refresh[/]")
+    else:
+        console.print("   [dim]—[/]")
+    console.print()
+
+    # Signal 4: gsc_orphans
+    if report.gsc_skipped:
+        console.print("[bold]4. GSC orphans[/] [yellow](skipped — GSC not authenticated)[/]")
+    else:
+        console.print(f"[bold]4. GSC orphans — verified in Search Console but not in portfolio.json[/] "
+                      f"[dim]({len(report.gsc_orphans)})[/]")
+        if report.gsc_orphans:
+            for d in report.gsc_orphans:
+                console.print(f"   {d}")
+        else:
+            console.print("   [dim]—[/]")
+    console.print()
+
+    # Signal 5: deployed_but_flagged
+    if report.snapshot_skipped:
+        console.print("[bold]5. Deployed but flagged for deletion[/] "
+                      "[yellow](skipped — no check snapshot)[/]")
+    else:
+        console.print(f"[bold]5. Deployed but flagged for deletion[/] "
+                      f"[dim]({len(report.deployed_but_flagged)})[/]")
+        if report.deployed_but_flagged:
+            for df in report.deployed_but_flagged:
+                console.print(
+                    f"   {df.domain}  [yellow]{df.classification}[/]  "
+                    f"[dim](category: {df.category})[/]"
+                )
+        else:
+            console.print("   [dim]—[/]")
+    console.print()
+
+    # Signal 6: duplicate_in_registrars
+    console.print(f"[bold]6. Duplicate across registrars[/] "
+                  f"[dim]({len(report.duplicate_in_registrars)})[/]")
+    if report.duplicate_in_registrars:
+        for dup in report.duplicate_in_registrars:
+            console.print(
+                f"   {dup.domain}  [dim]({', '.join(dup.registrars)})[/]"
+            )
+    else:
+        console.print("   [dim]—[/]")
+
+
 @info_app.command("cleanup")
 def info_cleanup() -> None:
     """Build canonical data/portfolio.json from registrar CSVs + plan.md classifications."""
