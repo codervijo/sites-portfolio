@@ -3459,23 +3459,41 @@ def _project_status_deprecated(
 
 @project_app.command("fix")
 def project_fix(
-    name: str = typer.Argument(..., help="Project name (fuzzy-matched against domains)"),
+    name: str = typer.Argument("", help="Project name (fuzzy-matched). Required unless --all."),
+    fix_all: bool = typer.Option(False, "--all", help="Apply fixes across every eligible project (v6.D)"),
     apply_changes: bool = typer.Option(False, "--apply", help="Actually write the changes (default is dry-run)"),
     rule_filter: list[str] = typer.Option(None, "--rule", help="Run only this CHECK_ID (repeatable)"),
-    assume_yes: bool = typer.Option(False, "--yes", help="Skip per-file confirmations on lockfile deletions"),
-    use_ai: bool = typer.Option(False, "--ai", help="Enable Tier 2 (Claude subprocess) — deferred to v6.C.1"),
+    assume_yes: bool = typer.Option(False, "--yes", help="Skip confirmations (lockfile deletes + fleetwide --apply)"),
+    use_ai: bool = typer.Option(False, "--ai", help="Enable Tier 2 (Claude subprocess) — costs API budget"),
 ) -> None:
-    """Auto-fix conformance issues for one project.
+    """Auto-fix conformance issues for one project (or the whole fleet with --all).
 
     Default: dry-run plan (lists what would change; no writes).
     `--apply` performs the writes. `--rule CHECK_xxx` (repeatable)
     runs only specified fixers. `--yes` skips per-file confirmations
-    on lockfile deletions (CHECK_032/033/034).
+    on lockfile deletions (CHECK_032/033/034) and the fleetwide
+    "apply N changes across M projects?" prompt.
 
-    Tier 1 (templated, 16 fixers) ships in v6.C. Tier 2 (Claude
-    subprocess for content-quality checks) ships in v6.C.1 — pass
-    `--ai` to run Tier 2 after Tier 1 lands.
+    `--all` iterates every project in `repos_dir`, skipping projects
+    in `ignore_repos` config + projects whose domain is in the
+    "To be deleted immediately" category. Per-project output is
+    compact in fleetwide mode; per-project errors are reported but
+    don't stop the sweep.
+
+    Tier 1 (templated) and Tier 2 (--ai) fixers — see v6.C / v6.C.1.
     """
+    if fix_all and name:
+        console.print("[red]Pass either <name> or --all, not both.[/]")
+        raise typer.Exit(2)
+    if fix_all:
+        _run_project_fix_all(apply_changes=apply_changes,
+                             rule_filter=rule_filter,
+                             assume_yes=assume_yes,
+                             use_ai=use_ai)
+        return
+    if not name:
+        console.print("[red]'project fix' needs a <name> argument (or --all).[/]")
+        raise typer.Exit(2)
     from .fix_registry import (
         fixable_check_ids, get_tier_1, get_tier_2, list_tier_2,
     )
@@ -3712,6 +3730,191 @@ def _deploy_deprecated(
         domain=domain, gh_owner=gh_owner, private=private, dry_run=dry_run,
         skip_verify=skip_verify, skip_repo=skip_repo, skip_pages=skip_pages,
     )
+
+
+# ===========================================================================
+# v6.D — fleetwide `project fix --all` helper
+# ===========================================================================
+
+
+_DELETE_CATEGORY = "to be deleted immediately"
+_TIER_2_COST_ESTIMATE_USD = 0.10  # rough per-call estimate for budget hint
+
+
+def _list_fleet_eligible_projects():
+    """Return [(domain, project_dir)] for every fleetwide-fix-eligible
+    project: skip ignore_repos config + skip domains in 'To be deleted
+    immediately' category. Sorted alphabetically."""
+    from .checks.config import load_config
+    cfg = load_config()
+    repos = _iterate_repos(cfg.repos_dir, ignore=cfg.ignore_repos)
+    domains_by_name = {d.name.lower(): d for d in load_domains()}
+    out = []
+    for repo_path in repos:
+        domain_obj = domains_by_name.get(repo_path.name.lower())
+        if domain_obj and (domain_obj.category or "").lower() == _DELETE_CATEGORY:
+            continue
+        out.append((repo_path.name, repo_path))
+    return out
+
+
+def _run_project_fix_all(*, apply_changes: bool, rule_filter, assume_yes: bool,
+                        use_ai: bool) -> None:
+    """Fleetwide fix: dry-run plan or --apply across all eligible projects.
+
+    Skips: ignore_repos + 'To be deleted immediately' category. Continues
+    on per-project error (errors reported in summary). Single confirm
+    prompt before fleetwide writes (unless --yes).
+    """
+    from .checks import run_checks
+    from .fix_registry import fixable_check_ids, get_tier_1, get_tier_2
+    from .fix_helpers import claude_available
+
+    projects = _list_fleet_eligible_projects()
+    if not projects:
+        console.print("[yellow]No fleetwide-eligible projects in repos_dir.[/]")
+        return
+
+    tier_1_fixable = fixable_check_ids(tier=1)
+    tier_2_fixable = fixable_check_ids(tier=2) if use_ai else set()
+    requested = set(rule_filter) if rule_filter else None
+
+    # Phase 1 — compute the plan (always run, to show fleetwide totals).
+    # Note: we run the catalog directly against the project dir rather
+    # than going through `build_status` — the resolver requires a
+    # portfolio.json match, and dirs like `harmonia` / `levents` that
+    # don't naturally resolve still need fixing. The catalog operates
+    # on filesystem state alone, no resolver needed.
+    plans: list[dict] = []
+    total_t1 = 0
+    total_t2 = 0
+    for domain, project_dir in projects:
+        try:
+            results = run_checks(str(project_dir))
+            failed_ids = [
+                cid for cid, r in results.items()
+                if r.status == "fail"
+            ]
+        except Exception as e:
+            plans.append({
+                "domain": domain, "dir": project_dir,
+                "t1": [], "t2": [], "error": f"catalog run: {e}",
+            })
+            continue
+
+        if requested:
+            t1 = sorted(requested & tier_1_fixable & set(failed_ids))
+            t2 = sorted(requested & tier_2_fixable & set(failed_ids))
+        else:
+            t1 = sorted(set(failed_ids) & tier_1_fixable)
+            t2 = sorted(set(failed_ids) & tier_2_fixable)
+        plans.append({
+            "domain": domain, "dir": project_dir,
+            "t1": t1, "t2": t2, "error": None,
+        })
+        total_t1 += len(t1)
+        total_t2 += len(t2)
+
+    # Phase 2 — render the plan.
+    rule_label = (
+        f" [dim](filtered to {', '.join(sorted(requested))})[/]"
+        if requested else ""
+    )
+    console.print(
+        f"\n[bold]Fleetwide fix plan: {len(projects)} eligible project(s)[/]"
+        f"{rule_label}"
+    )
+    console.print(f"  Tier 1 templated:    {total_t1} fix(es) across the fleet")
+    if use_ai:
+        cost = total_t2 * _TIER_2_COST_ESTIMATE_USD
+        console.print(
+            f"  Tier 2 (--ai):       {total_t2} Claude subprocess(es)  "
+            f"[dim](est. ~${cost:.2f})[/]"
+        )
+    if use_ai and not claude_available():
+        console.print(
+            "  [yellow]warning:[/] [dim]--ai requested but `claude` CLI not on PATH; "
+            "Tier 2 will skip[/]"
+        )
+    console.print()
+
+    # Per-project compact lines.
+    for p in plans:
+        if p["error"]:
+            console.print(f"  [red]✗[/]  {p['domain']:<24}  {p['error']}")
+            continue
+        n_t1, n_t2 = len(p["t1"]), len(p["t2"])
+        if n_t1 == 0 and n_t2 == 0:
+            console.print(f"  [dim]·  {p['domain']:<24}  nothing to fix[/]")
+            continue
+        tags = []
+        if n_t1: tags.append(f"{n_t1}×T1")
+        if n_t2: tags.append(f"{n_t2}×T2")
+        console.print(f"  +  {p['domain']:<24}  {', '.join(tags)}")
+
+    if not apply_changes:
+        console.print("\n[dim]Re-run with --apply to write across the fleet.[/]")
+        return
+
+    # Phase 3 — confirm before fleetwide writes.
+    total_changes = total_t1 + total_t2
+    if total_changes == 0:
+        console.print("\n[green]Nothing to apply — every project is clean.[/]")
+        return
+    if not assume_yes:
+        ok = typer.confirm(
+            f"\nApply {total_changes} change(s) across {len(projects)} project(s)?",
+            default=False,
+        )
+        if not ok:
+            console.print("[yellow]Aborted.[/]")
+            raise typer.Exit(0)
+
+    # Phase 4 — execute. Continue-on-error.
+    console.print()
+    fixed = 0
+    errored = 0
+    for i, p in enumerate(plans, 1):
+        prefix = f"[{i}/{len(plans)}]"
+        if p["error"]:
+            console.print(f"{prefix} [red]✗[/] {p['domain']}  {p['error']}")
+            errored += 1
+            continue
+        if not p["t1"] and not p["t2"]:
+            console.print(f"{prefix} [dim]·[/] {p['domain']}  nothing to fix")
+            continue
+        per_project_fixed = 0
+        try:
+            for cid in p["t1"]:
+                spec = get_tier_1(cid)
+                # Lockfile deletions: in --all mode, --yes is required to skip
+                # the per-file prompt across N repos. Without --yes we skip
+                # those checks and surface them at end.
+                if cid in {"CHECK_032", "CHECK_033", "CHECK_034"} and not assume_yes:
+                    continue
+                r = spec.apply(p["dir"], dry_run=False, assume_yes=assume_yes)
+                if r.status == "fixed":
+                    per_project_fixed += 1
+            if use_ai and claude_available():
+                for cid in p["t2"]:
+                    spec = get_tier_2(cid)
+                    r = spec.apply(p["dir"], dry_run=False, assume_yes=assume_yes)
+                    if r.status == "fixed":
+                        per_project_fixed += 1
+            console.print(
+                f"{prefix} [green]✓[/] {p['domain']:<24}  {per_project_fixed} fix(es)"
+            )
+            fixed += per_project_fixed
+        except Exception as e:
+            console.print(f"{prefix} [red]✗[/] {p['domain']}  runtime error: {e}")
+            errored += 1
+
+    # Phase 5 — fleetwide summary.
+    console.print(
+        f"\n[bold]Done:[/] {fixed} fix(es) applied across {len(plans) - errored} project(s)"
+    )
+    if errored:
+        console.print(f"  [red]{errored} project(s) errored — see above[/]")
 
 
 if __name__ == "__main__":
