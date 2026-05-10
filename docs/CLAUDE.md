@@ -67,6 +67,78 @@ uv run portfolio info status <domain>
     `docs/CLAUDE.md` for Claude-specific. The two are intentionally
     separate.
 
+## Locked target shapes
+
+Designs aligned but not yet executed. When picked up, no need to re-debate.
+
+### v7.A — CLI restructure to scope-first (`project` / `fleet`)
+
+Aligned 2026-05-10. Replaces the current mixed-namespace tree with a
+scope-first model. `project` for ops on one project; `fleet` for
+cross-portfolio. `info` group dies (its members split: per-project
+status moves to `project check`; inventory views go to `fleet info`).
+`check`-as-noun-with-modes goes away (each mode becomes its own verb
+under the appropriate scope). `--all` and `--domain` flags retire
+(scope is in the namespace, not the flag).
+
+Final tree:
+
+```
+portfolio
+├── project
+│   ├── check <name>
+│   ├── fix <name>
+│   └── seo <name>
+├── fleet
+│   ├── focus
+│   ├── live
+│   ├── seo
+│   ├── check
+│   ├── fix
+│   ├── cleanup        (write op — kept at action layer, not info)
+│   ├── drift
+│   └── info           (read-only browse)
+│       ├── summary    (--verbose replaces info list)
+│       └── expiring
+├── new
+│   ├── suggest
+│   ├── bootstrap
+│   └── deploy
+├── catalog
+│   ├── list
+│   ├── describe
+│   └── run
+└── gsc
+    ├── auth
+    ├── list
+    ├── sync
+    └── compare
+```
+
+Rename map: `info status <name>` → `project check <name>`;
+`check git --domain X` → `project check X --catalog-only`;
+`check seo --domain X` → `project seo X`; `check git` → `fleet check`;
+`check live` → `fleet live`; `check seo` → `fleet seo`;
+`project fix --all` → `fleet fix`; `focus` → `fleet focus`;
+`info summary` → `fleet info summary`; `info list` → `fleet info summary --verbose`;
+`info expiring` → `fleet info expiring`; `info cleanup` → `fleet cleanup`;
+`info drift` → `fleet drift`; `check {catalog,describe,run}` →
+`catalog {list,describe,run}`.
+
+Phasing (when executed):
+  - **v7.A.1**: introduce new commands additively; keep old paths working
+  - **v7.A.2**: convert old paths to deprecation aliases
+  - **v7.A.3**: docs + tests + soak; mark removal target = v8.A
+
+Triggers to actually execute (none yet):
+  - Muscle memory has shifted (you reflexively type the new shape)
+  - A new per-project read command needs a home
+  - A second contributor onboards
+  - 6+ months pass without churn pressure
+
+If none happen: leave it. Action plan in `check git --domain` already
+bridges discoverability.
+
 ## Deferred decisions
 
 Things deliberately *not* shipped — don't re-propose without new context.
