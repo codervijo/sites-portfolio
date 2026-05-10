@@ -14,38 +14,52 @@ plus a sibling `sites/<domain>/` workspace. It does three big things:
   2. Project bootstrap — `bootstrap <domain>` scaffolds a Vite/Astro site
      under `sites/<domain>/` (first project-dir write surface). `deploy
      <domain>` creates the GitHub repo + Cloudflare Pages project.
-  3. Universal check catalog — `check live`, `check git` (cross-repo),
-     `check seo` (per-domain runtime probe). Checks live in
-     `src/portfolio/checks/<category>/check_NNN_<slug>.py` with
-     auto-discovery via the registry.
+  3. Universal check catalog — `fleet live` (classify domains), `fleet check`
+     (cross-repo catalog), `fleet seo` and `project seo` (runtime SEO probe).
+     Checks live in `src/portfolio/checks/<category>/check_NNN_<slug>.py`
+     with auto-discovery via the registry.
 
 `docs/prd.md` is the canonical spec; `docs/Prompts.md` is the prompt log
-(parsed by `portfolio info status`); `docs/CLAUDE.md` is this file.
+(parsed by `portfolio project check`); `docs/CLAUDE.md` is this file.
 
 ## Commands
 
-The CLI was reorganized in v5.F into four groups: `focus`, `check`, `new`,
-`info`. Old top-level names (`bootstrap`, `summary`, `project status`, …)
-still work via deprecation aliases that print a one-line nudge.
+CLI restructured in v7.A to scope-first (`project` / `fleet` / `new` /
+`settings`). Old top-level names (`info status`, `check git`, `focus`,
+`project fix`, etc.) still work as additive paths in v7.A.1; they'll
+become deprecation aliases in v7.A.2.
 
 ```bash
 # Test
 uv run pytest -q
 
-# Catalog list (descriptions, severities, categories)
-uv run portfolio check catalog
+# Per-project status
+uv run portfolio project check <domain>
 
-# Cross-repo health (default summary; --detail for per-repo breakdown)
-uv run portfolio check git
+# Per-project remediation
+uv run portfolio project fix <domain> --apply --yes
 
-# Per-domain runtime SEO (HTTP + GSC + CrUX)
-uv run portfolio check seo --only=all
+# Cross-repo health
+uv run portfolio fleet check
+
+# Where to focus today
+uv run portfolio fleet focus
+
+# Cross-source drift report
+uv run portfolio fleet drift
+
+# Fleetwide SEO probe
+uv run portfolio fleet seo --refresh
+
+# Fleetwide remediation
+uv run portfolio fleet fix --apply --yes
+
+# Setup / debug
+uv run portfolio settings apikeys list
+uv run portfolio settings catalog list
 
 # Bootstrap a new sites/<domain>/ project
 uv run portfolio new bootstrap <domain>
-
-# Per-project conformance status
-uv run portfolio info status <domain>
 ```
 
 ## Conventions

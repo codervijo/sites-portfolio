@@ -169,7 +169,7 @@ make test      # → pnpm install + build + test (must be inside container)
 ## How this project is checked
 
 This project is enforced against shared sites/* conventions by
-`portfolio info status {domain}` (run from `sites/portfolio/`).
+`portfolio project check {domain}` (run from `sites/portfolio/`).
 Conformance is driven by the universal check catalog (CHECK_*) —
 e.g. CHECK_020 (own-git-repo), CHECK_002 (has-ai-agents-md),
 CHECK_007 (has-docs-prompts), CHECK_008 (has-docs-growth — `docs/growth.md`
@@ -180,7 +180,7 @@ below), CHECK_001 (has-readme), CHECK_009 (has-gitignore), CHECK_035
 `portfolio check catalog`. The bootstrap output satisfies all of these on
 day zero — keep it that way.
 
-If `info status` flags a regression, fix it. v6.C's `portfolio project fix`
+If `project check` flags a regression, fix it. v6.C's `portfolio project fix`
 will eventually auto-fix; until then, hand-edit.
 
 ## Growth log — per-project experiment tracker
@@ -392,7 +392,7 @@ def _docs_prompts_md(domain: str, today: str) -> str:
 ## YYYY-MM-DD [optional title]
 > <prompt text or short summary>
 
-The dated H2 (`## YYYY-MM-DD`) is what `portfolio info status` parses
+The dated H2 (`## YYYY-MM-DD`) is what `portfolio project check` parses
 to surface "last AI prompt" per project. Keep entries append-only.
 -->
 

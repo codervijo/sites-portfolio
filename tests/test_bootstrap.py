@@ -267,8 +267,8 @@ def test_template_path_ai_agents_has_conformance_section(tmp_path):
     bootstrap("flow.dev", sites_root=tmp_path)
     text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
     assert "How this project is checked" in text
-    # v5.F renamed `portfolio project status` → `portfolio info status`.
-    assert "portfolio info status" in text
+    # v7.A renamed `portfolio info status` → `portfolio project check`.
+    assert "portfolio project check" in text
     # Lists CHECK_* IDs from the catalog (v5.E migrated rule names).
     for cid in ("CHECK_020", "CHECK_002", "CHECK_007", "CHECK_008"):
         assert cid in text, f"check {cid} not surfaced in AI_AGENTS"

@@ -18,7 +18,16 @@ from .check import (
 )
 from .data import PORTFOLIO_JSON, cleanup as run_cleanup, load_domains, load_plan
 
-app = typer.Typer(help="Manage your domain portfolio.", add_completion=False)
+app = typer.Typer(
+    help=(
+        "Manage your domain portfolio. Primary namespaces:\n"
+        "  project — per-project ops (check, fix, seo)\n"
+        "  fleet   — cross-portfolio ops (focus, live, seo, check, fix, drift, info)\n"
+        "  new     — create new things (suggest, bootstrap, deploy)\n"
+        "  settings— setup / debug (catalog, gsc, apikeys)"
+    ),
+    add_completion=False,
+)
 console = Console()
 
 # v5.F: subapp homes for the rename pass.
@@ -27,12 +36,48 @@ console = Console()
 # Old top-level command names continue to work via deprecation shims that
 # print a one-line warning and forward to the new home. Removal phase:
 # v5.G+ or after a week of use without surprise.
-info_app = typer.Typer(help="Read-only views into the portfolio (v5.F).",
+info_app = typer.Typer(help="[Deprecated — use `project` / `fleet`] (retired in v7.A)",
                        no_args_is_help=True)
-new_app = typer.Typer(help="Add new domains / projects (v5.F).",
+new_app = typer.Typer(help="Add new domains / projects.",
                       no_args_is_help=True)
 app.add_typer(info_app, name="info")
 app.add_typer(new_app, name="new")
+
+# v7.A — scope-first restructure. `project` for ops on one project,
+# `fleet` for cross-portfolio ops, `settings` for setup/debug surfaces.
+# Each new command is a thin wrapper that forwards to existing logic;
+# old paths (`info status`, `check git --domain`, etc.) are kept as
+# deprecation aliases that print a one-line nudge and forward.
+fleet_app = typer.Typer(
+    help="Cross-portfolio ops (focus, live, seo, check, fix, drift, info).",
+    no_args_is_help=True,
+)
+fleet_info_app = typer.Typer(
+    help="Read-only inventory views (summary, expiring, cleanup).",
+    no_args_is_help=True,
+)
+settings_app = typer.Typer(
+    help="Setup / debug surfaces (catalog, gsc, apikeys).",
+    no_args_is_help=True,
+)
+settings_catalog_app = typer.Typer(
+    help="Inspect the check catalog itself.",
+    no_args_is_help=True,
+)
+settings_gsc_app = typer.Typer(
+    help="Google Search Console integration.",
+    no_args_is_help=True,
+)
+settings_apikeys_app = typer.Typer(
+    help="Manage credentials in portfolio.env.",
+    no_args_is_help=True,
+)
+app.add_typer(fleet_app, name="fleet")
+fleet_app.add_typer(fleet_info_app, name="info")
+app.add_typer(settings_app, name="settings")
+settings_app.add_typer(settings_catalog_app, name="catalog")
+settings_app.add_typer(settings_gsc_app, name="gsc")
+settings_app.add_typer(settings_apikeys_app, name="apikeys")
 
 
 def _deprecation(old: str, new: str) -> None:
@@ -59,7 +104,7 @@ def _root_callback(ctx: typer.Context) -> None:
 def focus(
     show_all: bool = typer.Option(False, "--all", help="Show the full ranked list, not just top 5"),
 ) -> None:
-    """Where to focus today — domains ranked by priority signal.
+    """[v7.A — moved to `portfolio fleet focus`] Where to focus today.
 
     Reads from caches only — never blocks on a live fetch. If a cache
     is missing, that signal is silently skipped. Run `check live` /
@@ -130,7 +175,7 @@ def focus(
     if not show_all and len(items) > cap:
         console.print(
             f"[dim]+ {len(items) - cap} more — run "
-            f"`portfolio focus --all` for full list[/]"
+            f"`portfolio fleet focus --all` for full list[/]"
         )
 
 
@@ -177,7 +222,7 @@ def info_drift() -> None:
     if report.csv_only:
         for domain, registrar in report.csv_only:
             console.print(f"   {domain}  [dim]({registrar})[/]")
-        console.print(f"   [dim]→ run 'portfolio info cleanup' to consolidate[/]")
+        console.print(f"   [dim]→ run 'portfolio fleet info cleanup' to consolidate[/]")
     else:
         console.print("   [dim]—[/]")
     console.print()
@@ -191,7 +236,7 @@ def info_drift() -> None:
                 f"   {ed.domain}  [dim]({ed.registrar})[/]  "
                 f"csv={ed.csv_expires} json={ed.json_expires}"
             )
-        console.print(f"   [dim]→ run 'portfolio info cleanup' to refresh[/]")
+        console.print(f"   [dim]→ run 'portfolio fleet info cleanup' to refresh[/]")
     else:
         console.print("   [dim]—[/]")
     console.print()
@@ -422,9 +467,9 @@ def _render_status(snapshot_path) -> None:
 
 check_app = typer.Typer(
     help=(
-        "Health checks: live (fetch + classify domains), git (cross-repo "
-        "catalog), seo (per-domain runtime probe). Plus catalog-inspection "
-        "subcommands (catalog, describe, run)."
+        "[Reorganized in v7.A] Use `fleet check`, `fleet live`, `fleet seo`, "
+        "`project check --catalog-only`, `project seo`, or "
+        "`settings catalog {list,describe,run}`."
     ),
     invoke_without_command=True,
 )
@@ -1321,7 +1366,10 @@ def check_run(
     console.print(f"\n[dim]Totals: {n_pass} pass · {n_fail} fail · {n_warn} warn[/]")
 
 
-gsc_app = typer.Typer(help="Google Search Console integration.", no_args_is_help=True)
+gsc_app = typer.Typer(
+    help="[Reorganized in v7.A] Use `settings gsc auth` / `settings gsc status`.",
+    no_args_is_help=True,
+)
 app.add_typer(gsc_app, name="gsc")
 
 
@@ -3248,8 +3296,8 @@ def _render_bootstrap_summary(result, domain: str) -> None:
     console.print("  [bold cyan]Deploy[/]")
     console.print(f"    portfolio new deploy {domain}     [dim]# create GH repo + Cloudflare Pages project[/]")
     console.print("  [bold cyan]Verify after deploy[/]")
-    console.print(f"    portfolio check live                         [dim]# refresh check snapshot[/]")
-    console.print(f"    portfolio info status {domain}      [dim]# full conformance report[/]")
+    console.print(f"    portfolio fleet live                         [dim]# refresh check snapshot[/]")
+    console.print(f"    portfolio project check {domain}      [dim]# full conformance report[/]")
 
 
 def _render_project_tree(project_dir) -> None:
@@ -3544,7 +3592,7 @@ def _status_deprecated() -> None:
 # v6.C brings it back for `project fix` — the second project-dir write
 # surface. `project status` stays here as a deprecation alias pointing
 # at `info status` (since v5.F).
-project_app = typer.Typer(help="Per-project write operations (fix, …).",
+project_app = typer.Typer(help="Per-project ops (check, fix, seo).",
                           no_args_is_help=True)
 app.add_typer(project_app, name="project")
 
@@ -4056,6 +4104,322 @@ def _run_project_fix_all(*, apply_changes: bool, rule_filter, assume_yes: bool,
     )
     if errored:
         console.print(f"  [red]{errored} project(s) errored — see above[/]")
+
+
+# ===========================================================================
+# v7.A — new commands wired into project / fleet / settings namespaces.
+# Each forwards to existing logic; old paths kept as deprecation aliases.
+# ===========================================================================
+
+# ---------- project namespace ----------
+
+
+@project_app.command("check")
+def project_check(
+    name: str = typer.Argument(..., help="Project name (fuzzy-matched against domains)"),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON instead of human table"),
+    catalog_only: bool = typer.Option(
+        False, "--catalog-only",
+        help="Skip git/deploy/prompts; show only the per-rule catalog table",
+    ),
+) -> None:
+    """v7.A — full per-project status: conformance + git + deploy + prompts.
+
+    Replaces `info status` (deprecated alias still works). With
+    `--catalog-only`, behaves like the per-rule view formerly at
+    `check git --domain <name>`.
+    """
+    if catalog_only:
+        # Map to the per-repo detail rendering used by `check git --domain`.
+        from .checks import list_checks, run_checks
+        from .checks.config import load_config
+        from .project import resolve_project, SITES_ROOT
+
+        plan = load_plan()
+        res = resolve_project(name, plan=plan)
+        if res.matched is None:
+            console.print(f"[red]No project matches[/] [bold]{name}[/].")
+            raise typer.Exit(1)
+        project_dir = SITES_ROOT / res.matched
+        if not project_dir.is_dir():
+            console.print(f"[red]Project dir not found:[/] {project_dir}")
+            raise typer.Exit(1)
+        cfg = load_config()
+        catalog_specs = [s for s in list_checks() if s.category in _GIT_FLAG_CATEGORIES]
+        catalog_ids = [s.id for s in catalog_specs]
+        results = run_checks(str(project_dir), ids=catalog_ids,
+                             skip_checks=cfg.skip_checks)
+        _render_per_repo_detail(res.matched, results, catalog_specs)
+        return
+    # Default: full status (the v5.E refactor body).
+    info_status(name=name, json_out=json_out)
+
+
+@project_app.command("seo")
+def project_seo(
+    name: str = typer.Argument(..., help="Domain (single-domain runtime SEO probe)"),
+    days: int = typer.Option(28, "--days"),
+    refresh: bool = typer.Option(False, "--refresh"),
+    sort_by: str = typer.Option("impressions", "--sort"),
+) -> None:
+    """v7.A — runtime SEO probe (HTTP + GSC + CrUX) for one domain.
+    Replaces `check seo --domain <name>` (deprecated alias works)."""
+    _run_check_seo_mode(days=days, only_domain=name.lower(),
+                        sort_by=sort_by, only="wip", concurrency=20,
+                        refresh=refresh)
+
+
+# ---------- fleet namespace ----------
+
+
+@fleet_app.command("focus")
+def fleet_focus(
+    show_all: bool = typer.Option(False, "--all"),
+) -> None:
+    """v7.A — top priorities across the fleet (formerly top-level `focus`)."""
+    focus(show_all=show_all)
+
+
+@fleet_app.command("live")
+def fleet_live(
+    only: str = typer.Option("wip", "--only", "-o"),
+    concurrency: int = typer.Option(20, "--concurrency", "-c"),
+) -> None:
+    """v7.A — fetch + classify each domain → snapshot. Was `check live`."""
+    check_live(only=only, concurrency=concurrency, domain="")
+
+
+@fleet_app.command("seo")
+def fleet_seo(
+    days: int = typer.Option(28, "--days"),
+    only: str = typer.Option("wip", "--only", "-o"),
+    concurrency: int = typer.Option(20, "--concurrency", "-c"),
+    sort_by: str = typer.Option("impressions", "--sort"),
+    refresh: bool = typer.Option(False, "--refresh"),
+) -> None:
+    """v7.A — runtime SEO probe across all live-site/forwarder domains.
+    Was `check seo` (no `--domain`)."""
+    check_seo(days=days, domain="", repo="", only=only,
+              concurrency=concurrency, sort_by=sort_by, refresh=refresh)
+
+
+@fleet_app.command("check")
+def fleet_check(
+    detail: bool = typer.Option(False, "--detail"),
+    check_id: str = typer.Option("", "--check"),
+) -> None:
+    """v7.A — cross-repo catalog summary. Was `check git`."""
+    check_git(detail=detail, check_id=check_id, domain="", repo="")
+
+
+@fleet_app.command("fix")
+def fleet_fix(
+    apply_changes: bool = typer.Option(False, "--apply"),
+    rule_filter: list[str] = typer.Option(None, "--rule"),
+    assume_yes: bool = typer.Option(False, "--yes"),
+    use_ai: bool = typer.Option(False, "--ai"),
+) -> None:
+    """v7.A — fleetwide remediation. Was `project fix --all`."""
+    _run_project_fix_all(apply_changes=apply_changes,
+                         rule_filter=rule_filter,
+                         assume_yes=assume_yes,
+                         use_ai=use_ai)
+
+
+@fleet_app.command("drift")
+def fleet_drift() -> None:
+    """v7.A — cross-source inconsistencies. Was `info drift`."""
+    info_drift()
+
+
+# fleet info subgroup
+
+
+@fleet_info_app.command("summary")
+def fleet_info_summary(
+    verbose: bool = typer.Option(False, "--verbose", "-v",
+                                 help="Add the full domain list (replaces old `info list`)"),
+) -> None:
+    """v7.A — portfolio overview. `--verbose` adds the per-domain table."""
+    info_summary()
+    if verbose:
+        console.print()
+        info_list()
+
+
+@fleet_info_app.command("expiring")
+def fleet_info_expiring(
+    within: int = typer.Option(180, "--within", "-w"),
+) -> None:
+    """v7.A — domains expiring within N days. Was `info expiring`."""
+    info_expiring(within=within)
+
+
+@fleet_info_app.command("cleanup")
+def fleet_info_cleanup() -> None:
+    """v7.A — rebuild data/portfolio.json from registrar CSVs.
+    Was `info cleanup`."""
+    info_cleanup()
+
+
+# ---------- settings namespace ----------
+
+
+@settings_catalog_app.command("list")
+def settings_catalog_list(
+    category: str = typer.Option("", "--category", "-c"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """v7.A — list every check in the catalog. Was `check catalog`."""
+    check_catalog(category=category, json_out=json_out)
+
+
+@settings_catalog_app.command("describe")
+def settings_catalog_describe(
+    check_id: str = typer.Argument(..., help="Check ID (e.g. CHECK_001)"),
+) -> None:
+    """v7.A — show one check's metadata + source link.
+    Was `check describe`."""
+    check_describe(check_id=check_id)
+
+
+@settings_catalog_app.command("run")
+def settings_catalog_run(
+    repo_path: str = typer.Argument(..., help="Project path"),
+    check_id: str = typer.Option("", "--check"),
+    category: str = typer.Option("", "--category", "-c"),
+) -> None:
+    """v7.A — run one or many checks against an arbitrary path.
+    Was `check run`."""
+    check_run(repo_path=repo_path, check_id=check_id, category=category)
+
+
+# settings gsc — auth + status (status folds in old list/sync/compare)
+
+
+@settings_gsc_app.command("auth")
+def settings_gsc_auth(
+    force: bool = typer.Option(False, "--force"),
+) -> None:
+    """v7.A — set up / refresh GSC OAuth. Was `gsc auth`."""
+    gsc_auth(force=force)
+
+
+@settings_gsc_app.command("status")
+def settings_gsc_status(
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="Pull latest GSC totals + write a snapshot (was `gsc sync`)"),
+    days: int = typer.Option(28, "--days", "-d",
+                             help="Window size for --refresh"),
+    lag_days: int = typer.Option(3, "--lag-days"),
+    concurrency: int = typer.Option(5, "--concurrency", "-c"),
+) -> None:
+    """v7.A — GSC integration status. Without flags: lists verified
+    properties + cross-references with WIP domains + shows latest
+    snapshot diff (was `gsc list` + `gsc compare`). With `--refresh`:
+    pulls fresh totals + writes a new snapshot (was `gsc sync`).
+    """
+    if refresh:
+        gsc_sync(days=days, lag_days=lag_days, concurrency=concurrency)
+        return
+    gsc_list()
+    console.print()
+    try:
+        gsc_compare()
+    except typer.Exit:
+        pass
+
+
+# settings apikeys — list / set / delete
+
+
+_TICK = {
+    "valid": "[green]✓ valid[/]",
+    "invalid": "[red]✗ invalid[/]",
+    "not-testable": "[dim]— not testable[/]",
+    "missing": "[dim]—[/]",
+}
+
+
+@settings_apikeys_app.command("list")
+def settings_apikeys_list() -> None:
+    """v7.A — list every known credential in portfolio.env, with a
+    set/not-set marker AND a connectivity tick per provider.
+
+    Probes hit each provider's API once (~5-10s total). Catches typos
+    immediately ("did I paste the right key?") rather than discovering
+    failures later when the actual feature uses the credential.
+    """
+    from .apikeys import KNOWN_KEYS, get_key, probe_all
+
+    console.print("[cyan]Probing credentials (one network call per provider)...[/]")
+    probes = probe_all()
+
+    t = Table(box=None, padding=(0, 2), show_header=True,
+              title="[bold]API keys in portfolio.env[/]",
+              title_justify="left")
+    t.add_column("Key")
+    t.add_column("Status")
+    t.add_column("Probe")
+    for key in KNOWN_KEYS:
+        is_set = "set" if get_key(key) else "[dim]not set[/]"
+        probe = probes.get(key)
+        if probe is None or probe.status == "missing":
+            tick = "[dim]—[/]"
+        else:
+            tick = _TICK.get(probe.status, probe.status)
+            if probe.detail and probe.status not in ("valid",):
+                tick = f"{tick} [dim]({probe.detail})[/]"
+        t.add_row(key, is_set, tick)
+    console.print(t)
+
+
+@settings_apikeys_app.command("set")
+def settings_apikeys_set(
+    key: str = typer.Argument(..., help="API key name (e.g. OPENAI_API_KEY)"),
+    value: str = typer.Argument(..., help="Value to set"),
+    force: bool = typer.Option(False, "--force",
+                               help="Allow setting a key not in the known list"),
+) -> None:
+    """v7.A — set a credential in portfolio.env. Strict by default
+    (only known keys); `--force` allows arbitrary key names.
+
+    Atomic write — preserves comments, blank lines, and ordering of
+    untouched keys. If the key already exists, the existing line is
+    updated; new keys append at the end.
+    """
+    from .apikeys import KNOWN_KEYS, set_key
+    if key not in KNOWN_KEYS and not force:
+        console.print(
+            f"[red]'{key}' isn't in the known list.[/] "
+            f"[dim]Known: {', '.join(KNOWN_KEYS)}.[/]\n"
+            "[dim]Use --force to set an arbitrary key name anyway.[/]"
+        )
+        raise typer.Exit(2)
+    set_key(key, value)
+    console.print(f"[green]✓[/] set [bold]{key}[/]")
+
+
+@settings_apikeys_app.command("delete")
+def settings_apikeys_delete(
+    key: str = typer.Argument(..., help="API key name to remove"),
+    assume_yes: bool = typer.Option(False, "--yes",
+                                    help="Skip the confirmation prompt"),
+) -> None:
+    """v7.A — remove a credential from portfolio.env."""
+    from .apikeys import delete_key, get_key
+    if not get_key(key):
+        console.print(f"[dim]{key} is already absent — nothing to do.[/]")
+        return
+    if not assume_yes:
+        ok = typer.confirm(f"Delete {key} from portfolio.env?", default=False)
+        if not ok:
+            console.print("[yellow]Aborted.[/]")
+            raise typer.Exit(0)
+    if delete_key(key):
+        console.print(f"[green]✓[/] removed [bold]{key}[/]")
+    else:
+        console.print(f"[dim]{key} was not present.[/]")
 
 
 if __name__ == "__main__":

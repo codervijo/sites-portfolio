@@ -21,9 +21,9 @@ from portfolio.menu import (
 
 
 def test_menu_groups_four_groups():
-    """v5.F: Focus → Check → New → Info."""
+    """v7.A: Project → Fleet → New → Settings."""
     names = [g for g, _ in MENU_GROUPS]
-    assert names == ["Focus", "Check", "New", "Info"]
+    assert names == ["Project", "Fleet", "New", "Settings"]
 
 
 def test_v4d_menu_groups_keys_unique_and_sequential():
@@ -33,22 +33,27 @@ def test_v4d_menu_groups_keys_unique_and_sequential():
     assert keys == [str(i) for i in range(1, len(keys) + 1)]
 
 
-def test_v5f_find_command_returns_known_keys():
-    """v5.F: 1=focus, 2-4=check modes, 5-7=new, 8-14=info."""
+def test_v7a_find_command_returns_known_keys():
+    """v7.A: 1-3=project, 4-12=fleet, 13-15=new, 16-18=settings."""
     cmd = find_command("1")
-    assert cmd is not None and cmd.label == "focus"
+    assert cmd is not None and cmd.label == "project check"
+    assert cmd.cli_args == ["project", "check"]
 
-    cmd = find_command("2")
-    assert cmd is not None and cmd.label == "check live"
-    assert cmd.cli_args == ["check", "live"]
+    cmd = find_command("4")
+    assert cmd is not None and cmd.label == "fleet focus"
+    assert cmd.cli_args == ["fleet", "focus"]
 
-    cmd = find_command("5")
+    cmd = find_command("10")
+    assert cmd is not None and cmd.label == "fleet info summary"
+    assert cmd.cli_args == ["fleet", "info", "summary"]
+
+    cmd = find_command("13")
     assert cmd is not None and cmd.label == "new suggest"
     assert cmd.cli_args == ["new", "suggest"]
 
-    cmd = find_command("8")
-    assert cmd is not None and cmd.label == "info summary"
-    assert cmd.cli_args == ["info", "summary"]
+    cmd = find_command("16")
+    assert cmd is not None and cmd.label == "settings apikeys list"
+    assert cmd.cli_args == ["settings", "apikeys", "list"]
 
 
 def test_v4d_find_command_returns_none_for_unknown_key():
@@ -57,35 +62,36 @@ def test_v4d_find_command_returns_none_for_unknown_key():
     assert find_command("") is None
 
 
-def test_v5f_menu_includes_expected_commands():
-    """Every command in the v5.F.1 spec is in the menu (wip dropped,
-    list+category merged)."""
+def test_v7a_menu_includes_expected_commands():
+    """Every command in the v7.A spec is in the menu."""
     labels = {c.label for _, cmds in MENU_GROUPS for c in cmds}
     for required in (
-        "focus",
-        "check live", "check git", "check seo",
+        "project check", "project fix", "project seo",
+        "fleet focus", "fleet check", "fleet seo", "fleet live",
+        "fleet fix", "fleet drift",
+        "fleet info summary", "fleet info expiring", "fleet info cleanup",
         "new suggest", "new bootstrap", "new deploy",
-        "info summary", "info status", "info expiring",
-        "info list", "info cleanup",
+        "settings apikeys list", "settings catalog list", "settings gsc status",
     ):
         assert required in labels, f"missing {required}"
-    # Explicitly verify removed commands aren't there.
-    for removed in ("info wip", "info category"):
-        assert removed not in labels, f"{removed} should be removed"
+    # Explicitly verify retired commands aren't there.
+    for removed in ("focus", "check live", "check git", "check seo",
+                    "info summary", "info status", "info expiring",
+                    "info list", "info cleanup", "info wip", "info category"):
+        assert removed not in labels, f"{removed} should not be in v7.A menu"
 
 
 # ---------- render_top_menu ----------
 
 
-def test_v5f_render_top_menu_groups_and_keys():
+def test_v7a_render_top_menu_groups_and_keys():
     with menu.console.capture() as cap:
         render_top_menu()
     out = cap.get()
-    for group in ("Focus", "Check", "New", "Info"):
+    for group in ("Project", "Fleet", "New", "Settings"):
         assert group in out
-    # All 12 keys appear as "N." prefixes (post-v5.F.1: wip removed,
-    # list+category merged).
-    for i in range(1, 13):
+    # All 18 keys appear as "N." prefixes
+    for i in range(1, 19):
         assert f"{i}." in out
     assert "q. Quit" in out
 
@@ -95,47 +101,42 @@ def test_v4d_render_top_menu_includes_descriptions():
     with menu.console.capture() as cap:
         render_top_menu()
     out = cap.get()
-    assert "Portfolio overview" in out  # info summary description
-    assert "Validation-mode" in out      # new suggest description
+    assert "Portfolio overview" in out   # fleet info summary description
+    assert "Validation-mode" in out       # new suggest description
 
 
 # ---------- collect_args ----------
 
 
-def test_v5f_collect_args_no_positionals_no_options():
-    """A command with neither (e.g. info summary, key 8) returns just its
-    base cli_args."""
-    cmd = find_command("8")  # info summary
+def test_v7a_collect_args_no_positionals_no_options(monkeypatch):
+    """A command with neither (e.g. fleet info cleanup, key 12) returns
+    just its base cli_args."""
+    cmd = find_command("12")  # fleet info cleanup — no positionals or options
+    monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    assert args == ["info", "summary"]
+    assert args == ["fleet", "info", "cleanup"]
 
 
-def test_v5f_collect_args_required_positional(monkeypatch):
+def test_v7a_collect_args_required_positional(monkeypatch):
     """Required positional → prompt → append to args."""
-    cmd = find_command("9")  # info status
+    cmd = find_command("1")  # project check (requires <name>)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "iotnews")
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    assert args == ["info", "status", "iotnews"]
+    assert args == ["project", "check", "iotnews"]
 
 
-def test_v5f_collect_args_required_positional_empty_returns_none(monkeypatch):
+def test_v7a_collect_args_required_positional_empty_returns_none(monkeypatch):
     """Empty required positional → cancel back to menu."""
-    cmd = find_command("9")  # info status (required name)
+    cmd = find_command("1")  # project check (required name)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "")
     args = collect_args(cmd)
     assert args is None
 
 
-# NOTE: in v5.F.1, `info category` (which had an optional positional name)
-# was merged into `info list --grouped`; no remaining menu item has an
-# optional positional. The collect_args helper still handles them — that
-# branch just doesn't get exercised through the menu data anymore.
-
-
-def test_v5f_collect_args_walks_options_when_user_says_no(monkeypatch):
+def test_v7a_collect_args_walks_options_when_user_says_no(monkeypatch):
     """User declines defaults → walk through optionals one at a time."""
-    cmd = find_command("10")  # info expiring (--within option)
+    cmd = find_command("11")  # fleet info expiring (--within option)
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: False)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "60")
     args = collect_args(cmd)
@@ -143,18 +144,18 @@ def test_v5f_collect_args_walks_options_when_user_says_no(monkeypatch):
     assert "60" in args
 
 
-def test_v5f_collect_args_skipped_optional_uses_default(monkeypatch):
+def test_v7a_collect_args_skipped_optional_uses_default(monkeypatch):
     """User accepts defaults → no option flags appended."""
-    cmd = find_command("10")  # info expiring
+    cmd = find_command("11")  # fleet info expiring
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    assert args == ["info", "expiring"]
+    assert args == ["fleet", "info", "expiring"]
     assert "--within" not in args
 
 
-def test_v5f_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
+def test_v7a_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
     """A (y/n)-described option in y mode → emit `--flag` alone (no value)."""
-    cmd = find_command("5")  # new suggest (--browse, --with-abstract are y/n)
+    cmd = find_command("13")  # new suggest (--browse, --with-abstract are y/n)
     # Sequence: positional "topic", then walk options:
     # --max-price (skip), --browse "y", --with-abstract "n"
     prompt_iter = iter(["my topic", "", "y", "n"])
@@ -168,9 +169,9 @@ def test_v5f_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
     assert "--with-abstract" not in args
 
 
-def test_v5f_collect_args_non_boolean_option_emits_flag_value_pair(monkeypatch):
+def test_v7a_collect_args_non_boolean_option_emits_flag_value_pair(monkeypatch):
     """A non-(y/n) option emits both --flag and the user-typed value."""
-    cmd = find_command("10")  # info expiring (--within is non-boolean)
+    cmd = find_command("11")  # fleet info expiring (--within is non-boolean)
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: False)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "30")
     args = collect_args(cmd)
@@ -223,11 +224,12 @@ def test_v4d_run_menu_handles_unknown_choice_then_quit(monkeypatch):
     run_menu()  # the unknown key gets the "Type 1-14 or q." reprint
 
 
-def test_v5f_run_menu_dispatches_simple_command_then_quits(monkeypatch):
-    """Pick 8 (info summary, no positionals/options), then q."""
-    prompts = iter(["8", "q"])
+def test_v7a_run_menu_dispatches_simple_command_then_quits(monkeypatch):
+    """Pick 12 (fleet info cleanup, no positionals/options), then q."""
+    prompts = iter(["12", "q"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompts))
+    monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     captured = {}
 
     def fake_run(cmd, **kw):
@@ -236,13 +238,13 @@ def test_v5f_run_menu_dispatches_simple_command_then_quits(monkeypatch):
 
     monkeypatch.setattr("portfolio.menu.subprocess.run", fake_run)
     run_menu()
-    assert captured["cmd"] == ["portfolio", "info", "summary"]
+    assert captured["cmd"] == ["portfolio", "fleet", "info", "cleanup"]
 
 
-def test_v5f_run_menu_cancelled_positional_returns_to_menu(monkeypatch):
-    """User picks a command requiring a positional (9 = info status),
+def test_v7a_run_menu_cancelled_positional_returns_to_menu(monkeypatch):
+    """User picks a command requiring a positional (1 = project check),
     types nothing → returns to menu without dispatching. Then quits."""
-    prompts = iter(["9", "", "q"])
+    prompts = iter(["1", "", "q"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompts))
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
