@@ -254,13 +254,14 @@ last_updated: {today}
 
 # {domain} — PRD
 
-## 1. Purpose
+## 1. Problem
 
-<1-2 sentence problem statement — fill in>
+<1-2 sentence problem statement — fill in: what user-facing problem
+does this site solve? Who has it? Why does it matter?>
 {topic_line}
-## 2. Audience
+## 2. Users
 
-<who uses this>
+<who uses this — target user, what they care about, rough audience size>
 
 ## 3. Goals & non-goals
 

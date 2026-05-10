@@ -3332,14 +3332,18 @@ def _status_deprecated() -> None:
     raise typer.Exit(2)
 
 
-# project-status path under the legacy `project` namespace:
-#   `portfolio project status <name>` → `portfolio info status <name>`
-_legacy_project_app = typer.Typer(no_args_is_help=True)
-app.add_typer(_legacy_project_app, name="project",
-              help="[Deprecated — use `portfolio info`]")
+# `project` namespace (revived in v6.C as the home for project-write
+# operations). v5.F retired this namespace because the only command in
+# it (`status`) was a read-only view that fit cleanly under `info`.
+# v6.C brings it back for `project fix` — the second project-dir write
+# surface. `project status` stays here as a deprecation alias pointing
+# at `info status` (since v5.F).
+project_app = typer.Typer(help="Per-project write operations (fix, …).",
+                          no_args_is_help=True)
+app.add_typer(project_app, name="project")
 
 
-@_legacy_project_app.command("status")
+@project_app.command("status")
 def _project_status_deprecated(
     name: str = typer.Argument(..., help="Project name (fuzzy-matched)"),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON instead of a human table"),
@@ -3347,6 +3351,156 @@ def _project_status_deprecated(
     """[Deprecated — use `portfolio info status`]"""
     _deprecation("portfolio project status", "portfolio info status")
     info_status(name=name, json_out=json_out)
+
+
+@project_app.command("fix")
+def project_fix(
+    name: str = typer.Argument(..., help="Project name (fuzzy-matched against domains)"),
+    apply_changes: bool = typer.Option(False, "--apply", help="Actually write the changes (default is dry-run)"),
+    rule_filter: list[str] = typer.Option(None, "--rule", help="Run only this CHECK_ID (repeatable)"),
+    assume_yes: bool = typer.Option(False, "--yes", help="Skip per-file confirmations on lockfile deletions"),
+    use_ai: bool = typer.Option(False, "--ai", help="Enable Tier 2 (Claude subprocess) — deferred to v6.C.1"),
+) -> None:
+    """Auto-fix conformance issues for one project.
+
+    Default: dry-run plan (lists what would change; no writes).
+    `--apply` performs the writes. `--rule CHECK_xxx` (repeatable)
+    runs only specified fixers. `--yes` skips per-file confirmations
+    on lockfile deletions (CHECK_032/033/034).
+
+    Tier 1 (templated, ~14 fixers) ships in v6.C. Tier 2 (Claude
+    subprocess for content-quality checks) is queued as v6.C.1; the
+    `--ai` flag is accepted but currently no-ops with a notice.
+    """
+    from .fixers import fixable_check_ids, get_fixer
+    from .project import resolve_project, build_status, SITES_ROOT
+    from pathlib import Path as _Path
+
+    plan = load_plan()
+    res = resolve_project(name, plan=plan)
+    if res.matched is None:
+        if res.candidates:
+            console.print(f"[yellow]'{name}' is ambiguous. Candidates:[/]")
+            for c in res.candidates:
+                console.print(f"  • {c}")
+            raise typer.Exit(2)
+        console.print(f"[red]No project matches '{name}'.[/]")
+        raise typer.Exit(1)
+
+    domain = res.matched
+    project_dir = SITES_ROOT / domain
+    if not project_dir.is_dir():
+        console.print(f"[red]Project dir not found:[/] {project_dir}")
+        raise typer.Exit(1)
+
+    # Run conformance to find what's failing right now.
+    result = build_status(name)
+    failed_ids = [f["rule"] for f in result["conformance"]["failed"]
+                  if f["rule"].startswith("CHECK_")]
+
+    fixable = fixable_check_ids()
+    requested = set(rule_filter) if rule_filter else None
+
+    # Validate --rule arguments — error early on unknown IDs.
+    if requested:
+        for rid in requested:
+            if rid not in fixable:
+                console.print(
+                    f"[red]CHECK ID {rid!r} has no Tier 1 fixer[/] "
+                    "(it's either unknown or in the manual-only list)."
+                )
+                raise typer.Exit(2)
+
+    # Pick the fixers to run. If --rule was given, run those (regardless
+    # of whether they're currently failing — surgical mode); otherwise
+    # run every fixable rule that's currently failing.
+    if requested:
+        to_fix = sorted(requested)
+    else:
+        to_fix = sorted(set(failed_ids) & fixable)
+
+    manual_failing = sorted(set(failed_ids) - fixable)
+
+    console.print(f"[bold]{domain}[/]  [dim](resolved from {name!r})[/]")
+    n_pass = len(result["conformance"]["passed"])
+    n_fail = len(result["conformance"]["failed"])
+    n_warn = result["conformance"].get("skipped", [])  # legacy field
+    console.print(f"Conformance: {n_pass} pass · {n_fail} fail · {len(n_warn)} skip")
+    console.print()
+
+    if use_ai:
+        console.print(
+            "[yellow]--ai is queued for v6.C.1[/] "
+            "[dim](Claude subprocess for content-quality checks).[/]"
+        )
+
+    if not to_fix and not manual_failing:
+        console.print("[green]Nothing to fix — all checks passing.[/]")
+        return
+
+    # Plan output (always shown, regardless of dry-run vs apply).
+    if to_fix:
+        verb = "Plan" if not apply_changes else "Applying"
+        console.print(f"[bold]{verb}: {len(to_fix)} fixable[/]")
+        for cid in to_fix:
+            spec = get_fixer(cid)
+            console.print(f"  + [cyan]{cid}[/]  {spec.plan_summary}")
+
+    if manual_failing:
+        console.print(
+            f"\n[bold]Manual ({len(manual_failing)} not auto-fixable):[/]"
+        )
+        for cid in manual_failing:
+            console.print(f"  ! [yellow]{cid}[/]  needs human")
+
+    if not apply_changes:
+        console.print(
+            f"\n[dim]Re-run with --apply to write the {len(to_fix)} change(s).[/]"
+        )
+        return
+
+    # --apply path.
+    console.print()
+    fixed_count = 0
+    skipped_count = 0
+    for cid in to_fix:
+        spec = get_fixer(cid)
+        # Lockfile deletions: per-file confirmation unless --yes.
+        if cid in {"CHECK_032", "CHECK_033", "CHECK_034"} and not assume_yes:
+            ok = typer.confirm(f"  Delete {spec.plan_summary.split('delete ')[-1].split(' ')[0]}?",
+                               default=False)
+            if not ok:
+                console.print(f"  [yellow]↷[/]  {cid}  skipped by user")
+                skipped_count += 1
+                continue
+        result_obj = spec.apply(project_dir, dry_run=False, assume_yes=assume_yes)
+        if result_obj.status == "fixed":
+            console.print(f"  [green]✓[/]  {cid}  {result_obj.summary}")
+            fixed_count += 1
+        elif result_obj.status == "nothing-to-do":
+            console.print(f"  [dim]·  {cid}  {result_obj.summary}[/]")
+        elif result_obj.status == "manual":
+            console.print(f"  [yellow]![/]  {cid}  {result_obj.summary}")
+            skipped_count += 1
+        else:
+            console.print(f"  [red]✗[/]  {cid}  {result_obj.summary}")
+            skipped_count += 1
+
+    # Re-run conformance to confirm the changes landed.
+    after = build_status(name)
+    a_pass = len(after["conformance"]["passed"])
+    a_fail = len(after["conformance"]["failed"])
+    console.print(
+        f"\n[bold]After fix:[/] {a_pass} pass · {a_fail} fail "
+        f"[dim](was {n_pass} / {n_fail})[/]"
+    )
+    if manual_failing or skipped_count:
+        console.print(
+            f"[dim]{len(manual_failing)} manual + {skipped_count} skipped — "
+            f"see plan above.[/]"
+        )
+        if a_fail > 0:
+            raise typer.Exit(3)
 
 
 # domain suggest path:
