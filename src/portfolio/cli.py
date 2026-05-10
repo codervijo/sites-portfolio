@@ -3368,13 +3368,15 @@ def project_fix(
     runs only specified fixers. `--yes` skips per-file confirmations
     on lockfile deletions (CHECK_032/033/034).
 
-    Tier 1 (templated, ~14 fixers) ships in v6.C. Tier 2 (Claude
-    subprocess for content-quality checks) is queued as v6.C.1; the
-    `--ai` flag is accepted but currently no-ops with a notice.
+    Tier 1 (templated, 16 fixers) ships in v6.C. Tier 2 (Claude
+    subprocess for content-quality checks) ships in v6.C.1 — pass
+    `--ai` to run Tier 2 after Tier 1 lands.
     """
-    from .fixers import fixable_check_ids, get_fixer
+    from .fix_registry import (
+        fixable_check_ids, get_tier_1, get_tier_2, list_tier_2,
+    )
+    from .fix_helpers import claude_available
     from .project import resolve_project, build_status, SITES_ROOT
-    from pathlib import Path as _Path
 
     plan = load_plan()
     res = resolve_project(name, plan=plan)
@@ -3398,77 +3400,99 @@ def project_fix(
     failed_ids = [f["rule"] for f in result["conformance"]["failed"]
                   if f["rule"].startswith("CHECK_")]
 
-    fixable = fixable_check_ids()
+    tier_1_fixable = fixable_check_ids(tier=1)
+    tier_2_fixable = fixable_check_ids(tier=2) if use_ai else set()
+    fixable = tier_1_fixable | tier_2_fixable
     requested = set(rule_filter) if rule_filter else None
 
     # Validate --rule arguments — error early on unknown IDs.
     if requested:
         for rid in requested:
             if rid not in fixable:
-                console.print(
-                    f"[red]CHECK ID {rid!r} has no Tier 1 fixer[/] "
-                    "(it's either unknown or in the manual-only list)."
-                )
+                tier_2_only = rid in fixable_check_ids(tier=2)
+                if tier_2_only and not use_ai:
+                    console.print(
+                        f"[red]CHECK ID {rid!r} has only a Tier 2 fixer[/] "
+                        "— pass --ai to enable Claude subprocess fixers."
+                    )
+                else:
+                    console.print(
+                        f"[red]CHECK ID {rid!r} has no fixer[/] "
+                        "(unknown, or in the manual-only list)."
+                    )
                 raise typer.Exit(2)
 
-    # Pick the fixers to run. If --rule was given, run those (regardless
-    # of whether they're currently failing — surgical mode); otherwise
-    # run every fixable rule that's currently failing.
+    # Pick fixers. If --rule was given, run those; otherwise run every
+    # fixable rule currently failing.
     if requested:
-        to_fix = sorted(requested)
+        to_fix_t1 = sorted(requested & tier_1_fixable)
+        to_fix_t2 = sorted(requested & tier_2_fixable)
     else:
-        to_fix = sorted(set(failed_ids) & fixable)
+        to_fix_t1 = sorted(set(failed_ids) & tier_1_fixable)
+        to_fix_t2 = sorted(set(failed_ids) & tier_2_fixable) if use_ai else []
 
     manual_failing = sorted(set(failed_ids) - fixable)
 
     console.print(f"[bold]{domain}[/]  [dim](resolved from {name!r})[/]")
     n_pass = len(result["conformance"]["passed"])
     n_fail = len(result["conformance"]["failed"])
-    n_warn = result["conformance"].get("skipped", [])  # legacy field
-    console.print(f"Conformance: {n_pass} pass · {n_fail} fail · {len(n_warn)} skip")
+    n_skip = result["conformance"].get("skipped", [])
+    console.print(f"Conformance: {n_pass} pass · {n_fail} fail · {len(n_skip)} skip")
     console.print()
 
-    if use_ai:
+    if use_ai and not claude_available():
         console.print(
-            "[yellow]--ai is queued for v6.C.1[/] "
-            "[dim](Claude subprocess for content-quality checks).[/]"
+            "[yellow]--ai requested but `claude` CLI is not on PATH.[/] "
+            "Tier 2 fixers will be skipped."
         )
 
-    if not to_fix and not manual_failing:
+    if not to_fix_t1 and not to_fix_t2 and not manual_failing:
         console.print("[green]Nothing to fix — all checks passing.[/]")
         return
 
-    # Plan output (always shown, regardless of dry-run vs apply).
-    if to_fix:
+    # Plan output.
+    if to_fix_t1:
         verb = "Plan" if not apply_changes else "Applying"
-        console.print(f"[bold]{verb}: {len(to_fix)} fixable[/]")
-        for cid in to_fix:
-            spec = get_fixer(cid)
-            console.print(f"  + [cyan]{cid}[/]  {spec.plan_summary}")
-
+        console.print(f"[bold]{verb}: {len(to_fix_t1)} fixable (Tier 1 — templated)[/]")
+        for cid in to_fix_t1:
+            spec = get_tier_1(cid)
+            console.print(f"  + [cyan]{cid}[/]  {spec.summary}")
+    if to_fix_t2:
+        console.print(
+            f"\n[bold]{len(to_fix_t2)} fixable (Tier 2 — Claude subprocess):[/]"
+        )
+        for cid in to_fix_t2:
+            spec = get_tier_2(cid)
+            console.print(f"  + [magenta]{cid}[/]  {spec.summary}")
     if manual_failing:
         console.print(
             f"\n[bold]Manual ({len(manual_failing)} not auto-fixable):[/]"
         )
         for cid in manual_failing:
-            console.print(f"  ! [yellow]{cid}[/]  needs human")
+            tier_2_only = cid in fixable_check_ids(tier=2)
+            note = " [dim](pass --ai to enable Tier 2)[/]" if tier_2_only and not use_ai else "  needs human"
+            console.print(f"  ! [yellow]{cid}[/] {note}")
 
     if not apply_changes:
+        total = len(to_fix_t1) + len(to_fix_t2)
         console.print(
-            f"\n[dim]Re-run with --apply to write the {len(to_fix)} change(s).[/]"
+            f"\n[dim]Re-run with --apply to write the {total} change(s).[/]"
         )
         return
 
-    # --apply path.
+    # --apply path: Tier 1 first, then Tier 2 (if --ai).
     console.print()
     fixed_count = 0
     skipped_count = 0
-    for cid in to_fix:
-        spec = get_fixer(cid)
+
+    for cid in to_fix_t1:
+        spec = get_tier_1(cid)
         # Lockfile deletions: per-file confirmation unless --yes.
         if cid in {"CHECK_032", "CHECK_033", "CHECK_034"} and not assume_yes:
-            ok = typer.confirm(f"  Delete {spec.plan_summary.split('delete ')[-1].split(' ')[0]}?",
-                               default=False)
+            ok = typer.confirm(
+                f"  Delete {spec.summary.split('delete ')[-1].split(' ')[0]}?",
+                default=False,
+            )
             if not ok:
                 console.print(f"  [yellow]↷[/]  {cid}  skipped by user")
                 skipped_count += 1
@@ -3485,6 +3509,26 @@ def project_fix(
         else:
             console.print(f"  [red]✗[/]  {cid}  {result_obj.summary}")
             skipped_count += 1
+
+    # Tier 2 (--ai): runs after Tier 1 so any file/section creation is
+    # already in place when Claude tries to edit content.
+    if to_fix_t2 and use_ai and claude_available():
+        console.print(f"\n[magenta]Tier 2 — spawning {len(to_fix_t2)} claude subprocess(es)[/]")
+        for cid in to_fix_t2:
+            spec = get_tier_2(cid)
+            console.print(f"  [magenta]→[/]  {cid}  {spec.summary}")
+            result_obj = spec.apply(project_dir, dry_run=False, assume_yes=assume_yes)
+            if result_obj.status == "fixed":
+                console.print(f"  [green]✓[/]  {cid}  {result_obj.summary}")
+                fixed_count += 1
+            elif result_obj.status == "nothing-to-do":
+                console.print(f"  [dim]·  {cid}  {result_obj.summary}[/]")
+            elif result_obj.status == "manual":
+                console.print(f"  [yellow]![/]  {cid}  {result_obj.summary}")
+                skipped_count += 1
+            else:
+                console.print(f"  [red]✗[/]  {cid}  {result_obj.summary}")
+                skipped_count += 1
 
     # Re-run conformance to confirm the changes landed.
     after = build_status(name)

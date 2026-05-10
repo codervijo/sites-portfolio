@@ -1,4 +1,4 @@
-"""Tests for v6.C — fixer registry (`src/portfolio/fixers.py`).
+"""Tests for v6.C / v6.C.1 — fixer registry (co-located with check modules).
 
 Each Tier 1 fixer is tested for:
   - dry-run produces "would-fix" but writes nothing
@@ -12,11 +12,19 @@ import json
 import pytest
 
 from portfolio.checks import run_check
-from portfolio.fixers import (
+from portfolio.fix_registry import (
     fixable_check_ids,
-    get_fixer,
-    get_registry,
+    get_tier_1 as get_fixer,
+    list_tier_1,
+    list_tier_2,
 )
+
+
+# Compat shim: tests originally written against `get_registry()` returning
+# a dict[check_id → spec]. The new registry exposes `list_tier_1()` for the
+# same shape.
+def get_registry():
+    return list_tier_1()
 
 
 # ---------- registry shape ----------
@@ -27,7 +35,7 @@ def test_every_fixer_has_a_check_id_starting_with_check():
         assert cid.startswith("CHECK_")
         assert spec.check_id == cid
         assert spec.tier in (1, 2)
-        assert spec.plan_summary
+        assert spec.summary
         assert callable(spec.apply)
 
 

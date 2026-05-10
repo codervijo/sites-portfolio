@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..result import CheckResult
+from ...fix_helpers import file_deleter
 from . import _is_web_project
 
 CHECK_ID = "CHECK_033"
@@ -20,3 +21,9 @@ def run(repo_path: str) -> CheckResult:
         return CheckResult(status="fail",
                            message="bun.lockb present (delete; CF Pages will pick bun and break)")
     return CheckResult(status="pass", message="no bun.lockb")
+
+
+fix_tier_1 = file_deleter(
+    "bun.lockb",
+    summary="delete bun.lockb (pnpm-only convention)",
+)

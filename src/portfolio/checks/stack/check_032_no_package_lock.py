@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..result import CheckResult
+from ...fix_helpers import file_deleter
 from . import _is_web_project
 
 CHECK_ID = "CHECK_032"
@@ -20,3 +21,9 @@ def run(repo_path: str) -> CheckResult:
         return CheckResult(status="fail",
                            message="package-lock.json present (delete it; pnpm-only)")
     return CheckResult(status="pass", message="no package-lock.json")
+
+
+fix_tier_1 = file_deleter(
+    "package-lock.json",
+    summary="delete package-lock.json (pnpm-only convention)",
+)

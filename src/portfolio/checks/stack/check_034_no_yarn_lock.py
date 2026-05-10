@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..result import CheckResult
+from ...fix_helpers import file_deleter
 from . import _is_web_project
 
 CHECK_ID = "CHECK_034"
@@ -20,3 +21,9 @@ def run(repo_path: str) -> CheckResult:
         return CheckResult(status="fail",
                            message="yarn.lock present (delete it; pnpm-only)")
     return CheckResult(status="pass", message="no yarn.lock")
+
+
+fix_tier_1 = file_deleter(
+    "yarn.lock",
+    summary="delete yarn.lock (pnpm-only convention)",
+)

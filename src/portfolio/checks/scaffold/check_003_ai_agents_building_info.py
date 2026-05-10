@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 
 from ..result import CheckResult
+from ...fix_helpers import section_inject
+from ... import templates
 
 CHECK_ID = "CHECK_003"
 CHECK_NAME = "ai-agents-md-has-building-info"
@@ -21,3 +23,10 @@ def run(repo_path: str) -> CheckResult:
     if re.search(r"^## +Building info\b", text, re.MULTILINE | re.IGNORECASE):
         return CheckResult(status="pass", message="`## Building info` section present")
     return CheckResult(status="fail", message="AI_AGENTS.md missing `## Building info` heading")
+
+
+fix_tier_1 = section_inject(
+    "AI_AGENTS.md", "Building info",
+    render=lambda _p: templates.ai_agents_section_building(),
+    summary="append ## Building info to AI_AGENTS.md",
+)
