@@ -347,6 +347,7 @@ def build_status(name: str) -> dict:
         # File-system + git-log categories are all in scope.
         applicable_categories = {
             "scaffold", "docs", "git", "ci", "stack", "deploy", "seo",
+            "content",
         }
         spec_by_id = {s.id: s for s in list_checks() if s.category in applicable_categories}
         results = run_checks(str(project_dir), ids=list(spec_by_id.keys()))

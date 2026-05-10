@@ -497,10 +497,14 @@ def check_callback(
 # fetch or external API. SEO is the only excluded category (those checks
 # need either deployed-URL fetch or are too project-specific for the
 # cross-repo health view).
-_GIT_FLAG_CATEGORIES = {"scaffold", "docs", "git", "ci", "stack", "deploy"}
+_GIT_FLAG_CATEGORIES = {
+    "scaffold", "docs", "git", "ci", "stack", "deploy", "content",
+}
 
 # Render order for category-grouped output.
-_CATEGORY_ORDER = ("scaffold", "docs", "git", "ci", "stack", "deploy", "seo")
+_CATEGORY_ORDER = (
+    "scaffold", "docs", "git", "ci", "stack", "deploy", "seo", "content",
+)
 _CATEGORY_LABEL = {
     "scaffold": "Scaffold",
     "docs": "Docs",
@@ -509,6 +513,7 @@ _CATEGORY_LABEL = {
     "stack": "Stack",
     "deploy": "Deploy",
     "seo": "SEO",
+    "content": "Content",
 }
 
 

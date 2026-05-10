@@ -37,7 +37,7 @@ def test_check_specs_have_required_fields():
         assert s.id.startswith("CHECK_")
         assert s.name
         assert s.category in ("scaffold", "docs", "git", "ci", "stack",
-                              "deploy", "seo", "live", "content")
+                              "deploy", "seo", "content", "live")
         assert s.severity in ("error", "warn", "info")
         assert callable(s.run)
         assert s.module_name.startswith("portfolio.checks.")
