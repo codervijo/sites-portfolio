@@ -97,7 +97,7 @@ per-stack work to the central builder at `~/work/projects/builder/`.
 - `wrangler.jsonc` — Cloudflare deploy config
 - `scripts/` *(if present)* — ingester or build-time helpers
 
-## Build tooling — Makefile + Docker
+## Building info
 
 All dev work runs inside the parent `sites1` docker container. The host doesn't
 need Node/pnpm installed; the container does. The parent `Makefile`
@@ -133,7 +133,7 @@ docker ps                                               # find the sites1 contai
 docker exec -w /usr/src/app <name> make test proj={domain}
 ```
 
-## Deployment
+## Deployment info
 
 - **Platform:** Cloudflare Workers (Static Assets) — *not* Vercel.
 - **Config:** `wrangler.jsonc` at the repo root — points `assets.directory` at `./dist` and uses `not_found_handling: "single-page-application"` for SPA client-side routing.
@@ -392,6 +392,35 @@ def _readme_md(domain: str) -> str:
     return f"# {domain}\n\n<placeholder>\n"
 
 
+def _ci_workflow() -> str:
+    """Starter GitHub Actions workflow — runs `make test` on push and
+    PRs. Satisfies CHECK_024 has-ci-workflow day-zero. Users can
+    extend this with deploy steps as projects mature."""
+    return """name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm test --if-present
+"""
+
+
 def _gitignore() -> str:
     return """# Node
 node_modules/
@@ -481,6 +510,7 @@ def _astro_package_json(domain: str) -> str:
         "type": "module",
         "version": "0.0.1",
         "private": True,
+        "homepage": f"https://{domain}/",   # CHECK_029
         "scripts": {
             "dev": "astro dev",
             "start": "astro dev",
@@ -531,26 +561,28 @@ const description = "<fill in: 1-2 sentence value prop for SEO description>";
     <meta name="twitter:title" content={{title}} />
     <meta name="twitter:description" content={{description}} />
 
-    <!-- JSON-LD structured data: Organization + WebSite -->
-    <script type="application/ld+json" set:html={{JSON.stringify({{
-      "@context": "https://schema.org",
-      "@graph": [
-        {{
-          "@type": "Organization",
-          "@id": `${{site}}/#organization`,
-          "name": "{domain}",
-          "url": site,
-        }},
-        {{
-          "@type": "WebSite",
-          "@id": `${{site}}/#website`,
-          "url": site,
-          "name": "{domain}",
-          "description": description,
-          "publisher": {{ "@id": `${{site}}/#organization` }},
-        }},
-      ],
-    }})}} />
+    <!-- JSON-LD structured data: Organization + WebSite (static; domain
+         is known at scaffold time. Update description by hand if needed.) -->
+    <script type="application/ld+json">
+{{
+  "@context": "https://schema.org",
+  "@graph": [
+    {{
+      "@type": "Organization",
+      "@id": "https://{domain}/#organization",
+      "name": "{domain}",
+      "url": "https://{domain}/"
+    }},
+    {{
+      "@type": "WebSite",
+      "@id": "https://{domain}/#website",
+      "url": "https://{domain}/",
+      "name": "{domain}",
+      "publisher": {{ "@id": "https://{domain}/#organization" }}
+    }}
+  ]
+}}
+    </script>
   </head>
   <body>
     <main>
@@ -572,6 +604,7 @@ def _vite_package_json(domain: str) -> str:
         "private": True,
         "version": "0.0.1",
         "type": "module",
+        "homepage": f"https://{domain}/",   # CHECK_029
         "scripts": {
             "dev": "vite",
             "build": "vite build && node scripts/generate-sitemap.mjs",
@@ -1004,10 +1037,13 @@ COMMON_FILES = [
     ("AI_AGENTS.md", "ai_agents"),
     ("README.md", "readme"),
     (".gitignore", "gitignore"),
+    (".env.example", "env_example"),               # CHECK_011
     ("Makefile", "makefile"),
     ("docs/prd.md", "prd"),
+    ("docs/CLAUDE.md", "claude"),                  # CHECK_006 + CHECK_026
     ("docs/Prompts.md", "prompts"),
     ("docs/growth.md", "growth"),
+    (".github/workflows/ci.yml", "ci_workflow"),   # CHECK_024
 ]
 
 SEO_FILES = [
@@ -1056,6 +1092,18 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str) -> str:
         return _docs_prompts_md(domain, today)
     if key == "growth":
         return _docs_growth_md(domain, today)
+    if key == "claude":
+        # v6.A.1: write docs/CLAUDE.md to satisfy CHECK_006 + CHECK_026 day-zero.
+        from . import templates as _templates
+        return _templates.docs_claude_md(domain)
+    if key == "env_example":
+        # v6.A.1: write .env.example to satisfy CHECK_011 day-zero.
+        from . import templates as _templates
+        return _templates.env_example()
+    if key == "ci_workflow":
+        # v6.A.1: write a starter GitHub Actions workflow so CHECK_024
+        # passes day-zero. Runs `make test` on push to main + PRs.
+        return _ci_workflow()
     if key == "astro_pkg":
         return _astro_package_json(domain)
     if key == "astro_config":

@@ -39,10 +39,11 @@ def test_every_fixer_has_a_check_id_starting_with_check():
         assert callable(spec.apply)
 
 
-def test_v6c_ships_16_tier1_fixers():
-    """v6.C ships 16 Tier 1 fixers; new fixers ship in v6.C.1+."""
+def test_v6_tier1_fixer_count():
+    """Tier 1 fixer count grows with the catalog. v6.C: 16; v6.A.1: 17
+    (CHECK_013 versioning-section section-inject fixer added)."""
     tier_1 = [s for s in get_registry().values() if s.tier == 1]
-    assert len(tier_1) == 16
+    assert len(tier_1) >= 17
 
 
 def test_no_tier_2_fixers_yet():

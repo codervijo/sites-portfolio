@@ -49,7 +49,8 @@ def test_list_checks_filter_by_category():
     docs = list_checks(category="docs")
     ci = list_checks(category="ci")
     # CHECK_005-008 moved to docs; CHECK_024 moved to ci.
-    assert len(scaffold) == 8
+    # v6.A.1: CHECK_013 ai-agents-versioning added to scaffold (now 9).
+    assert len(scaffold) == 9
     assert len(git) == 5
     assert len(docs) >= 4
     assert len(ci) == 1

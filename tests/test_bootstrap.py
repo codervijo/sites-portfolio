@@ -274,6 +274,40 @@ def test_template_path_ai_agents_has_conformance_section(tmp_path):
         assert cid in text, f"check {cid} not surfaced in AI_AGENTS"
 
 
+def test_template_path_passes_day_zero_catalog(tmp_path):
+    """v6.A.1 — every catalog check that's testable on a freshly-
+    bootstrapped project must pass (or skip), not fail. Locks in the
+    bootstrap↔catalog reconciliation so future drift fails CI."""
+    from portfolio.checks import list_checks, run_check
+
+    bootstrap("flow.dev", sites_root=tmp_path)
+    project_dir = str(tmp_path / "flow.dev")
+
+    # Skip checks that depend on git history beyond the initial commit
+    # or post-deploy state (transient — closes after `make deps` /
+    # actual deploy).
+    transient = {
+        "CHECK_021",  # last-commit-30d (initial commit is fresh)
+        "CHECK_022",  # clean-tree (true post-bootstrap; just be safe)
+        "CHECK_023",  # on-main-branch (already pass; defensive)
+        "CHECK_028",  # last-deploy-date (no deploy yet)
+        "CHECK_031",  # has-pnpm-lock (user runs `make deps` after)
+    }
+
+    fails = []
+    for spec in list_checks():
+        if spec.id in transient:
+            continue
+        r = run_check(spec.id, project_dir)
+        if r.status == "fail":
+            fails.append((spec.id, spec.name, r.message))
+
+    assert not fails, (
+        "Day-zero catalog failures on bootstrap output:\n" +
+        "\n".join(f"  ✗ {cid} {name} — {msg}" for cid, name, msg in fails)
+    )
+
+
 def test_template_path_ai_agents_has_ship_fast_reminder(tmp_path):
     bootstrap("flow.dev", sites_root=tmp_path)
     text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
@@ -285,10 +319,10 @@ def test_template_path_ai_agents_has_ship_fast_reminder(tmp_path):
 def test_template_path_ai_agents_has_required_sections(tmp_path):
     bootstrap("flow.dev", topic="cool idea", sites_root=tmp_path)
     text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
-    # Reformatted to match the homeloom + voltloop convention:
-    # Build tooling section + Deployment section.
-    assert "## Build tooling — Makefile + Docker" in text
-    assert "## Deployment" in text
+    # v6.A.1 renamed to match catalog headings (CHECK_003 + CHECK_004
+    # look for these literal strings).
+    assert "## Building info" in text
+    assert "## Deployment info" in text
     assert "wrangler.jsonc" in text
     assert "public/_headers" in text
     assert "cool idea" in text  # topic injected
