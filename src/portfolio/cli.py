@@ -827,6 +827,108 @@ def _render_per_repo_detail(repo_name: str, results: dict, catalog_specs: list) 
     n_fail = sum(1 for r in results.values() if r.status == "fail")
     n_warn = sum(1 for r in results.values() if r.status == "warn")
     console.print(f"  [dim]{n_pass} pass · {n_fail} fail · {n_warn} warn[/]")
+    _render_action_plan(repo_name, results)
+
+
+# v6.D.1 — manual-fix hints for checks without a registered fixer.
+# Keyed by CHECK_ID. For checks not in this dict, we fall back to the
+# check's `message` field as the hint (still useful, just less polished).
+_MANUAL_HINTS = {
+    "CHECK_010": "mkdir tests/ and add at least one .test.{js,ts,py}",
+    "CHECK_022": "git status; commit or stash uncommitted changes",
+    "CHECK_024": "add .github/workflows/ci.yml — copy from a bootstrapped project",
+    "CHECK_029": 'add `"homepage": "https://<domain>/"` to package.json',
+    "CHECK_035": "pnpm update vite@^6 && pnpm run build  (verify nothing breaks)",
+    "CHECK_036": "pnpm update astro@^5",
+    "CHECK_039": "tsc --init  (only if you want TypeScript)",
+    "CHECK_071": "edit <head> meta description — keep it 120-160 chars",
+    "CHECK_073": 'add <meta name="viewport" content="width=device-width, initial-scale=1">',
+    "CHECK_074": 'add lang="en" (or appropriate code) to <html>',
+    "CHECK_075": 'add <meta name="robots" content="index, follow">',
+    "CHECK_076": "add the 5 og:* meta tags (title, description, url, type, image)",
+    "CHECK_077": 'add <meta name="twitter:card" content="summary_large_image">',
+    "CHECK_078": 'add <script type="application/ld+json"> with WebSite + Organization',
+    "CHECK_079": "JSON-LD must include @type Organization or WebSite",
+    "CHECK_080": "wire analytics (GA4 / Plausible / CF Web Analytics)",
+    "CHECK_141": "git submodule deinit + rm -rf the gitlink (CF Pages won't clone)",
+}
+
+
+def _render_action_plan(repo_name: str, results: dict) -> None:
+    """Print suggested fix commands per non-passing check.
+    Categorizes into Tier 1 (templated), Tier 2 (--ai), manual,
+    and design-skip. Manual hints come from `_MANUAL_HINTS` or fall
+    back to the check's own message text.
+    """
+    from .fix_registry import fixable_check_ids
+
+    tier_1 = fixable_check_ids(tier=1)
+    tier_2 = fixable_check_ids(tier=2)
+
+    actionable_t1: list[str] = []
+    actionable_t2_only: list[str] = []
+    manual: list[tuple[str, str]] = []
+    design_skipped: list[str] = []
+
+    for cid, r in results.items():
+        if r.status == "pass":
+            continue
+        # Skip-by-design (auto-skipped by stack-aware checks). Identified
+        # by "skipped" in the message text.
+        if r.status == "warn" and "skipped" in r.message.lower():
+            design_skipped.append(cid)
+            continue
+        if cid in tier_1:
+            actionable_t1.append(cid)
+        elif cid in tier_2:
+            actionable_t2_only.append(cid)
+        else:
+            manual.append((cid, r.message))
+
+    if not (actionable_t1 or actionable_t2_only or manual):
+        return  # nothing to suggest
+
+    console.print()
+    console.print("[bold]Suggested fixes:[/]")
+
+    if actionable_t1:
+        console.print()
+        console.print(f"  [cyan]• Tier 1[/] [dim](templated; ~5s):[/]")
+        console.print(f"    [bold]portfolio project fix {repo_name} --apply --yes[/]")
+        console.print(
+            f"    [dim]Closes: {', '.join(sorted(actionable_t1))}[/]"
+        )
+
+    # Tier 2 fixers may share check IDs with Tier 1 (e.g. CHECK_026/027).
+    # Only mention "Tier 2 only" for IDs WITHOUT a Tier 1 fixer.
+    # Plus, mention --ai upgrades for the dual-tier ones.
+    dual_tier = [c for c in actionable_t1 if c in tier_2]
+    if actionable_t2_only or dual_tier:
+        console.print()
+        console.print(f"  [magenta]• Tier 2[/] [dim](Claude --ai; ~$0.05–0.10 per check):[/]")
+        console.print(f"    [bold]portfolio project fix {repo_name} --apply --yes --ai[/]")
+        if actionable_t2_only:
+            console.print(
+                f"    [dim]Closes (Tier 2 only): {', '.join(sorted(actionable_t2_only))}[/]"
+            )
+        if dual_tier:
+            console.print(
+                f"    [dim]Upgrades content (after Tier 1): {', '.join(sorted(dual_tier))}[/]"
+            )
+
+    if manual:
+        console.print()
+        console.print(f"  [yellow]• Manual ({len(manual)})[/] [dim](no auto-fix):[/]")
+        for cid, msg in sorted(manual):
+            hint = _MANUAL_HINTS.get(cid, msg)
+            console.print(f"    [yellow]{cid}[/]  [dim]{hint}[/]")
+
+    if design_skipped:
+        console.print()
+        console.print(
+            f"  [dim]• Skipped ({len(design_skipped)}): "
+            f"{', '.join(sorted(design_skipped))}  — design intent (no action)[/]"
+        )
 
 
 def _render_single_check_table(check_id: str, per_repo: dict, spec) -> None:
