@@ -13,7 +13,7 @@ import tldextract
 from .data import ROOT, load_domains, load_plan
 
 CHECKS_DIR = ROOT / "data" / "checks"
-WIP_CATEGORIES = ("My brand", "SEO under way", "Next session")
+WIP_CATEGORIES = ("My brand", "SEO under way", "Next session", "Under build")
 
 PARKED_HOST_SUFFIXES = (
     "cashparking.com",
