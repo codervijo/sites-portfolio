@@ -307,9 +307,9 @@ def _render_status(snapshot_path) -> None:
 
 check_app = typer.Typer(
     help=(
-        "Fetch each domain, classify, snapshot to data/checks/YYYY-MM-DD.json. "
-        "With no subcommand: the live-site check (existing v1.B behavior). "
-        "Subcommands let you browse and run the v5.A catalog."
+        "Health checks: live (fetch + classify domains), git (cross-repo "
+        "catalog), seo (per-domain runtime probe). Plus catalog-inspection "
+        "subcommands (catalog, describe, run)."
     ),
     invoke_without_command=True,
 )
@@ -319,76 +319,27 @@ app.add_typer(check_app, name="check")
 _SEVERITY_COLOR = {"error": "red", "warn": "yellow", "info": "cyan"}
 
 
-@check_app.callback(invoke_without_command=True)
-def check_callback(
-    ctx: typer.Context,
-    live: bool = typer.Option(False, "--live", help="Live HTTP fetch + classify each domain (v5.F: explicit form of the legacy default)"),
-    git: bool = typer.Option(False, "--git", help="Scaffold + git catalog checks across repos in repos_dir (v5.B)"),
-    seo: bool = typer.Option(False, "--seo", help="Live HTTP + GSC + CrUX per-domain SEO probe (v5.D)"),
-    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (--live, --seo)"),
-    concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests (--live)"),
-    detail: bool = typer.Option(False, "--detail", help="Per-repo breakdown instead of summary (--git)"),
-    check_id: str = typer.Option("", "--check", help="Run a single check across all repos (--git)"),
-    repo: str = typer.Option("", "--repo", help="[Deprecated — use --domain]"),
-    days: int = typer.Option(28, "--days", help="GSC lookback window in days (--seo)"),
-    domain: str = typer.Option("", "--domain", help="Filter to one project (works with --git, --seo)"),
-    sort_by: str = typer.Option("impressions", "--sort",
-                                help="Sort --seo table by: impressions | clicks | position | ctr"),
+# ---------- v5.F.2: check live / git / seo as real subcommands ----------
+#
+# Pre-v5.F.2 these were callback flags (`check --live`, `check --git`,
+# `check --seo`). The callback form is preserved as a deprecation alias
+# (see `check_callback` below) so existing scripts keep working through
+# one transition window.
+
+
+@check_app.command("live")
+def check_live(
+    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all'"),
+    concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests"),
+    domain: str = typer.Option("", "--domain", help="Filter to one project (deferred to v5.F.1)"),
 ) -> None:
-    """Three sibling modes — pick one with --live, --git, or --seo:
-
-      --live  fetch every domain and classify (live-site / forwarder /
-              parked / dead); writes a snapshot to data/checks/.
-      --git   run the scaffold + docs + git + stack + deploy catalog
-              against every sites/* repo; great for cross-project health.
-      --seo   per-domain runtime SEO probe (HTTP + GSC + CrUX); reads
-              the latest snapshot to pick live-site/forwarder targets.
-
-    With no flag, `--live` is assumed for backward compat with v1–v5.E.
-
-    `--repo` is a deprecated alias for `--domain`.
-    """
-    if ctx.invoked_subcommand is not None:
-        return  # subcommand will execute below
-
-    # Mode-flag conflict guard. Exactly one of --live / --git / --seo, or none
-    # (in which case we default to --live for backward compat).
-    mode_count = sum(1 for f in (live, git, seo) if f)
-    if mode_count > 1:
-        console.print(
-            "[red]Pick one of --live / --git / --seo, not several.[/]"
-        )
-        raise typer.Exit(2)
-
-    # --repo deprecation (v5.F): accept silently with a one-line nudge.
-    if repo and not domain:
-        console.print(
-            "[yellow]Note:[/] [dim]--repo is deprecated; use --domain.[/]"
-        )
-        domain = repo
-    elif repo and domain and repo.lower() != domain.lower():
-        console.print(
-            f"[red]--repo={repo!r} and --domain={domain!r} disagree.[/] "
-            "Pass only one (they're synonyms; --repo is deprecated)."
-        )
-        raise typer.Exit(2)
-
-    if git:
-        _run_check_git_mode(detail=detail, check_id=check_id, repo=domain)
-        return
-    if seo:
-        _run_check_seo_mode(days=days, only_domain=domain, sort_by=sort_by,
-                            only=only, concurrency=concurrency)
-        return
-
-    # Default mode = --live. Either explicit (--live) or implicit (no flag).
+    """Live HTTP fetch + classify every domain → snapshot in data/checks/."""
     if domain:
-        # --live --domain <one> not yet wired in v5.F. Deferred to v5.F.1
-        # (one-shot probe + render without polluting the snapshot file).
         console.print(
-            "[yellow]--live --domain is deferred to v5.F.1.[/]\n"
+            "[yellow]'check live --domain' is deferred to v5.F.1.[/]\n"
             "[dim]For now: drop --domain to probe the full --only set, or "
-            "use --git/--seo --domain for per-project views.[/]"
+            "use 'check git --domain' / 'check seo --domain' for "
+            "per-project views.[/]"
         )
         raise typer.Exit(2)
     if only not in ("wip", "all"):
@@ -398,6 +349,108 @@ def check_callback(
     out, _ = run_check(only=only, concurrency=concurrency)
     console.print(f"[green]Snapshot:[/] {out}")
     _render_status(out)
+
+
+@check_app.command("git")
+def check_git(
+    detail: bool = typer.Option(False, "--detail", help="Per-repo breakdown instead of summary"),
+    check_id: str = typer.Option("", "--check", help="Run a single check ID across all repos"),
+    domain: str = typer.Option("", "--domain", help="Filter to one project"),
+    repo: str = typer.Option("", "--repo", help="[Deprecated — use --domain]"),
+) -> None:
+    """Scaffold + docs + git + stack + deploy catalog across all sites/* repos."""
+    target = _resolve_domain_repo_synonyms(domain, repo)
+    _run_check_git_mode(detail=detail, check_id=check_id, repo=target)
+
+
+@check_app.command("seo")
+def check_seo(
+    days: int = typer.Option(28, "--days", help="GSC lookback window in days"),
+    domain: str = typer.Option("", "--domain", help="Filter to one project"),
+    repo: str = typer.Option("", "--repo", help="[Deprecated — use --domain]"),
+    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (used when refreshing snapshot)"),
+    concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests when refreshing snapshot"),
+    sort_by: str = typer.Option("impressions", "--sort",
+                                help="Sort by: impressions | clicks | position | ctr"),
+) -> None:
+    """Per-domain runtime SEO probe — HTTP + GSC + CrUX."""
+    target = _resolve_domain_repo_synonyms(domain, repo)
+    _run_check_seo_mode(days=days, only_domain=target, sort_by=sort_by,
+                        only=only, concurrency=concurrency)
+
+
+def _resolve_domain_repo_synonyms(domain: str, repo: str) -> str:
+    """Collapse the --domain / --repo synonym pair into one target string.
+
+    --repo is the deprecated form (kept since v5.F so existing scripts
+    keep working). Conflict (different non-empty values) is an error."""
+    if repo and not domain:
+        console.print(
+            "[yellow]Note:[/] [dim]--repo is deprecated; use --domain.[/]"
+        )
+        return repo
+    if repo and domain and repo.lower() != domain.lower():
+        console.print(
+            f"[red]--repo={repo!r} and --domain={domain!r} disagree.[/] "
+            "Pass only one (they're synonyms; --repo is deprecated)."
+        )
+        raise typer.Exit(2)
+    return domain
+
+
+@check_app.callback(invoke_without_command=True)
+def check_callback(
+    ctx: typer.Context,
+    live: bool = typer.Option(False, "--live", help="[Deprecated — use 'check live']"),
+    git: bool = typer.Option(False, "--git", help="[Deprecated — use 'check git']"),
+    seo: bool = typer.Option(False, "--seo", help="[Deprecated — use 'check seo']"),
+    only: str = typer.Option("wip", "--only", "-o"),
+    concurrency: int = typer.Option(20, "--concurrency", "-c"),
+    detail: bool = typer.Option(False, "--detail"),
+    check_id: str = typer.Option("", "--check"),
+    repo: str = typer.Option("", "--repo"),
+    days: int = typer.Option(28, "--days"),
+    domain: str = typer.Option("", "--domain"),
+    sort_by: str = typer.Option("impressions", "--sort"),
+) -> None:
+    """Group: scaffold/git/seo health checks. Pick a subcommand:
+
+      check live   fetch + classify each domain → data/checks/<date>.json
+      check git    scaffold + git + stack + deploy catalog across repos
+      check seo    per-domain HTTP + GSC + CrUX runtime probe
+
+    Pre-v5.F.2 the modes lived as `--live` / `--git` / `--seo` flags on
+    this callback; that form still works but prints a deprecation note.
+    """
+    if ctx.invoked_subcommand is not None:
+        return  # subcommand will execute below
+
+    # Mode-flag conflict guard.
+    mode_count = sum(1 for f in (live, git, seo) if f)
+    if mode_count > 1:
+        console.print(
+            "[red]Pick one of --live / --git / --seo, not several.[/]"
+        )
+        raise typer.Exit(2)
+    if mode_count == 0:
+        # No subcommand and no mode flag — show help.
+        console.print(ctx.get_help())
+        return
+
+    # Deprecation aliases — forward to the real subcommand.
+    if live:
+        _deprecation("portfolio check --live", "portfolio check live")
+        check_live(only=only, concurrency=concurrency, domain=domain)
+        return
+    if git:
+        _deprecation("portfolio check --git", "portfolio check git")
+        check_git(detail=detail, check_id=check_id, domain=domain, repo=repo)
+        return
+    if seo:
+        _deprecation("portfolio check --seo", "portfolio check seo")
+        check_seo(days=days, domain=domain, repo=repo, only=only,
+                  concurrency=concurrency, sort_by=sort_by)
+        return
 
 
 # ---------- v5.B: --git cross-repo catalog runner ----------
@@ -2864,7 +2917,7 @@ def _render_bootstrap_summary(result, domain: str) -> None:
     console.print("  [bold cyan]Deploy[/]")
     console.print(f"    portfolio new deploy {domain}     [dim]# create GH repo + Cloudflare Pages project[/]")
     console.print("  [bold cyan]Verify after deploy[/]")
-    console.print(f"    portfolio check --live                       [dim]# refresh check snapshot[/]")
+    console.print(f"    portfolio check live                         [dim]# refresh check snapshot[/]")
     console.print(f"    portfolio info status {domain}      [dim]# full conformance report[/]")
 
 
@@ -3111,12 +3164,12 @@ def _status_deprecated() -> None:
     """[Deprecated — top-level `status` was removed in v5.F.
 
     The latest-snapshot view + diff is no longer a standalone command.
-    Use `portfolio check --live` to fetch + render a fresh snapshot, or
+    Use `portfolio check live` to fetch + render a fresh snapshot, or
     inspect `data/checks/<date>.json` directly. For per-project status
     use `portfolio info status <name>`."""
     console.print(
         "[yellow]'portfolio status' was removed in v5.F.[/]\n"
-        "  • [dim]live snapshot view[/] → use 'portfolio check --live' "
+        "  • [dim]live snapshot view[/] → use 'portfolio check live' "
         "(fetches + renders)\n"
         "  • [dim]per-project status[/] → use 'portfolio info status <name>'\n"
         "  • [dim]raw snapshot JSON[/] → see data/checks/<date>.json"

@@ -59,7 +59,7 @@ def test_v5b_git_summary_mode_lists_repos(tmp_path, monkeypatch):
     repos_dir = _make_repos_dir(tmp_path, ["alpha-repo", "beta-repo"])
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git"])
+    result = runner.invoke(app, ["check", "git"])
     assert result.exit_code == 0
     out = result.stdout
     assert "alpha-repo" in out
@@ -81,7 +81,7 @@ def test_v5b_git_summary_skips_hidden_dirs(tmp_path, monkeypatch):
     (repos_dir / "node_modules").mkdir()
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git"])
+    result = runner.invoke(app, ["check", "git"])
     assert result.exit_code == 0
     out = result.stdout
     assert "real-repo" in out
@@ -108,7 +108,7 @@ def test_v5b_git_summary_orders_by_score_ascending(tmp_path, monkeypatch):
     (full / "Makefile").write_text("PROJ := full\n%:\n\t$(MAKE) -C .. $@\n")
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git"])
+    result = runner.invoke(app, ["check", "git"])
     assert result.exit_code == 0
     out = result.stdout
     # bare appears before fully-scaffolded
@@ -122,7 +122,7 @@ def test_v5b_git_single_check_filter(tmp_path, monkeypatch):
     repos_dir = _make_repos_dir(tmp_path, ["a", "b"])
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git", "--check", "CHECK_001"])
+    result = runner.invoke(app, ["check", "git", "--check", "CHECK_001"])
     assert result.exit_code == 0
     out = result.stdout
     # Each repo appears with a status for CHECK_001 specifically
@@ -137,7 +137,7 @@ def test_v5b_git_unknown_check_id_errors(tmp_path, monkeypatch):
     repos_dir = _make_repos_dir(tmp_path, ["a"])
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git", "--check", "CHECK_999"])
+    result = runner.invoke(app, ["check", "git", "--check", "CHECK_999"])
     assert result.exit_code == 2
     assert "Unknown check" in result.stdout
 
@@ -149,7 +149,7 @@ def test_v5b_git_repo_mode_runs_one(tmp_path, monkeypatch):
     repos_dir = _make_repos_dir(tmp_path, ["a", "b", "c"])
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git", "--repo", "b"])
+    result = runner.invoke(app, ["check", "git", "--repo", "b"])
     assert result.exit_code == 0
     out = result.stdout
     # Only "b" should be in the output
@@ -163,7 +163,7 @@ def test_v5b_git_repo_mode_unknown_repo_errors(tmp_path, monkeypatch):
     repos_dir = _make_repos_dir(tmp_path, ["a"])
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git", "--repo", "ghost"])
+    result = runner.invoke(app, ["check", "git", "--repo", "ghost"])
     assert result.exit_code == 2
     assert "ghost" in result.stdout
 
@@ -176,7 +176,7 @@ def test_git_accepts_domain_as_synonym_for_repo(tmp_path, monkeypatch):
     repos_dir = _make_repos_dir(tmp_path, ["alpha", "beta"])
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git", "--domain", "alpha"])
+    result = runner.invoke(app, ["check", "git", "--domain", "alpha"])
     assert result.exit_code == 0
     out = result.stdout
     # Single-repo detail mode renders the alpha repo's check list.
@@ -220,7 +220,7 @@ def test_v5b_git_detail_shows_per_repo_breakdown(tmp_path, monkeypatch):
     repos_dir = _make_repos_dir(tmp_path, ["a", "b"])
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git", "--detail"])
+    result = runner.invoke(app, ["check", "git", "--detail"])
     assert result.exit_code == 0
     out = result.stdout
     # Each repo gets its own table
@@ -237,7 +237,7 @@ def test_v5b_git_missing_repos_dir_errors(tmp_path, monkeypatch):
     repos_dir = tmp_path / "nope"
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git"])
+    result = runner.invoke(app, ["check", "git"])
     assert result.exit_code == 2
     assert "repos_dir not found" in result.stdout
 
@@ -247,7 +247,7 @@ def test_v5b_git_empty_repos_dir(tmp_path, monkeypatch):
     repos_dir.mkdir()
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git"])
+    result = runner.invoke(app, ["check", "git"])
     assert result.exit_code == 1
     assert "No repos" in result.stdout
 
@@ -306,7 +306,7 @@ def test_v5c_ignore_repos_default_skips_portfolio_repo(tmp_path, monkeypatch):
     import portfolio.checks as checks_pkg
     monkeypatch.setattr(checks_pkg, "load_config", lambda path=None: cfg)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git"])
+    result = runner.invoke(app, ["check", "git"])
     assert result.exit_code == 0
     assert "site-a" in result.stdout
     # The portfolio dir should not appear as a row in the repo column.
@@ -321,10 +321,28 @@ def test_v5c_aggregate_common_failures_section_present(tmp_path, monkeypatch):
     repos_dir = _make_repos_dir(tmp_path, ["a", "b", "c"])
     _patch_repos_dir(monkeypatch, repos_dir)
     runner = CliRunner()
-    result = runner.invoke(app, ["check", "--git"])
+    result = runner.invoke(app, ["check", "git"])
     assert result.exit_code == 0
     out = result.stdout
     # Aggregate block heading appears.
     assert "Most common failures" in out
     # Bare repos all fail CHECK_005 (docs/prd.md missing) → category Docs.
     assert "Docs" in out
+
+
+# ---------- v5.F.2 — deprecated `check --git` callback flag still works ----------
+
+
+def test_v5f2_git_flag_form_still_works_with_deprecation_warning(tmp_path, monkeypatch):
+    """`check --git` (the pre-v5.F.2 flag form) keeps running but prints a
+    deprecation note pointing at the new `check git` subcommand."""
+    repos_dir = _make_repos_dir(tmp_path, ["alpha-repo"])
+    _patch_repos_dir(monkeypatch, repos_dir)
+    runner = CliRunner()
+    result = runner.invoke(app, ["check", "--git"])
+    assert result.exit_code == 0
+    out = result.stdout
+    assert "deprecated" in out.lower()
+    assert "check git" in out
+    # Functionality still produces the summary table.
+    assert "alpha-repo" in out

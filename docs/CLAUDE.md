@@ -14,8 +14,8 @@ plus a sibling `sites/<domain>/` workspace. It does three big things:
   2. Project bootstrap — `bootstrap <domain>` scaffolds a Vite/Astro site
      under `sites/<domain>/` (first project-dir write surface). `deploy
      <domain>` creates the GitHub repo + Cloudflare Pages project.
-  3. Universal check catalog — `check --live`, `check --git` (cross-repo),
-     `check --seo` (per-domain runtime probe). Checks live in
+  3. Universal check catalog — `check live`, `check git` (cross-repo),
+     `check seo` (per-domain runtime probe). Checks live in
      `src/portfolio/checks/<category>/check_NNN_<slug>.py` with
      auto-discovery via the registry.
 
@@ -36,10 +36,10 @@ uv run pytest -q
 uv run portfolio check catalog
 
 # Cross-repo health (default summary; --detail for per-repo breakdown)
-uv run portfolio check --git
+uv run portfolio check git
 
 # Per-domain runtime SEO (HTTP + GSC + CrUX)
-uv run portfolio check --seo --only=all
+uv run portfolio check seo --only=all
 
 # Bootstrap a new sites/<domain>/ project
 uv run portfolio new bootstrap <domain>

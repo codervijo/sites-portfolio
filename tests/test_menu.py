@@ -39,8 +39,8 @@ def test_v5f_find_command_returns_known_keys():
     assert cmd is not None and cmd.label == "focus"
 
     cmd = find_command("2")
-    assert cmd is not None and cmd.label == "check --live"
-    assert cmd.cli_args == ["check", "--live"]
+    assert cmd is not None and cmd.label == "check live"
+    assert cmd.cli_args == ["check", "live"]
 
     cmd = find_command("5")
     assert cmd is not None and cmd.label == "new suggest"
@@ -62,7 +62,7 @@ def test_v5f_menu_includes_expected_commands():
     labels = {c.label for _, cmds in MENU_GROUPS for c in cmds}
     for required in (
         "focus",
-        "check --live", "check --git", "check --seo",
+        "check live", "check git", "check seo",
         "new suggest", "new bootstrap", "new deploy",
         "info summary", "info status", "info expiring",
         "info wip", "info list", "info category", "info cleanup",
