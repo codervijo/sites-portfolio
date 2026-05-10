@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-05-02T08:10:45.218501+00:00",
+  "generated_at": "2026-05-10T05:57:06.769823+00:00",
   "domains": [
     {
       "name": "airgiveaway.com",
@@ -188,6 +188,23 @@
       "forwarding_url": "",
       "privacy": true,
       "transfer_locked": null
+    },
+    {
+      "name": "donready.xyz",
+      "registrar": "porkbun",
+      "tld": ".xyz",
+      "expires": "2027-05-08",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-05-08",
+      "renewal_price": 11.1,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "dom.ns.cloudflare.com kristina.ns.cloudflare.com",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true
     },
     {
       "name": "dunam.co",

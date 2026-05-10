@@ -2,3 +2,4 @@ Please note that renewal prices are estimates based on current renewal rates.
 DOMAIN,TLD,CREATE DATE,EXPIRE DATE,LOCKED,PRIVACY,AUTO RENEW,NAMESERVERS,AUTH CODE,AUTH CODE CHANGED,EST. RENEWAL PRICE,STATUSES,URL FORWARDS
 voltloop.site,site,"2026-04-24 21:10:06","2027-04-24 21:10:06",yes,yes,yes,dom.ns.cloudflare.com|kristina.ns.cloudflare.com,N/A,NO,28.84,"clientDeleteProhibited,clientTransferProhibited"
 isitholiday.today,today,"2026-04-24 21:10:06","2027-04-24 21:10:06",yes,yes,yes,dom.ns.cloudflare.com|kristina.ns.cloudflare.com,N/A,NO,23.17,"clientDeleteProhibited,clientTransferProhibited"
+donready.xyz,xyz,"2026-05-08 12:00:00","2027-05-08 12:00:00",yes,yes,yes,dom.ns.cloudflare.com|kristina.ns.cloudflare.com,N/A,NO,11.10,"clientDeleteProhibited,clientTransferProhibited"
