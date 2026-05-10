@@ -71,15 +71,19 @@ uv run portfolio info status <domain>
 
 Designs aligned but not yet executed. When picked up, no need to re-debate.
 
-### v7.A — CLI restructure to scope-first (`project` / `fleet`)
+### v7.A — CLI restructure to scope-first (`project` / `fleet`) + `settings`
 
-Aligned 2026-05-10. Replaces the current mixed-namespace tree with a
-scope-first model. `project` for ops on one project; `fleet` for
-cross-portfolio. `info` group dies (its members split: per-project
-status moves to `project check`; inventory views go to `fleet info`).
-`check`-as-noun-with-modes goes away (each mode becomes its own verb
-under the appropriate scope). `--all` and `--domain` flags retire
-(scope is in the namespace, not the flag).
+Aligned 2026-05-10 across two design sessions. Replaces the current
+mixed-namespace tree with a scope-first model. `project` for ops on
+one project; `fleet` for cross-portfolio. `info` group dies (its
+members split: per-project status → `project check`; inventory views
+→ `fleet info`). `check`-as-noun-with-modes goes away (each mode
+becomes its own verb under the appropriate scope). `--all` and
+`--domain` flags retire (scope is in the namespace, not the flag).
+
+Setup / debug consolidates under a new `settings` top-level
+(catalog, gsc, apikeys). Daily-ops users see four primary namespaces;
+"everything else" lives under settings.
 
 Final tree:
 
@@ -95,24 +99,27 @@ portfolio
 │   ├── seo
 │   ├── check
 │   ├── fix
-│   ├── cleanup        (write op — kept at action layer, not info)
 │   ├── drift
-│   └── info           (read-only browse)
-│       ├── summary    (--verbose replaces info list)
-│       └── expiring
+│   └── info             (inventory views — pragmatically grouped)
+│       ├── summary      (--verbose replaces old `info list`)
+│       ├── expiring
+│       └── cleanup
 ├── new
 │   ├── suggest
 │   ├── bootstrap
 │   └── deploy
-├── catalog
-│   ├── list
-│   ├── describe
-│   └── run
-└── gsc
-    ├── auth
-    ├── list
-    ├── sync
-    └── compare
+└── settings
+    ├── catalog
+    │   ├── list
+    │   ├── describe <id>
+    │   └── run <path> <id>
+    ├── gsc                  (simplified from auth/list/sync/compare)
+    │   ├── auth
+    │   └── status           (--refresh folds in old `sync`)
+    └── apikeys              (NEW — replaces manual portfolio.env editing)
+        ├── list             (names + set/not-set + connectivity tick)
+        ├── set <key> <value>   (strict known-list; --force to override)
+        └── delete <key>     (confirm; --yes to skip)
 ```
 
 Rename map: `info status <name>` → `project check <name>`;
@@ -120,15 +127,30 @@ Rename map: `info status <name>` → `project check <name>`;
 `check seo --domain X` → `project seo X`; `check git` → `fleet check`;
 `check live` → `fleet live`; `check seo` → `fleet seo`;
 `project fix --all` → `fleet fix`; `focus` → `fleet focus`;
-`info summary` → `fleet info summary`; `info list` → `fleet info summary --verbose`;
-`info expiring` → `fleet info expiring`; `info cleanup` → `fleet cleanup`;
-`info drift` → `fleet drift`; `check {catalog,describe,run}` →
-`catalog {list,describe,run}`.
+`info summary` → `fleet info summary`; `info list` →
+`fleet info summary --verbose`; `info expiring` → `fleet info expiring`;
+`info cleanup` → `fleet info cleanup`; `info drift` → `fleet drift`;
+`check {catalog,describe,run}` → `settings catalog {list,describe,run}`;
+`gsc auth` → `settings gsc auth`; `gsc list/sync/compare` →
+`settings gsc status [--refresh]`.
 
-Phasing (when executed):
-  - **v7.A.1**: introduce new commands additively; keep old paths working
-  - **v7.A.2**: convert old paths to deprecation aliases
-  - **v7.A.3**: docs + tests + soak; mark removal target = v8.A
+`settings apikeys` design:
+  - `list` — shape A (name + set/not-set) plus a connectivity tick
+    per provider (✓ valid / ✗ failed / dim if not testable). Tests
+    each provider's API on each call (OpenAI models.list, CrUX
+    queryRecord, Porkbun ping, CF /user). Adds ~3-5s; the tradeoff
+    is worth it for "did I paste the right key?" signal.
+  - `set` — strict; only accepts known key names
+    (OPENAI_API_KEY, PORKBUN_API_KEY, PORKBUN_SECRET_API_KEY,
+    CF_API_TOKEN, CF_ACCOUNT_ID, CRUX_API_KEY). `--force` to
+    accept arbitrary names. Atomic write (preserves other lines,
+    comments, ordering of portfolio.env).
+  - `delete` — confirms by default; `--yes` skips.
+
+Phasing (single phase, all in):
+  - **v7.A.1** (additive): new commands stand alongside old; both work
+  - **v7.A.2** (deprecate): old paths become deprecation aliases
+  - **v7.A.3** (docs + soak): cleanup, mark removal target = v8.A
 
 Triggers to actually execute (none yet):
   - Muscle memory has shifted (you reflexively type the new shape)
@@ -137,7 +159,9 @@ Triggers to actually execute (none yet):
   - 6+ months pass without churn pressure
 
 If none happen: leave it. Action plan in `check git --domain` already
-bridges discoverability.
+bridges discoverability for the project-check half. `apikeys` is the
+one piece that's net-new functionality — could carve as separate
+phase if v7.A timing slips.
 
 ## Deferred decisions
 
