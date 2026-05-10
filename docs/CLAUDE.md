@@ -14,15 +14,19 @@ plus a sibling `sites/<domain>/` workspace. It does three big things:
   2. Project bootstrap — `bootstrap <domain>` scaffolds a Vite/Astro site
      under `sites/<domain>/` (first project-dir write surface). `deploy
      <domain>` creates the GitHub repo + Cloudflare Pages project.
-  3. Universal check catalog — `check`, `check --git` (cross-repo), and
-     `check --seo` (per-domain runtime probe — HTTP + GSC + CrUX). Checks
-     live in `src/portfolio/checks/<category>/check_NNN_<slug>.py` with
+  3. Universal check catalog — `check --live`, `check --git` (cross-repo),
+     `check --seo` (per-domain runtime probe). Checks live in
+     `src/portfolio/checks/<category>/check_NNN_<slug>.py` with
      auto-discovery via the registry.
 
 `docs/prd.md` is the canonical spec; `docs/Prompts.md` is the prompt log
-(parsed by `portfolio project status`); `docs/CLAUDE.md` is this file.
+(parsed by `portfolio info status`); `docs/CLAUDE.md` is this file.
 
 ## Commands
+
+The CLI was reorganized in v5.F into four groups: `focus`, `check`, `new`,
+`info`. Old top-level names (`bootstrap`, `summary`, `project status`, …)
+still work via deprecation aliases that print a one-line nudge.
 
 ```bash
 # Test
@@ -38,7 +42,10 @@ uv run portfolio check --git
 uv run portfolio check --seo --only=all
 
 # Bootstrap a new sites/<domain>/ project
-uv run portfolio bootstrap <domain>
+uv run portfolio new bootstrap <domain>
+
+# Per-project conformance status
+uv run portfolio info status <domain>
 ```
 
 ## Conventions

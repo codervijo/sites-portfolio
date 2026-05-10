@@ -267,10 +267,11 @@ def test_template_path_ai_agents_has_conformance_section(tmp_path):
     bootstrap("flow.dev", sites_root=tmp_path)
     text = (tmp_path / "flow.dev" / "AI_AGENTS.md").read_text()
     assert "How this project is checked" in text
-    assert "portfolio project status" in text
-    # Lists at least the v1 rules + has-growth-log
-    for rule in ("own-git-repo", "has-prompts-md", "has-growth-log", "platform-declared"):
-        assert rule in text, f"rule {rule} not surfaced in AI_AGENTS"
+    # v5.F renamed `portfolio project status` → `portfolio info status`.
+    assert "portfolio info status" in text
+    # Lists CHECK_* IDs from the catalog (v5.E migrated rule names).
+    for cid in ("CHECK_020", "CHECK_002", "CHECK_007", "CHECK_008"):
+        assert cid in text, f"check {cid} not surfaced in AI_AGENTS"
 
 
 def test_template_path_ai_agents_has_ship_fast_reminder(tmp_path):

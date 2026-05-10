@@ -20,10 +20,10 @@ from portfolio.menu import (
 # ---------- find_command + MENU_GROUPS shape ----------
 
 
-def test_v4d_menu_groups_three_groups():
-    """Build first (most common entry-point), Manage second, Reports last."""
+def test_menu_groups_four_groups():
+    """v5.F: Focus → Check → New → Info."""
     names = [g for g, _ in MENU_GROUPS]
-    assert names == ["Build", "Manage", "Reports"]
+    assert names == ["Focus", "Check", "New", "Info"]
 
 
 def test_v4d_menu_groups_keys_unique_and_sequential():
@@ -33,18 +33,22 @@ def test_v4d_menu_groups_keys_unique_and_sequential():
     assert keys == [str(i) for i in range(1, len(keys) + 1)]
 
 
-def test_v4d_find_command_returns_known_keys():
-    """v4.D 2026-05-08 reorder: Build is now first (1=domain suggest);
-    Manage starts at 4 (4=summary)."""
+def test_v5f_find_command_returns_known_keys():
+    """v5.F: 1=focus, 2-4=check modes, 5-7=new, 8-14=info."""
     cmd = find_command("1")
-    assert cmd is not None
-    assert "domain suggest" in cmd.label
-    assert cmd.cli_args == ["domain", "suggest"]
+    assert cmd is not None and cmd.label == "focus"
 
-    cmd = find_command("4")
-    assert cmd is not None
-    assert cmd.label == "summary"
-    assert cmd.cli_args == ["summary"]
+    cmd = find_command("2")
+    assert cmd is not None and cmd.label == "check --live"
+    assert cmd.cli_args == ["check", "--live"]
+
+    cmd = find_command("5")
+    assert cmd is not None and cmd.label == "new suggest"
+    assert cmd.cli_args == ["new", "suggest"]
+
+    cmd = find_command("8")
+    assert cmd is not None and cmd.label == "info summary"
+    assert cmd.cli_args == ["info", "summary"]
 
 
 def test_v4d_find_command_returns_none_for_unknown_key():
@@ -53,13 +57,15 @@ def test_v4d_find_command_returns_none_for_unknown_key():
     assert find_command("") is None
 
 
-def test_v4d_menu_includes_expected_commands():
-    """Sanity: every command we promised in PRD v4.D is in the menu."""
+def test_v5f_menu_includes_expected_commands():
+    """Every command in the v5.F spec is in the menu."""
     labels = {c.label for _, cmds in MENU_GROUPS for c in cmds}
     for required in (
-        "summary", "project status", "cleanup", "check",
-        "domain suggest", "bootstrap", "deploy",
-        "expiring", "category", "wip", "list",
+        "focus",
+        "check --live", "check --git", "check --seo",
+        "new suggest", "new bootstrap", "new deploy",
+        "info summary", "info status", "info expiring",
+        "info wip", "info list", "info category", "info cleanup",
     ):
         assert required in labels, f"missing {required}"
 
@@ -67,14 +73,14 @@ def test_v4d_menu_includes_expected_commands():
 # ---------- render_top_menu ----------
 
 
-def test_v4d_render_top_menu_groups_and_keys():
+def test_v5f_render_top_menu_groups_and_keys():
     with menu.console.capture() as cap:
         render_top_menu()
     out = cap.get()
-    for group in ("Manage", "Build", "Reports"):
+    for group in ("Focus", "Check", "New", "Info"):
         assert group in out
-    # All 11 keys appear as "N." prefixes
-    for i in range(1, 12):
+    # All 14 keys appear as "N." prefixes
+    for i in range(1, 15):
         assert f"{i}." in out
     assert "q. Quit" in out
 
@@ -84,51 +90,50 @@ def test_v4d_render_top_menu_includes_descriptions():
     with menu.console.capture() as cap:
         render_top_menu()
     out = cap.get()
-    assert "Portfolio overview" in out  # summary description
-    assert "Validation-mode" in out      # domain suggest description
+    assert "Portfolio overview" in out  # info summary description
+    assert "Validation-mode" in out      # new suggest description
 
 
 # ---------- collect_args ----------
 
 
-def test_v4d_collect_args_no_positionals_no_options():
-    """A command with neither (e.g. summary, key 4 post-reorder) returns
-    just its base cli_args."""
-    cmd = find_command("4")  # summary
+def test_v5f_collect_args_no_positionals_no_options():
+    """A command with neither (e.g. info summary, key 8) returns just its
+    base cli_args."""
+    cmd = find_command("8")  # info summary
     args = collect_args(cmd)
-    assert args == ["summary"]
+    assert args == ["info", "summary"]
 
 
-def test_v4d_collect_args_required_positional(monkeypatch):
+def test_v5f_collect_args_required_positional(monkeypatch):
     """Required positional → prompt → append to args."""
-    cmd = find_command("5")  # project status
+    cmd = find_command("9")  # info status
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "iotnews")
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    assert args == ["project", "status", "iotnews"]
+    assert args == ["info", "status", "iotnews"]
 
 
-def test_v4d_collect_args_required_positional_empty_returns_none(monkeypatch):
+def test_v5f_collect_args_required_positional_empty_returns_none(monkeypatch):
     """Empty required positional → cancel back to menu."""
-    cmd = find_command("5")  # project status (required name)
+    cmd = find_command("9")  # info status (required name)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "")
     args = collect_args(cmd)
     assert args is None
 
 
-def test_v4d_collect_args_optional_positional_can_be_skipped(monkeypatch):
-    """`category` has an optional positional — empty input is fine."""
-    cmd = find_command("9")  # category
+def test_v5f_collect_args_optional_positional_can_be_skipped(monkeypatch):
+    """`info category` has an optional positional — empty input is fine."""
+    cmd = find_command("13")  # info category
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "")
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    # No name appended; just the base.
-    assert args == ["category"]
+    assert args == ["info", "category"]
 
 
-def test_v4d_collect_args_walks_options_when_user_says_no(monkeypatch):
+def test_v5f_collect_args_walks_options_when_user_says_no(monkeypatch):
     """User declines defaults → walk through optionals one at a time."""
-    cmd = find_command("8")  # expiring (--within option)
+    cmd = find_command("10")  # info expiring (--within option)
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: False)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "60")
     args = collect_args(cmd)
@@ -136,36 +141,34 @@ def test_v4d_collect_args_walks_options_when_user_says_no(monkeypatch):
     assert "60" in args
 
 
-def test_v4d_collect_args_skipped_optional_uses_default(monkeypatch):
+def test_v5f_collect_args_skipped_optional_uses_default(monkeypatch):
     """User accepts defaults → no option flags appended."""
-    cmd = find_command("8")  # expiring
+    cmd = find_command("10")  # info expiring
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    assert args == ["expiring"]
+    assert args == ["info", "expiring"]
     assert "--within" not in args
 
 
-def test_v4d_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
+def test_v5f_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
     """A (y/n)-described option in y mode → emit `--flag` alone (no value)."""
-    cmd = find_command("1")  # domain suggest (--browse, --with-abstract are y/n)
-    # Sequence: positional "topic", confirm "use defaults?" → No,
-    # then walk options: --max-price (skip), --browse "y", --with-abstract "n"
+    cmd = find_command("5")  # new suggest (--browse, --with-abstract are y/n)
+    # Sequence: positional "topic", then walk options:
+    # --max-price (skip), --browse "y", --with-abstract "n"
     prompt_iter = iter(["my topic", "", "y", "n"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompt_iter))
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: False)
     args = collect_args(cmd)
-    # --browse should appear bare (no value); --with-abstract should be absent
     assert "--browse" in args
-    # Make sure --browse isn't followed by a value token like "y"
     bi = args.index("--browse")
     assert (bi == len(args) - 1 or args[bi + 1].startswith("--"))
     assert "--with-abstract" not in args
 
 
-def test_v4d_collect_args_non_boolean_option_emits_flag_value_pair(monkeypatch):
+def test_v5f_collect_args_non_boolean_option_emits_flag_value_pair(monkeypatch):
     """A non-(y/n) option emits both --flag and the user-typed value."""
-    cmd = find_command("8")  # expiring (--within is non-boolean)
+    cmd = find_command("10")  # info expiring (--within is non-boolean)
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: False)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "30")
     args = collect_args(cmd)
@@ -184,22 +187,22 @@ def test_v4d_dispatch_calls_subprocess_with_portfolio_prefix(monkeypatch):
         return MagicMock(returncode=0)
 
     monkeypatch.setattr("portfolio.menu.subprocess.run", fake_run)
-    rc = dispatch(["summary"])
+    rc = dispatch(["info", "summary"])
     assert rc == 0
-    assert captured["cmd"] == ["portfolio", "summary"]
+    assert captured["cmd"] == ["portfolio", "info", "summary"]
 
 
 def test_v4d_dispatch_returns_subprocess_returncode(monkeypatch):
     monkeypatch.setattr("portfolio.menu.subprocess.run",
                         lambda *a, **kw: MagicMock(returncode=2))
-    assert dispatch(["expiring"]) == 2
+    assert dispatch(["info", "expiring"]) == 2
 
 
 def test_v4d_dispatch_handles_missing_executable(monkeypatch):
     """If `portfolio` isn't on PATH, surface a helpful error and return 127."""
     monkeypatch.setattr("portfolio.menu.subprocess.run",
                         MagicMock(side_effect=FileNotFoundError("no portfolio")))
-    rc = dispatch(["summary"])
+    rc = dispatch(["info", "summary"])
     assert rc == 127
 
 
@@ -215,12 +218,12 @@ def test_v4d_run_menu_handles_unknown_choice_then_quit(monkeypatch):
     prompts = iter(["99", "q"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompts))
-    run_menu()  # the unknown key gets the "Type 1-11 or q." reprint
+    run_menu()  # the unknown key gets the "Type 1-14 or q." reprint
 
 
-def test_v4d_run_menu_dispatches_simple_command_then_quits(monkeypatch):
-    """Pick 4 (summary, no positionals/options), then q."""
-    prompts = iter(["4", "q"])
+def test_v5f_run_menu_dispatches_simple_command_then_quits(monkeypatch):
+    """Pick 8 (info summary, no positionals/options), then q."""
+    prompts = iter(["8", "q"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompts))
     captured = {}
@@ -231,13 +234,13 @@ def test_v4d_run_menu_dispatches_simple_command_then_quits(monkeypatch):
 
     monkeypatch.setattr("portfolio.menu.subprocess.run", fake_run)
     run_menu()
-    assert captured["cmd"] == ["portfolio", "summary"]
+    assert captured["cmd"] == ["portfolio", "info", "summary"]
 
 
-def test_v4d_run_menu_cancelled_positional_returns_to_menu(monkeypatch):
-    """User picks a command requiring a positional (5 = project status),
+def test_v5f_run_menu_cancelled_positional_returns_to_menu(monkeypatch):
+    """User picks a command requiring a positional (9 = info status),
     types nothing → returns to menu without dispatching. Then quits."""
-    prompts = iter(["5", "", "q"])
+    prompts = iter(["9", "", "q"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompts))
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)

@@ -136,15 +136,15 @@ PORTFOLIO_ENV_TEMPLATE = """\
 # portfolio.env — secrets for portfolio CLI features.
 # Loaded by python-dotenv at runtime. Do not commit this file (it's in .gitignore).
 
-# Required for `portfolio domain suggest` brainstorm (v2.A)
+# Required for `portfolio new suggest` brainstorm (v2.A)
 OPENAI_API_KEY=
 
-# Optional for `portfolio domain suggest` availability+price (v2.B).
+# Optional for `portfolio new suggest` availability+price (v2.B).
 # When unset, the CLI falls back to RDAP (free, no keys, availability only — no price).
 PORKBUN_API_KEY=
 PORKBUN_SECRET_API_KEY=
 
-# Required for `portfolio deploy <domain>` Cloudflare Pages step (v3.C).
+# Required for `portfolio new deploy <domain>` Cloudflare Pages step (v3.C).
 # CF_API_TOKEN: create at https://dash.cloudflare.com/profile/api-tokens
 #   with permission `Account / Cloudflare Pages: Edit` (scoped to your account).
 # CF_ACCOUNT_ID: Cloudflare dashboard → right-side panel of any zone overview,

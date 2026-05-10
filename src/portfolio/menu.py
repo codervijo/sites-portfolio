@@ -1,20 +1,23 @@
-"""v4.D interactive launcher.
+"""v4.D interactive launcher (v5.F regrouped).
 
 When `portfolio` is invoked with no subcommand (e.g. via `make run`), the
-top-level Typer callback drops the user into a grouped menu rendered here.
-The menu groups commands as **Manage** / **Build** / **Reports**, walks the
-user through positional args + an optional flag walkthrough, then dispatches
-to the subcommand via subprocess. After the subcommand exits, control returns
-to the menu; `q` exits.
+top-level Typer callback drops the user into the grouped menu rendered
+here. v5.F regrouped the menu around the new command tree:
+
+  Focus  — where to focus today (top 5 priorities) [coming in v5.F.1]
+  Check  — live, git, and SEO catalog runs
+  New    — add new domains / projects (suggest, bootstrap, deploy)
+  Info   — read-only views (summary, status, expiring, wip, list, …)
 
 Dispatch via subprocess (rather than in-process invocation) keeps each
 subcommand's behavior identical to direct CLI use — no shared state, no
 global mutation, no surprises. Cost is one fork per command (~200ms),
 imperceptible in interactive use.
 
-The MENU_GROUPS spec hardcodes positionals + the most common optional flags
-per command. Power users invoke commands directly via the CLI for full
-optionality. The launcher is for "I forgot the command name" muscle memory.
+The MENU_GROUPS spec hardcodes positionals + the most common optional
+flags per command. Power users invoke commands directly via the CLI for
+full optionality. The launcher is for "I forgot the command name" muscle
+memory.
 """
 from __future__ import annotations
 
@@ -43,51 +46,66 @@ class CmdSpec:
 
 
 MENU_GROUPS: list[tuple[str, list[CmdSpec]]] = [
-    ("Build", [
-        CmdSpec("1", "domain suggest", "Validation-mode brainstorm + grid + decide",
-                ["domain", "suggest"],
+    ("Focus", [
+        CmdSpec("1", "focus", "Where to focus today (top 5 priorities) [coming in v5.F.1]",
+                ["focus"]),
+    ]),
+    ("Check", [
+        CmdSpec("2", "check --live", "Fetch + classify each domain → snapshot",
+                ["check", "--live"],
+                options=[("--only", "Scope: 'wip' or 'all'", "wip"),
+                         ("--concurrency", "Max parallel HTTP requests", "20")]),
+        CmdSpec("3", "check --git", "Scaffold + git checks across repos",
+                ["check", "--git"],
+                options=[("--detail", "Per-repo breakdown instead of summary (y/n)", "n"),
+                         ("--domain", "Filter to one project", ""),
+                         ("--check", "Run a single check ID across all repos", "")]),
+        CmdSpec("4", "check --seo", "GSC + HTTP health across all domains",
+                ["check", "--seo"],
+                options=[("--only", "Scope: 'wip' or 'all'", "wip"),
+                         ("--days", "GSC lookback window in days", "28"),
+                         ("--domain", "Filter to one domain", ""),
+                         ("--sort", "Sort by: impressions | clicks | position | ctr", "impressions")]),
+    ]),
+    ("New", [
+        CmdSpec("5", "new suggest", "Validation-mode brainstorm + grid + decide",
+                ["new", "suggest"],
                 positionals=[("topic", "product idea or short description")],
-                options=[("--max-price", "Filter price > N USD/yr", "10"),
+                options=[("--max-price", "Filter price > N USD/yr", "20"),
                          ("--browse", "Use legacy per-strategy flow (y/n)", "n"),
                          ("--with-abstract", "Include abstract-brandable strategy (y/n)", "n")]),
-        CmdSpec("2", "bootstrap", "Scaffold a new sites/<domain>/ project",
-                ["bootstrap"],
+        CmdSpec("6", "new bootstrap", "Scaffold a new sites/<domain>/ project",
+                ["new", "bootstrap"],
                 positionals=[("domain", "domain name (e.g. kwizicle.com)")],
                 options=[("--stack", "astro or vite", "astro"),
                          ("--topic", "one-line project topic", ""),
                          ("--from-genai", "Copy genai/ → root (y/n)", "n")]),
-        CmdSpec("3", "deploy", "Set up GitHub repo + Cloudflare Pages",
-                ["deploy"],
+        CmdSpec("7", "new deploy", "Set up GitHub repo + Cloudflare Pages",
+                ["new", "deploy"],
                 positionals=[("domain", "domain to deploy")],
                 options=[("--gh-owner", "GitHub username/org (auto-detect if blank)", ""),
                          ("--private", "Create repo as private (y/n)", "n"),
                          ("--dry-run", "Show planned API calls; don't execute (y/n)", "n")]),
     ]),
-    ("Manage", [
-        CmdSpec("4", "summary", "Portfolio overview (counts, value, expirations)",
-                ["summary"]),
-        CmdSpec("5", "project status", "Status of one project under sites/",
-                ["project", "status"],
+    ("Info", [
+        CmdSpec("8", "info summary", "Portfolio overview (counts, value, expirations)",
+                ["info", "summary"]),
+        CmdSpec("9", "info status", "Status of one project under sites/",
+                ["info", "status"],
                 positionals=[("name", "project name (fuzzy-matched)")],
                 options=[("--json", "Emit JSON instead of table (y/n)", "n")]),
-        CmdSpec("6", "cleanup", "Rebuild data/portfolio.json from registrar CSVs",
-                ["cleanup"]),
-        CmdSpec("7", "check", "Fetch + classify each domain → check snapshot",
-                ["check"],
-                options=[("--only", "Scope: 'wip' or 'all'", "wip"),
-                         ("--concurrency", "Max parallel HTTP requests", "20")]),
-    ]),
-    ("Reports", [
-        CmdSpec("8", "expiring", "Domains expiring within N days",
-                ["expiring"],
+        CmdSpec("10", "info expiring", "Domains expiring within N days",
+                ["info", "expiring"],
                 options=[("--within", "Days from today", "180")]),
-        CmdSpec("9", "category", "Domains grouped by plan category",
-                ["category"],
+        CmdSpec("11", "info wip", "Work-in-progress domains (My brand / SEO / Next session)",
+                ["info", "wip"]),
+        CmdSpec("12", "info list", "Every domain in the registrar CSVs",
+                ["info", "list"]),
+        CmdSpec("13", "info category", "Domains grouped by plan category",
+                ["info", "category"],
                 positionals=[("name", "optional: category substring (Enter for all)")]),
-        CmdSpec("10", "wip", "Work-in-progress domains (My brand / SEO / Next session)",
-                ["wip"]),
-        CmdSpec("11", "list", "Every domain in the registrar CSVs",
-                ["list"]),
+        CmdSpec("14", "info cleanup", "Rebuild data/portfolio.json from registrar CSVs",
+                ["info", "cleanup"]),
     ]),
 ]
 
@@ -201,7 +219,7 @@ def run_menu() -> None:
                 return
             cmd = find_command(choice)
             if cmd is None:
-                console.print("[red]Type 1-11 or q.[/]")
+                console.print("[red]Type 1-14 or q.[/]")
                 continue
             args = collect_args(cmd)
             if args is None:

@@ -21,6 +21,29 @@ from .data import PORTFOLIO_JSON, cleanup as run_cleanup, load_domains, load_pla
 app = typer.Typer(help="Manage your domain portfolio.", add_completion=False)
 console = Console()
 
+# v5.F: subapp homes for the rename pass.
+#   info  — read-only views into the portfolio (summary, status, expiring, …)
+#   new   — write-surface flows for adding domains/projects (suggest, bootstrap, deploy)
+# Old top-level command names continue to work via deprecation shims that
+# print a one-line warning and forward to the new home. Removal phase:
+# v5.G+ or after a week of use without surprise.
+info_app = typer.Typer(help="Read-only views into the portfolio (v5.F).",
+                       no_args_is_help=True)
+new_app = typer.Typer(help="Add new domains / projects (v5.F).",
+                      no_args_is_help=True)
+app.add_typer(info_app, name="info")
+app.add_typer(new_app, name="new")
+
+
+def _deprecation(old: str, new: str) -> None:
+    """Print a one-line yellow note before executing a deprecated command.
+
+    Old paths still work — this shim just nudges the user toward the new
+    home. Removal phase: v5.G+ or after a quiet week."""
+    console.print(
+        f"[yellow]Note:[/] [dim]'{old}' is deprecated; use '{new}'.[/]"
+    )
+
 
 @app.callback(invoke_without_command=True)
 def _root_callback(ctx: typer.Context) -> None:
@@ -33,7 +56,22 @@ def _root_callback(ctx: typer.Context) -> None:
 
 
 @app.command()
-def cleanup() -> None:
+def focus(
+    show_all: bool = typer.Option(False, "--all", help="Show the full ranked list, not just top 5"),
+) -> None:
+    """Where to focus today — top 5 domains by priority signal (v5.F.1)."""
+    console.print(
+        "[yellow]'portfolio focus' is queued for v5.F.1.[/]\n\n"
+        "[dim]Will rank domains by: site-down (check --live), expiring "
+        "(portfolio.json), GSC zero-impressions (--seo cache), and bad "
+        "position (--seo cache). Two of those four signals need a new "
+        "--seo cache layer first.[/]"
+    )
+    raise typer.Exit(2)
+
+
+@info_app.command("cleanup")
+def info_cleanup() -> None:
     """Build canonical data/portfolio.json from registrar CSVs + plan.md classifications."""
     out_path, domains, uncategorized = run_cleanup()
 
@@ -69,8 +107,8 @@ def cleanup() -> None:
         )
 
 
-@app.command()
-def summary() -> None:
+@info_app.command("summary")
+def info_summary() -> None:
     """Print a portfolio overview."""
     domains = load_domains()
     plan = load_plan()
@@ -132,8 +170,8 @@ def summary() -> None:
         console.print(f"\n[yellow]In plan but not in registrar data ({len(only_plan)}):[/] " + ", ".join(only_plan))
 
 
-@app.command()
-def expiring(within: int = typer.Option(180, "--within", "-w", help="Days from today")) -> None:
+@info_app.command("expiring")
+def info_expiring(within: int = typer.Option(180, "--within", "-w", help="Days from today")) -> None:
     """List domains expiring within N days."""
     today = date.today()
     soon = [d for d in load_domains() if d.expires and (d.expires - today).days <= within]
@@ -150,8 +188,8 @@ def expiring(within: int = typer.Option(180, "--within", "-w", help="Days from t
     console.print(t)
 
 
-@app.command()
-def category(name: str = typer.Argument(None, help="Category substring (omit for all)")) -> None:
+@info_app.command("category")
+def info_category(name: str = typer.Argument(None, help="Category substring (omit for all)")) -> None:
     """List domains grouped by plan category."""
     plan = load_plan()
     by_name = {d.name: d for d in load_domains()}
@@ -185,8 +223,8 @@ def category(name: str = typer.Argument(None, help="Category substring (omit for
 WIP_CATEGORIES = ("My brand", "SEO under way", "Next session")
 
 
-@app.command()
-def wip() -> None:
+@info_app.command("wip")
+def info_wip() -> None:
     """List work-in-progress domains: My brand + SEO under way + Next session."""
     plan = load_plan()
     by_name = {d.name: d for d in load_domains()}
@@ -284,46 +322,75 @@ _SEVERITY_COLOR = {"error": "red", "warn": "yellow", "info": "cyan"}
 @check_app.callback(invoke_without_command=True)
 def check_callback(
     ctx: typer.Context,
-    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (live-site path)"),
-    concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests (live-site path)"),
-    git: bool = typer.Option(False, "--git", help="Run scaffold + git catalog checks across repos in repos_dir (v5.B)"),
-    detail: bool = typer.Option(False, "--detail", help="Per-repo breakdown instead of summary (with --git)"),
-    check_id: str = typer.Option("", "--check", help="Run a single check across all repos (with --git)"),
-    repo: str = typer.Option("", "--repo", help="Filter to one project (synonym for --domain in this CLI; works with --git or --seo)"),
-    seo: bool = typer.Option(False, "--seo", help="Live HTTP + GSC + CrUX runtime SEO probe (v5.D)"),
-    days: int = typer.Option(28, "--days", help="GSC lookback window in days (with --seo)"),
-    domain: str = typer.Option("", "--domain", help="Filter to one project (synonym for --repo; works with --git or --seo)"),
+    live: bool = typer.Option(False, "--live", help="Live HTTP fetch + classify each domain (v5.F: explicit form of the legacy default)"),
+    git: bool = typer.Option(False, "--git", help="Scaffold + git catalog checks across repos in repos_dir (v5.B)"),
+    seo: bool = typer.Option(False, "--seo", help="Live HTTP + GSC + CrUX per-domain SEO probe (v5.D)"),
+    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (--live, --seo)"),
+    concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests (--live)"),
+    detail: bool = typer.Option(False, "--detail", help="Per-repo breakdown instead of summary (--git)"),
+    check_id: str = typer.Option("", "--check", help="Run a single check across all repos (--git)"),
+    repo: str = typer.Option("", "--repo", help="[Deprecated — use --domain]"),
+    days: int = typer.Option(28, "--days", help="GSC lookback window in days (--seo)"),
+    domain: str = typer.Option("", "--domain", help="Filter to one project (works with --git, --seo)"),
     sort_by: str = typer.Option("impressions", "--sort",
                                 help="Sort --seo table by: impressions | clicks | position | ctr"),
 ) -> None:
-    """When no subcommand is given:
-      - default: live-site fetch + classify + snapshot (existing v1.B path)
-      - with --git: cross-repo catalog run (v5.B)
-      - with --seo: per-domain runtime SEO probe (v5.D)
+    """Three sibling modes — pick one with --live, --git, or --seo:
 
-    `--repo` and `--domain` are synonyms — sites/<domain>/ is the project
-    dir, so the two concepts coincide. Either flag works in either mode.
+      --live  fetch every domain and classify (live-site / forwarder /
+              parked / dead); writes a snapshot to data/checks/.
+      --git   run the scaffold + docs + git + stack + deploy catalog
+              against every sites/* repo; great for cross-project health.
+      --seo   per-domain runtime SEO probe (HTTP + GSC + CrUX); reads
+              the latest snapshot to pick live-site/forwarder targets.
+
+    With no flag, `--live` is assumed for backward compat with v1–v5.E.
+
+    `--repo` is a deprecated alias for `--domain`.
     """
     if ctx.invoked_subcommand is not None:
         return  # subcommand will execute below
 
-    # --repo and --domain mean the same thing here; collapse to one target.
-    if repo and domain and repo.lower() != domain.lower():
+    # Mode-flag conflict guard. Exactly one of --live / --git / --seo, or none
+    # (in which case we default to --live for backward compat).
+    mode_count = sum(1 for f in (live, git, seo) if f)
+    if mode_count > 1:
         console.print(
-            f"[red]--repo={repo!r} and --domain={domain!r} disagree.[/] "
-            "Pass only one (they're synonyms)."
+            "[red]Pick one of --live / --git / --seo, not several.[/]"
         )
         raise typer.Exit(2)
-    target = repo or domain
+
+    # --repo deprecation (v5.F): accept silently with a one-line nudge.
+    if repo and not domain:
+        console.print(
+            "[yellow]Note:[/] [dim]--repo is deprecated; use --domain.[/]"
+        )
+        domain = repo
+    elif repo and domain and repo.lower() != domain.lower():
+        console.print(
+            f"[red]--repo={repo!r} and --domain={domain!r} disagree.[/] "
+            "Pass only one (they're synonyms; --repo is deprecated)."
+        )
+        raise typer.Exit(2)
 
     if git:
-        _run_check_git_mode(detail=detail, check_id=check_id, repo=target)
+        _run_check_git_mode(detail=detail, check_id=check_id, repo=domain)
         return
     if seo:
-        _run_check_seo_mode(days=days, only_domain=target, sort_by=sort_by,
+        _run_check_seo_mode(days=days, only_domain=domain, sort_by=sort_by,
                             only=only, concurrency=concurrency)
         return
-    # Default: existing live-site check
+
+    # Default mode = --live. Either explicit (--live) or implicit (no flag).
+    if domain:
+        # --live --domain <one> not yet wired in v5.F. Deferred to v5.F.1
+        # (one-shot probe + render without polluting the snapshot file).
+        console.print(
+            "[yellow]--live --domain is deferred to v5.F.1.[/]\n"
+            "[dim]For now: drop --domain to probe the full --only set, or "
+            "use --git/--seo --domain for per-project views.[/]"
+        )
+        raise typer.Exit(2)
     if only not in ("wip", "all"):
         console.print(f"[red]--only must be 'wip' or 'all', got {only!r}.[/]")
         raise typer.Exit(2)
@@ -919,16 +986,6 @@ def check_run(
     console.print(f"\n[dim]Totals: {n_pass} pass · {n_fail} fail · {n_warn} warn[/]")
 
 
-@app.command()
-def status() -> None:
-    """Show the latest snapshot, with diff vs. the previous one."""
-    latest = latest_snapshot()
-    if not latest:
-        console.print("[red]No snapshots yet. Run `portfolio check` first.[/]")
-        raise typer.Exit(1)
-    _render_status(latest)
-
-
 gsc_app = typer.Typer(help="Google Search Console integration.", no_args_is_help=True)
 app.add_typer(gsc_app, name="gsc")
 
@@ -1170,12 +1227,8 @@ def gsc_compare() -> None:
         console.print(f"\n[bold]Portfolio total:[/] {total_clicks:,} clicks  /  {total_imp:,} impressions  across {len(cur_ok)} domains")
 
 
-project_app = typer.Typer(help="Per-project status and conformance.", no_args_is_help=True)
-app.add_typer(project_app, name="project")
-
-
-@project_app.command("status")
-def project_status(
+@info_app.command("status")
+def info_status(
     name: str = typer.Argument(..., help="Project name (fuzzy-matched against plan.md domains)"),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON instead of a human table"),
 ) -> None:
@@ -1322,8 +1375,8 @@ def _render_project_status(result: dict) -> None:
         )
 
 
-@app.command(name="list")
-def list_all() -> None:
+@info_app.command("list")
+def info_list() -> None:
     """List every domain in the CSV."""
     t = Table(title="All Domains")
     t.add_column("Domain")
@@ -1338,12 +1391,8 @@ def list_all() -> None:
     console.print(t)
 
 
-domain_app = typer.Typer(help="Domain acquisition tooling (Power 1).", no_args_is_help=True)
-app.add_typer(domain_app, name="domain")
-
-
-@domain_app.command("suggest")
-def domain_suggest(
+@new_app.command("suggest")
+def new_suggest(
     topic: str = typer.Argument(..., help="The product idea or topic to brainstorm domain names for"),
     tlds: str = typer.Option(
         "",
@@ -2450,7 +2499,7 @@ def _post_pick_flow(*, row, pick_tld, topic, env, vocab_terms,
         console.print(f"[cyan]Register manually:[/] {porkbun_cart_url([selected])}")
 
     console.print("\n[bold]Next step:[/]")
-    console.print(f'  portfolio bootstrap {selected} --topic="{topic}"')
+    console.print(f'  portfolio new bootstrap {selected} --topic="{topic}"')
     if vocab_terms:
         console.print("\n[bold]Vocab terms[/] (paste into docs/prd.md after bootstrap):")
         console.print("  " + ", ".join(vocab_terms))
@@ -2735,8 +2784,8 @@ def _domain_suggest_browse(
         console.print("\n[yellow]No domain selected.[/]")
 
 
-@app.command()
-def bootstrap(
+@new_app.command("bootstrap")
+def new_bootstrap(
     domain: str = typer.Argument(..., help="Domain name to scaffold under sites/ (e.g. kwizicle.com)"),
     stack: str = typer.Option("astro", "--stack", help="astro or vite (ignored if --from-genai or --git-url)"),
     from_genai: bool = typer.Option(False, "--from-genai", help="Copy contents of sites/<domain>/genai/ up to project root + apply CF safety fixes"),
@@ -2813,10 +2862,10 @@ def _render_bootstrap_summary(result, domain: str) -> None:
     console.print("    make deps           [dim]# install dependencies via the central builder[/]")
     console.print("    make dev            [dim]# start the dev server[/]")
     console.print("  [bold cyan]Deploy[/]")
-    console.print(f"    portfolio deploy {domain}     [dim]# create GH repo + Cloudflare Pages project[/]")
+    console.print(f"    portfolio new deploy {domain}     [dim]# create GH repo + Cloudflare Pages project[/]")
     console.print("  [bold cyan]Verify after deploy[/]")
-    console.print(f"    portfolio check                            [dim]# refresh check snapshot[/]")
-    console.print(f"    portfolio project status {domain}      [dim]# full conformance report[/]")
+    console.print(f"    portfolio check --live                       [dim]# refresh check snapshot[/]")
+    console.print(f"    portfolio info status {domain}      [dim]# full conformance report[/]")
 
 
 def _render_project_tree(project_dir) -> None:
@@ -2900,8 +2949,8 @@ def _render_bootstrap_conformance(domain: str) -> None:
             )
 
 
-@app.command()
-def deploy(
+@new_app.command("deploy")
+def new_deploy(
     domain: str = typer.Argument(..., help="Domain whose sites/<domain>/ project to deploy (e.g. kwizicle.com)"),
     gh_owner: str = typer.Option("", "--gh-owner", help="GitHub username/org for the new repo (auto-detected via `gh api user` if empty)"),
     private: bool = typer.Option(False, "--private", help="Create the GitHub repo as private (default: public)"),
@@ -2921,7 +2970,7 @@ def deploy(
     project_dir = DATA_ROOT.parent / domain
     if not project_dir.exists():
         console.print(f"[red]Project dir not found:[/] {project_dir}")
-        console.print("[dim]Run `portfolio bootstrap <domain>` first, or check the domain spelling.[/]")
+        console.print("[dim]Run `portfolio new bootstrap <domain>` first, or check the domain spelling.[/]")
         raise typer.Exit(1)
 
     cf_token = env.get("CF_API_TOKEN", "").strip()
@@ -3000,6 +3049,159 @@ def deploy(
     console.print("\n[green]Deploy plumbing complete.[/]")
     console.print("[dim]Next: CF auto-builds on each push to main. Watch the dashboard for the first build.[/]")
     console.print(f"[dim]To add the custom domain, do it in the CF Pages dashboard for now (deferred from v3.C).[/]")
+
+
+# ===========================================================================
+# v5.F deprecation aliases
+# ===========================================================================
+# These shims exist so existing muscle memory + scripts keep working through
+# the transition. Each prints a one-line yellow note pointing at the new
+# home and forwards to the new implementation. Removal phase: v5.G+ or
+# after a quiet week of use without surprise.
+
+
+@app.command("cleanup")
+def _cleanup_deprecated() -> None:
+    """[Deprecated — use `portfolio info cleanup`]"""
+    _deprecation("portfolio cleanup", "portfolio info cleanup")
+    info_cleanup()
+
+
+@app.command("summary")
+def _summary_deprecated() -> None:
+    """[Deprecated — use `portfolio info summary`]"""
+    _deprecation("portfolio summary", "portfolio info summary")
+    info_summary()
+
+
+@app.command("expiring")
+def _expiring_deprecated(
+    within: int = typer.Option(180, "--within", "-w", help="Days from today"),
+) -> None:
+    """[Deprecated — use `portfolio info expiring`]"""
+    _deprecation("portfolio expiring", "portfolio info expiring")
+    info_expiring(within=within)
+
+
+@app.command("category")
+def _category_deprecated(
+    name: str = typer.Argument(None, help="Category substring (omit for all)"),
+) -> None:
+    """[Deprecated — use `portfolio info category`]"""
+    _deprecation("portfolio category", "portfolio info category")
+    info_category(name=name)
+
+
+@app.command("wip")
+def _wip_deprecated() -> None:
+    """[Deprecated — use `portfolio info wip`]"""
+    _deprecation("portfolio wip", "portfolio info wip")
+    info_wip()
+
+
+@app.command("list")
+def _list_deprecated() -> None:
+    """[Deprecated — use `portfolio info list`]"""
+    _deprecation("portfolio list", "portfolio info list")
+    info_list()
+
+
+@app.command("status")
+def _status_deprecated() -> None:
+    """[Deprecated — top-level `status` was removed in v5.F.
+
+    The latest-snapshot view + diff is no longer a standalone command.
+    Use `portfolio check --live` to fetch + render a fresh snapshot, or
+    inspect `data/checks/<date>.json` directly. For per-project status
+    use `portfolio info status <name>`."""
+    console.print(
+        "[yellow]'portfolio status' was removed in v5.F.[/]\n"
+        "  • [dim]live snapshot view[/] → use 'portfolio check --live' "
+        "(fetches + renders)\n"
+        "  • [dim]per-project status[/] → use 'portfolio info status <name>'\n"
+        "  • [dim]raw snapshot JSON[/] → see data/checks/<date>.json"
+    )
+    raise typer.Exit(2)
+
+
+# project-status path under the legacy `project` namespace:
+#   `portfolio project status <name>` → `portfolio info status <name>`
+_legacy_project_app = typer.Typer(no_args_is_help=True)
+app.add_typer(_legacy_project_app, name="project",
+              help="[Deprecated — use `portfolio info`]")
+
+
+@_legacy_project_app.command("status")
+def _project_status_deprecated(
+    name: str = typer.Argument(..., help="Project name (fuzzy-matched)"),
+    json_out: bool = typer.Option(False, "--json", help="Emit JSON instead of a human table"),
+) -> None:
+    """[Deprecated — use `portfolio info status`]"""
+    _deprecation("portfolio project status", "portfolio info status")
+    info_status(name=name, json_out=json_out)
+
+
+# domain suggest path:
+#   `portfolio domain suggest <topic>` → `portfolio new suggest <topic>`
+_legacy_domain_app = typer.Typer(no_args_is_help=True)
+app.add_typer(_legacy_domain_app, name="domain",
+              help="[Deprecated — use `portfolio new`]")
+
+
+@_legacy_domain_app.command("suggest")
+def _domain_suggest_deprecated(
+    topic: str = typer.Argument(..., help="The product idea or topic to brainstorm"),
+    tlds: str = typer.Option(".com,.app,.dev,.xyz,.site,.co", "--tlds", help="Comma-separated TLDs (with leading dots) for the registrar grid"),
+    max_price: float = typer.Option(20.0, "--max-price", help="Cells over this first-year price are shown but unselectable"),
+    strategies: str = typer.Option("", "--strategies", help="Comma-separated strategies (default: all four)"),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="Print ranked candidates and exit; no menu"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Ignore cached brainstorm + vocab; re-run the LLM"),
+    browse: bool = typer.Option(False, "--browse", help="Use the v2.A per-strategy round-by-round flow"),
+    show_renewal: bool = typer.Option(False, "--show-renewal", help="Add renewal-price stacked sub-row to the grid"),
+    with_abstract: bool = typer.Option(False, "--with-abstract", help="Include the abstract-brandable strategy"),
+) -> None:
+    """[Deprecated — use `portfolio new suggest`]"""
+    _deprecation("portfolio domain suggest", "portfolio new suggest")
+    new_suggest(
+        topic=topic, tlds=tlds, max_price=max_price, strategies=strategies,
+        non_interactive=non_interactive, no_cache=no_cache, browse=browse,
+        show_renewal=show_renewal, with_abstract=with_abstract,
+    )
+
+
+@app.command("bootstrap")
+def _bootstrap_deprecated(
+    domain: str = typer.Argument(..., help="Domain name to scaffold"),
+    stack: str = typer.Option("astro", "--stack", help="astro or vite"),
+    from_genai: bool = typer.Option(False, "--from-genai"),
+    git_url: str = typer.Option("", "--git-url"),
+    with_ingester: bool = typer.Option(False, "--with-ingester"),
+    topic: str = typer.Option("", "--topic"),
+) -> None:
+    """[Deprecated — use `portfolio new bootstrap`]"""
+    _deprecation("portfolio bootstrap", "portfolio new bootstrap")
+    new_bootstrap(
+        domain=domain, stack=stack, from_genai=from_genai, git_url=git_url,
+        with_ingester=with_ingester, topic=topic,
+    )
+
+
+@app.command("deploy")
+def _deploy_deprecated(
+    domain: str = typer.Argument(..., help="Domain whose sites/<domain>/ project to deploy"),
+    gh_owner: str = typer.Option("", "--gh-owner"),
+    private: bool = typer.Option(False, "--private"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    skip_verify: bool = typer.Option(False, "--skip-verify"),
+    skip_repo: bool = typer.Option(False, "--skip-repo"),
+    skip_pages: bool = typer.Option(False, "--skip-pages"),
+) -> None:
+    """[Deprecated — use `portfolio new deploy`]"""
+    _deprecation("portfolio deploy", "portfolio new deploy")
+    new_deploy(
+        domain=domain, gh_owner=gh_owner, private=private, dry_run=dry_run,
+        skip_verify=skip_verify, skip_repo=skip_repo, skip_pages=skip_pages,
+    )
 
 
 if __name__ == "__main__":

@@ -169,19 +169,19 @@ make test      # → pnpm install + build + test (must be inside container)
 ## How this project is checked
 
 This project is enforced against shared sites/* conventions by
-`portfolio project status {domain}` (run from `sites/portfolio/`).
-Conformance rules currently checked include: `own-git-repo`,
-`has-category` (project listed in portfolio.json), `has-prompts-md` +
-`prompts-md-format` (dated H2), `has-makefile`, `has-ai-agents-md`,
-`platform-declared` (CF/Vercel/Netlify marker), `live-site` (HTTP
-classification), and **`has-growth-log`** (`docs/growth.md` exists —
-the per-project growth-experiment log; see Growth log section below).
-v4 adds `has-prd-md`, `has-readme`, `has-gitignore`, `vite-version-ok`,
-`ai-agents-md-has-building-info`, `ai-agents-md-has-deployment-info`.
-The bootstrap output satisfies all of these on day zero — keep it that way.
+`portfolio info status {domain}` (run from `sites/portfolio/`).
+Conformance is driven by the universal check catalog (CHECK_*) —
+e.g. CHECK_020 (own-git-repo), CHECK_002 (has-ai-agents-md),
+CHECK_007 (has-docs-prompts), CHECK_008 (has-docs-growth — `docs/growth.md`
+exists — the per-project growth-experiment log; see Growth log section
+below), CHECK_001 (has-readme), CHECK_009 (has-gitignore), CHECK_035
+(vite-version-ok), CHECK_003 / CHECK_004 (AI_AGENTS.md `## Building info` +
+`## Deployment info` headings). See the full catalog with
+`portfolio check catalog`. The bootstrap output satisfies all of these on
+day zero — keep it that way.
 
-If `project status` flags a regression, fix it. v4.D's
-`portfolio project fix` will eventually auto-fix; until then, hand-edit.
+If `info status` flags a regression, fix it. v6.C's `portfolio project fix`
+will eventually auto-fix; until then, hand-edit.
 
 ## Growth log — per-project experiment tracker
 
@@ -286,7 +286,7 @@ Two-level versioning convention (canonical: `sites/portfolio/AI_AGENTS.md`):
 
 | Phase | Theme | Features | Status |
 |---|---|---|---|
-| **v0.A** | scaffolded | `portfolio bootstrap` ran; standard files written; git initialized | ✅ |
+| **v0.A** | scaffolded | `portfolio new bootstrap` ran; standard files written; git initialized | ✅ |
 | **v1.A** | <fill in> | <fill in> | planned |
 
 ## 6. Open questions
@@ -361,7 +361,7 @@ https://search.google.com/search-console directly.
 - **Status:** active
 - **KPI:** any GSC traffic — clicks, impressions, indexed-page count
 - **Baseline:** 0 clicks / 0 impressions (just deployed)
-- **Action:** project scaffolded via `portfolio bootstrap`; first deploy
+- **Action:** project scaffolded via `portfolio new bootstrap`; first deploy
   pending. After deploy: verify in GSC as `sc-domain:{domain}` and submit
   the sitemap.
 - **Result:** TBD — review {review_date}
@@ -377,11 +377,11 @@ def _docs_prompts_md(domain: str, today: str) -> str:
 ## YYYY-MM-DD [optional title]
 > <prompt text or short summary>
 
-The dated H2 (`## YYYY-MM-DD`) is what `portfolio project status` parses
+The dated H2 (`## YYYY-MM-DD`) is what `portfolio info status` parses
 to surface "last AI prompt" per project. Keep entries append-only.
 -->
 
-## {today} — scaffolded via portfolio bootstrap
+## {today} — scaffolded via portfolio new bootstrap
 
 > Created project skeleton. Stack chosen, scaffolding written, git initialized.
 """
@@ -554,7 +554,7 @@ const description = "<fill in: 1-2 sentence value prop for SEO description>";
   <body>
     <main>
       <h1>{{title}}</h1>
-      <p>Scaffolded via <code>portfolio bootstrap</code>.</p>
+      <p>Scaffolded via <code>portfolio new bootstrap</code>.</p>
     </main>
   </body>
 </html>
@@ -672,7 +672,7 @@ def _vite_app_jsx() -> str:
   return (
     <main>
       <h1>Welcome</h1>
-      <p>Scaffolded via <code>portfolio bootstrap</code>.</p>
+      <p>Scaffolded via <code>portfolio new bootstrap</code>.</p>
     </main>
   );
 }
@@ -1446,7 +1446,7 @@ def bootstrap(
 
     initialized, sha = _git_init_and_commit(
         project_dir,
-        f"scaffold {domain} via portfolio bootstrap ({result.path}, stack={stack})",
+        f"scaffold {domain} via portfolio new bootstrap ({result.path}, stack={stack})",
     )
     result.git_initialized = initialized
     result.initial_commit_sha = sha
