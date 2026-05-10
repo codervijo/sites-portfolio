@@ -58,16 +58,20 @@ def test_v4d_find_command_returns_none_for_unknown_key():
 
 
 def test_v5f_menu_includes_expected_commands():
-    """Every command in the v5.F spec is in the menu."""
+    """Every command in the v5.F.1 spec is in the menu (wip dropped,
+    list+category merged)."""
     labels = {c.label for _, cmds in MENU_GROUPS for c in cmds}
     for required in (
         "focus",
         "check live", "check git", "check seo",
         "new suggest", "new bootstrap", "new deploy",
         "info summary", "info status", "info expiring",
-        "info wip", "info list", "info category", "info cleanup",
+        "info list", "info cleanup",
     ):
         assert required in labels, f"missing {required}"
+    # Explicitly verify removed commands aren't there.
+    for removed in ("info wip", "info category"):
+        assert removed not in labels, f"{removed} should be removed"
 
 
 # ---------- render_top_menu ----------
@@ -79,8 +83,9 @@ def test_v5f_render_top_menu_groups_and_keys():
     out = cap.get()
     for group in ("Focus", "Check", "New", "Info"):
         assert group in out
-    # All 14 keys appear as "N." prefixes
-    for i in range(1, 15):
+    # All 12 keys appear as "N." prefixes (post-v5.F.1: wip removed,
+    # list+category merged).
+    for i in range(1, 13):
         assert f"{i}." in out
     assert "q. Quit" in out
 
@@ -122,13 +127,10 @@ def test_v5f_collect_args_required_positional_empty_returns_none(monkeypatch):
     assert args is None
 
 
-def test_v5f_collect_args_optional_positional_can_be_skipped(monkeypatch):
-    """`info category` has an optional positional — empty input is fine."""
-    cmd = find_command("13")  # info category
-    monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "")
-    monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
-    args = collect_args(cmd)
-    assert args == ["info", "category"]
+# NOTE: in v5.F.1, `info category` (which had an optional positional name)
+# was merged into `info list --grouped`; no remaining menu item has an
+# optional positional. The collect_args helper still handles them — that
+# branch just doesn't get exercised through the menu data anymore.
 
 
 def test_v5f_collect_args_walks_options_when_user_says_no(monkeypatch):

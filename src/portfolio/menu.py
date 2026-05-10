@@ -97,14 +97,11 @@ MENU_GROUPS: list[tuple[str, list[CmdSpec]]] = [
         CmdSpec("10", "info expiring", "Domains expiring within N days",
                 ["info", "expiring"],
                 options=[("--within", "Days from today", "180")]),
-        CmdSpec("11", "info wip", "Work-in-progress domains (My brand / SEO / Next session)",
-                ["info", "wip"]),
-        CmdSpec("12", "info list", "Every domain in the registrar CSVs",
-                ["info", "list"]),
-        CmdSpec("13", "info category", "Domains grouped by plan category",
-                ["info", "category"],
-                positionals=[("name", "optional: category substring (Enter for all)")]),
-        CmdSpec("14", "info cleanup", "Rebuild data/portfolio.json from registrar CSVs",
+        CmdSpec("11", "info list", "List domains — flat, by-category (--grouped), or filtered",
+                ["info", "list"],
+                options=[("--grouped", "Group by plan category (y/n)", "n"),
+                         ("--category", "Filter to one category by substring (implies --grouped)", "")]),
+        CmdSpec("12", "info cleanup", "Rebuild data/portfolio.json from registrar CSVs",
                 ["info", "cleanup"]),
     ]),
 ]
@@ -219,7 +216,7 @@ def run_menu() -> None:
                 return
             cmd = find_command(choice)
             if cmd is None:
-                console.print("[red]Type 1-14 or q.[/]")
+                console.print("[red]Type 1-12 or q.[/]")
                 continue
             args = collect_args(cmd)
             if args is None:

@@ -59,15 +59,79 @@ def _root_callback(ctx: typer.Context) -> None:
 def focus(
     show_all: bool = typer.Option(False, "--all", help="Show the full ranked list, not just top 5"),
 ) -> None:
-    """Where to focus today — top 5 domains by priority signal (v5.F.1)."""
-    console.print(
-        "[yellow]'portfolio focus' is queued for v5.F.1.[/]\n\n"
-        "[dim]Will rank domains by: site-down (check --live), expiring "
-        "(portfolio.json), GSC zero-impressions (--seo cache), and bad "
-        "position (--seo cache). Two of those four signals need a new "
-        "--seo cache layer first.[/]"
+    """Where to focus today — domains ranked by priority signal.
+
+    Reads from caches only — never blocks on a live fetch. If a cache
+    is missing, that signal is silently skipped. Run `check live` /
+    `check seo` first to populate them.
+    """
+    from .check import latest_snapshot as live_latest
+    from .check import load_snapshot as load_live
+    from .focus import build_focus_list, domains_with_expiry_from_portfolio
+    from .seo_cache import latest_snapshot as seo_latest
+    from .seo_cache import load_snapshot as load_seo
+
+    # Pull every signal source. None / empty means "skip that signal."
+    live_path = live_latest()
+    live_data = load_live(live_path) if live_path else None
+
+    seo_path = seo_latest()
+    seo_data = load_seo(seo_path) if seo_path else None
+
+    all_domains = load_domains()
+    domains_expiry = domains_with_expiry_from_portfolio(all_domains)
+    # Build domain → category map so focus can skip "To be deleted immediately"
+    # rows. Lowercase keys for case-insensitive matching.
+    domain_categories = {d.name.lower(): (d.category or "") for d in all_domains}
+
+    items = build_focus_list(
+        live_snapshot=live_data,
+        seo_snapshot=seo_data,
+        domains_with_expiry=domains_expiry,
+        domain_categories=domain_categories,
     )
-    raise typer.Exit(2)
+
+    # Header notes: which sources were available?
+    notes = []
+    if live_path:
+        notes.append(f"live: {live_path.name}")
+    else:
+        notes.append("[yellow]live: missing (run `check live`)[/]")
+    if seo_path:
+        notes.append(f"seo: {seo_path.name}")
+    else:
+        notes.append("[yellow]seo: missing (run `check seo`)[/]")
+    notes.append(f"expiry: {len(domains_expiry)} domains")
+    console.print(f"[dim]Sources — {' · '.join(notes)}[/]\n")
+
+    if not items:
+        console.print("[green]Nothing to focus on — every signal is clean.[/]")
+        return
+
+    cap = len(items) if show_all else 5
+    head = items[:cap]
+    title = (
+        f"[bold]All {len(items)} domains to focus on:[/]"
+        if show_all
+        else f"[bold]Top {len(head)} domains to focus on today:[/]"
+    )
+    console.print(title)
+    for i, item in enumerate(head, 1):
+        # Lead line: rank + domain + worst signal
+        lead = item.signals[0]
+        emoji, headline, action = lead
+        console.print(f"  #{i}  [bold]{item.domain:<22}[/] {emoji} {headline}")
+        console.print(f"      [dim]{action}[/]")
+        # Additional signals on the same domain
+        for emoji, headline, action in item.signals[1:]:
+            console.print(f"      {emoji} {headline}  [dim]{action}[/]")
+        console.print()
+
+    if not show_all and len(items) > cap:
+        console.print(
+            f"[dim]+ {len(items) - cap} more — run "
+            f"`portfolio focus --all` for full list[/]"
+        )
 
 
 @info_app.command("cleanup")
@@ -188,66 +252,13 @@ def info_expiring(within: int = typer.Option(180, "--within", "-w", help="Days f
     console.print(t)
 
 
-@info_app.command("category")
-def info_category(name: str = typer.Argument(None, help="Category substring (omit for all)")) -> None:
-    """List domains grouped by plan category."""
-    plan = load_plan()
-    by_name = {d.name: d for d in load_domains()}
+# `info wip` was removed in v5.F.1 — covered by `info list --grouped`
+# (the user picks the WIP-relevant categories visually). Deprecation
+# shim lives at the bottom of the file with the other v5.F shims.
 
-    grouped: dict[str, list[str]] = {}
-    for dom, cat in plan.items():
-        grouped.setdefault(cat, []).append(dom)
-
-    if name:
-        grouped = {c: ds for c, ds in grouped.items() if name.lower() in c.lower()}
-        if not grouped:
-            console.print(f"[red]No category matches '{name}'.[/]")
-            raise typer.Exit(1)
-
-    for cat, doms in sorted(grouped.items()):
-        t = Table(title=f"{cat} ({len(doms)})")
-        t.add_column("Domain")
-        t.add_column("Expires")
-        t.add_column("Status")
-        t.add_column("Value", justify="right")
-        for dom in sorted(doms):
-            d = by_name.get(dom)
-            if d:
-                value = f"${d.estimated_value:,.0f}" if d.estimated_value else "-"
-                t.add_row(d.name, str(d.expires) if d.expires else "-", d.status, value)
-            else:
-                t.add_row(dom, "-", "[red]not in CSV[/]", "-")
-        console.print(t)
-
-
-WIP_CATEGORIES = ("My brand", "SEO under way", "Next session")
-
-
-@info_app.command("wip")
-def info_wip() -> None:
-    """List work-in-progress domains: My brand + SEO under way + Next session."""
-    plan = load_plan()
-    by_name = {d.name: d for d in load_domains()}
-
-    wip_domains = [(dom, cat) for dom, cat in plan.items() if cat in WIP_CATEGORIES]
-    if not wip_domains:
-        console.print("[yellow]No WIP domains found.[/]")
-        raise typer.Exit(1)
-
-    t = Table(title=f"WIP Domains ({len(wip_domains)})")
-    t.add_column("Domain")
-    t.add_column("Category")
-    t.add_column("Expires")
-    t.add_column("Status")
-    t.add_column("Value", justify="right")
-    for dom, cat in sorted(wip_domains, key=lambda x: (WIP_CATEGORIES.index(x[1]), x[0])):
-        d = by_name.get(dom)
-        if d:
-            value = f"${d.estimated_value:,.0f}" if d.estimated_value else "-"
-            t.add_row(d.name, cat, str(d.expires) if d.expires else "-", d.status, value)
-        else:
-            t.add_row(dom, cat, "-", "[red]not in CSV[/]", "-")
-    console.print(t)
+# `info category` was merged into `info list` in v5.F.1 — same single
+# command supports flat (default), grouped, and category-filtered modes.
+# Deprecation shim at the bottom of the file.
 
 
 CLASSIFICATION_COLORS = {
@@ -329,19 +340,37 @@ _SEVERITY_COLOR = {"error": "red", "warn": "yellow", "info": "cyan"}
 
 @check_app.command("live")
 def check_live(
-    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all'"),
+    only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (ignored when --domain is set)"),
     concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests"),
-    domain: str = typer.Option("", "--domain", help="Filter to one project (deferred to v5.F.1)"),
+    domain: str = typer.Option("", "--domain", help="One-shot probe of a single domain (does not overwrite the snapshot)"),
 ) -> None:
-    """Live HTTP fetch + classify every domain → snapshot in data/checks/."""
+    """Live HTTP fetch + classify every domain → snapshot in data/checks/.
+
+    With `--domain <one>`, probes just that domain (both bare + www
+    variants) and renders the result inline. The shared snapshot file
+    is NOT overwritten — a single-domain probe shouldn't shrink the
+    cross-portfolio view that other commands (`focus`, `check seo`)
+    depend on.
+    """
     if domain:
-        console.print(
-            "[yellow]'check live --domain' is deferred to v5.F.1.[/]\n"
-            "[dim]For now: drop --domain to probe the full --only set, or "
-            "use 'check git --domain' / 'check seo --domain' for "
-            "per-project views.[/]"
-        )
-        raise typer.Exit(2)
+        # One-shot: probe just this domain, don't touch data/checks/.
+        import asyncio
+        from dataclasses import asdict
+        from .check import _run_all
+        results = asyncio.run(_run_all([domain.lower()], concurrency))
+        console.print(f"\n[bold]check live · {domain}[/]  [dim](one-shot — snapshot file untouched)[/]")
+        for r in results:
+            cls = r.classification
+            cls_color = LIVE_CLS_COLORS.get(cls, "white")
+            status = r.status if r.status is not None else "—"
+            ms = f", {r.response_time_ms}ms" if r.response_time_ms is not None else ""
+            url = f" → {r.final_url}" if r.final_url else ""
+            console.print(
+                f"  [bold]{r.variant:<6}[/] [{cls_color}]{cls}[/] (HTTP {status}{ms}){url}"
+            )
+            if r.error:
+                console.print(f"          [red]error:[/] {r.error}")
+        return
     if only not in ("wip", "all"):
         console.print(f"[red]--only must be 'wip' or 'all', got {only!r}.[/]")
         raise typer.Exit(2)
@@ -366,17 +395,24 @@ def check_git(
 @check_app.command("seo")
 def check_seo(
     days: int = typer.Option(28, "--days", help="GSC lookback window in days"),
-    domain: str = typer.Option("", "--domain", help="Filter to one project"),
+    domain: str = typer.Option("", "--domain", help="Filter to one project (always probes fresh)"),
     repo: str = typer.Option("", "--repo", help="[Deprecated — use --domain]"),
     only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (used when refreshing snapshot)"),
     concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests when refreshing snapshot"),
     sort_by: str = typer.Option("impressions", "--sort",
                                 help="Sort by: impressions | clicks | position | ctr"),
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="Ignore cached SEO snapshot and re-probe (HTTP + GSC + CrUX)"),
 ) -> None:
-    """Per-domain runtime SEO probe — HTTP + GSC + CrUX."""
+    """Per-domain runtime SEO probe — HTTP + GSC + CrUX.
+
+    Reads from `data/seo/<latest>.json` by default if it covers every
+    domain in scope. `--refresh` forces a fresh probe and overwrites
+    today's cache file. `--domain <one>` always probes fresh.
+    """
     target = _resolve_domain_repo_synonyms(domain, repo)
     _run_check_seo_mode(days=days, only_domain=target, sort_by=sort_by,
-                        only=only, concurrency=concurrency)
+                        only=only, concurrency=concurrency, refresh=refresh)
 
 
 def _resolve_domain_repo_synonyms(domain: str, repo: str) -> str:
@@ -412,6 +448,7 @@ def check_callback(
     days: int = typer.Option(28, "--days"),
     domain: str = typer.Option("", "--domain"),
     sort_by: str = typer.Option("impressions", "--sort"),
+    refresh: bool = typer.Option(False, "--refresh"),
 ) -> None:
     """Group: scaffold/git/seo health checks. Pick a subcommand:
 
@@ -449,7 +486,7 @@ def check_callback(
     if seo:
         _deprecation("portfolio check --seo", "portfolio check seo")
         check_seo(days=days, domain=domain, repo=repo, only=only,
-                  concurrency=concurrency, sort_by=sort_by)
+                  concurrency=concurrency, sort_by=sort_by, refresh=refresh)
         return
 
 
@@ -730,17 +767,26 @@ def _seo_snapshot_needs_refresh(snap_scope: str | None, only: str) -> bool:
 
 
 def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
-                        only: str, concurrency: int) -> None:
-    """Driver for `portfolio check --seo`. Picks domains from the latest
-    classification snapshot (live-site + forwarder), runs HTTP/GSC/CrUX
-    probes, renders one row per domain.
+                        only: str, concurrency: int,
+                        refresh: bool = False) -> None:
+    """Driver for `portfolio check seo`. Picks domains from the latest
+    classification snapshot (live-site + forwarder), reads cached SEO
+    data when available (or runs HTTP/GSC/CrUX probes when `refresh` is
+    set or no cache exists), renders one row per domain.
 
-    `only` is the snapshot scope: "wip" or "all". If the latest snapshot
-    on disk is narrower than requested (e.g. snapshot=wip, only=all),
-    a fresh live-site classification is run first so the SEO probe sees
-    the right population.
+    Caching (v5.F.1): without `--refresh`, reads `data/seo/<latest>.json`
+    if it exists and includes all needed domains. With `--refresh`, runs
+    the full probe and overwrites today's cache file. `--domain <one>`
+    always probes fresh (single-domain runs aren't cached).
     """
-    from .check import latest_snapshot, load_snapshot, run_check
+    from .check import latest_snapshot as live_latest_snapshot
+    from .check import load_snapshot, run_check
+    from .seo_cache import (
+        latest_snapshot as seo_latest_snapshot,
+        load_snapshot as seo_load_snapshot,
+        rows_from_snapshot,
+        save_snapshot as seo_save_snapshot,
+    )
     from .seo_runtime import _live_domains_from_snapshot, run_seo, sort_rows
     from .suggest import load_env
 
@@ -752,10 +798,12 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
         raise typer.Exit(2)
 
     if only_domain:
-        # --domain bypasses the snapshot entirely — trust the user.
+        # --domain bypasses both the live and seo caches — single-domain
+        # runs aren't cached (they're cheap and one-off).
         domains = [only_domain.lower()]
+        cache_eligible = False
     else:
-        snap_path = latest_snapshot()
+        snap_path = live_latest_snapshot()
         snap_scope: str | None = None
         if snap_path is not None:
             try:
@@ -763,7 +811,7 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
             except (OSError, ValueError):
                 snap_scope = None
 
-        # Refresh when the snapshot is missing OR narrower than requested.
+        # Refresh the live snapshot when it's missing OR narrower than requested.
         if _seo_snapshot_needs_refresh(snap_scope, only):
             if snap_path is None:
                 console.print("[dim]No check snapshot on disk — running live-site classification first.[/]")
@@ -781,6 +829,24 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
             console.print(f"[yellow]No live-site/forwarder domains in {snap_path.name}.[/]")
             raise typer.Exit(1)
         console.print(f"[dim]Snapshot: {snap_path.name} · {len(domains)} live-site/forwarder domains[/]")
+        cache_eligible = True
+
+    # Cache hit path: read from data/seo/<latest>.json if it covers every
+    # domain we need and `--refresh` wasn't set.
+    if cache_eligible and not refresh:
+        cache_path = seo_latest_snapshot()
+        if cache_path is not None:
+            cached = seo_load_snapshot(cache_path)
+            cached_rows = rows_from_snapshot(cached)
+            cached_domains = {r.domain for r in cached_rows}
+            if cached_domains.issuperset(domains):
+                console.print(
+                    f"[dim]Reading cache: {cache_path.name} (use --refresh to re-fetch)[/]"
+                )
+                rows = [r for r in cached_rows if r.domain in set(domains)]
+                rows = sort_rows(rows, sort_by)
+                _render_seo_table(rows, days=cached.get("days", days), sort_by=sort_by)
+                return
 
     env = load_env()
     crux_key = env.get("CRUX_API_KEY", "").strip()
@@ -794,6 +860,11 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
 
     rows = run_seo(domains, days=days, crux_api_key=crux_key,
                    progress_callback=progress)
+
+    if cache_eligible:
+        cache_path = seo_save_snapshot(rows, days=days)
+        console.print(f"[dim]Cached: {cache_path.name}[/]")
+
     rows = sort_rows(rows, sort_by)
     _render_seo_table(rows, days=days, sort_by=sort_by)
 
@@ -1429,19 +1500,68 @@ def _render_project_status(result: dict) -> None:
 
 
 @info_app.command("list")
-def info_list() -> None:
-    """List every domain in the CSV."""
-    t = Table(title="All Domains")
-    t.add_column("Domain")
-    t.add_column("Expires")
-    t.add_column("Status")
-    t.add_column("Auto-renew")
-    t.add_column("Listed")
-    t.add_column("Value", justify="right")
-    for d in sorted(load_domains(), key=lambda x: x.name):
-        value = f"${d.estimated_value:,.0f}" if d.estimated_value else "-"
-        t.add_row(d.name, str(d.expires) if d.expires else "-", d.status, d.auto_renew, d.listing_status, value)
-    console.print(t)
+def info_list(
+    grouped: bool = typer.Option(False, "--grouped", "-g",
+                                 help="Group by plan category (subsumes the old `info category` command)"),
+    category: str = typer.Option("", "--category", "-c",
+                                 help="Filter to one category by substring match (implies --grouped)"),
+) -> None:
+    """List domains.
+
+    Default: one flat table of every domain in the registrar CSVs.
+    `--grouped`: separate sub-tables per plan category.
+    `--category <substring>`: implies --grouped; filters to matching categories.
+
+    Subsumes the v5.F `info category` command (now a deprecated alias).
+    """
+    if category:
+        grouped = True
+
+    if not grouped:
+        t = Table(title="All Domains")
+        t.add_column("Domain")
+        t.add_column("Expires")
+        t.add_column("Status")
+        t.add_column("Auto-renew")
+        t.add_column("Listed")
+        t.add_column("Value", justify="right")
+        for d in sorted(load_domains(), key=lambda x: x.name):
+            value = f"${d.estimated_value:,.0f}" if d.estimated_value else "-"
+            t.add_row(d.name, str(d.expires) if d.expires else "-",
+                      d.status, d.auto_renew, d.listing_status, value)
+        console.print(t)
+        return
+
+    # Grouped mode — categories from the plan.
+    plan = load_plan()
+    by_name = {d.name: d for d in load_domains()}
+
+    cat_groups: dict[str, list[str]] = {}
+    for dom, cat in plan.items():
+        cat_groups.setdefault(cat, []).append(dom)
+
+    if category:
+        cat_groups = {c: ds for c, ds in cat_groups.items()
+                      if category.lower() in c.lower()}
+        if not cat_groups:
+            console.print(f"[red]No category matches {category!r}.[/]")
+            raise typer.Exit(1)
+
+    for cat, doms in sorted(cat_groups.items()):
+        t = Table(title=f"{cat} ({len(doms)})")
+        t.add_column("Domain")
+        t.add_column("Expires")
+        t.add_column("Status")
+        t.add_column("Value", justify="right")
+        for dom in sorted(doms):
+            d = by_name.get(dom)
+            if d:
+                value = f"${d.estimated_value:,.0f}" if d.estimated_value else "-"
+                t.add_row(d.name, str(d.expires) if d.expires else "-",
+                          d.status, value)
+            else:
+                t.add_row(dom, "-", "[red]not in CSV[/]", "-")
+        console.print(t)
 
 
 @new_app.command("suggest")
@@ -3140,16 +3260,21 @@ def _expiring_deprecated(
 def _category_deprecated(
     name: str = typer.Argument(None, help="Category substring (omit for all)"),
 ) -> None:
-    """[Deprecated — use `portfolio info category`]"""
-    _deprecation("portfolio category", "portfolio info category")
-    info_category(name=name)
+    """[Deprecated — `info category` was merged into `info list --grouped` in v5.F.1]"""
+    _deprecation("portfolio category", "portfolio info list --grouped")
+    info_list(grouped=True, category=name or "")
 
 
 @app.command("wip")
 def _wip_deprecated() -> None:
-    """[Deprecated — use `portfolio info wip`]"""
-    _deprecation("portfolio wip", "portfolio info wip")
-    info_wip()
+    """[Removed — `info wip` was dropped in v5.F.1]"""
+    console.print(
+        "[yellow]'portfolio wip' was removed in v5.F.1.[/]\n"
+        "[dim]The WIP curated subset (My brand / SEO under way / Next session) "
+        "is no longer a standalone command. Use 'portfolio info list --grouped' "
+        "and pick the relevant tables visually.[/]"
+    )
+    raise typer.Exit(2)
 
 
 @app.command("list")
@@ -3157,6 +3282,31 @@ def _list_deprecated() -> None:
     """[Deprecated — use `portfolio info list`]"""
     _deprecation("portfolio list", "portfolio info list")
     info_list()
+
+
+# v5.F.1 shims for the merged/removed `info` subcommands. Same form as the
+# top-level shims above: print a one-line nudge and forward (or hard-exit
+# for fully-removed commands).
+
+
+@info_app.command("category")
+def _info_category_deprecated(
+    name: str = typer.Argument(None, help="Category substring (omit for all)"),
+) -> None:
+    """[Deprecated — merged into `info list --grouped` in v5.F.1]"""
+    _deprecation("portfolio info category", "portfolio info list --grouped")
+    info_list(grouped=True, category=name or "")
+
+
+@info_app.command("wip")
+def _info_wip_deprecated() -> None:
+    """[Removed — dropped in v5.F.1]"""
+    console.print(
+        "[yellow]'portfolio info wip' was removed in v5.F.1.[/]\n"
+        "[dim]Use 'portfolio info list --grouped' and pick the WIP-relevant "
+        "tables (My brand / SEO under way / Next session).[/]"
+    )
+    raise typer.Exit(2)
 
 
 @app.command("status")
