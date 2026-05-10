@@ -218,10 +218,24 @@ in `sites/portfolio/AI_AGENTS.md`):
 - **`vN.X`** — phase letter within a tier (A / B / C / …). Internal slicing of
   build work; signals "order/scope can shift." Each phase still ships
   independently.
+- **`vN.X.Y`** — numeric sub-phase for follow-up work that lands AFTER `vN.X`
+  shipped (e.g. polish, bug fixes, scope cuts).
 
 Two-layer notation separates **external version** (what consumers see) from
 **internal phasing** (how the team slices work). Letters signal *un-promised* —
 nobody mistakes `v1.B` for a SemVer minor release.
+
+**Always use this numbering when planning or shipping work on this project.**
+Specifically:
+
+- Every entry in `docs/prd.md`'s phases table uses `vN.X` (or `vN.X.Y`).
+- Every commit message that ships a phase mentions its version (e.g.
+  `v1.B — auth flow`).
+- Every entry in `docs/Prompts.md` references the version of the work it
+  describes when relevant.
+
+Don't introduce a parallel scheme (no `0.1.0` / `Sprint 3` / etc.). When in
+doubt, the canonical statement is `sites/portfolio/AI_AGENTS.md`.
 
 Track this project's progress in `docs/prd.md` against this taxonomy. v0.A is
 the bootstrap (this scaffold); v1.A is the first real shipped capability.
