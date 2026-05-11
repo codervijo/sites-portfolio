@@ -2,6 +2,56 @@
 
 > **Spec, roadmap, and conformance rules live in [`docs/prd.md`](docs/prd.md)** — not duplicated here. This file is for agents entering the project: what it is, how to run it, where to look.
 
+## Summary
+
+External snapshot for planning / orientation. Operational detail follows in later sections; canonical spec is `docs/prd.md`.
+
+**What it is.** A Python+uv CLI (`portfolio`) that manages a personal domain portfolio plus a sibling `sites/<domain>/` workspace. Single user (Vijo), CLI-only, no public surface.
+
+**Why it exists.** As the number of sibling site projects grows, it stops being feasible to remember per-project state, deploy quirks, or where each one is in its lifecycle. portfolio is the single place to ask "what's the status of X?", enforce uniform conventions across all sites, manage the multi-registrar domain inventory, and (the scaling lever) turn "I have an idea" into "indexed live site" in under an hour.
+
+**Scope today.**
+  - 54 domains across 3 registrars (GoDaddy 44, Namecheap 7, Porkbun 4)
+  - 34 sibling projects under `sites/`
+  - Goal: 30 commercial sites
+  - Read sources: registrar CSV exports, `data/portfolio.json` (canonical), Google Search Console (28-day window), CrUX (where it has data), HTTP live-probe, git logs, project conformance scan
+
+**Five powers.**
+  1. *Status reporting* — `project check <domain>`: git pulse + Prompts.md parsing + deploy detection + live-site state + conformance grade.
+  2. *Conformance enforcement* — universal check catalog (~85 rules) covering scaffolding, git hygiene, stack baselines (pnpm-only, Vite ≥6, Astro ≥5), SEO baseline (robots, sitemap, OG, JSON-LD, favicon), Cloudflare Pages deploy constraints.
+  3. *Domain inventory* — multi-registrar consolidation, expiry tracking, GSC cross-reference, drift detection.
+  4. *Domain acquisition* — `new suggest <topic>`: OpenAI brainstorm + RDAP availability + Porkbun pricing → interactive shortlist → register.
+  5. *Project bootstrap* — `new bootstrap <domain>`: scaffolds a new `sites/<domain>/` project at full conformance (Astro/Vite stack via central builder, SEO pack, deploy-target abstraction, CF Pages default). `new deploy` creates the GitHub repo + CF Pages project.
+
+**Architecture.**
+  - Two write surfaces only: `new bootstrap` (creates project dirs) and `project fix` (remediates existing ones). Everything else is read-only.
+  - Scope-first CLI namespaces (post-v7.A): `project` / `fleet` / `new` / `settings`.
+  - Check catalog is file-per-check, auto-discovered.
+  - Atomic env-file IO for credentials; HTTP connectivity probes built in.
+
+**Roadmap status.** 28 of 34 phases shipped.
+
+| | Status | Theme |
+|---|---|---|
+| v1 | ✅ | project status + multi-registrar inventory |
+| v2 | ✅ | domain suggest (Power 1) |
+| v3 | ✅ | bootstrap + deploy abstraction + interactive launcher (Power 2) |
+| v4 | ✅ | validation pipeline + finalists workflow |
+| v5 | ✅ | universal check catalog + check flags + GSC integration |
+| v6 | ✅ | drift detection + per-stack rules + remediation (`fix`) + fleetwide `fleet fix` |
+| v6.C.2 | ⏳ | guided own-git-repo migration |
+| v7.A | ✅ | CLI restructure to scope-first |
+| v7.B | ⏳ | GSC trend correlation over persisted snapshots |
+| v7.C | ⏳ | roll-up aggregate view |
+| v7.D | ⏸ | LLM content seeding (postponed indefinitely) |
+| v8 | ⏳ | deploy verification (build-time stamping + HEAD-vs-deployed + Pages/Vercel APIs) |
+
+**Conventions enforced on siblings.** pnpm-only (other lockfiles fail conformance), Makefile forwards to central builder (`$(MAKE) -C ..`), own git repo (no parent-tracking), required scaffolding (`AI_AGENTS.md`, `README.md`, `docs/prd.md`, dated-H2 `docs/Prompts.md`, `Makefile` with `run`+`build`).
+
+**Stack.** Python ≥3.11 / uv / typer / rich / httpx / tldextract / google-api-python-client. Self-contained build (does **not** use the central builder).
+
+**Canonical docs.** `docs/prd.md` (spec, roadmap, conformance rules), `docs/CLAUDE.md` (decisions + locked target shapes), `AI_AGENTS.md` (agent orientation — this file).
+
 ## Raison d'être
 
 `portfolio` is the **inventory + standards enforcer** for the sites/ workspace. It exists because as the number of sibling projects under `sites/` grows, it stops being feasible to remember per-project state, deploy quirks, build conventions, or where each one is in its lifecycle. portfolio is the single place to:
