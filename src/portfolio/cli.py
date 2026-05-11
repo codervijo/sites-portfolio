@@ -103,18 +103,42 @@ def _root_callback(ctx: typer.Context) -> None:
 @app.command()
 def focus(
     show_all: bool = typer.Option(False, "--all", help="Show the full ranked list, not just top 5"),
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="Re-run live + SEO probes upstream before reading caches"),
 ) -> None:
     """[v7.A — moved to `portfolio fleet focus`] Where to focus today.
 
     Reads from caches only — never blocks on a live fetch. If a cache
     is missing, that signal is silently skipped. Run `check live` /
-    `check seo` first to populate them.
+    `check seo` first to populate them. `--refresh` does it for you.
     """
     from .check import latest_snapshot as live_latest
     from .check import load_snapshot as load_live
     from .focus import build_focus_list, domains_with_expiry_from_portfolio
     from .seo_cache import latest_snapshot as seo_latest
     from .seo_cache import load_snapshot as load_seo
+
+    if refresh:
+        # Re-run live + seo upstream. Same shape as fleet dashboard --refresh.
+        from .check import run_check
+        from .seo_cache import save_snapshot as seo_save_snapshot
+        from .seo_runtime import _live_domains_from_snapshot, run_seo
+        from .suggest import load_env
+
+        console.print("[cyan]Refreshing live snapshot (scope=wip)...[/]")
+        snap_path, _ = run_check(only="wip", concurrency=20)
+        console.print(f"[dim]Snapshot: {snap_path.name}[/]")
+        domains = _live_domains_from_snapshot(load_live(snap_path))
+        if domains:
+            crux_key = load_env().get("CRUX_API_KEY", "").strip()
+            console.print(f"[cyan]Refreshing SEO probes ({len(domains)} domains)...[/]")
+
+            def progress(done: int, total: int, dom: str) -> None:
+                console.print(f"[dim]  [{done}/{total}] {dom}[/]")
+            seo_rows = run_seo(domains, days=28, crux_api_key=crux_key,
+                               progress_callback=progress)
+            cache_path = seo_save_snapshot(seo_rows, days=28)
+            console.print(f"[dim]SEO cached: {cache_path.name}[/]")
 
     # Pull every signal source. None / empty means "skip that signal."
     live_path = live_latest()
@@ -4228,9 +4252,11 @@ def project_set_launched(
 @fleet_app.command("focus")
 def fleet_focus(
     show_all: bool = typer.Option(False, "--all"),
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="Re-probe live + SEO before reading caches"),
 ) -> None:
     """v7.A — top priorities across the fleet (formerly top-level `focus`)."""
-    focus(show_all=show_all)
+    focus(show_all=show_all, refresh=refresh)
 
 
 @fleet_app.command("live")

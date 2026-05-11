@@ -126,8 +126,8 @@ def test_multiple_signals_on_same_domain_collapse():
     assert len(items[0].signals) == 2
 
 
-def test_bare_variant_preferred_when_both_present():
-    """If both bare and www appear, dedup to one entry per domain."""
+def test_both_variants_dead_flags_domain():
+    """If every probed variant fails, the domain is genuinely down."""
     items = build_focus_list(
         live_snapshot=_live_snap(
             {"domain": "x.com", "variant": "bare", "classification": "dead"},
@@ -139,6 +139,88 @@ def test_bare_variant_preferred_when_both_present():
     assert len(items) == 1
     # Only one "Site is dead" signal — not two from the two variants.
     assert len(items[0].signals) == 1
+
+
+def test_one_variant_alive_does_not_flag_site_down():
+    """www serving real content rescues a dead bare apex — don't flag.
+
+    Mirrors the real-world linkedcsi.live case: bare timing out while
+    www serves a live Astro app. Reporting the domain dead would be
+    misleading.
+    """
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "x.com", "variant": "bare", "classification": "dead"},
+            {"domain": "x.com", "variant": "www",
+             "classification": "live-site", "status": 200},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert items == []
+
+
+def test_forwarder_variant_alone_does_not_flag():
+    """A forwarder counts as reachable for focus purposes — even if
+    other variants failed."""
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "x.com", "variant": "bare", "classification": "forwarder",
+             "status": 200},
+            {"domain": "x.com", "variant": "www", "classification": "error"},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert items == []
+
+
+def test_site_down_action_text_is_generic_without_project_dir(monkeypatch):
+    """Hardcoded "Cloudflare Pages" was misleading on Vercel /
+    Namecheap-parked domains. Generic phrasing for unknown platforms."""
+    from portfolio import focus as focus_mod
+    monkeypatch.setattr(focus_mod, "_detect_deploy_platform", lambda d: None)
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "x.com", "variant": "bare", "classification": "dead"},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert len(items) == 1
+    action = items[0].signals[0][2]
+    assert "Cloudflare" not in action
+    assert "deploy target" in action
+
+
+def test_site_down_action_text_names_detected_platform(monkeypatch):
+    """When wrangler.toml / vercel.json / netlify.toml is present,
+    name the platform in the action text."""
+    from portfolio import focus as focus_mod
+    monkeypatch.setattr(focus_mod, "_detect_deploy_platform", lambda d: "Vercel")
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "x.com", "variant": "bare", "classification": "dead"},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert "Vercel" in items[0].signals[0][2]
+
+
+def test_ssl_broken_action_text_adapts(monkeypatch):
+    from portfolio import focus as focus_mod
+    monkeypatch.setattr(focus_mod, "_detect_deploy_platform",
+                        lambda d: "Cloudflare Pages")
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "x.com", "variant": "bare", "classification": "ssl-broken"},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert "Cloudflare Pages" in items[0].signals[0][2]
+    assert "SSL" in items[0].signals[0][1] or "ssl" in items[0].signals[0][1]
 
 
 # ---------- empty inputs ----------
