@@ -4232,6 +4232,32 @@ def fleet_drift() -> None:
     info_drift()
 
 
+@fleet_app.command("dashboard")
+def fleet_dashboard(
+    scope: str = typer.Option("wip", "--only", "-o",
+                              help="Scope: 'wip' or 'all'"),
+    sort: str = typer.Option("attention", "--sort",
+                             help="Sort: attention | name | imp | age"),
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="Re-probe live + SEO before rendering"),
+) -> None:
+    """Unified per-domain view — joins live + SEO + git into one row.
+
+    Read-only by default: just renders from the latest cached
+    `data/checks/<date>.json` and `data/seo/<date>.json`. Git status
+    is always live (local FS only). `--refresh` re-runs live + SEO
+    probes (≈ same cost as `fleet live` + `fleet seo --refresh`).
+    """
+    if scope not in ("wip", "all"):
+        console.print(f"[red]--only must be 'wip' or 'all', got {scope!r}.[/]")
+        raise typer.Exit(2)
+    if sort not in ("attention", "name", "imp", "age"):
+        console.print(f"[red]--sort must be attention|name|imp|age, got {sort!r}.[/]")
+        raise typer.Exit(2)
+    from .dashboard import run_dashboard
+    run_dashboard(scope=scope, sort=sort, refresh=refresh, console=console)
+
+
 # fleet info subgroup
 
 

@@ -1,0 +1,363 @@
+"""v7.B-pre — unified `fleet dashboard` view.
+
+Joins three cached signals into a single per-domain row:
+
+  - Live  (data/checks/<date>.json)  — HTTP class + status from `fleet live`
+  - SEO   (data/seo/<date>.json)     — robots/sitemap/GSC from `fleet seo`
+  - Git   (local filesystem)         — own-repo + last-commit age + catalog
+                                       pass% from `project check` machinery
+
+Read-only by default: just joins what's already on disk. `--refresh`
+re-probes live + seo (git is always live since it's local FS).
+
+The point of this surface is "one place to see whether each domain is
+healthy across all dimensions" — daily-driver replacement for running
+three separate fleet commands.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
+
+from .check import (
+    all_domains,
+    best_per_domain,
+    latest_snapshot as live_latest_snapshot,
+    load_snapshot as live_load_snapshot,
+    wip_domains,
+)
+from .project import SITES_ROOT, build_status
+from .seo_cache import (
+    latest_snapshot as seo_latest_snapshot,
+    load_snapshot as seo_load_snapshot,
+    rows_from_snapshot,
+)
+from .seo_runtime import SEORow, overall_status as seo_overall_status
+
+_GREEN = "🟢"
+_YELLOW = "🟡"
+_RED = "🔴"
+_GREY = "—"
+
+_LIVE_GREEN = {"live-site", "forwarder"}
+_LIVE_YELLOW = {"parked"}
+_LIVE_RED = {"dead", "error", "ssl-broken"}
+
+_CONF_GREEN = 0.90
+_CONF_YELLOW = 0.60
+_AGE_GREEN_DAYS = 30
+_AGE_YELLOW_DAYS = 90
+
+
+@dataclass
+class DashRow:
+    domain: str
+    # Live
+    live_class: str | None = None
+    http_status: int | None = None
+    live_dot: str = _GREY
+    # Git
+    has_dir: bool = False
+    own_repo: bool = False
+    last_commit_age_days: int | None = None
+    conf_pass: int = 0
+    conf_total: int = 0
+    git_dot: str = _GREY
+    # SEO
+    seo_dot: str = _GREY
+    gsc_impressions: int | None = None
+    gsc_clicks: int | None = None
+    gsc_position: float | None = None
+    # Worst rollup across all three (None for "no data anywhere")
+    rollup_dot: str = _GREY
+
+
+def _live_dot(classification: str | None) -> str:
+    if classification in _LIVE_GREEN:
+        return _GREEN
+    if classification in _LIVE_YELLOW:
+        return _YELLOW
+    if classification in _LIVE_RED:
+        return _RED
+    return _GREY
+
+
+def _git_dot(*, has_dir: bool, own_repo: bool,
+             age_days: int | None, conf_pct: float | None) -> str:
+    if not has_dir:
+        return _GREY
+    if not own_repo:
+        return _RED  # has dir but not its own git repo — that's a fail
+    age_ok_green = age_days is not None and age_days < _AGE_GREEN_DAYS
+    age_ok_yellow = age_days is not None and age_days < _AGE_YELLOW_DAYS
+    conf_green = conf_pct is not None and conf_pct >= _CONF_GREEN
+    conf_yellow = conf_pct is not None and conf_pct >= _CONF_YELLOW
+    if conf_green and age_ok_green:
+        return _GREEN
+    if (conf_yellow and age_ok_yellow) or (conf_green and age_ok_yellow):
+        return _YELLOW
+    return _RED
+
+
+_DOT_RANK = {_GREEN: 0, _YELLOW: 1, _RED: 2, _GREY: -1}
+
+
+def _rollup(*dots: str) -> str:
+    """Worst non-grey dot across the three dimensions. If all are grey, grey."""
+    real = [d for d in dots if d != _GREY]
+    if not real:
+        return _GREY
+    return max(real, key=lambda d: _DOT_RANK.get(d, -1))
+
+
+def _domains_for_scope(scope: str) -> list[str]:
+    if scope == "wip":
+        return wip_domains()
+    if scope == "all":
+        return all_domains()
+    raise ValueError(f"Unknown scope: {scope!r}")
+
+
+def _load_live_index() -> tuple[Path | None, dict[str, dict]]:
+    """Return (snapshot_path, {domain → best-classification row})."""
+    snap = live_latest_snapshot()
+    if snap is None:
+        return None, {}
+    try:
+        data = live_load_snapshot(snap)
+    except (OSError, ValueError):
+        return snap, {}
+    return snap, best_per_domain(data)
+
+
+def _load_seo_index() -> tuple[Path | None, dict[str, SEORow]]:
+    snap = seo_latest_snapshot()
+    if snap is None:
+        return None, {}
+    try:
+        data = seo_load_snapshot(snap)
+    except (OSError, ValueError):
+        return snap, {}
+    return snap, {r.domain: r for r in rows_from_snapshot(data)}
+
+
+def _git_summary_for(domain: str) -> dict:
+    """Run the v5.E catalog and the v1 git pulse for a single domain.
+    Pure local-FS — no network. Slow path is the catalog (~50ms per project).
+    """
+    project_dir = SITES_ROOT / domain
+    if not project_dir.exists():
+        return {"has_dir": False, "own_repo": False,
+                "age_days": None, "conf_pass": 0, "conf_total": 0}
+    status = build_status(domain)
+    git = status.get("git") or {}
+    last = git.get("last_commit") or {}
+    conf = status.get("conformance") or {}
+    passed = conf.get("passed") or []
+    failed = conf.get("failed") or []
+    skipped = conf.get("skipped") or []
+    # Skipped checks don't count toward total (they're "not applicable").
+    total = len(passed) + len(failed)
+    age = last.get("age_days")
+    return {
+        "has_dir": True,
+        "own_repo": bool(git.get("own_repo_pass")),
+        "age_days": age,
+        "conf_pass": len(passed),
+        "conf_total": total,
+        "skipped": len(skipped),
+    }
+
+
+def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
+    """Build one DashRow per domain in scope. Returns (rows, freshness)
+    where freshness reports which caches were used."""
+    domains = _domains_for_scope(scope)
+    live_path, live_index = _load_live_index()
+    seo_path, seo_index = _load_seo_index()
+
+    rows: list[DashRow] = []
+    for d in domains:
+        live = live_index.get(d)
+        cls = live.get("classification") if live else None
+        live_dot = _live_dot(cls)
+
+        git = _git_summary_for(d)
+        conf_pct = (git["conf_pass"] / git["conf_total"]) if git["conf_total"] else None
+        git_dot = _git_dot(has_dir=git["has_dir"],
+                           own_repo=git["own_repo"],
+                           age_days=git["age_days"],
+                           conf_pct=conf_pct)
+
+        seo = seo_index.get(d)
+        seo_dot = seo_overall_status(seo) if seo else _GREY
+        # seo_runtime emits ⚪ for "no data" — normalize to our _GREY ("—")
+        if seo_dot == "⚪":
+            seo_dot = _GREY
+
+        rollup = _rollup(live_dot, git_dot, seo_dot)
+
+        rows.append(DashRow(
+            domain=d,
+            live_class=cls,
+            http_status=live.get("status") if live else None,
+            live_dot=live_dot,
+            has_dir=git["has_dir"],
+            own_repo=git["own_repo"],
+            last_commit_age_days=git["age_days"],
+            conf_pass=git["conf_pass"],
+            conf_total=git["conf_total"],
+            git_dot=git_dot,
+            seo_dot=seo_dot,
+            gsc_impressions=seo.gsc_impressions if seo else None,
+            gsc_clicks=seo.gsc_clicks if seo else None,
+            gsc_position=seo.gsc_position if seo else None,
+            rollup_dot=rollup,
+        ))
+
+    freshness = {
+        "live_snapshot": live_path.name if live_path else None,
+        "seo_snapshot": seo_path.name if seo_path else None,
+        "scope": scope,
+    }
+    return rows, freshness
+
+
+_SORT_KEYS = {
+    "attention": lambda r: (
+        -_DOT_RANK.get(r.rollup_dot, -1),  # red (rank 2) → most negative? no, we want red FIRST so highest rank first
+        r.domain,
+    ),
+    "name": lambda r: (r.domain,),
+    "imp": lambda r: (-(r.gsc_impressions or 0), r.domain),
+    "age": lambda r: (-(r.last_commit_age_days or -1), r.domain),
+}
+
+
+def sort_rows(rows: list[DashRow], key: str) -> list[DashRow]:
+    if key == "attention":
+        # Want red(rank 2) first, then yellow(1), then green(0), then grey(-1).
+        # Sort descending by rank.
+        return sorted(rows, key=lambda r: (-_DOT_RANK.get(r.rollup_dot, -1), r.domain))
+    if key == "name":
+        return sorted(rows, key=lambda r: r.domain)
+    if key == "imp":
+        return sorted(rows, key=lambda r: (-(r.gsc_impressions or 0), r.domain))
+    if key == "age":
+        # Newest commits (smaller age_days) first; missing → last.
+        def age_key(r: DashRow) -> tuple:
+            age = r.last_commit_age_days
+            return (1, "", "") if age is None else (0, age, r.domain)
+        return sorted(rows, key=age_key)
+    raise ValueError(f"Unknown sort key: {key!r}")
+
+
+def _fmt_int(n: int | None) -> str:
+    return f"{n:,}" if isinstance(n, int) else _GREY
+
+
+def _fmt_pos(v: float | None) -> str:
+    return f"{v:.1f}" if isinstance(v, float) else _GREY
+
+
+def _fmt_age(days: int | None) -> str:
+    if days is None:
+        return _GREY
+    if days < 1:
+        return "today"
+    return f"{days}d"
+
+
+def _fmt_conf(pass_n: int, total: int) -> str:
+    if total == 0:
+        return _GREY
+    pct = pass_n / total
+    return f"{int(pct * 100)}%"
+
+
+def render_dashboard(rows: list[DashRow], freshness: dict, *,
+                     sort_key: str, console: Console) -> None:
+    scope = freshness.get("scope", "?")
+    live_snap = freshness.get("live_snapshot") or "—"
+    seo_snap = freshness.get("seo_snapshot") or "—"
+
+    t = Table(box=None, padding=(0, 1), show_header=True,
+              title=f"[bold]fleet dashboard · scope={scope} · {len(rows)} domains · sort={sort_key}[/]",
+              title_justify="left")
+    t.add_column("")              # rollup dot
+    t.add_column("Domain")
+    t.add_column("Live", justify="center")
+    t.add_column("HTTP", justify="right")
+    t.add_column("Git", justify="center")
+    t.add_column("Age", justify="right")
+    t.add_column("Conf", justify="right")
+    t.add_column("SEO", justify="center")
+    t.add_column("Imp", justify="right")
+    t.add_column("Clicks", justify="right")
+    t.add_column("Pos", justify="right")
+
+    for r in rows:
+        http_cell = _fmt_int(r.http_status) if r.http_status else _GREY
+        cells = [
+            r.rollup_dot,
+            r.domain,
+            r.live_dot,
+            http_cell,
+            r.git_dot,
+            _fmt_age(r.last_commit_age_days),
+            _fmt_conf(r.conf_pass, r.conf_total),
+            r.seo_dot,
+            _fmt_int(r.gsc_impressions),
+            _fmt_int(r.gsc_clicks),
+            _fmt_pos(r.gsc_position),
+        ]
+        t.add_row(*cells)
+    console.print(t)
+
+    # Footer: rollup tally + freshness.
+    from collections import Counter
+    counts = Counter(r.rollup_dot for r in rows)
+    parts = []
+    for emoji, label in ((_GREEN, "green"), (_YELLOW, "yellow"),
+                         (_RED, "red"), (_GREY, "no-data")):
+        if counts.get(emoji):
+            parts.append(f"{emoji} {counts[emoji]} {label}")
+    if parts:
+        console.print("\n[dim]" + " · ".join(parts) + "[/]")
+    console.print(
+        f"[dim]Sources: live={live_snap} · seo={seo_snap} · git=live (FS)[/]"
+    )
+
+
+def run_dashboard(*, scope: str = "wip", sort: str = "attention",
+                  refresh: bool = False, console: Console) -> None:
+    """Driver — pulls all three caches, optionally re-probes live+seo, renders."""
+    if refresh:
+        # Re-probe live then seo. Keeps the existing flows authoritative;
+        # dashboard just consumes their snapshots.
+        from .check import run_check
+        from .seo_cache import save_snapshot as seo_save_snapshot
+        from .seo_runtime import _live_domains_from_snapshot, run_seo
+        from .suggest import load_env
+
+        console.print(f"[cyan]Refreshing live snapshot (scope={scope})...[/]")
+        snap_path, _ = run_check(only=scope, concurrency=20)
+        console.print(f"[dim]Snapshot: {snap_path.name}[/]")
+        domains = _live_domains_from_snapshot(live_load_snapshot(snap_path))
+        if domains:
+            crux_key = load_env().get("CRUX_API_KEY", "").strip()
+            console.print(f"[cyan]Refreshing SEO probes ({len(domains)} domains)...[/]")
+
+            def progress(done: int, total: int, dom: str) -> None:
+                console.print(f"[dim]  [{done}/{total}] {dom}[/]")
+            seo_rows = run_seo(domains, days=28, crux_api_key=crux_key,
+                               progress_callback=progress)
+            cache_path = seo_save_snapshot(seo_rows, days=28)
+            console.print(f"[dim]SEO cached: {cache_path.name}[/]")
+
+    rows, freshness = build_dashboard_rows(scope=scope)
+    rows = sort_rows(rows, sort)
+    render_dashboard(rows, freshness, sort_key=sort, console=console)
