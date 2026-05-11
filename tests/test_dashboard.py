@@ -14,7 +14,8 @@ from portfolio.dashboard import (
 
 def test_live_dot_classification():
     assert _live_dot("live-site") == "🟢"
-    assert _live_dot("forwarder") == "🟢"
+    # forwarder = points elsewhere, not doing real work for this project → yellow
+    assert _live_dot("forwarder") == "🟡"
     assert _live_dot("parked") == "🟡"
     assert _live_dot("dead") == "🔴"
     assert _live_dot("error") == "🔴"

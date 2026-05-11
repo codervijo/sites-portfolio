@@ -42,8 +42,8 @@ _YELLOW = "🟡"
 _RED = "🔴"
 _GREY = "—"
 
-_LIVE_GREEN = {"live-site", "forwarder"}
-_LIVE_YELLOW = {"parked"}
+_LIVE_GREEN = {"live-site"}
+_LIVE_YELLOW = {"parked", "forwarder"}
 _LIVE_RED = {"dead", "error", "ssl-broken"}
 
 _CONF_GREEN = 0.90
