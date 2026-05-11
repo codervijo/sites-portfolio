@@ -90,6 +90,29 @@ def check_own_repo(project_dir: Path) -> dict:
     return {"pass": True}
 
 
+def fetch_first_commit_date(project_dir: Path) -> "date | None":
+    """First commit date in the project's git repo. Used as a proxy for
+    "when did this site launch" — accurate enough for the dashboard's
+    site-age column. Returns None if not a git repo or no commits.
+    """
+    from datetime import date as _date, datetime as _datetime
+    if not (project_dir / ".git").exists():
+        return None
+    rc, out = _git(
+        ["log", "--reverse", "--format=%aI", "--max-count=1"],
+        cwd=project_dir,
+    )
+    if rc != 0 or not out:
+        return None
+    try:
+        return _datetime.fromisoformat(out.strip()).date()
+    except ValueError:
+        try:
+            return _date.fromisoformat(out.strip()[:10])
+        except ValueError:
+            return None
+
+
 def fetch_last_commit(project_dir: Path) -> dict | None:
     rc, out = _git(
         ["log", "-1", "--format=%H%x1f%h%x1f%aI%x1f%an%x1f%s"],

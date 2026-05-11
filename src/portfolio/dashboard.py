@@ -22,6 +22,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from datetime import date
+
 from .check import (
     all_domains,
     best_per_domain,
@@ -29,7 +31,8 @@ from .check import (
     load_snapshot as live_load_snapshot,
     wip_domains,
 )
-from .project import SITES_ROOT, build_status
+from .data import load_domains, update_domain_field
+from .project import SITES_ROOT, build_status, fetch_first_commit_date
 from .seo_cache import (
     latest_snapshot as seo_latest_snapshot,
     load_snapshot as seo_load_snapshot,
@@ -71,6 +74,9 @@ class DashRow:
     gsc_impressions: int | None = None
     gsc_clicks: int | None = None
     gsc_position: float | None = None
+    # Age signals (site = first-commit / manual; domain = RDAP registration)
+    site_age_days: int | None = None
+    domain_age_days: int | None = None
     # Worst rollup across all three (None for "no data anywhere")
     rollup_dot: str = _GREY
 
@@ -172,12 +178,33 @@ def _git_summary_for(domain: str) -> dict:
     }
 
 
+def _site_age_days(domain: str, launched: date | None) -> int | None:
+    """Site age = days since `launched` (manual) or first git commit (auto).
+
+    Auto-inferred values aren't persisted — the dashboard recomputes on
+    each read so projects that get a fresh first commit naturally update.
+    `project set-launched` persists an explicit override that wins over
+    the inference.
+    """
+    today = date.today()
+    if launched is not None:
+        return (today - launched).days
+    project_dir = SITES_ROOT / domain
+    inferred = fetch_first_commit_date(project_dir) if project_dir.exists() else None
+    if inferred is None:
+        return None
+    return (today - inferred).days
+
+
 def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
     """Build one DashRow per domain in scope. Returns (rows, freshness)
     where freshness reports which caches were used."""
     domains = _domains_for_scope(scope)
     live_path, live_index = _load_live_index()
     seo_path, seo_index = _load_seo_index()
+
+    # portfolio.json metadata: launched + domain_created (RDAP age).
+    meta_by_name = {dom.name: dom for dom in load_domains()}
 
     rows: list[DashRow] = []
     for d in domains:
@@ -198,6 +225,10 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
         if seo_dot == "⚪":
             seo_dot = _GREY
 
+        meta = meta_by_name.get(d)
+        site_age = _site_age_days(d, meta.launched if meta else None)
+        dom_age = meta.domain_age_days if meta else None
+
         rollup = _rollup(live_dot, git_dot, seo_dot)
 
         rows.append(DashRow(
@@ -215,6 +246,8 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
             gsc_impressions=seo.gsc_impressions if seo else None,
             gsc_clicks=seo.gsc_clicks if seo else None,
             gsc_position=seo.gsc_position if seo else None,
+            site_age_days=site_age,
+            domain_age_days=dom_age,
             rollup_dot=rollup,
         ))
 
@@ -271,6 +304,23 @@ def _fmt_age(days: int | None) -> str:
     return f"{days}d"
 
 
+def _fmt_long_age(days: int | None) -> str:
+    """Compact age for site/domain columns. Days/weeks/months/years.
+    Differs from `_fmt_age` (commit age) which always shows days because
+    that column tops out around 90d in practice."""
+    if days is None:
+        return _GREY
+    if days < 1:
+        return "today"
+    if days < 14:
+        return f"{days}d"
+    if days < 60:
+        return f"{days // 7}w"
+    if days < 730:
+        return f"{days // 30}mo"
+    return f"{days // 365}y"
+
+
 def _fmt_conf(pass_n: int, total: int) -> str:
     if total == 0:
         return _GREY
@@ -292,12 +342,14 @@ def render_dashboard(rows: list[DashRow], freshness: dict, *,
     t.add_column("Live", justify="center")
     t.add_column("HTTP", justify="right")
     t.add_column("Git", justify="center")
-    t.add_column("Age", justify="right")
+    t.add_column("Last", justify="right")     # last commit age
     t.add_column("Conf", justify="right")
     t.add_column("SEO", justify="center")
     t.add_column("Imp", justify="right")
     t.add_column("Clicks", justify="right")
     t.add_column("Pos", justify="right")
+    t.add_column("Site", justify="right")     # since launched
+    t.add_column("Domain", justify="right")   # since RDAP creation
 
     for r in rows:
         http_cell = _fmt_int(r.http_status) if r.http_status else _GREY
@@ -313,6 +365,8 @@ def render_dashboard(rows: list[DashRow], freshness: dict, *,
             _fmt_int(r.gsc_impressions),
             _fmt_int(r.gsc_clicks),
             _fmt_pos(r.gsc_position),
+            _fmt_long_age(r.site_age_days),
+            _fmt_long_age(r.domain_age_days),
         ]
         t.add_row(*cells)
     console.print(t)

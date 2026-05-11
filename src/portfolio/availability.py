@@ -287,6 +287,48 @@ def rdap_check(domain: str, *, retries: int = DEFAULT_RETRIES, backoff_s: float 
     return _rdap_or_doh_fallback(domain, last_err)
 
 
+def rdap_creation_date(domain: str, *, timeout: float = RDAP_TIMEOUT) -> "date | None":
+    """Fetch the domain's RDAP `events` array and return the date associated
+    with `eventAction: "registration"`. Returns None on any error (no RDAP
+    endpoint for the TLD, network failure, missing event, malformed payload).
+
+    This is the "true" domain age — independent of which registrar I bought
+    it from. Used to soften SEO grading for newly-registered domains and
+    surface the "this domain is aged, expect ranking momentum" signal.
+    """
+    from datetime import date as _date, datetime as _datetime
+    tld = domain.rsplit(".", 1)[-1].lower() if "." in domain else ""
+    services = _load_rdap_endpoints()
+    urls = services.get(tld, [])
+    if not urls:
+        return None
+    base = urls[0].rstrip("/")
+    try:
+        r = requests.get(f"{base}/domain/{domain}", timeout=timeout)
+    except Exception:
+        return None
+    if r.status_code != 200:
+        return None
+    try:
+        payload = r.json()
+    except Exception:
+        return None
+    for event in payload.get("events", []):
+        if event.get("eventAction") == "registration":
+            ed = event.get("eventDate")
+            if not ed:
+                return None
+            try:
+                # RDAP eventDate is ISO 8601, often with trailing Z.
+                return _datetime.fromisoformat(ed.replace("Z", "+00:00")).date()
+            except ValueError:
+                try:
+                    return _date.fromisoformat(ed[:10])
+                except ValueError:
+                    return None
+    return None
+
+
 def _rdap_or_doh_fallback(domain: str, rdap_err: str | None) -> AvailResult:
     """Used when RDAP fails to give a definitive answer. Tries DoH; returns
     DoH's answer if definitive, else surfaces the original RDAP error."""

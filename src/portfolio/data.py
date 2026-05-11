@@ -35,12 +35,31 @@ class Domain:
     forwarding_url: str = ""
     privacy: bool | None = None
     transfer_locked: bool | None = None
+    # When *this* site went live (manual set or auto-inferred from
+    # first commit in sites/<domain>/). Distinct from `created`
+    # (registrar-account date) and `domain_created` (global RDAP).
+    launched: date | None = None
+    # Global RDAP creation_date — when the domain was first registered
+    # by *anyone*. Populated by `fleet info cleanup --refresh-rdap`.
+    domain_created: date | None = None
 
     @property
     def days_to_expire(self) -> int | None:
         if self.expires is None:
             return None
         return (self.expires - date.today()).days
+
+    @property
+    def site_age_days(self) -> int | None:
+        if self.launched is None:
+            return None
+        return (date.today() - self.launched).days
+
+    @property
+    def domain_age_days(self) -> int | None:
+        if self.domain_created is None:
+            return None
+        return (date.today() - self.domain_created).days
 
 
 def _money(s: str) -> float | None:
@@ -235,8 +254,8 @@ def _apply_classification(domains: list[Domain], plan: dict[str, str]) -> tuple[
 
 def _domain_to_jsonable(d: Domain) -> dict:
     raw = asdict(d)
-    for k in ("expires", "created"):
-        if raw[k] is not None:
+    for k in ("expires", "created", "launched", "domain_created"):
+        if raw.get(k) is not None:
             raw[k] = raw[k].isoformat()
     return raw
 
@@ -265,14 +284,53 @@ def _domain_from_jsonable(r: dict) -> Domain:
         forwarding_url=r.get("forwarding_url", ""),
         privacy=r.get("privacy"),
         transfer_locked=r.get("transfer_locked"),
+        launched=_d(r.get("launched")),
+        domain_created=_d(r.get("domain_created")),
     )
 
 
 def cleanup() -> tuple[Path, list[Domain], list[str]]:
-    """Run full pipeline: registrar CSVs + plan.md → data/portfolio.json. Returns (path, domains, uncategorized)."""
+    """Run full pipeline: registrar CSVs + plan.md → data/portfolio.json. Returns (path, domains, uncategorized).
+
+    Preserves user-set metadata (`launched`, `domain_created`) across
+    re-runs: CSV inputs don't carry these fields, so re-deriving from
+    CSV alone would erase manual edits and RDAP refreshes. Read the
+    existing portfolio.json first and copy them forward by domain
+    name when present.
+    """
     domains = _load_from_registrars()
     plan = _load_legacy_plan_md()
     domains, uncategorized = _apply_classification(domains, plan)
+
+    preserved: dict[str, dict] = {}
+    if PORTFOLIO_JSON.exists():
+        try:
+            old = json.loads(PORTFOLIO_JSON.read_text())
+            for row in old.get("domains", []):
+                name = row.get("name")
+                if not name:
+                    continue
+                preserved[name] = {
+                    "launched": row.get("launched"),
+                    "domain_created": row.get("domain_created"),
+                }
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    for d in domains:
+        carry = preserved.get(d.name)
+        if not carry:
+            continue
+        if carry.get("launched") and d.launched is None:
+            try:
+                d.launched = date.fromisoformat(carry["launched"])
+            except ValueError:
+                pass
+        if carry.get("domain_created") and d.domain_created is None:
+            try:
+                d.domain_created = date.fromisoformat(carry["domain_created"])
+            except ValueError:
+                pass
 
     PORTFOLIO_JSON.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -309,3 +367,34 @@ def domain_to_registrar() -> dict[str, str]:
 def load_plan(path: Path | None = None) -> dict[str, str]:
     """Map of domain -> category. Sourced from `domain.category` (was plan.md)."""
     return {d.name: d.category for d in load_domains() if d.category}
+
+
+def update_domain_field(name: str, field_name: str, value) -> bool:
+    """Set a single field on one domain's portfolio.json entry. Atomic.
+
+    Used by `project set-launched` and the RDAP refresh path to mutate
+    a single record without rebuilding from CSV. Returns True if the
+    domain was found and updated. `value` should be a JSON-serializable
+    primitive (date objects auto-ISO-format).
+    """
+    if not PORTFOLIO_JSON.exists():
+        return False
+    try:
+        payload = json.loads(PORTFOLIO_JSON.read_text())
+    except (json.JSONDecodeError, OSError):
+        return False
+    if isinstance(value, date):
+        value = value.isoformat()
+    found = False
+    for row in payload.get("domains", []):
+        if row.get("name") == name:
+            row[field_name] = value
+            found = True
+            break
+    if not found:
+        return False
+    payload["generated_at"] = datetime.now(timezone.utc).isoformat()
+    tmp = PORTFOLIO_JSON.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    tmp.replace(PORTFOLIO_JSON)
+    return True

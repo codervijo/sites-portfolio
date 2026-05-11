@@ -284,9 +284,33 @@ def info_drift() -> None:
 
 
 @info_app.command("cleanup")
-def info_cleanup() -> None:
-    """Build canonical data/portfolio.json from registrar CSVs + plan.md classifications."""
+def info_cleanup(refresh_rdap: bool = False) -> None:
+    """Build canonical data/portfolio.json from registrar CSVs + plan.md classifications.
+
+    With `refresh_rdap=True`, also fetches each domain's RDAP creation
+    date (global registration age, distinct from registrar-account
+    creation) and stores it as `domain_created`. ~0.5s per domain.
+    """
     out_path, domains, uncategorized = run_cleanup()
+
+    if refresh_rdap:
+        from .availability import rdap_creation_date
+        from .data import update_domain_field
+        console.print(f"[cyan]Fetching RDAP creation dates ({len(domains)} domains)...[/]")
+        hit = miss = 0
+        for i, d in enumerate(domains, start=1):
+            if d.domain_created is not None:
+                # Already cached — RDAP creation_date doesn't change. Skip.
+                hit += 1
+                continue
+            console.print(f"[dim]  [{i}/{len(domains)}] {d.name}[/]")
+            cd = rdap_creation_date(d.name)
+            if cd is not None:
+                update_domain_field(d.name, "domain_created", cd)
+                hit += 1
+            else:
+                miss += 1
+        console.print(f"[dim]RDAP: {hit} resolved · {miss} unresolved[/]")
 
     by_reg = Counter(d.registrar for d in domains)
     by_cat = Counter(d.category for d in domains if d.category)
@@ -4169,6 +4193,35 @@ def project_seo(
                         refresh=refresh)
 
 
+@project_app.command("set-launched")
+def project_set_launched(
+    name: str = typer.Argument(..., help="Project / domain name"),
+    launched_date: str = typer.Argument(
+        ..., metavar="YYYY-MM-DD",
+        help="ISO date the site went live (e.g. 2026-04-18)",
+    ),
+) -> None:
+    """Set the launch date for a site. Persisted in portfolio.json.
+
+    `fleet dashboard` defaults to first-commit date as a proxy for
+    site age; this command sets an explicit override for cases where
+    that proxy is wrong (imported repo, long-running scaffold work
+    before first deploy, etc.).
+    """
+    from datetime import date as _date
+    from .data import update_domain_field
+    try:
+        d = _date.fromisoformat(launched_date)
+    except ValueError:
+        console.print(f"[red]Invalid date: {launched_date!r}[/] — expected YYYY-MM-DD.")
+        raise typer.Exit(2)
+    ok = update_domain_field(name, "launched", d)
+    if not ok:
+        console.print(f"[red]Domain not found in portfolio.json:[/] {name}")
+        raise typer.Exit(1)
+    console.print(f"[green]Set[/] {name}.launched = {d.isoformat()}")
+
+
 # ---------- fleet namespace ----------
 
 
@@ -4282,10 +4335,15 @@ def fleet_info_expiring(
 
 
 @fleet_info_app.command("cleanup")
-def fleet_info_cleanup() -> None:
+def fleet_info_cleanup(
+    refresh_rdap: bool = typer.Option(
+        False, "--refresh-rdap",
+        help="Also fetch RDAP creation_date per domain (~0.5s each, ~15s for full fleet)."
+    ),
+) -> None:
     """v7.A — rebuild data/portfolio.json from registrar CSVs.
-    Was `info cleanup`."""
-    info_cleanup()
+    Was `info cleanup`. `--refresh-rdap` adds the domain-age fetch."""
+    info_cleanup(refresh_rdap=refresh_rdap)
 
 
 # ---------- settings namespace ----------
