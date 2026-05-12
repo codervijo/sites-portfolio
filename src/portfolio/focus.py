@@ -158,6 +158,24 @@ def build_focus_list(
                             f"HTTP {non2xx['status']}",
                             "→ check deploy logs / origin server")
 
+        # 🟡 Forwarder / parked — domain answers but isn't serving real content
+        # here. Mirrors the dashboard's Live-dot convention (both forwarder
+        # and parked are yellow). A WIP-scoped forwarder/parked domain is a
+        # decision item: either build something or stop holding it idle.
+        # Skip if already flagged 🔴 — those signals win.
+        for d, variants in by_domain.items():
+            existing = items.get(d)
+            if existing is not None and existing.rank >= _RANK_RED:
+                continue
+            classes = [v.get("classification") for v in variants]
+            idle_classes = {"forwarder", "parked"}
+            if classes and all(c in idle_classes for c in classes):
+                # `parked` is the more inert state — surface it specifically.
+                cls = "parked" if "parked" in classes else "forwarder"
+                _add_signal(d, "🟡", _RANK_YELLOW,
+                            f"Domain {cls} — not serving real content here",
+                            "→ build site here, retire, or sell")
+
     # ⚠️ Expiring within 30 days.
     for d, days in domains_with_expiry:
         if days is None:

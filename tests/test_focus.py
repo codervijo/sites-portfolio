@@ -427,3 +427,89 @@ def test_suppressed_young_out_optional():
         domain_site_age_days={"fresh.com": 10},
     )
     assert items == []
+
+
+# ---------- 🟡 idle (forwarder / parked) signal ----------
+
+
+def test_forwarder_flagged_yellow_decision_item():
+    """A domain answering 200 but classified as forwarder isn't an
+    emergency, but it IS a decision item (build / retire / sell)."""
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "idle.com", "variant": "bare",
+             "classification": "forwarder", "status": 200,
+             "final_url": "http://elsewhere.com"},
+            {"domain": "idle.com", "variant": "www",
+             "classification": "forwarder", "status": 200,
+             "final_url": "http://elsewhere.com"},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert len(items) == 1
+    assert items[0].domain == "idle.com"
+    assert items[0].rank == _RANK_YELLOW
+    headline = items[0].signals[0][1]
+    assert "forwarder" in headline
+
+
+def test_parked_flagged_yellow():
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "park.com", "variant": "bare",
+             "classification": "parked", "status": 200},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert len(items) == 1
+    assert items[0].rank == _RANK_YELLOW
+    assert "parked" in items[0].signals[0][1]
+
+
+def test_mixed_forwarder_and_parked_picks_parked():
+    """If a domain has both, the more-inert label (parked) wins."""
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "mix.com", "variant": "bare",
+             "classification": "forwarder", "status": 200},
+            {"domain": "mix.com", "variant": "www",
+             "classification": "parked", "status": 200},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert "parked" in items[0].signals[0][1]
+
+
+def test_idle_signal_does_not_fire_when_any_variant_is_live_site():
+    """If one variant serves a real site, the domain isn't idle."""
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "x.com", "variant": "bare",
+             "classification": "forwarder", "status": 200},
+            {"domain": "x.com", "variant": "www",
+             "classification": "live-site", "status": 200},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert items == []
+
+
+def test_idle_signal_yields_to_site_down_red():
+    """If all variants are dead → 🔴 wins; if mixed dead+forwarder we
+    don't flag idle (forwarder rescues the down classification first;
+    idle signal only fires when ALL variants are idle)."""
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "dead.com", "variant": "bare", "classification": "dead"},
+            {"domain": "dead.com", "variant": "www", "classification": "dead"},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+    )
+    assert items[0].rank == _RANK_RED
+    # Only one signal — the red site-down, not a duplicate idle yellow.
+    assert len(items[0].signals) == 1
