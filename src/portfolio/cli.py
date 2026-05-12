@@ -1259,7 +1259,22 @@ def _fmt_cls(v: float | None) -> str:
 
 
 def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
+    from .dashboard import _site_age_days
+    from .data import load_domains
     from .seo_runtime import overall_status, row_statuses
+
+    # P4 — build domain → site_age_days map for age-aware grading.
+    # `overall_status` masks imp + pos cells for sites <90d old so the
+    # grade reflects structural SEO (robots / sitemap / GSC presence),
+    # not "no traffic yet" on a freshly-launched site.
+    age_by_domain: dict[str, int | None] = {}
+    try:
+        for d in load_domains():
+            age_by_domain[d.name.lower()] = _site_age_days(d.name, d.launched)
+    except Exception:
+        # If portfolio.json can't load (e.g., test environments), fall
+        # back to no-mask behavior — matches pre-P4 grading.
+        pass
 
     # Hide CrUX columns when nobody has CrUX data — saves three columns
     # of "⚪ —" noise. We still surface a one-line footer hint so the
@@ -1289,8 +1304,9 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
     for row in rows:
         s = row_statuses(row)
         http_cell = f"{s['http']} {row.http_status}" if row.http_status is not None else f"{s['http']} err"
+        site_age = age_by_domain.get(row.domain.lower())
         cells = [
-            overall_status(row),
+            overall_status(row, site_age_days=site_age),
             row.domain,
             http_cell,
             s["robots"],
@@ -1312,7 +1328,10 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
 
     # Footer counts: how many domains hit each tier of overall status.
     from collections import Counter
-    counts = Counter(overall_status(r) for r in rows)
+    counts = Counter(
+        overall_status(r, site_age_days=age_by_domain.get(r.domain.lower()))
+        for r in rows
+    )
     summary_parts = []
     for emoji, label in (("🟢", "green"), ("🟡", "yellow"),
                          ("🟠", "orange"), ("🔴", "red"), ("⚪", "—")):
@@ -1320,6 +1339,19 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
             summary_parts.append(f"{emoji} {counts[emoji]} {label}")
     if summary_parts:
         console.print("\n[dim]" + " · ".join(summary_parts) + "[/]")
+
+    # P4 — note when young sites had imp/pos masked so the reader knows
+    # the grade is age-aware (otherwise a 🟡 row with imp=0 looks wrong).
+    young = [r.domain for r in rows
+             if (age_by_domain.get(r.domain.lower()) is not None
+                 and age_by_domain[r.domain.lower()] < 90)]
+    if young:
+        sample = ", ".join(young[:3])
+        more = f" + {len(young) - 3} more" if len(young) > 3 else ""
+        console.print(
+            f"[dim]🌱 {len(young)} young site(s) <90d ({sample}{more}) — "
+            f"imp + pos masked from grade (freshness window).[/]"
+        )
 
     # Surface GSC + CrUX status when most rows are missing data.
     n = len(rows)
@@ -1909,7 +1941,7 @@ def info_list(
 
 @new_app.command("suggest")
 def new_suggest(
-    topic: str = typer.Argument(..., help="The product idea or topic to brainstorm domain names for"),
+    topic: str = typer.Argument("", help="The product idea or topic to brainstorm domain names for (prompted if omitted)"),
     tlds: str = typer.Option(
         "",
         "--tlds",
@@ -1928,6 +1960,7 @@ def new_suggest(
     Default flow (v3.D validation mode): vocab anchor → registrar grid → one pick → optional auto-register.
     Legacy flow (v2.A per-strategy rounds): pass --browse.
     """
+    topic = _resolve_topic_arg(topic, non_interactive=non_interactive)
     if browse:
         _domain_suggest_browse(topic, tlds, max_price, strategies, non_interactive, no_cache)
         return
@@ -1940,6 +1973,30 @@ def new_suggest(
         show_renewal=show_renewal,
         with_abstract=with_abstract,
     )
+
+
+def _resolve_topic_arg(topic: str, *, non_interactive: bool) -> str:
+    """Topic is now optional on the CLI surface — prompt interactively
+    when missing. Non-interactive runs must still supply it explicitly
+    (raise rather than silently prompt + block in a script context).
+    """
+    topic = (topic or "").strip()
+    if topic:
+        return topic
+    if non_interactive:
+        console.print(
+            "[red]TOPIC is required in --non-interactive mode.[/]"
+        )
+        raise typer.Exit(2)
+    console.print(
+        "[dim]No topic provided. Examples:[/] "
+        "[cyan]'AI vacuum diagnostics'[/], [cyan]'home pSEO'[/], [cyan]'cheap car repair'[/]"
+    )
+    topic = typer.prompt("Topic").strip()
+    if not topic:
+        console.print("[red]Topic cannot be empty.[/]")
+        raise typer.Exit(2)
+    return topic
 
 
 def parse_pick_input(s: str, n_rows: int, columns: list[str]) -> tuple[int | None, str | None, str | None]:
@@ -3951,7 +4008,7 @@ app.add_typer(_legacy_domain_app, name="domain",
 
 @_legacy_domain_app.command("suggest")
 def _domain_suggest_deprecated(
-    topic: str = typer.Argument(..., help="The product idea or topic to brainstorm"),
+    topic: str = typer.Argument("", help="The product idea or topic to brainstorm (prompted if omitted)"),
     tlds: str = typer.Option(".com,.app,.dev,.xyz,.site,.co", "--tlds", help="Comma-separated TLDs (with leading dots) for the registrar grid"),
     max_price: float = typer.Option(20.0, "--max-price", help="Cells over this first-year price are shown but unselectable"),
     strategies: str = typer.Option("", "--strategies", help="Comma-separated strategies (default: all four)"),

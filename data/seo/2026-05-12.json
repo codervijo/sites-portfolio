@@ -1,5 +1,5 @@
 {
-  "fetched_at": "2026-05-12T02:06:03.157122+00:00",
+  "fetched_at": "2026-05-12T03:50:37.552932+00:00",
   "days": 28,
   "rows": [
     {
@@ -7,14 +7,14 @@
       "http_status": 200,
       "http_error": null,
       "hsts": false,
-      "robots_served": false,
-      "sitemap_served": false,
-      "gsc_status": "not-in-gsc",
-      "gsc_clicks": null,
-      "gsc_impressions": null,
-      "gsc_ctr": null,
+      "robots_served": true,
+      "sitemap_served": true,
+      "gsc_status": "ok",
+      "gsc_clicks": 0,
+      "gsc_impressions": 0,
+      "gsc_ctr": 0.0,
       "gsc_position": null,
-      "gsc_sitemap_count": null,
+      "gsc_sitemap_count": 0,
       "crux_status": "no-data",
       "crux_lcp_p75": null,
       "crux_inp_p75": null,

@@ -219,15 +219,18 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
                            age_days=git["age_days"],
                            conf_pct=conf_pct)
 
-        seo = seo_index.get(d)
-        seo_dot = seo_overall_status(seo) if seo else _GREY
-        # seo_runtime emits ⚪ for "no data" — normalize to our _GREY ("—")
-        if seo_dot == "⚪":
-            seo_dot = _GREY
-
         meta = meta_by_name.get(d)
         site_age = _site_age_days(d, meta.launched if meta else None)
         dom_age = meta.domain_age_days if meta else None
+
+        seo = seo_index.get(d)
+        # P4 — pass site age into the grader so young sites don't get
+        # 🔴'd for the normal "zero impressions yet" + "no position data"
+        # state that any new indexed site has.
+        seo_dot = seo_overall_status(seo, site_age_days=site_age) if seo else _GREY
+        # seo_runtime emits ⚪ for "no data" — normalize to our _GREY ("—")
+        if seo_dot == "⚪":
+            seo_dot = _GREY
 
         rollup = _rollup(live_dot, git_dot, seo_dot)
 

@@ -240,6 +240,61 @@ def test_overall_status_ignores_crux():
     assert overall_status(row) == "🟢"
 
 
+def test_overall_status_young_site_masks_imp_and_pos():
+    """P4 — sites <90d old: imp + pos cells don't pull grade toward red.
+    Real-world case: airsucks.com launched today, robots/sitemap/GSC all
+    set up correctly, but imp=0 (no data yet) and no position. Mature-
+    grading would call this 🔴; age-aware grading sees it as 🟢."""
+    row = SEORow(domain="airsucks.com",
+                 robots_served=True, sitemap_served=True,
+                 gsc_status="ok", gsc_impressions=0,
+                 gsc_position=None)
+    assert overall_status(row) == "🔴"                          # default: not masked
+    assert overall_status(row, site_age_days=1) == "🟢"        # young: masked
+    assert overall_status(row, site_age_days=89) == "🟢"       # still inside window
+    assert overall_status(row, site_age_days=90) == "🔴"       # just past threshold
+
+
+def test_overall_status_young_site_does_not_mask_structural_signals():
+    """Robots / sitemap / GSC are structural — age doesn't excuse them.
+    A young site missing robots.txt is still 🔴."""
+    row = SEORow(domain="x",
+                 robots_served=False, sitemap_served=True,
+                 gsc_status="ok", gsc_impressions=0)
+    assert overall_status(row, site_age_days=5) == "🔴"
+
+
+def test_overall_status_young_site_with_real_traffic_still_grades_pos():
+    """An edge case: a young site that DOES have traffic + bad position.
+    Masking imp/pos is conservative — even legitimate signals get masked
+    inside the freshness window. By design (better to underflag young
+    sites than nag the user about normal-for-young state)."""
+    row = SEORow(domain="x",
+                 robots_served=True, sitemap_served=True,
+                 gsc_status="ok", gsc_impressions=500,
+                 gsc_position=60.0)
+    # Mature: position=60 → 🔴. Young: imp + pos masked → 🟢.
+    assert overall_status(row) == "🔴"
+    assert overall_status(row, site_age_days=30) == "🟢"
+
+
+def test_overall_status_custom_threshold_respected():
+    row = SEORow(domain="x",
+                 robots_served=True, sitemap_served=True,
+                 gsc_status="ok", gsc_impressions=0)
+    # Tight 7-day threshold: 8-day-old site is past the window.
+    assert overall_status(row, site_age_days=8, young_threshold_days=7) == "🔴"
+    assert overall_status(row, site_age_days=5, young_threshold_days=7) == "🟢"
+
+
+def test_overall_status_none_age_does_not_mask():
+    """Backward-compatible — callers without age data get pre-P4 grading."""
+    row = SEORow(domain="x",
+                 robots_served=True, sitemap_served=True,
+                 gsc_status="ok", gsc_impressions=0)
+    assert overall_status(row, site_age_days=None) == "🔴"
+
+
 def test_overall_status_grey_when_all_seo_signals_unknown():
     """No SEO data at all → grey (e.g. probe failed, GSC not authed)."""
     row = SEORow(domain="x", http_status=200, hsts=True,

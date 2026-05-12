@@ -357,11 +357,34 @@ _OVERALL_RANK = {_GREEN: 0, _YELLOW: 1, _ORANGE: 2, _RED: 3, _GREY: -1}
 # signal — a site missing from Search Console is invisible to Google.
 _OVERALL_KEYS = ("imp", "pos", "robots", "sitemap", "gsc")
 
+# P4 — age-aware grading. Sites inside the Google freshness window get
+# their imp + pos cells masked out of the overall grade because zero
+# impressions / bad position is normal for a 1-week-old indexed site —
+# baking it into a 🔴 grade is misleading. Same threshold focus uses.
+YOUNG_SITE_THRESHOLD_DAYS = 90
+_AGE_MASKED_KEYS = ("imp", "pos")
 
-def overall_status(row: SEORow) -> str:
+
+def overall_status(row: SEORow, *, site_age_days: int | None = None,
+                   young_threshold_days: int = YOUNG_SITE_THRESHOLD_DAYS) -> str:
     """Worst non-grey emoji across the SEO-signal metrics
-    (impressions, position, robots, sitemap, gsc-presence)."""
-    cells = [row_statuses(row)[k] for k in _OVERALL_KEYS]
+    (impressions, position, robots, sitemap, gsc-presence).
+
+    When `site_age_days` is provided AND less than `young_threshold_days`,
+    the impressions and position cells are treated as grey for grading
+    purposes — they don't pull the overall toward red. Robots / sitemap /
+    GSC-presence still count because those are structural (the site
+    either has them or doesn't, regardless of age).
+
+    `site_age_days=None` → no masking (backward compatible with callers
+    that don't have age data; better to over-flag than silently hide).
+    """
+    statuses = row_statuses(row)
+    if (site_age_days is not None
+            and site_age_days < young_threshold_days):
+        for k in _AGE_MASKED_KEYS:
+            statuses[k] = _GREY
+    cells = [statuses[k] for k in _OVERALL_KEYS]
     real = [c for c in cells if c != _GREY]
     if not real:
         return _GREY
