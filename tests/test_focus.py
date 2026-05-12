@@ -294,3 +294,136 @@ def test_no_categories_falls_through_unchanged():
     )
     assert len(items) == 1
     assert items[0].domain == "x.com"
+
+
+# ---------- age-aware SEO suppression (freshness window) ----------
+
+
+def test_young_site_seo_signals_suppressed_by_default():
+    """🟠 zero-imp + 🟡 bad-position are normal for sites <90d old."""
+    suppressed: list[str] = []
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "fresh.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": 50.0},
+        ),
+        domains_with_expiry=[],
+        domain_site_age_days={"fresh.com": 21},  # 3 weeks old
+        suppressed_young_out=suppressed,
+    )
+    assert items == []
+    assert suppressed == ["fresh.com"]
+
+
+def test_include_young_overrides_suppression():
+    """--include-young surfaces those signals anyway."""
+    suppressed: list[str] = []
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "fresh.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": 50.0},
+        ),
+        domains_with_expiry=[],
+        domain_site_age_days={"fresh.com": 21},
+        include_young=True,
+        suppressed_young_out=suppressed,
+    )
+    assert len(items) == 1
+    assert items[0].domain == "fresh.com"
+    assert suppressed == []   # nothing got suppressed since override is on
+
+
+def test_old_site_seo_signals_not_suppressed():
+    """Sites older than 90d see their SEO signals normally."""
+    suppressed: list[str] = []
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "mature.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": 50.0},
+        ),
+        domains_with_expiry=[],
+        domain_site_age_days={"mature.com": 365},
+        suppressed_young_out=suppressed,
+    )
+    assert len(items) == 1
+    assert items[0].domain == "mature.com"
+    assert suppressed == []
+
+
+def test_unknown_age_does_not_suppress():
+    """Conservative: if we have no age data for a domain, do not suppress.
+    Better to over-flag than to silently hide a problem on a domain we
+    lack metadata for."""
+    suppressed: list[str] = []
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "unknown.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": 50.0},
+        ),
+        domains_with_expiry=[],
+        domain_site_age_days={"unknown.com": None},  # explicit None
+        suppressed_young_out=suppressed,
+    )
+    assert len(items) == 1
+    assert suppressed == []
+
+    # Same outcome when the domain key is missing from the map entirely.
+    suppressed = []
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "unknown.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": 50.0},
+        ),
+        domains_with_expiry=[],
+        domain_site_age_days={},
+        suppressed_young_out=suppressed,
+    )
+    assert len(items) == 1
+    assert suppressed == []
+
+
+def test_age_suppression_does_not_affect_site_down_or_expiry():
+    """🔴 dead/error and ⚠️ expiry are NOT suppressed for young sites —
+    broken is broken, expiring is expiring, regardless of age."""
+    suppressed: list[str] = []
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "fresh-dead.com", "variant": "bare", "classification": "dead"},
+        ),
+        seo_snapshot=_seo_snap(
+            {"domain": "fresh-buried.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": 99.0},
+        ),
+        domains_with_expiry=[("fresh-expiring.com", 5)],
+        domain_site_age_days={
+            "fresh-dead.com": 10,
+            "fresh-buried.com": 10,
+            "fresh-expiring.com": 10,
+        },
+        suppressed_young_out=suppressed,
+    )
+    domains_flagged = {i.domain for i in items}
+    assert "fresh-dead.com" in domains_flagged        # 🔴 always flagged
+    assert "fresh-expiring.com" in domains_flagged    # ⚠️ always flagged
+    assert "fresh-buried.com" not in domains_flagged  # 🟡 suppressed
+    assert suppressed == ["fresh-buried.com"]
+
+
+def test_suppressed_young_out_optional():
+    """Callers that don't care about the suppressed list can omit it."""
+    # Should not raise.
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "fresh.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": 50.0},
+        ),
+        domains_with_expiry=[],
+        domain_site_age_days={"fresh.com": 10},
+    )
+    assert items == []

@@ -105,6 +105,10 @@ def focus(
     show_all: bool = typer.Option(False, "--all", help="Show the full ranked list, not just top 5"),
     refresh: bool = typer.Option(False, "--refresh",
                                  help="Re-run live + SEO probes upstream before reading caches"),
+    include_young: bool = typer.Option(
+        False, "--include-young",
+        help="Also flag SEO signals on sites <90d old (suppressed by default — those signals are normal in the Google freshness window)",
+    ),
 ) -> None:
     """[v7.A — moved to `portfolio fleet focus`] Where to focus today.
 
@@ -114,6 +118,7 @@ def focus(
     """
     from .check import latest_snapshot as live_latest
     from .check import load_snapshot as load_live
+    from .dashboard import _site_age_days
     from .focus import build_focus_list, domains_with_expiry_from_portfolio
     from .seo_cache import latest_snapshot as seo_latest
     from .seo_cache import load_snapshot as load_seo
@@ -153,11 +158,24 @@ def focus(
     # rows. Lowercase keys for case-insensitive matching.
     domain_categories = {d.name.lower(): (d.category or "") for d in all_domains}
 
+    # Build domain → site-age map for the freshness-window suppression.
+    # Reuses the dashboard's helper: prefers Domain.launched (manual via
+    # `project set-launched`); falls back to first-commit-date inference
+    # for projects without an explicit launched date.
+    domain_site_age = {
+        d.name.lower(): _site_age_days(d.name, d.launched)
+        for d in all_domains
+    }
+
+    suppressed_young: list[str] = []
     items = build_focus_list(
         live_snapshot=live_data,
         seo_snapshot=seo_data,
         domains_with_expiry=domains_expiry,
         domain_categories=domain_categories,
+        domain_site_age_days=domain_site_age,
+        include_young=include_young,
+        suppressed_young_out=suppressed_young,
     )
 
     # Header notes: which sources were available?
@@ -173,8 +191,15 @@ def focus(
     notes.append(f"expiry: {len(domains_expiry)} domains")
     console.print(f"[dim]Sources — {' · '.join(notes)}[/]\n")
 
-    if not items:
+    if not items and not suppressed_young:
         console.print("[green]Nothing to focus on — every signal is clean.[/]")
+        return
+    if not items:
+        console.print(
+            f"[green]Nothing to focus on[/] — "
+            f"[dim]{len(suppressed_young)} young site(s) had SEO signals "
+            f"suppressed (use --include-young to see).[/]"
+        )
         return
 
     cap = len(items) if show_all else 5
@@ -200,6 +225,17 @@ def focus(
         console.print(
             f"[dim]+ {len(items) - cap} more — run "
             f"`portfolio fleet focus --all` for full list[/]"
+        )
+
+    if suppressed_young and not include_young:
+        # Listing the sample names helps the reader confirm we suppressed
+        # the right ones; full list with --include-young.
+        sample = ", ".join(suppressed_young[:3])
+        more = f" + {len(suppressed_young) - 3} more" if len(suppressed_young) > 3 else ""
+        console.print(
+            f"\n[dim]🌱 {len(suppressed_young)} young site(s) <90d "
+            f"({sample}{more}) had SEO signals suppressed — "
+            f"use --include-young to see them.[/]"
         )
 
 
@@ -4254,9 +4290,13 @@ def fleet_focus(
     show_all: bool = typer.Option(False, "--all"),
     refresh: bool = typer.Option(False, "--refresh",
                                  help="Re-probe live + SEO before reading caches"),
+    include_young: bool = typer.Option(
+        False, "--include-young",
+        help="Also flag SEO signals on sites <90d old",
+    ),
 ) -> None:
     """v7.A — top priorities across the fleet (formerly top-level `focus`)."""
-    focus(show_all=show_all, refresh=refresh)
+    focus(show_all=show_all, refresh=refresh, include_young=include_young)
 
 
 @fleet_app.command("live")

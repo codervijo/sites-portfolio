@@ -13,6 +13,16 @@ fetch) and ranks domains by the worst signal each one carries:
 Each signal carries an actionable one-liner. The output is the top 5
 by severity (red > orange > yellow > grey), then alphabetical for ties.
 `--all` prints the full ranked list.
+
+Age-aware suppression: the two SEO signals (🟠 zero-imp and 🟡 bad
+position) are normal for fresh sites — Google parks new origins at
+high positions and slow-rolls indexing during the freshness window.
+Sites with `site_age_days < YOUNG_SITE_THRESHOLD_DAYS` (default 90)
+have those signals suppressed so the focus list shows real problems,
+not "your 3-week-old site looks like a 3-week-old site." Site age
+comes from `portfolio.json.launched` (manual) or first-commit
+inference (same source as the dashboard). 🔴 site-down and ⚠️
+expiry signals are not suppressed — broken is broken regardless.
 """
 from __future__ import annotations
 
@@ -42,6 +52,10 @@ class FocusItem:
 # a problem to fix.
 IGNORE_CATEGORIES = frozenset({"to be deleted immediately"})
 
+# Sites younger than this in days don't get 🟠 zero-impressions or 🟡
+# bad-position signals — those are normal in the Google freshness window.
+YOUNG_SITE_THRESHOLD_DAYS = 90
+
 
 def build_focus_list(
     *,
@@ -49,6 +63,10 @@ def build_focus_list(
     seo_snapshot: dict | None,
     domains_with_expiry: list[tuple[str, int]],
     domain_categories: dict[str, str] | None = None,
+    domain_site_age_days: dict[str, int | None] | None = None,
+    include_young: bool = False,
+    young_threshold_days: int = YOUNG_SITE_THRESHOLD_DAYS,
+    suppressed_young_out: list[str] | None = None,
 ) -> list[FocusItem]:
     """Build the ranked focus list from three pre-loaded data sources.
 
@@ -57,10 +75,30 @@ def build_focus_list(
     `domains_with_expiry` is `[(domain, days_to_expire)]` from
     `portfolio.json`. `domain_categories` maps domain → plan category
     (lowercase keys); domains in `IGNORE_CATEGORIES` are filtered out.
-    None / [] for any input means "skip that signal."
+    `domain_site_age_days` maps domain → site age in days (None when
+    unknown). When `include_young` is False (the default), domains
+    younger than `young_threshold_days` have their 🟠/🟡 SEO signals
+    suppressed — flagging "buried" or "zero impressions" on a 3-week-old
+    site is noise, not actionable advice. None / [] for any input
+    means "skip that signal."
+
+    `suppressed_young_out`, if provided, is mutated in place with the
+    sorted list of young-site domains whose SEO signals were filtered
+    out. Lets callers render a transparency note ("3 young sites
+    suppressed from focus") without changing the return shape.
     """
     domain_categories = domain_categories or {}
+    domain_site_age_days = domain_site_age_days or {}
     items: dict[str, FocusItem] = {}
+    suppressed_young: set[str] = set()
+
+    def _is_young(d: str) -> bool:
+        age = domain_site_age_days.get(d.lower())
+        if age is None:
+            # Unknown age — don't suppress. Better to over-flag than miss
+            # a real problem on a domain we lack metadata for.
+            return False
+        return age < young_threshold_days
 
     def _is_ignored(d: str) -> bool:
         cat = domain_categories.get(d.lower(), "").lower()
@@ -138,13 +176,18 @@ def build_focus_list(
             gsc_status = r.get("gsc_status")
             imp = r.get("gsc_impressions")
             pos = r.get("gsc_position")
+            young = (not include_young) and _is_young(d)
             # Indexed but zero impressions — content not surfacing.
-            if gsc_status == "ok" and imp == 0:
+            zero_imp_trigger = (gsc_status == "ok" and imp == 0)
+            bad_pos_trigger = isinstance(pos, (int, float)) and pos > 20
+            if (zero_imp_trigger or bad_pos_trigger) and young:
+                suppressed_young.add(d)
+                continue
+            if zero_imp_trigger:
                 _add_signal(d, "🟠", _RANK_ORANGE,
                             "Indexed, zero impressions in 28d",
                             "→ check coverage in GSC + content gap analysis")
-            # Bad position — visible but buried.
-            if isinstance(pos, (int, float)) and pos > 20:
+            if bad_pos_trigger:
                 _add_signal(d, "🟡", _RANK_YELLOW,
                             f"Ranking but buried (pos {pos:.1f})",
                             "→ improve content for the queries you're showing on")
@@ -153,7 +196,10 @@ def build_focus_list(
     out = list(items.values())
     out.sort(key=lambda x: (-x.rank, x.domain))
     # Drop OK rows (no signals) — they're not "to focus on."
-    return [item for item in out if item.rank > _RANK_OK]
+    filtered = [item for item in out if item.rank > _RANK_OK]
+    if suppressed_young_out is not None:
+        suppressed_young_out.extend(sorted(suppressed_young))
+    return filtered
 
 
 def _site_down_action(domain: str, cls: str | None, error: str | None) -> str:
