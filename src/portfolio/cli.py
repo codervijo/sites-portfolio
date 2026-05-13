@@ -4311,6 +4311,21 @@ def project_seo(
                         refresh=refresh)
 
 
+@project_app.command("diagnose")
+def project_diagnose(
+    domain: str = typer.Argument(..., help="Domain to investigate (e.g. lamill.us)"),
+) -> None:
+    """Auto-investigate a domain's deploy state — DNS / HTTP / TLS / repo
+    / inventory — and surface a root cause + suggested fix.
+
+    Read-only. Replaces the manual dig/curl/openssl flow when a dashboard
+    row goes red and you need to know *why* before deciding what to do.
+    """
+    from .diagnose import diagnose, render
+    d = diagnose(domain)
+    render(d, console)
+
+
 @project_app.command("set-launched")
 def project_set_launched(
     name: str = typer.Argument(..., help="Project / domain name"),
