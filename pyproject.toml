@@ -16,6 +16,9 @@ dependencies = [
 ]
 
 [project.scripts]
+lamill = "portfolio.cli:app"
+# `portfolio` kept as a backward-compat alias so existing muscle memory
+# and scripts keep working through the transition. Remove later.
 portfolio = "portfolio.cli:app"
 
 [dependency-groups]

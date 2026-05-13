@@ -20,9 +20,10 @@ from .data import PORTFOLIO_JSON, cleanup as run_cleanup, load_domains, load_pla
 
 app = typer.Typer(
     help=(
-        "Manage your domain portfolio. Primary namespaces:\n"
+        "lamill — manage your domain fleet + sites/ workspace.\n"
+        "Primary namespaces:\n"
         "  project — per-project ops (check, fix, seo)\n"
-        "  fleet   — cross-portfolio ops (focus, live, seo, check, fix, drift, info)\n"
+        "  fleet   — cross-fleet ops (focus, live, seo, check, fix, drift, info, repos, dashboard)\n"
         "  new     — create new things (suggest, bootstrap, deploy)\n"
         "  settings— setup / debug (catalog, gsc, apikeys)"
     ),
