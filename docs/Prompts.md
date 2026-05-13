@@ -91,3 +91,97 @@ don't rewrite older entries when adding new ones.
 > security signal, not SEO. Belongs in a future `check --security` or as
 > a column on `check --live`. Row color in `check --seo` is now driven
 > only by impressions, position, robots.txt, and sitemap.
+
+## 2026-05-13 — v6.D / v7.A–v7.C / fleet repos / age-aware grading / tool rename
+
+> Long session covering several connected feature tracks. v6.B added
+> per-stack rules (submodules, gitignore-build-output). v6.D landed
+> fleetwide `project fix --all` — the v6.C remediation runner extended
+> to operate across every project in the workspace. v7.A.1 was a major
+> CLI restructure: scope-first namespaces (`project`, `fleet`, `new`,
+> `settings`) replacing the v5.F mixed-shape tree, all old paths kept as
+> additive aliases. Added a `settings apikeys` feature for managing
+> portfolio.env credentials with atomic IO + per-provider connectivity
+> probes (OpenAI / CrUX / Porkbun / Cloudflare). "Under build" added to
+> WIP_CATEGORIES so newly-bootstrapped sites get included in default
+> `fleet live` snapshots.
+>
+> v7.A.3 shipped `fleet dashboard` — unified per-domain view joining
+> live snapshot + SEO snapshot + git status into one row with a worst-of
+> rollup dot. Pure cache join by default, `--refresh` re-probes live +
+> SEO upstream. Sort modes: attention (default), name, imp, age.
+>
+> Age tracking (P1+P2+P3): added `launched` and `domain_created` fields
+> to `data/portfolio.json`. `launched` auto-inferred from first git
+> commit in `sites/<domain>/`, override-able via
+> `project set-launched <domain> <YYYY-MM-DD>`. `domain_created` populated
+> from RDAP `registration` event date via `fleet info cleanup --refresh-rdap`.
+> `cleanup()` now preserves these fields across CSV rebuilds. Both
+> surface as columns in `fleet dashboard` (Site age + Domain age).
+>
+> `fleet focus` got significant work: (a) variant-aware site-down
+> detection — only flag dead when *every* probed variant (bare + www)
+> failed, fixed false positive on linkedcsi.live where bare timed out
+> but www was serving live; (b) platform-aware action text — drop
+> hardcoded "Cloudflare Pages" message in favor of detecting wrangler.toml
+> / vercel.json / netlify.toml and naming the actual platform; (c)
+> `--refresh` flag to re-probe upstream before reading caches; (d)
+> age-aware SEO signal suppression — `🟠` zero-impressions + `🟡` bad-
+> position signals don't fire on sites <90d old (normal during Google
+> freshness window), with `--include-young` to override; (e) idle (🟡)
+> signal for forwarder + parked classifications — was previously silent
+> when domain was reachable but not serving real content (airsucks.com
+> case before bootstrap).
+>
+> P4 closed the age-awareness loop in `seo_runtime.overall_status` —
+> takes optional `site_age_days` param and masks imp + pos cells when
+> the site is young. Wired through dashboard's SEO dot and the
+> `fleet seo` table grade. Robots/sitemap/GSC-presence still count
+> regardless of age. After P4, airsucks.com (launched today, GSC
+> active, zero impressions) correctly graded 🟢 instead of 🔴 — exactly
+> the case P4 was built for.
+>
+> `fleet repos` added — read-only audit of every `sites/<domain>/`'s
+> git-layer state. Classifies into: clean standalone, nested
+> anti-pattern (own .git + tracked by outer monorepo), standalone
+> unpublished (no remote), monorepo-only, unversioned, empty stub,
+> archived. `--detail` / `--only` / `--json` modes. Write mode
+> (`--fix`) intentionally deferred. Three new git-category catalog
+> checks landed alongside: CHECK_040 (git-remote-name-matches-domain),
+> CHECK_041 (dir-matches-portfolio-entry), CHECK_042 (live-final-url-
+> matches-domain) — the naming-consistency cluster.
+>
+> Archived support added on top of `fleet repos` after the dark-site
+> conversation. Two detection signals: `TOMBSTONE.md` marker file at
+> project root, or portfolio.json category in `{to be deleted
+> immediately, archived, tombstoned}`. Archived sites get their own
+> 🪦 row in the audit and are skipped by CHECK_040/041/042. Currently
+> 3 sites archived via category (lamill-events, newiniot.com,
+> swiftly.co.in).
+>
+> Two sites went through end-to-end pipeline tests this session.
+> lamill.io: migrated Vercel deploy from `codervijo/sites` monorepo
+> subdirectory to standalone `codervijo/lamill.io`, untracked from
+> outer, full SEO baseline added (robots.txt, sitemap.xml, meta
+> description, canonical, OG, Twitter, JSON-LD) — went from 18 fails
+> → 6 fails on conformance. airsucks.com: bootstrapped end-to-end from
+> a Lovable export via `new bootstrap --from-genai`, deployed by hand,
+> live with full SEO baseline + launched-date tracked. Smoothest
+> bootstrap run yet — first site through the matured pipeline with
+> minimal manual intervention. csinorcal.church flagged as nested
+> anti-pattern + truncated naming but deferred (dark site, no SEO
+> pressure).
+>
+> Three GitHub repos renamed for the full-domain naming convention:
+> `homeloop.app` → `homeloom.app` (typo fix, not just truncation),
+> `lamillrentals` → `lamillrentals.com`, `keralavotemap` →
+> `keralavotemap.site`. After all three, CHECK_040 down to one
+> violation (csinorcal — dark site, intentional).
+>
+> Tool renamed: `portfolio` → `lamill` (light rename — `[project.scripts]`
+> entry only, Python package stays `portfolio` internally; `portfolio`
+> kept as a legacy alias). Made the rename feasible by installing
+> system-wide via `uv tool install --editable`, so `lamill` works from
+> any directory. Tracks with the user's Lamill Web Systems brand.
+>
+> Test suite over this stretch: 803 → 877 passing.
