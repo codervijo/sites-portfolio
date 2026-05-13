@@ -36,6 +36,13 @@ State definitions:
                  < 2KB total). Likely a placeholder; skip in fix flow.
 
   unknown      — couldn't classify (transient error reading the dir).
+  archived     — the user has intentionally retired this site. Detected
+                 via either (a) presence of a `TOMBSTONE.md` marker file
+                 in the project root, or (b) portfolio.json category in
+                 ARCHIVED_CATEGORIES. Listed separately in the audit and
+                 NOT flagged as a violation regardless of other state
+                 (no-remote, nested, etc. don't matter for a project
+                 that's being wound down).
 """
 from __future__ import annotations
 
@@ -52,6 +59,20 @@ _NON_PROJECT_NAMES = frozenset({
     "portfolio", "node_modules", "harmonia", "tarball", "levents",
     "__pycache__",
 })
+
+# Portfolio.json categories that mean "this site is being retired."
+# Lowercase for case-insensitive matching. Order doesn't matter.
+ARCHIVED_CATEGORIES = frozenset({
+    "to be deleted immediately",
+    "archived",
+    "tombstoned",
+})
+
+# Filename used as a per-directory tombstone marker. If present at the
+# project root, the site is treated as archived even if the canonical
+# portfolio.json category hasn't been updated yet (or never gets updated
+# because the dir is being deleted soon anyway).
+TOMBSTONE_MARKER = "TOMBSTONE.md"
 
 # Files commonly present in a barely-initialized stub. If everything in the
 # directory is in this set, treat it as a stub (not worth `--fix`).
@@ -72,6 +93,7 @@ class RepoState:
     naming_ok: bool | None = None          # full-domain naming match
     outer_tracked: int = 0                 # count of files tracked by outer
     outer_modified: int = 0                # count of files modified in outer WT
+    archived_reason: str | None = None     # why we classified this as archived
     notes: list[str] = field(default_factory=list)
 
 
@@ -149,11 +171,45 @@ def _is_stub(p: Path) -> bool:
     return all(e.name in _STUB_ONLY_FILES for e in real)
 
 
+def _archived_reason(site_dir: Path) -> str | None:
+    """If this site is archived/tombstoned, return a human-readable
+    reason; otherwise None.
+
+    Two detection signals (checked in order):
+      1. `TOMBSTONE.md` file at the project root — per-directory marker
+         (works even before portfolio.json is updated, and survives the
+         portfolio.json reload cycle).
+      2. portfolio.json category in ARCHIVED_CATEGORIES — the canonical
+         data-layer signal (e.g., "To be deleted immediately").
+
+    The marker file wins so the user has a fast, local override that
+    doesn't require touching shared inventory.
+    """
+    if (site_dir / TOMBSTONE_MARKER).exists():
+        return f"{TOMBSTONE_MARKER} present"
+    try:
+        from .data import load_domains
+        for d in load_domains():
+            if d.name.lower() == site_dir.name.lower():
+                cat = (d.category or "").lower()
+                if cat in ARCHIVED_CATEGORIES:
+                    return f"category={d.category!r}"
+                return None
+    except Exception:
+        # If we can't load portfolio.json, fall through — don't auto-
+        # classify as archived on a transient I/O error.
+        return None
+    return None
+
+
 def classify_site(site_dir: Path, sites_root: Path | None = None) -> RepoState:
     """Build a `RepoState` for one site directory.
 
     Pure function — read-only filesystem inspection. The decision tree:
 
+       archived?         yes  →  archived (overrides everything)
+                         |
+                         v no
        has .git?         no   →  outer tracks it?  yes  →  monorepo
                          |                          no   →  stub  or  unversioned
                          v
@@ -163,6 +219,13 @@ def classify_site(site_dir: Path, sites_root: Path | None = None) -> RepoState:
     """
     name = site_dir.name
     sites_root = sites_root or SITES_ROOT
+
+    # Archive check runs first — overrides every other state. We still
+    # collect the git layer info so detail-mode can show it (and so that
+    # un-archiving a project later just removes the marker and the
+    # classifier picks up the underlying state again).
+    archived_reason = _archived_reason(site_dir)
+
     inner_git = (site_dir / ".git").exists()
     inner_remote = None
     inner_basename = None
@@ -177,7 +240,9 @@ def classify_site(site_dir: Path, sites_root: Path | None = None) -> RepoState:
 
     outer_tracked, outer_modified = _outer_track_state(name, sites_root)
 
-    if inner_git:
+    if archived_reason:
+        state = "archived"
+    elif inner_git:
         if outer_tracked > 0:
             state = "nested"
         elif inner_remote is None:
@@ -202,9 +267,15 @@ def classify_site(site_dir: Path, sites_root: Path | None = None) -> RepoState:
         naming_ok=naming_ok,
         outer_tracked=outer_tracked,
         outer_modified=outer_modified,
+        archived_reason=archived_reason,
     )
 
-    # Surface helpful notes alongside the state.
+    # Notes — useful context. Archived sites get only the archive note;
+    # we skip the other "you should fix this" notes since they don't apply.
+    if state == "archived":
+        rs.notes.append(f"archived: {archived_reason}")
+        return rs
+
     if state == "nested" and outer_modified > 0:
         rs.notes.append(
             f"outer has {outer_modified} modified file(s) — verify they "
@@ -238,10 +309,13 @@ _STATE_LABEL = {
     "monorepo":    ("⚠", "monorepo-only"),
     "unversioned": ("⚠", "unversioned"),
     "stub":        ("·", "empty stub"),
+    "archived":    ("🪦", "archived / tombstoned"),
     "unknown":     ("?", "unknown"),
 }
+# Clean first, then the action-required states, then stub/archived
+# (informational, no fix recommended), then unknown.
 _STATE_ORDER = ("clean", "nested", "unpublished", "monorepo",
-                "unversioned", "stub", "unknown")
+                "unversioned", "stub", "archived", "unknown")
 
 
 def render_summary(rows: list[RepoState], console) -> None:
@@ -277,8 +351,10 @@ def render_summary(rows: list[RepoState], console) -> None:
     console.print(t)
 
     # Naming check (separate axis from state — a clean standalone can still
-    # have a truncated remote name).
-    bad_names = [r for r in rows if r.naming_ok is False]
+    # have a truncated remote name). Skip archived sites — naming violations
+    # don't matter for a project being wound down.
+    bad_names = [r for r in rows
+                 if r.naming_ok is False and r.state != "archived"]
     if bad_names:
         console.print(
             f"\n[bold]Naming check (CHECK_040): "
@@ -291,10 +367,12 @@ def render_summary(rows: list[RepoState], console) -> None:
                 f"(expected [cyan]{r.name}[/])"
             )
 
-    # Footer guidance.
+    # Footer guidance. Archived sites are deliberately excluded from
+    # the "needs action" counts since they're being retired.
     fix_count = sum(1 for r in rows
                     if r.state in ("nested", "monorepo", "unversioned"))
     publish_count = sum(1 for r in rows if r.state == "unpublished")
+    archived_count = sum(1 for r in rows if r.state == "archived")
     hints = []
     if fix_count or publish_count:
         hints.append(
@@ -302,9 +380,19 @@ def render_summary(rows: list[RepoState], console) -> None:
         )
     if not hints and not bad_names:
         console.print(f"\n[green]All sites clean. No action needed.[/]")
+        if archived_count:
+            console.print(
+                f"[dim]({archived_count} archived site(s) excluded "
+                f"from violation checks.)[/]"
+            )
     else:
         for h in hints:
             console.print(f"\n{h}")
+        if archived_count:
+            console.print(
+                f"[dim]{archived_count} archived site(s) excluded "
+                f"from violation checks.[/]"
+            )
 
 
 def render_detail(rows: list[RepoState], console) -> None:
@@ -378,7 +466,12 @@ def render_json(rows: list[RepoState], console) -> None:
 
 def _fix_plan(r: RepoState) -> list[str]:
     """Read-only fix-plan text — what `--fix` *would* run when it lands.
-    Useful for the detail view and JSON output even before --fix exists."""
+    Useful for the detail view and JSON output even before --fix exists.
+
+    Archived sites get an empty plan — they're being retired, not fixed.
+    """
+    if r.state == "archived":
+        return []
     if r.state == "nested":
         return [
             f"git -C <outer> rm --cached -r {r.name}",

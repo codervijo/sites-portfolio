@@ -231,6 +231,96 @@ def test_fix_plan_clean_is_empty():
     assert _fix_plan(r) == []
 
 
+def test_fix_plan_archived_is_empty():
+    """Archived sites get no fix plan — they're being retired."""
+    r = RepoState(name="x.com", path=Path("/"), state="archived")
+    assert _fix_plan(r) == []
+
+
+# ---------- archived / tombstoned detection ----------
+
+
+def test_archived_via_tombstone_marker_file(tmp_path: Path):
+    """A `TOMBSTONE.md` at the project root overrides the underlying
+    state — even an unversioned dir gets classified as archived if
+    marked."""
+    sites = _make_outer_repo(tmp_path)
+    site = sites / "retired.com"
+    site.mkdir()
+    (site / "index.html").write_text("...")
+    (site / "TOMBSTONE.md").write_text("# retired 2026-05-13")
+    rs = classify_site(site, sites_root=sites)
+    assert rs.state == "archived"
+    assert rs.archived_reason == "TOMBSTONE.md present"
+    # Notes mention the archive reason, NOT the underlying violation notes.
+    assert any("archived" in n for n in rs.notes)
+
+
+def test_archived_overrides_nested_state(tmp_path: Path):
+    """Even the nested anti-pattern gets archived treatment if marker
+    is present — no naming/fix nags for a tombstoned project."""
+    sites = _make_outer_repo(tmp_path)
+    site = sites / "double.com"
+    site.mkdir()
+    (site / "stale.txt").write_text("from before standalone\n")
+    _run_git(["add", "double.com/stale.txt"], cwd=sites)
+    _run_git(["commit", "-q", "-m", "track"], cwd=sites)
+    _make_inner_repo(site, remote_url="git@github.com:owner/double.com.git")
+    # Drop the tombstone marker
+    (site / "TOMBSTONE.md").write_text("# retired\n")
+    rs = classify_site(site, sites_root=sites)
+    assert rs.state == "archived"
+
+
+def test_unmarked_unversioned_still_unversioned(tmp_path: Path):
+    """Sanity check the inverse: no marker, no archive category →
+    underlying state remains."""
+    sites = _make_outer_repo(tmp_path)
+    site = sites / "active.com"
+    site.mkdir()
+    (site / "index.html").write_text("...")
+    (site / "main.js").write_text("...")
+    (site / "style.css").write_text("...")
+    rs = classify_site(site, sites_root=sites)
+    assert rs.state == "unversioned"
+    assert rs.archived_reason is None
+
+
+def test_check_040_skipped_on_archived(tmp_path: Path):
+    """CHECK_040 should warn-skip on archived sites instead of failing
+    on truncated names."""
+    from portfolio.checks.git.check_040_git_remote_name_matches_domain import run
+    site = tmp_path / "csinorcal.church"
+    _make_inner_repo(site, remote_url="git@github.com:codervijo/csinorcal.git")
+    (site / "TOMBSTONE.md").write_text("retired\n")
+    result = run(str(site))
+    assert result.status == "warn"
+    assert "archived" in result.message
+
+
+def test_check_041_skipped_on_archived(tmp_path: Path):
+    """CHECK_041 should warn-skip on archived sites."""
+    from portfolio.checks.git.check_041_dir_matches_portfolio_entry import run
+    site = tmp_path / "anything.com"
+    site.mkdir()
+    (site / "TOMBSTONE.md").write_text("retired\n")
+    result = run(str(site))
+    assert result.status == "warn"
+    assert "archived" in result.message
+
+
+def test_check_042_skipped_on_archived(tmp_path: Path):
+    """CHECK_042 should warn-skip on archived sites — even if final URL
+    points to a different domain (legit during wind-down)."""
+    from portfolio.checks.git.check_042_live_final_url_matches_domain import run
+    site = tmp_path / "anything.com"
+    site.mkdir()
+    (site / "TOMBSTONE.md").write_text("retired\n")
+    result = run(str(site))
+    assert result.status == "warn"
+    assert "archived" in result.message
+
+
 # ---------- CHECK_040 ----------
 
 

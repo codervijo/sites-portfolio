@@ -68,6 +68,17 @@ def _repo_basename(remote_url: str) -> str | None:
 
 def run(repo_path: str) -> CheckResult:
     p = Path(repo_path).resolve()
+    # Skip archived/tombstoned sites — naming violations don't matter
+    # for a project being wound down.
+    try:
+        from ...fleet_repos import _archived_reason
+        if _archived_reason(p) is not None:
+            return CheckResult(
+                status="warn",
+                message=f"archived — skipped",
+            )
+    except Exception:
+        pass
     if not (p / ".git").exists():
         # CHECK_020 handles the "no .git at all" case.
         return CheckResult(status="warn", message="no .git directory — skipped")

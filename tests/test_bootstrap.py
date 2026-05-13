@@ -292,6 +292,12 @@ def test_template_path_passes_day_zero_catalog(tmp_path):
         "CHECK_023",  # on-main-branch (already pass; defensive)
         "CHECK_028",  # last-deploy-date (no deploy yet)
         "CHECK_031",  # has-pnpm-lock (user runs `make deps` after)
+        "CHECK_041",  # dir-matches-portfolio-entry (user runs `lamill
+                      # fleet info cleanup` to rebuild inventory after
+                      # the new dir exists)
+        "CHECK_042",  # live-final-url-matches-domain (no live snapshot
+                      # covers a freshly-scaffolded dir; closes after
+                      # first `lamill fleet live` post-deploy)
     }
 
     fails = []
