@@ -4408,6 +4408,49 @@ def fleet_drift() -> None:
     info_drift()
 
 
+@fleet_app.command("repos")
+def fleet_repos(
+    detail: bool = typer.Option(
+        False, "--detail",
+        help="Show per-site state + fix plan (verbose).",
+    ),
+    only: str = typer.Option(
+        "", "--only",
+        help="Filter to one site by name (implies --detail).",
+    ),
+    json_out: bool = typer.Option(
+        False, "--json",
+        help="Emit machine-readable JSON instead of a table.",
+    ),
+) -> None:
+    """Audit each sites/<domain>/ for git-layer state (read-only).
+
+    Classifies every site into one of: clean standalone, nested
+    anti-pattern, standalone unpublished, monorepo-only, unversioned,
+    or empty stub. Also flags any remote whose name truncates the
+    domain (full-domain naming convention; CHECK_040 covers per-site).
+
+    Write modes (`--fix`, `--remote`) are intentionally not implemented
+    in this version — audit-only by design.
+    """
+    from .fleet_repos import (
+        audit, render_detail, render_json, render_summary,
+    )
+    rows = audit()
+    if only:
+        rows = [r for r in rows if r.name == only]
+        if not rows:
+            console.print(f"[red]No site matches[/] [bold]{only}[/].")
+            raise typer.Exit(1)
+    if json_out:
+        render_json(rows, console)
+        return
+    if only or detail:
+        render_detail(rows, console)
+        return
+    render_summary(rows, console)
+
+
 @fleet_app.command("dashboard")
 def fleet_dashboard(
     scope: str = typer.Option("wip", "--only", "-o",

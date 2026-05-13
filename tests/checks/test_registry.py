@@ -50,8 +50,9 @@ def test_list_checks_filter_by_category():
     ci = list_checks(category="ci")
     # CHECK_005-008 moved to docs; CHECK_024 moved to ci.
     # v6.A.1: CHECK_013 ai-agents-versioning added to scaffold (now 9).
+    # CHECK_040 git-remote-name-matches-domain added to git (now 6).
     assert len(scaffold) == 9
-    assert len(git) == 5
+    assert len(git) == 6
     assert len(docs) >= 4
     assert len(ci) == 1
     for s in scaffold:
