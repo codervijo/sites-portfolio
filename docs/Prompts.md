@@ -185,3 +185,36 @@ don't rewrite older entries when adding new ones.
 > any directory. Tracks with the user's Lamill Web Systems brand.
 >
 > Test suite over this stretch: 803 → 877 passing.
+>
+> Continued same session: extended the naming-consistency cluster to
+> three checks. CHECK_041 (`dir-matches-portfolio-entry`) catches typo'd
+> sub-directories that don't have a portfolio.json row. CHECK_042
+> (`live-final-url-matches-domain`) catches forwarders / redirects to a
+> different brand — surfaces the "deploy serves wrong hostname" failure
+> mode before it bites. Both also added to git/ category with skip-on-
+> archived semantics.
+>
+> Archived/tombstoned state landed in `fleet repos`. Two detection
+> signals: `TOMBSTONE.md` marker file at project root, or portfolio.json
+> category in {to be deleted immediately, archived, tombstoned}. Sites
+> in either get a dedicated 🪦 row in the audit, are excluded from the
+> "needs action" count, and skip CHECK_040/041/042 — repo hygiene
+> doesn't apply to a project being wound down. Current fleet has 3
+> archived this way (lamill-events, newiniot.com, swiftly.co.in).
+>
+> Three GitHub repos renamed for the full-domain convention:
+> `homeloop.app` → `homeloom.app` (typo fix, biggest win — name was
+> wrong, not just truncated), `lamillrentals` → `lamillrentals.com`,
+> `keralavotemap` → `keralavotemap.site`. After cleanup CHECK_040 down
+> to one violation (csinorcal — dark site, intentional).
+>
+> `project diagnose <domain>` shipped — replaces the manual
+> dig/curl/openssl flow we'd been doing by hand. Five-layer probe
+> (DNS, HTTP, TLS, repo config, inventory) + a synthesis pass with
+> seven heuristics covering: Vercel deployment-not-found,
+> Namecheap parking, intent-vs-actual mismatch (lamill.io's
+> wrangler.jsonc-vs-Vercel-serving case), TLS-alert-112 on intended
+> platform, no-DNS, normal-live-site, forwarder/parked-decision.
+> Fallback message when nothing matches; never guesses.
+>
+> Tests: 877 → 894 passing.
