@@ -16,7 +16,7 @@ DESCRIPTION = "Working tree is clean (no uncommitted modifications)."
 def run(repo_path: str) -> CheckResult:
     p = Path(repo_path).resolve()
     if not (p / ".git").exists():
-        return CheckResult(status="warn", message="no .git — can't check")
+        return CheckResult(status="warn", message="no .git — skipped")
     try:
         result = subprocess.run(
             ["git", "status", "--porcelain"],

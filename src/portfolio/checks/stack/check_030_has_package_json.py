@@ -17,4 +17,4 @@ def run(repo_path: str) -> CheckResult:
     if p.is_file():
         return CheckResult(status="pass", message="package.json present")
     return CheckResult(status="warn",
-                       message="no package.json (not a web project)")
+                       message="not a web project — skipped")

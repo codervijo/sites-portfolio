@@ -18,7 +18,7 @@ def run(repo_path: str) -> CheckResult:
         return CheckResult(status="warn", message="not a web project — skipped")
     if not _has_astro_config(repo_path):
         return CheckResult(status="warn",
-                           message="no astro.config.* — not an Astro project")
+                           message="not an Astro project — skipped")
     pkg = _read_package_json(repo_path)
     if pkg is None:
         return CheckResult(status="warn", message="package.json unreadable — skipped")

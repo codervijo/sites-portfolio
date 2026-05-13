@@ -17,7 +17,7 @@ def run(repo_path: str) -> CheckResult:
     if not _is_web_project(repo_path):
         return CheckResult(status="warn", message="not a web project — skipped")
     if not _has_vite_config(repo_path):
-        return CheckResult(status="warn", message="no vite.config.* — not a Vite project")
+        return CheckResult(status="warn", message="not a Vite project — skipped")
     pkg = _read_package_json(repo_path)
     if pkg is None:
         return CheckResult(status="warn", message="package.json unreadable — skipped")

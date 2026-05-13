@@ -18,4 +18,11 @@ def run(repo_path: str) -> CheckResult:
         return CheckResult(status="warn", message="not a web project — skipped")
     if (Path(repo_path) / "tsconfig.json").is_file():
         return CheckResult(status="pass", message="tsconfig.json present")
-    return CheckResult(status="warn", message="tsconfig.json missing (no TypeScript)")
+    # JS-only projects shouldn't be penalized — only warn when source
+    # files indicate the project is using (or trying to use) TypeScript.
+    src = Path(repo_path) / "src"
+    has_ts_sources = src.exists() and any(src.rglob("*.ts")) or any(src.rglob("*.tsx") if src.exists() else [])
+    if not has_ts_sources:
+        return CheckResult(status="warn",
+                           message="not a TypeScript project (no .ts files) — skipped")
+    return CheckResult(status="warn", message="tsconfig.json missing despite .ts sources")

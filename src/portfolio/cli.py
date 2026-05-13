@@ -855,29 +855,50 @@ def _render_summary_table(per_repo: dict[str, dict], catalog_specs: list) -> Non
     t.add_column("Score", justify="right")
     t.add_column("Fails")
     t.add_column("Warns")
-    rows: list[tuple[str, int, list[str], list[str]]] = []
+    # Per-repo (name, passes, fails, warns, skipped_count). Skipped checks
+    # are warns whose message contains "skipped" — they don't apply to this
+    # project (e.g. astro-version-ok on a Vite project, or no-.git checks
+    # on an unversioned dir). They get filtered from the Warns column and
+    # excluded from the score denominator so it reflects only applicable
+    # checks.
+    rows: list[tuple[str, int, list[str], list[str], int]] = []
     for repo_name, results in per_repo.items():
         passed = [cid for cid, r in results.items() if r.status == "pass"]
         fails = _sort_ids_by_category(
             [cid for cid, r in results.items() if r.status == "fail"], spec_by_id)
-        warns = _sort_ids_by_category(
-            [cid for cid, r in results.items() if r.status == "warn"], spec_by_id)
-        rows.append((repo_name, len(passed), fails, warns))
+        all_warns = [cid for cid, r in results.items() if r.status == "warn"]
+        skipped = [cid for cid in all_warns
+                   if "skipped" in results[cid].message.lower()]
+        real_warns = _sort_ids_by_category(
+            [cid for cid in all_warns if cid not in set(skipped)], spec_by_id)
+        rows.append((repo_name, len(passed), fails, real_warns, len(skipped)))
     rows.sort(key=lambda r: (r[1], r[0]))  # worst score first
-    for repo_name, score, fails, warns in rows:
-        score_color = "red" if score < total * 0.5 else ("yellow" if score < total * 0.8 else "green")
+    for repo_name, score, fails, warns, skipped_n in rows:
+        applicable = total - skipped_n
+        score_color = ("red" if score < applicable * 0.5
+                       else "yellow" if score < applicable * 0.8
+                       else "green")
+        score_cell = f"[{score_color}]{score}/{applicable}[/]"
+        if skipped_n:
+            score_cell += f" [dim]({skipped_n} n/a)[/]"
         t.add_row(
             repo_name,
-            f"[{score_color}]{score}/{total}[/]",
+            score_cell,
             ", ".join(fails) if fails else "[dim]—[/]",
             ", ".join(warns) if warns else "[dim]—[/]",
         )
     console.print(t)
     n_clean = sum(1 for r in rows if not r[2] and not r[3])
-    avg = sum(r[1] for r in rows) / len(rows) if rows else 0
+    # Average score now reflects applicable checks per repo, not catalog size.
+    avg_applicable = (sum(r[1] for r in rows) /
+                      sum((total - r[4]) for r in rows)
+                      if rows else 0)
+    total_skipped = sum(r[4] for r in rows)
     console.print(
-        f"\n[dim]Totals: {len(rows)} repos · avg {avg:.1f}/{total} · "
-        f"{n_clean} all-pass[/]"
+        f"\n[dim]Totals: {len(rows)} repos · "
+        f"avg {avg_applicable*100:.0f}% pass · "
+        f"{n_clean} all-pass · "
+        f"{total_skipped} skipped checks fleetwide (non-applicable)[/]"
     )
 
     # Aggregate "most common failures" view across all repos. Surfaces the
@@ -949,14 +970,26 @@ def _render_per_repo_detail(repo_name: str, results: dict, catalog_specs: list) 
     for cid in _sort_ids_by_category(list(results), spec_by_id):
         r = results[cid]
         spec = spec_by_id.get(cid)
-        icon = {"pass": "[green]✓ pass[/]", "fail": "[red]✗ fail[/]",
-                "warn": "[yellow]~ warn[/]"}.get(r.status, r.status)
+        # Skipped (warn whose message says "skipped") gets a softer icon
+        # so the reader can tell at a glance "this didn't apply" vs
+        # "this is an actionable warn."
+        is_skipped = (r.status == "warn" and "skipped" in r.message.lower())
+        if is_skipped:
+            icon = "[dim]· n/a[/]"
+        else:
+            icon = {"pass": "[green]✓ pass[/]", "fail": "[red]✗ fail[/]",
+                    "warn": "[yellow]~ warn[/]"}.get(r.status, r.status)
         t.add_row(cid, icon, spec.name if spec else "?", r.message)
     console.print(t)
     n_pass = sum(1 for r in results.values() if r.status == "pass")
     n_fail = sum(1 for r in results.values() if r.status == "fail")
-    n_warn = sum(1 for r in results.values() if r.status == "warn")
-    console.print(f"  [dim]{n_pass} pass · {n_fail} fail · {n_warn} warn[/]")
+    warns = [r for r in results.values() if r.status == "warn"]
+    n_skipped = sum(1 for r in warns if "skipped" in r.message.lower())
+    n_warn = len(warns) - n_skipped
+    console.print(
+        f"  [dim]{n_pass} pass · {n_fail} fail · {n_warn} warn · "
+        f"{n_skipped} n/a[/]"
+    )
     _render_action_plan(repo_name, results)
 
 
