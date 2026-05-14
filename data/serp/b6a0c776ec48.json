@@ -1,0 +1,72 @@
+{
+  "topic": "asdf qwerty zxcv",
+  "topic_normalized": "asdf qwerty zxcv",
+  "topic_hash": "b6a0c776ec48",
+  "fetched_at": "2026-05-14T05:47:43.998927+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "top_likely_rankers": [
+      {
+        "domain": "example.com",
+        "type": "other",
+        "intent": "informational"
+      },
+      {
+        "domain": "sample.org",
+        "type": "community",
+        "intent": "informational"
+      },
+      {
+        "domain": "test.net",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "demo.edu",
+        "type": "institutional",
+        "intent": "informational"
+      },
+      {
+        "domain": "randomsite.info",
+        "type": "q-and-a",
+        "intent": "informational"
+      },
+      {
+        "domain": "placeholder.co",
+        "type": "tool",
+        "intent": "informational"
+      },
+      {
+        "domain": "mockup.com",
+        "type": "news",
+        "intent": "informational"
+      },
+      {
+        "domain": "fakesite.biz",
+        "type": "vendor-published",
+        "intent": "commercial"
+      }
+    ],
+    "content_patterns": [
+      "listicles",
+      "how-to guides",
+      "FAQs",
+      "community discussions",
+      "tools and resources"
+    ],
+    "competitive_signal": {
+      "saturation": "medium",
+      "ymyl_flag": false,
+      "barrier": "The topic is vague and lacks clear relevance or authority."
+    },
+    "suggested_angles": [
+      "exploring the meaning of nonsensical phrases",
+      "creative uses of keyboard patterns",
+      "cultural references in internet slang"
+    ],
+    "decision": "unclear",
+    "reasoning": "The topic is nonsensical and lacks a clear focus, making it difficult to determine a viable content strategy. Additionally, it does not align with established search intents or user needs."
+  },
+  "from_cache": false
+}

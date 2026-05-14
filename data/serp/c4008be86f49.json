@@ -1,0 +1,94 @@
+{
+  "topic": "interactive HVAC sizing calculator",
+  "topic_normalized": "interactive hvac sizing calculator",
+  "topic_hash": "c4008be86f49",
+  "fetched_at": "2026-05-14T05:47:33.964380+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "top_likely_rankers": [
+      {
+        "domain": "hvac.com",
+        "type": "vendor-published",
+        "intent": "informational"
+      },
+      {
+        "domain": "energy.gov",
+        "type": "institutional",
+        "intent": "informational"
+      },
+      {
+        "domain": "homeadvisor.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "trane.com",
+        "type": "vendor-published",
+        "intent": "commercial"
+      },
+      {
+        "domain": "rheem.com",
+        "type": "vendor-published",
+        "intent": "commercial"
+      },
+      {
+        "domain": "hometips.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "angieslist.com",
+        "type": "community",
+        "intent": "informational"
+      },
+      {
+        "domain": "calculators.org",
+        "type": "tool",
+        "intent": "informational"
+      },
+      {
+        "domain": "acdirect.com",
+        "type": "niche-vendor",
+        "intent": "transactional"
+      },
+      {
+        "domain": "hvacschool.com",
+        "type": "community",
+        "intent": "informational"
+      },
+      {
+        "domain": "build.com",
+        "type": "vendor-published",
+        "intent": "commercial"
+      },
+      {
+        "domain": "homewyse.com",
+        "type": "tool",
+        "intent": "informational"
+      }
+    ],
+    "content_patterns": [
+      "step-by-step guides on HVAC sizing",
+      "interactive tools for calculating HVAC needs",
+      "comparison articles on HVAC systems",
+      "FAQs about HVAC sizing",
+      "case studies on HVAC installations"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market has established players with strong content and tools."
+    },
+    "suggested_angles": [
+      "focus on DIY HVAC sizing for homeowners",
+      "emphasize energy efficiency in HVAC systems",
+      "provide localized HVAC sizing recommendations",
+      "offer a unique interactive experience compared to competitors",
+      "include expert tips and common mistakes in HVAC sizing"
+    ],
+    "decision": "ship",
+    "reasoning": "The topic has a medium-high saturation but offers opportunities for unique angles and interactive content. There is a clear demand for HVAC sizing tools, making it viable to enter the market."
+  },
+  "from_cache": false
+}

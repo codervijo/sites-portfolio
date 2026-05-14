@@ -1,0 +1,94 @@
+{
+  "topic": "home air diagnostics",
+  "topic_normalized": "home air diagnostics",
+  "topic_hash": "002ba5228ffa",
+  "fetched_at": "2026-05-14T05:45:28.800437+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "top_likely_rankers": [
+      {
+        "domain": "healthline.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "webmd.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "epa.gov",
+        "type": "institutional",
+        "intent": "informational"
+      },
+      {
+        "domain": "consumerreports.org",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "homeadvisor.com",
+        "type": "vendor-published",
+        "intent": "commercial"
+      },
+      {
+        "domain": "angieslist.com",
+        "type": "community",
+        "intent": "commercial"
+      },
+      {
+        "domain": "airquality.org",
+        "type": "community",
+        "intent": "informational"
+      },
+      {
+        "domain": "acrepair.com",
+        "type": "niche-vendor",
+        "intent": "transactional"
+      },
+      {
+        "domain": "hometips.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "thisoldhouse.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "health.harvard.edu",
+        "type": "institutional",
+        "intent": "informational"
+      },
+      {
+        "domain": "homeairquality.org",
+        "type": "niche-vendor",
+        "intent": "informational"
+      }
+    ],
+    "content_patterns": [
+      "how-to guides on improving indoor air quality",
+      "listicles of best air quality monitors",
+      "expert interviews on air diagnostics",
+      "case studies on air quality improvements",
+      "FAQs about home air diagnostics"
+    ],
+    "competitive_signal": {
+      "saturation": "high",
+      "ymyl_flag": true,
+      "barrier": "The topic involves health-related aspects of air quality, which is considered YMYL."
+    },
+    "suggested_angles": [
+      "focus on DIY air quality improvement methods",
+      "explore the impact of air quality on health",
+      "review and compare air quality monitoring devices",
+      "discuss common indoor air pollutants and their sources",
+      "provide tips for maintaining good air quality in homes"
+    ],
+    "decision": "skip",
+    "reasoning": "The topic falls under YMYL due to its implications for health and safety. This raises concerns about the reliability and accuracy of information, making it a less favorable choice for a new site."
+  },
+  "from_cache": false
+}

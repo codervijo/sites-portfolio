@@ -3556,6 +3556,151 @@ def _render_bootstrap_conformance(domain: str) -> None:
             )
 
 
+@new_app.command("research")
+def new_research(
+    topic: str = typer.Argument("", help="Topic to research (prompted if omitted)"),
+    no_cache: bool = typer.Option(False, "--no-cache",
+                                  help="Bypass the 30-day cache and re-query the LLM"),
+    brief: bool = typer.Option(False, "--brief",
+                               help="Compact one-screen output (decision + 3 bullets)"),
+    json_out: bool = typer.Option(False, "--json",
+                                  help="Emit the raw analysis JSON instead of a rendered view"),
+) -> None:
+    """v8.A — AI-only SERP research for a new project topic.
+
+    Analyzes the likely search-result landscape using gpt-4o-mini from
+    training data (NOT real-time SERP) and surfaces: top likely rankers,
+    content-type patterns, competitive signal, suggested angles, and a
+    ship/mixed/skip/unclear decision.
+
+    Caveat: AI-only — knowledge cutoff applies. Real-time SERP via a paid
+    API (Brave/SerpAPI) is queued as v8.A.1.
+    """
+    from .serp import ResearchError, research
+
+    topic = _resolve_topic_arg(topic, non_interactive=False)
+    try:
+        payload = research(topic, no_cache=no_cache)
+    except ResearchError as e:
+        console.print(f"[red]Research failed:[/] {e}")
+        raise typer.Exit(2)
+
+    if json_out:
+        _render_serp_json(payload)
+    elif brief:
+        _render_serp_brief(payload, console)
+    else:
+        _render_serp_full(payload, console)
+
+
+def _render_serp_full(payload: dict, console) -> None:
+    """Default rendering — full analysis block + decision aid."""
+    topic = payload.get("topic", "?")
+    analysis = payload.get("analysis", {})
+    caveat = payload.get("knowledge_caveat", "")
+    from_cache = payload.get("from_cache", False)
+
+    src_line = f"source: AI synthesis ({payload.get('model', 'gpt-4o-mini')})"
+    if from_cache:
+        src_line += f" · cached {payload.get('cache_age_days', '?')}d ago"
+    console.print(f"\n[bold]SERP research — \"{topic}\"[/]")
+    console.print(f"  [dim]{src_line} · {caveat}[/]\n")
+
+    # Top rankers
+    rankers = analysis.get("top_likely_rankers", [])
+    if rankers:
+        console.print("  [cyan]Likely top rankers[/] [dim](from training data, not live SERP):[/]")
+        for i, r in enumerate(rankers, 1):
+            domain = r.get("domain", "?")
+            type_ = r.get("type", "?")
+            intent = r.get("intent", "?")
+            console.print(f"    {i:>2}. [bold]{domain:<28}[/] [dim]{type_} · {intent}[/]")
+
+    # Content patterns
+    patterns = analysis.get("content_patterns", [])
+    if patterns:
+        console.print("\n  [cyan]Content patterns:[/]")
+        for p in patterns:
+            console.print(f"    · {p}")
+
+    # Competitive signal
+    comp = analysis.get("competitive_signal", {})
+    sat = comp.get("saturation", "?")
+    sat_color = {"low": "green", "medium": "yellow",
+                 "medium-high": "orange3", "high": "red"}.get(sat, "white")
+    ymyl = comp.get("ymyl_flag", False)
+    barrier = comp.get("barrier", "")
+    console.print("\n  [cyan]Competitive signal:[/]")
+    console.print(f"    Saturation: [{sat_color}]{sat}[/]")
+    if ymyl:
+        console.print(f"    [red]⚠ YMYL[/] — portfolio policy excludes (medical/legal/financial)")
+    if barrier:
+        console.print(f"    Barrier: {barrier}")
+
+    # Suggested angles
+    angles = analysis.get("suggested_angles", [])
+    if angles:
+        console.print("\n  [cyan]Suggested angles:[/]")
+        for i, a in enumerate(angles, 1):
+            console.print(f"    {i}. {a}")
+
+    # Decision
+    decision = analysis.get("decision", "unclear")
+    decision_emoji = {"ship": "✓", "mixed": "⚠", "skip": "✗", "unclear": "?"}.get(decision, "?")
+    decision_color = {"ship": "green", "mixed": "yellow",
+                      "skip": "red", "unclear": "dim"}.get(decision, "white")
+    reasoning = analysis.get("reasoning", "")
+    console.print(
+        f"\n  [bold]Decision:[/] [{decision_color}]{decision_emoji} {decision.upper()}[/]"
+    )
+    if reasoning:
+        # Wrap reasoning to 70 cols for readability
+        from textwrap import fill
+        wrapped = fill(reasoning, width=68, initial_indent="    ",
+                       subsequent_indent="    ")
+        console.print(f"[dim]{wrapped}[/]")
+
+    console.print(
+        "\n  [dim]Caveat: AI-only synthesis from training data. For real-time "
+        "SERP, see roadmap v8.A.1.[/]\n"
+    )
+
+
+def _render_serp_brief(payload: dict, console) -> None:
+    """Compact one-screen rendering — decision + top-3 bullets."""
+    topic = payload.get("topic", "?")
+    analysis = payload.get("analysis", {})
+    decision = analysis.get("decision", "unclear")
+    decision_emoji = {"ship": "✓", "mixed": "⚠", "skip": "✗", "unclear": "?"}.get(decision, "?")
+    decision_color = {"ship": "green", "mixed": "yellow",
+                      "skip": "red", "unclear": "dim"}.get(decision, "white")
+    sat = analysis.get("competitive_signal", {}).get("saturation", "?")
+    ymyl = analysis.get("competitive_signal", {}).get("ymyl_flag", False)
+
+    console.print(f"\n[bold]{topic}[/]  "
+                  f"[{decision_color}]{decision_emoji} {decision.upper()}[/]  "
+                  f"[dim]({sat} saturation)[/]")
+    if ymyl:
+        console.print("  [red]⚠ YMYL — portfolio policy excludes[/]")
+
+    angles = analysis.get("suggested_angles", [])[:3]
+    if angles:
+        for a in angles:
+            console.print(f"  · {a}")
+
+    reasoning = analysis.get("reasoning", "")
+    if reasoning:
+        from textwrap import shorten
+        console.print(f"  [dim]{shorten(reasoning, width=200)}[/]")
+    console.print()
+
+
+def _render_serp_json(payload: dict) -> None:
+    """Emit raw analysis JSON (suitable for piping / scripting)."""
+    import json as _json
+    print(_json.dumps(payload, indent=2))
+
+
 @new_app.command("deploy")
 def new_deploy(
     domain: str = typer.Argument(..., help="Domain whose sites/<domain>/ project to deploy (e.g. kwizicle.com)"),
