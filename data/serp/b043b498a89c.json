@@ -1,0 +1,115 @@
+{
+  "topic": "test synth only",
+  "topic_normalized": "test synth only",
+  "topic_hash": "b043b498a89c",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T07:22:57.009419+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "test synth only",
+      "synthesizer testing techniques",
+      "best synths for testing sounds",
+      "how to test synthesizers",
+      "synth sound design testing"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "synthesizerworld.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "musictech.net",
+        "type": "news",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "soundonsound.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "gearnews.com",
+        "type": "news",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "synthesizerreview.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 3
+      },
+      {
+        "domain": "reddit.com/r/synthesizers",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "youtube.com",
+        "type": "other",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "sweetwater.com",
+        "type": "vendor-published",
+        "intent": "transactional",
+        "frequency": 1
+      }
+    ],
+    "content_patterns": [
+      "how-to guides on testing synthesizers",
+      "reviews of synthesizers with testing insights",
+      "listicles of best synthesizers for sound testing",
+      "community discussions on synthesizer testing techniques",
+      "video tutorials on sound design and testing"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market is competitive with established content sources and community discussions."
+    },
+    "suggested_angles": [
+      "Focus on unique testing techniques for synthesizers.",
+      "Create a comprehensive guide comparing different synthesizers for sound testing.",
+      "Leverage community insights to build a resource on synthesizer testing."
+    ],
+    "per_query_summary": [
+      {
+        "query": "test synth only",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "synthesizer testing techniques",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "best synths for testing sounds",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "how to test synthesizers",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "synth sound design testing",
+        "decision_hint": "mixed",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a solid interest in synthesizer testing, the competition is robust with established players. A unique angle or niche focus may be necessary to stand out in this medium-high saturation market."
+  },
+  "from_cache": false
+}

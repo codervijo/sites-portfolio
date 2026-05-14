@@ -3559,10 +3559,10 @@ def _render_bootstrap_conformance(domain: str) -> None:
 @new_app.command("research")
 def new_research(
     topic: str = typer.Argument("", help="Topic to research (prompted if omitted)"),
-    strict: bool = typer.Option(
-        False, "--strict",
-        help="[v8.B] Analyze the literal topic only (synthesis-only). "
-             "Default is cluster mode."
+    synthesis_only: bool = typer.Option(
+        False, "--synthesis-only",
+        help="Skip SerpAPI; use LLM-only synthesis (heuristic verdicts; not "
+             "real SERP data). Useful for fast ideation without burning quota.",
     ),
     no_cache: bool = typer.Option(False, "--no-cache",
                                   help="Bypass cache and re-fetch"),
@@ -3573,48 +3573,44 @@ def new_research(
 ) -> None:
     """v8.D — multi-keyword cluster SERP research.
 
-    When `SERPAPI_KEY` is set, fetches real-time SERP data via SerpAPI
-    for each cluster query (top-10 organic + AI Overview + PAA + Reddit
-    cards + other SERP features). When the key is missing, falls back
-    to LLM-only synthesis (v8.B behavior) with a clear "NOT REAL SERP
-    DATA" banner.
+    Default: real SERP via SerpAPI for each cluster query (top-10
+    organic + AI Overview + PAA + Reddit cards + SERP features).
+    Requires `SERPAPI_KEY` in portfolio.env (free tier covers 250
+    queries/month = ~50 research runs).
 
-    P1.D scope: returns the raw cluster snapshot with per-query SERP
-    data. Gates (Phase 2), operator-profile filtering (Phase 3), and
-    interpretive verdict (Phase 4) land in subsequent commits.
+    `--synthesis-only`: skip SerpAPI; LLM synthesizes the analysis
+    from training data. Use for ideation when you don't want to burn
+    quota. Output is clearly labeled "NOT REAL SERP DATA".
+
+    P1 scope: cluster + per-query SERP data only. Gates (Phase 2),
+    operator-profile filtering (Phase 3), and interpretive verdict
+    (Phase 4) land in subsequent commits.
     """
-    from .serp import ResearchError, research
+    from .apikeys import get_key
 
     topic = _resolve_topic_arg(topic, non_interactive=False)
-
-    # P1.D: prefer SerpAPI when key is present, else fall back to v8.B synthesis.
-    from .apikeys import get_key
     serpapi_key = get_key("SERPAPI_KEY") or ""
 
-    if strict or not serpapi_key:
-        # Synthesis-only path (v8.B). P1.E will tighten this with explicit
-        # `--synthesis-only` flag + loud banner.
-        if not serpapi_key:
-            console.print(
-                "[yellow]⚠  SERPAPI_KEY not set — falling back to LLM-only synthesis "
-                "(NOT REAL SERP DATA). Set via `lamill settings apikeys set "
-                "SERPAPI_KEY <key>` for real-time data.[/]"
-            )
-        try:
-            payload = research(topic, no_cache=no_cache, strict=strict)
-        except ResearchError as e:
-            console.print(f"[red]Research failed:[/] {e}")
-            raise typer.Exit(2)
-
-        if json_out:
-            _render_serp_json(payload)
-        elif brief:
-            _render_serp_brief(payload, console)
-        else:
-            _render_serp_full(payload, console)
+    if synthesis_only:
+        _run_research_synthesis(topic, no_cache=no_cache,
+                                brief=brief, json_out=json_out)
         return
 
-    # P1.D: real SerpAPI path.
+    if not serpapi_key:
+        # Refuse to silently fall back — that was a known bug in pre-v8.D.
+        # The operator should either set the key or explicitly opt into
+        # synthesis-only mode.
+        console.print(
+            "[red]SERPAPI_KEY not set.[/] Real SERP data requires a key.\n"
+            "Two ways to proceed:\n"
+            "  1. Set the key:  [cyan]lamill settings apikeys set SERPAPI_KEY <your-key>[/]\n"
+            "     Free tier: https://serpapi.com/ (250 queries/month)\n"
+            "  2. Skip SerpAPI: [cyan]lamill new research <topic> --synthesis-only[/]\n"
+            "     (LLM-only synthesis; heuristic verdicts, not real SERP data)"
+        )
+        raise typer.Exit(2)
+
+    # Real SerpAPI path.
     from .research_v2 import ResearchV2Error, run_research_v2
     try:
         payload = run_research_v2(topic, api_key=serpapi_key, no_cache=no_cache)
@@ -3626,6 +3622,30 @@ def new_research(
         _render_serp_json(payload)
     else:
         _render_research_v2_full(payload, console)
+
+
+def _run_research_synthesis(topic: str, *, no_cache: bool,
+                            brief: bool, json_out: bool) -> None:
+    """Synthesis-only path — explicit opt-in via `--synthesis-only`.
+    Prints the loud "NOT REAL SERP DATA" banner before running."""
+    from .serp import ResearchError, research
+
+    console.print(
+        "[yellow]⚠  source: GPT synthesis (--synthesis-only) — NOT REAL SERP DATA[/]\n"
+        "[dim]   knowledge cutoff applies; verdicts are heuristic only.[/]"
+    )
+    try:
+        payload = research(topic, no_cache=no_cache, strict=False)
+    except ResearchError as e:
+        console.print(f"[red]Research failed:[/] {e}")
+        raise typer.Exit(2)
+
+    if json_out:
+        _render_serp_json(payload)
+    elif brief:
+        _render_serp_brief(payload, console)
+    else:
+        _render_serp_full(payload, console)
 
 
 def _render_research_v2_full(payload: dict, console) -> None:
