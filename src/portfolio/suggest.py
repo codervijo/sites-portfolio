@@ -158,6 +158,12 @@ CF_ACCOUNT_ID=
 # "Chrome UX Report API" on the project. When unset, the LCP/INP/CLS columns
 # show as empty but HTTP and GSC columns still work.
 CRUX_API_KEY=
+
+# Optional for `lamill new research <topic>` real-SERP data (v8.D).
+# Sign up free at https://serpapi.com/ (250 queries/month on the free tier;
+# ~50 cluster runs/month at 5 queries each). When unset, `new research`
+# falls back to GPT-only synthesis with a "NOT REAL SERP DATA" banner.
+SERPAPI_KEY=
 """
 
 

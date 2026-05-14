@@ -39,6 +39,7 @@ KNOWN_KEYS: tuple[str, ...] = (
     "CF_API_TOKEN",
     "CF_ACCOUNT_ID",
     "CRUX_API_KEY",
+    "SERPAPI_KEY",   # v8.D — real-SERP fetcher for `new research`
 )
 
 
@@ -228,6 +229,33 @@ def _probe_cf_token(token: str) -> ProbeResult:
     return ProbeResult("invalid", f"http {r.status_code}")
 
 
+def _probe_serpapi(key: str) -> ProbeResult:
+    """SerpAPI /account endpoint — cheapest authenticated call that
+    doesn't burn against the search quota."""
+    if not key:
+        return ProbeResult("missing", "")
+    try:
+        r = httpx.get(
+            f"https://serpapi.com/account?api_key={key}",
+            timeout=8.0,
+        )
+    except httpx.HTTPError as e:
+        return ProbeResult("invalid", f"{type(e).__name__}")
+    if r.status_code == 200:
+        try:
+            body = r.json()
+            # /account returns plan name + remaining searches; both confirm
+            # the key is valid + give useful context.
+            plan = body.get("plan_name") or body.get("plan") or "?"
+            remaining = body.get("searches_left", body.get("plan_searches_left", "?"))
+            return ProbeResult("valid", f"{plan} · {remaining} left")
+        except (ValueError, KeyError):
+            return ProbeResult("valid", "200 OK")
+    if r.status_code == 401:
+        return ProbeResult("invalid", "401 unauthorized")
+    return ProbeResult("invalid", f"http {r.status_code}")
+
+
 def probe_all() -> dict[str, ProbeResult]:
     """Run connectivity probes for every known key. Returns a dict
     keyed by KEY name. Probes run sequentially (~5-10s total).
@@ -258,5 +286,7 @@ def probe_all() -> dict[str, ProbeResult]:
         )
     else:
         out["CF_ACCOUNT_ID"] = ProbeResult("missing", "")
+
+    out["SERPAPI_KEY"] = _probe_serpapi(get_key("SERPAPI_KEY") or "")
 
     return out

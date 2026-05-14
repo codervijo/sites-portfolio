@@ -211,5 +211,45 @@ def test_known_keys_includes_canonical_set():
     """Sanity: the supported-keys list covers every credential the rest
     of the CLI references."""
     expected = {"OPENAI_API_KEY", "PORKBUN_API_KEY", "PORKBUN_SECRET_API_KEY",
-                "CF_API_TOKEN", "CF_ACCOUNT_ID", "CRUX_API_KEY"}
+                "CF_API_TOKEN", "CF_ACCOUNT_ID", "CRUX_API_KEY",
+                "SERPAPI_KEY"}  # v8.D
     assert set(apikeys.KNOWN_KEYS) == expected
+
+
+def test_serpapi_probe_missing_returns_missing():
+    result = apikeys._probe_serpapi("")
+    assert result.status == "missing"
+
+
+def test_serpapi_probe_valid_response(monkeypatch):
+    """200 with plan + searches_left fields → valid + useful detail."""
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"plan_name": "Free", "searches_left": 247}
+
+    import httpx as _httpx
+    monkeypatch.setattr(apikeys.httpx, "get", lambda *a, **kw: _Resp())
+    result = apikeys._probe_serpapi("fake-key")
+    assert result.status == "valid"
+    assert "Free" in result.detail
+    assert "247" in result.detail
+
+
+def test_serpapi_probe_unauthorized(monkeypatch):
+    class _Resp:
+        status_code = 401
+    monkeypatch.setattr(apikeys.httpx, "get", lambda *a, **kw: _Resp())
+    result = apikeys._probe_serpapi("bad-key")
+    assert result.status == "invalid"
+    assert "401" in result.detail
+
+
+def test_serpapi_probe_network_error(monkeypatch):
+    import httpx as _httpx
+    def _raise(*a, **kw):
+        raise _httpx.ConnectError("boom")
+    monkeypatch.setattr(apikeys.httpx, "get", _raise)
+    result = apikeys._probe_serpapi("any-key")
+    assert result.status == "invalid"
+    assert "ConnectError" in result.detail
