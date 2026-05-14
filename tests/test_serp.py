@@ -103,12 +103,14 @@ def test_corrupt_cache_treated_as_miss(_stub_serp_dir):
 
 
 def test_index_file_maintained(_stub_serp_dir):
+    """Index uses `<mode>:<topic>` values so the human can recover both."""
     serp.save_cache("topic one", _make_payload("topic one"))
     serp.save_cache("topic two", _make_payload("topic two"))
     index = json.loads(serp.SERP_INDEX.read_text())
-    assert serp.topic_hash("topic one") in index
-    assert serp.topic_hash("topic two") in index
-    assert index[serp.topic_hash("topic one")] == "topic one"
+    # Default mode is cluster — topic_hash uses cluster as the salt.
+    assert serp.topic_hash("topic one", "cluster") in index
+    assert serp.topic_hash("topic two", "cluster") in index
+    assert index[serp.topic_hash("topic one", "cluster")] == "cluster:topic one"
 
 
 # ---------- prompt construction ----------
@@ -317,11 +319,13 @@ def test_research_returns_cached_when_present(_stub_serp_dir, monkeypatch):
 
 
 def test_research_skips_cache_with_no_cache_flag(_stub_serp_dir, monkeypatch):
-    serp.save_cache("topic", _make_payload("topic"))
+    """Tested in strict mode — simpler stub. Cluster mode is exercised
+    by the dedicated cluster tests below."""
+    serp.save_cache("topic", _make_payload("topic"), mode="strict")
     monkeypatch.setattr(serp, "_openai_api_key", lambda: "fake-key")
     monkeypatch.setattr(serp, "call_openai", lambda *a, **kw: _VALID_LLM_RESPONSE)
 
-    payload = serp.research("topic", no_cache=True)
+    payload = serp.research("topic", no_cache=True, strict=True)
     assert payload["from_cache"] is False
     assert payload["analysis"]["decision"] == "mixed"  # from the stubbed response
 
@@ -330,8 +334,8 @@ def test_research_writes_cache_on_fresh_fetch(_stub_serp_dir, monkeypatch):
     monkeypatch.setattr(serp, "_openai_api_key", lambda: "fake-key")
     monkeypatch.setattr(serp, "call_openai", lambda *a, **kw: _VALID_LLM_RESPONSE)
 
-    serp.research("brand new topic")
-    p = serp.cache_path("brand new topic")
+    serp.research("brand new topic", strict=True)
+    p = serp.cache_path("brand new topic", mode="strict")
     assert p.exists()
     assert json.loads(p.read_text())["analysis"]["decision"] == "mixed"
 
@@ -348,3 +352,158 @@ def test_research_raises_when_no_api_key(_stub_serp_dir, monkeypatch):
                             serp.ResearchError("OPENAI_API_KEY not set ...")))
     with pytest.raises(serp.ResearchError, match="OPENAI_API_KEY"):
         serp.research("topic", no_cache=True)
+
+
+# ---------- v8.B cluster mode ----------
+
+
+_VALID_CLUSTER_RESPONSE = json.dumps({
+    "cluster_queries": [
+        "home air diagnostics",
+        "musty smell in house",
+        "indoor air quality test",
+        "vacuum lost suction",
+        "HVAC airflow troubleshooting",
+    ],
+    "top_likely_rankers": [
+        {"domain": "reddit.com", "type": "community", "intent": "informational", "frequency": 5},
+        {"domain": "epa.gov", "type": "institutional", "intent": "informational", "frequency": 3},
+        {"domain": "healthline.com", "type": "publisher-listicle", "intent": "commercial", "frequency": 2},
+        {"domain": "thisoldhouse.com", "type": "publisher-listicle", "intent": "informational", "frequency": 3},
+    ],
+    "content_patterns": [
+        "Community / Reddit dominates the cluster",
+        "Institutional players in YMYL-adjacent branches",
+    ],
+    "competitive_signal": {
+        "saturation": "medium-high",
+        "ymyl_flag": False,
+        "barrier": "Strong community signal but tool niche open",
+    },
+    "suggested_angles": [
+        "Interactive diagnostic engine",
+        "Schema-rich Q&A pages",
+        "Brand/model symptom pages",
+    ],
+    "per_query_summary": [
+        {"query": "home air diagnostics", "decision_hint": "skip", "ymyl": True},
+        {"query": "musty smell in house", "decision_hint": "ship", "ymyl": False},
+        {"query": "indoor air quality test", "decision_hint": "mixed", "ymyl": True},
+        {"query": "vacuum lost suction", "decision_hint": "ship", "ymyl": False},
+        {"query": "HVAC airflow troubleshooting", "decision_hint": "mixed", "ymyl": False},
+    ],
+    "decision": "mixed",
+    "reasoning": "Top of cluster is competitive but tool niche is open. \
+Two of five queries are YMYL — non-YMYL branches viable.",
+})
+
+
+def test_cluster_response_parses_with_cluster_queries():
+    out = serp.parse_cluster_response(_VALID_CLUSTER_RESPONSE)
+    assert len(out["cluster_queries"]) == 5
+    assert "home air diagnostics" in out["cluster_queries"]
+    assert len(out["per_query_summary"]) == 5
+
+
+def test_cluster_response_frequency_preserved():
+    """Frequency on each ranker survives parse + gets coerced to int."""
+    out = serp.parse_cluster_response(_VALID_CLUSTER_RESPONSE)
+    by_domain = {r["domain"]: r["frequency"] for r in out["top_likely_rankers"]}
+    assert by_domain["reddit.com"] == 5
+    assert by_domain["epa.gov"] == 3
+    assert by_domain["healthline.com"] == 2
+
+
+def test_cluster_response_clamps_frequency_to_query_count():
+    """LLM returning frequency=7 with only 3 cluster queries → clamp to 3."""
+    bad = json.dumps({
+        "cluster_queries": ["q1", "q2", "q3"],
+        "top_likely_rankers": [
+            {"domain": "x.com", "type": "other", "intent": "informational", "frequency": 7},
+        ],
+        "decision": "ship",
+    })
+    out = serp.parse_cluster_response(bad)
+    assert out["top_likely_rankers"][0]["frequency"] == 3
+
+
+def test_cluster_response_raises_on_missing_cluster_queries():
+    bad = json.dumps({
+        "top_likely_rankers": [
+            {"domain": "x.com", "type": "other", "intent": "informational", "frequency": 1},
+        ],
+        "decision": "ship",
+    })
+    with pytest.raises(serp.ResearchError, match="cluster_queries"):
+        serp.parse_cluster_response(bad)
+
+
+def test_cluster_response_placeholder_detector_fires():
+    """Same defense-in-depth as strict mode — placeholder rankers → unclear."""
+    bad = json.dumps({
+        "cluster_queries": ["q1", "q2", "q3"],
+        "top_likely_rankers": [
+            {"domain": "example.com", "type": "other", "intent": "informational", "frequency": 3},
+            {"domain": "test.net", "type": "other", "intent": "informational", "frequency": 2},
+            {"domain": "sample.org", "type": "other", "intent": "informational", "frequency": 1},
+        ],
+        "decision": "ship",
+        "reasoning": "All good.",
+    })
+    out = serp.parse_cluster_response(bad)
+    assert out["decision"] == "unclear"
+    assert "No real SERP data" in out["reasoning"]
+
+
+def test_cluster_response_empty_rankers_coerces_to_unclear():
+    bad = json.dumps({
+        "cluster_queries": ["q1", "q2"],
+        "top_likely_rankers": [],
+        "decision": "ship",
+        "reasoning": "Looks great.",
+    })
+    out = serp.parse_cluster_response(bad)
+    assert out["decision"] == "unclear"
+
+
+def test_research_strict_and_cluster_have_separate_caches(_stub_serp_dir, monkeypatch):
+    """Same topic + different modes should hit different cache files —
+    they're materially different analyses."""
+    monkeypatch.setattr(serp, "_openai_api_key", lambda: "fake")
+    monkeypatch.setattr(serp, "call_openai",
+                        lambda system, user, **kw:
+                            _VALID_CLUSTER_RESPONSE if "cluster" in system.lower()
+                            else _VALID_LLM_RESPONSE)
+
+    p_strict = serp.cache_path("home air", mode="strict")
+    p_cluster = serp.cache_path("home air", mode="cluster")
+    assert p_strict != p_cluster
+
+    serp.research("home air", no_cache=True, strict=True)
+    serp.research("home air", no_cache=True, strict=False)
+    assert p_strict.exists()
+    assert p_cluster.exists()
+
+
+def test_research_cluster_payload_marks_mode(_stub_serp_dir, monkeypatch):
+    monkeypatch.setattr(serp, "_openai_api_key", lambda: "fake")
+    monkeypatch.setattr(serp, "call_openai", lambda *a, **kw: _VALID_CLUSTER_RESPONSE)
+
+    payload = serp.research("home air", no_cache=True, strict=False)
+    assert payload["mode"] == "cluster"
+    assert "cluster_queries" in payload["analysis"]
+    assert "per_query_summary" in payload["analysis"]
+
+
+def test_topic_hash_differs_by_mode():
+    """Same topic with different modes → different hashes → different cache files."""
+    assert serp.topic_hash("home air", "strict") != serp.topic_hash("home air", "cluster")
+
+
+def test_cluster_prompt_includes_constrained_vocab():
+    system, user = serp.build_cluster_prompt("anything")
+    assert "cluster" in system.lower()
+    assert "frequency" in system.lower()
+    assert "anything" in user
+    assert "cluster_queries" in user
+    assert "per_query_summary" in user

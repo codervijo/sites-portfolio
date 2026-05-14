@@ -1,0 +1,117 @@
+{
+  "topic": "home air diagnostics",
+  "topic_normalized": "home air diagnostics",
+  "topic_hash": "717347891ddb",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T06:23:17.401745+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "home air diagnostics",
+      "indoor air quality testing",
+      "best air quality monitors",
+      "how to test air quality at home",
+      "air quality diagnostic tools"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "airqualitymonitor.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 5
+      },
+      {
+        "domain": "homeairquality.org",
+        "type": "institutional",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "healthline.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "consumerreports.org",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "airtest.com",
+        "type": "niche-vendor",
+        "intent": "commercial",
+        "frequency": 2
+      },
+      {
+        "domain": "epa.gov",
+        "type": "institutional",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "reddit.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "amazon.com",
+        "type": "vendor-published",
+        "intent": "transactional",
+        "frequency": 2
+      }
+    ],
+    "content_patterns": [
+      "guides on selecting air quality monitors",
+      "reviews of air quality testing devices",
+      "articles on the importance of indoor air quality",
+      "how-to content for DIY air quality testing",
+      "comparative analysis of air quality diagnostic tools"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market has established players with strong informational and commercial content."
+    },
+    "suggested_angles": [
+      "focus on DIY air quality testing methods",
+      "explore the health impacts of poor indoor air quality",
+      "review and compare various air quality monitors",
+      "provide tips for improving indoor air quality",
+      "discuss the latest technology in air diagnostics"
+    ],
+    "per_query_summary": [
+      {
+        "query": "home air diagnostics",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "indoor air quality testing",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "best air quality monitors",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "how to test air quality at home",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "air quality diagnostic tools",
+        "decision_hint": "skip",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a solid interest in home air diagnostics and related queries, the competitive landscape is populated with established domains that provide both commercial and informational content. A new site could find opportunities in niche angles, but would face challenges in gaining visibility against strong competitors."
+  },
+  "from_cache": false
+}

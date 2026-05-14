@@ -1,0 +1,73 @@
+{
+  "topic": "EV charger installation",
+  "topic_normalized": "ev charger installation",
+  "topic_hash": "ca7d7e3b4e9d",
+  "fetched_at": "2026-05-14T06:12:23.447166+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "top_likely_rankers": [
+      {
+        "domain": "energystar.gov",
+        "type": "institutional",
+        "intent": "informational"
+      },
+      {
+        "domain": "electrek.co",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "chargepoint.com",
+        "type": "vendor-published",
+        "intent": "commercial"
+      },
+      {
+        "domain": "evcharging.com",
+        "type": "niche-vendor",
+        "intent": "commercial"
+      },
+      {
+        "domain": "homeadvisor.com",
+        "type": "community",
+        "intent": "transactional"
+      },
+      {
+        "domain": "angieslist.com",
+        "type": "community",
+        "intent": "transactional"
+      },
+      {
+        "domain": "forbes.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "plugshare.com",
+        "type": "tool",
+        "intent": "informational"
+      }
+    ],
+    "content_patterns": [
+      "installation guides and tips",
+      "cost breakdowns and comparisons",
+      "reviews of different EV chargers",
+      "local installation services",
+      "government incentives and rebates"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market has established players with strong content and authority."
+    },
+    "suggested_angles": [
+      "focus on DIY installation tips",
+      "highlight local service providers",
+      "explore the environmental benefits of EV chargers",
+      "discuss future trends in EV charging technology"
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a significant interest in EV charger installation, the market is competitive with established players. However, niche angles and localized content could still provide opportunities for differentiation."
+  },
+  "from_cache": false
+}

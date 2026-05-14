@@ -1,0 +1,117 @@
+{
+  "topic": "EV charger near me",
+  "topic_normalized": "ev charger near me",
+  "topic_hash": "8e58b37628b0",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T06:23:51.694684+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "EV charger near me",
+      "best EV charging stations nearby",
+      "public EV charging locations",
+      "fast EV chargers in my area",
+      "EV charging network map"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "chargepoint.com",
+        "type": "vendor-published",
+        "intent": "navigational",
+        "frequency": 5
+      },
+      {
+        "domain": "evgo.com",
+        "type": "vendor-published",
+        "intent": "navigational",
+        "frequency": 5
+      },
+      {
+        "domain": "plugshare.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "electrek.co",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "insideevs.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "google.com/maps",
+        "type": "tool",
+        "intent": "navigational",
+        "frequency": 4
+      },
+      {
+        "domain": "alternativefuelsdata.org",
+        "type": "documentation",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "usda.gov",
+        "type": "institutional",
+        "intent": "informational",
+        "frequency": 2
+      }
+    ],
+    "content_patterns": [
+      "Interactive maps of charging stations",
+      "Comparative reviews of charging networks",
+      "User-generated reviews and ratings of chargers",
+      "Guides on how to use public charging stations",
+      "Updates on charging station availability and locations"
+    ],
+    "competitive_signal": {
+      "saturation": "high",
+      "ymyl_flag": false,
+      "barrier": "The market for EV charging information is highly competitive with established players."
+    },
+    "suggested_angles": [
+      "Local guides to the best EV charging stations",
+      "Tips for finding fast chargers on road trips",
+      "Comparative analysis of charging networks",
+      "User experiences with different charging stations",
+      "Future trends in EV charging infrastructure"
+    ],
+    "per_query_summary": [
+      {
+        "query": "EV charger near me",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "best EV charging stations nearby",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "public EV charging locations",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "fast EV chargers in my area",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "EV charging network map",
+        "decision_hint": "ship",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a strong interest in finding EV chargers, the market is saturated with established vendors and community resources. A new site could find niche opportunities but would face significant competition from existing players."
+  },
+  "from_cache": false
+}

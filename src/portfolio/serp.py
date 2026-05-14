@@ -1,12 +1,24 @@
-"""v8.A — SERP research for new projects (AI-only synthesis).
+"""v8.A + v8.B — SERP research for new projects (AI-only synthesis).
 
 `lamill new research <topic>` — analyzes the likely SERP landscape for a
 topic using gpt-4o-mini from training data (NOT real-time SERP), surfaces
 ranking patterns + content-type breakdown + decision aid (ship/mixed/skip).
 
+Two modes:
+
+  cluster (default, v8.B) — LLM expands the topic into 5 related queries
+                            and produces a cluster-level analysis with
+                            frequency-tagged rankers. Catches the "this
+                            specific phrase looks open but the broader
+                            territory is saturated" failure mode (and
+                            vice-versa).
+  strict (--strict, v8.A) — Analyzes the literal topic only. Faster, but
+                            misses the topic territory.
+
 Read-only by design. Cached to `data/serp/<hash>.json` with a 30-day TTL —
 LLM knowledge doesn't move daily, so a generous cache keeps repeated runs
-free and deterministic.
+free and deterministic. Cache key includes the mode so cluster + strict
+runs for the same topic have separate cache entries.
 
 Future v8.A.1 may swap the AI-only synthesis for a real-SERP API (Brave
 paid / SerpAPI / DataForSEO) without changing the response schema — the
@@ -107,27 +119,34 @@ def normalize_topic(topic: str) -> str:
     return " ".join(topic.lower().split())
 
 
-def topic_hash(topic: str) -> str:
-    """12-char sha256 prefix of the normalized topic. Short enough for
-    filename use, long enough that collisions across one user's research
-    history are vanishingly unlikely."""
-    digest = hashlib.sha256(normalize_topic(topic).encode("utf-8")).hexdigest()
+def topic_hash(topic: str, mode: str = "cluster") -> str:
+    """12-char sha256 prefix of the normalized topic + mode. Short enough
+    for filename use, long enough that collisions across one user's
+    research history are vanishingly unlikely.
+
+    Mode is part of the hash so cluster + strict runs for the same topic
+    get distinct cache entries — they're materially different analyses.
+    """
+    key = f"{mode}:{normalize_topic(topic)}"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return digest[:12]
 
 
-def cache_path(topic: str) -> Path:
-    return SERP_DIR / f"{topic_hash(topic)}.json"
+def cache_path(topic: str, mode: str = "cluster") -> Path:
+    suffix = "" if mode == "cluster" else f".{mode}"
+    return SERP_DIR / f"{topic_hash(topic, mode)}{suffix}.json"
 
 
 # ---------- cache IO ----------
 
 
-def load_cached(topic: str, *, ttl_days: int = CACHE_TTL_DAYS) -> CacheHit | None:
+def load_cached(topic: str, *, mode: str = "cluster",
+                ttl_days: int = CACHE_TTL_DAYS) -> CacheHit | None:
     """Return cached analysis if present + not expired, else None.
 
     Corrupt cache files are silently treated as misses (caller re-fetches).
     """
-    p = cache_path(topic)
+    p = cache_path(topic, mode)
     if not p.exists():
         return None
     try:
@@ -147,30 +166,31 @@ def load_cached(topic: str, *, ttl_days: int = CACHE_TTL_DAYS) -> CacheHit | Non
     return CacheHit(payload=payload, age_days=age.total_seconds() / 86400)
 
 
-def save_cache(topic: str, payload: dict) -> Path:
+def save_cache(topic: str, payload: dict, *, mode: str = "cluster") -> Path:
     """Write payload to cache + update the human-readable index file.
 
     Atomic write (tmp + rename) so concurrent reads never see a half-file.
     """
     SERP_DIR.mkdir(parents=True, exist_ok=True)
-    p = cache_path(topic)
+    p = cache_path(topic, mode)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, indent=2) + "\n")
     tmp.replace(p)
-    _update_index(topic)
+    _update_index(topic, mode=mode)
     return p
 
 
-def _update_index(topic: str) -> None:
-    """Maintain `data/serp/_index.json` — a hash → topic map so a human
-    can recover the original query from a cache file name."""
+def _update_index(topic: str, *, mode: str = "cluster") -> None:
+    """Maintain `data/serp/_index.json` — a hash → "<mode>:<topic>" map
+    so a human can recover the original query + mode from a cache file
+    name."""
     index: dict[str, str] = {}
     if SERP_INDEX.exists():
         try:
             index = json.loads(SERP_INDEX.read_text())
         except (OSError, ValueError):
             index = {}
-    index[topic_hash(topic)] = normalize_topic(topic)
+    index[topic_hash(topic, mode)] = f"{mode}:{normalize_topic(topic)}"
     tmp = SERP_INDEX.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
     tmp.replace(SERP_INDEX)
@@ -405,43 +425,249 @@ def parse_response(raw: str) -> dict:
     }
 
 
+# ---------- cluster mode (v8.B) ----------
+
+
+_CLUSTER_SYSTEM_PROMPT = """You are a SERP-analysis assistant for a personal domain portfolio.
+The user is deciding whether to build a new site on a topic. Instead of
+analyzing only the literal phrase, expand the topic into a CLUSTER of
+3-5 related searches a real visitor interested in the topic would do,
+then produce a cluster-level analysis that thinks across all of them.
+
+CRITICAL: Output ONLY valid JSON, no prose before or after.
+
+You are analyzing from your training data — explicitly NOT real-time
+SERP data. Do NOT fabricate specific URLs (just domain names + content-
+type categories). Do NOT fill rankers with placeholder domains
+(example.com, test.net, sample.org, demo.edu, foo.com, mockup.co, etc.)
+— if you don't know real domains, return an empty rankers list and set
+`decision: unclear`.
+
+Constrained vocabularies (use only these):
+  type:       institutional | publisher-listicle | vendor-published |
+              niche-vendor | community | tool | q-and-a | news |
+              documentation | other
+  intent:     informational | commercial | navigational | transactional
+  saturation: low | medium | medium-high | high
+  decision:   ship | mixed | skip | unclear
+
+For each ranker, include a `frequency` field: the number of queries
+in the cluster (out of N) where this domain likely appears in the top
+10. A domain ranking on 5/5 queries is much stronger competition than
+one ranking on 1/5.
+
+YMYL handling: flag the cluster-level `ymyl_flag` true ONLY if the
+MAJORITY of the cluster queries are YMYL (medical/legal/financial/
+safety-critical). Individual YMYL queries within an otherwise non-
+YMYL cluster are surfaced in the `per_query_summary` instead.
+
+Decision is cluster-level — base it on the merged signal, not any
+single query. The whole point of cluster mode is to catch cases
+where the literal topic looks one way but the territory looks another.
+"""
+
+_CLUSTER_USER_PROMPT_TEMPLATE = """Topic: {topic}
+
+Step 1: expand the topic into 3-5 related search queries a real
+visitor would actually type. Include the literal topic as one of them.
+
+Step 2: for each query, mentally consider its likely top-10 SERP.
+
+Step 3: emit cluster-level analysis in this JSON shape:
+
+{{
+  "cluster_queries": ["literal topic", "related query 1", ...],
+  "top_likely_rankers": [
+    {{"domain": "...", "type": "...", "intent": "...", "frequency": 5}}
+  ],
+  "content_patterns": ["...", "..."],
+  "competitive_signal": {{
+    "saturation": "...",
+    "ymyl_flag": true,
+    "barrier": "<one-sentence>"
+  }},
+  "suggested_angles": ["...", "..."],
+  "per_query_summary": [
+    {{"query": "...", "decision_hint": "ship|mixed|skip|unclear", "ymyl": true}}
+  ],
+  "decision": "...",
+  "reasoning": "<two-sentence cluster-level justification>"
+}}
+
+8-12 entries in top_likely_rankers (merged across the cluster),
+3-5 content_patterns, 3-5 suggested_angles, one per_query_summary
+entry per cluster query."""
+
+
+def build_cluster_prompt(topic: str) -> tuple[str, str]:
+    """Return (system, user) for the cluster-mode OpenAI call."""
+    return _CLUSTER_SYSTEM_PROMPT, _CLUSTER_USER_PROMPT_TEMPLATE.format(topic=topic)
+
+
+def parse_cluster_response(raw: str) -> dict:
+    """Parse + validate the cluster-mode LLM response. Returns a dict
+    that fits the existing v8.A `analysis` shape with added cluster
+    fields (`cluster_queries`, per-ranker `frequency`, `per_query_summary`).
+    """
+    raw = raw.strip()
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw = "\n".join(lines)
+
+    try:
+        analysis = json.loads(raw)
+    except ValueError as e:
+        raise ResearchError(f"model returned malformed JSON: {e}") from e
+    if not isinstance(analysis, dict):
+        raise ResearchError("model returned non-object JSON")
+
+    cluster_queries = analysis.get("cluster_queries")
+    if not isinstance(cluster_queries, list) or not cluster_queries:
+        raise ResearchError("cluster response missing or empty `cluster_queries`")
+    cluster_queries = [str(q).strip() for q in cluster_queries if q]
+    n_queries = len(cluster_queries)
+
+    rankers = analysis.get("top_likely_rankers")
+    if not isinstance(rankers, list):
+        raise ResearchError("cluster response missing `top_likely_rankers`")
+
+    cleaned_rankers = []
+    for entry in rankers:
+        if not isinstance(entry, dict):
+            continue
+        domain = entry.get("domain", "").strip().lower()
+        if not domain:
+            continue
+        type_ = entry.get("type", "other")
+        if type_ not in _ALLOWED_TYPES:
+            type_ = "other"
+        intent = entry.get("intent", "informational")
+        if intent not in _ALLOWED_INTENTS:
+            intent = "informational"
+        # Coerce frequency to int in [1, n_queries].
+        freq_raw = entry.get("frequency", 1)
+        try:
+            freq = int(freq_raw)
+        except (TypeError, ValueError):
+            freq = 1
+        freq = max(1, min(freq, n_queries))
+        cleaned_rankers.append({
+            "domain": domain, "type": type_, "intent": intent,
+            "frequency": freq,
+        })
+
+    competitive = analysis.get("competitive_signal") or {}
+    saturation = competitive.get("saturation", "medium")
+    if saturation not in _ALLOWED_SATURATIONS:
+        saturation = "medium"
+    ymyl = bool(competitive.get("ymyl_flag", False))
+    barrier = str(competitive.get("barrier", ""))
+
+    # per_query_summary — one entry per cluster query, with decision_hint + ymyl flag
+    per_query = []
+    for entry in analysis.get("per_query_summary", []):
+        if not isinstance(entry, dict):
+            continue
+        query = str(entry.get("query", "")).strip()
+        if not query:
+            continue
+        hint = entry.get("decision_hint", "unclear")
+        if hint not in _ALLOWED_DECISIONS:
+            hint = "unclear"
+        per_query.append({
+            "query": query,
+            "decision_hint": hint,
+            "ymyl": bool(entry.get("ymyl", False)),
+        })
+
+    decision = analysis.get("decision", "unclear")
+    if decision not in _ALLOWED_DECISIONS:
+        decision = "unclear"
+    reasoning = str(analysis.get("reasoning", ""))
+
+    # Same fabrication-detector as strict mode.
+    if not cleaned_rankers:
+        decision = "unclear"
+        reasoning = ("[No real SERP data — LLM had no knowledge of this "
+                     "cluster and returned an empty rankers list.] " + reasoning)
+    else:
+        n_placeholders = _placeholder_count(cleaned_rankers)
+        if n_placeholders >= max(2, len(cleaned_rankers) // 2):
+            decision = "unclear"
+            reasoning = ("[No real SERP data — LLM returned placeholder "
+                         "filler domains across the cluster.] " + reasoning)
+
+    return {
+        "cluster_queries": cluster_queries,
+        "top_likely_rankers": cleaned_rankers,
+        "content_patterns": [
+            str(p) for p in analysis.get("content_patterns", []) if p
+        ],
+        "competitive_signal": {
+            "saturation": saturation,
+            "ymyl_flag": ymyl,
+            "barrier": barrier,
+        },
+        "suggested_angles": [
+            str(a) for a in analysis.get("suggested_angles", []) if a
+        ],
+        "per_query_summary": per_query,
+        "decision": decision,
+        "reasoning": reasoning,
+    }
+
+
 # ---------- orchestrator ----------
 
 
-def research(topic: str, *, no_cache: bool = False,
+def research(topic: str, *, no_cache: bool = False, strict: bool = False,
              ttl_days: int = CACHE_TTL_DAYS) -> dict:
     """Run the full research pipeline. Returns a payload dict matching
     the cache schema. Hits cache by default (within TTL); always writes
     cache on a fresh fetch.
+
+    `strict=True` runs v8.A literal-topic mode. Default (False) runs
+    v8.B cluster mode — LLM expands topic into a related-query cluster
+    and produces a merged frequency-tagged analysis.
 
     Raises ResearchError on any unrecoverable failure.
     """
     if not topic or not topic.strip():
         raise ResearchError("topic cannot be empty")
     topic = topic.strip()
+    mode = "strict" if strict else "cluster"
 
     if not no_cache:
-        hit = load_cached(topic, ttl_days=ttl_days)
+        hit = load_cached(topic, mode=mode, ttl_days=ttl_days)
         if hit is not None:
-            # Mark the payload as cache-hit so the renderer can show staleness.
             hit.payload["from_cache"] = True
             hit.payload["cache_age_days"] = round(hit.age_days, 1)
             return hit.payload
 
     api_key = _openai_api_key()
-    system, user = build_prompt(topic)
-    raw = call_openai(system, user, api_key=api_key)
-    analysis = parse_response(raw)
+    if strict:
+        system, user = build_prompt(topic)
+        raw = call_openai(system, user, api_key=api_key)
+        analysis = parse_response(raw)
+    else:
+        system, user = build_cluster_prompt(topic)
+        raw = call_openai(system, user, api_key=api_key)
+        analysis = parse_cluster_response(raw)
 
     payload = {
         "topic": topic,
         "topic_normalized": normalize_topic(topic),
-        "topic_hash": topic_hash(topic),
+        "topic_hash": topic_hash(topic, mode),
+        "mode": mode,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "model": MODEL,
         "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
         "analysis": analysis,
         "from_cache": False,
     }
-    save_cache(topic, payload)
+    save_cache(topic, payload, mode=mode)
     return payload

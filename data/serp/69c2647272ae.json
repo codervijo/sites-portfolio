@@ -1,0 +1,115 @@
+{
+  "topic": "EV charger installation cost",
+  "topic_normalized": "ev charger installation cost",
+  "topic_hash": "69c2647272ae",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T06:23:21.382801+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "EV charger installation cost",
+      "cost to install home EV charger",
+      "average EV charger installation price",
+      "EV charger installation quotes",
+      "factors affecting EV charger installation cost"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "energy.gov",
+        "type": "institutional",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "electrek.co",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "homeadvisor.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 5
+      },
+      {
+        "domain": "forbes.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "angieslist.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 4
+      },
+      {
+        "domain": "evcharging.com",
+        "type": "niche-vendor",
+        "intent": "commercial",
+        "frequency": 2
+      },
+      {
+        "domain": "reddit.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "cnet.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 3
+      }
+    ],
+    "content_patterns": [
+      "Cost breakdown of EV charger installation",
+      "Comparative analysis of installation services",
+      "User experiences and reviews on installation",
+      "Guides on choosing the right EV charger",
+      "Local vs. national installation service pricing"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market has established players with strong informational and commercial content."
+    },
+    "suggested_angles": [
+      "Highlighting regional cost variations for installation",
+      "Exploring DIY installation vs. professional services",
+      "Discussing long-term savings from EV charger installation"
+    ],
+    "per_query_summary": [
+      {
+        "query": "EV charger installation cost",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "cost to install home EV charger",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "average EV charger installation price",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "EV charger installation quotes",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "factors affecting EV charger installation cost",
+        "decision_hint": "mixed",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a solid interest in EV charger installation costs, the competitive landscape features established domains with strong content. A new site could find opportunities in niche angles but would face significant competition from authoritative sources."
+  },
+  "from_cache": false
+}

@@ -3559,6 +3559,12 @@ def _render_bootstrap_conformance(domain: str) -> None:
 @new_app.command("research")
 def new_research(
     topic: str = typer.Argument("", help="Topic to research (prompted if omitted)"),
+    strict: bool = typer.Option(
+        False, "--strict",
+        help="Analyze the literal topic only (v8.A). Default is cluster "
+             "mode: LLM expands topic into 3-5 related queries and "
+             "produces a frequency-tagged cluster-level analysis (v8.B)."
+    ),
     no_cache: bool = typer.Option(False, "--no-cache",
                                   help="Bypass the 30-day cache and re-query the LLM"),
     brief: bool = typer.Option(False, "--brief",
@@ -3566,12 +3572,17 @@ def new_research(
     json_out: bool = typer.Option(False, "--json",
                                   help="Emit the raw analysis JSON instead of a rendered view"),
 ) -> None:
-    """v8.A — AI-only SERP research for a new project topic.
+    """v8.B (default) — multi-keyword cluster SERP research for a new
+    project topic. Analyzes the likely search-result landscape using
+    gpt-4o-mini from training data (NOT real-time SERP).
 
-    Analyzes the likely search-result landscape using gpt-4o-mini from
-    training data (NOT real-time SERP) and surfaces: top likely rankers,
-    content-type patterns, competitive signal, suggested angles, and a
-    ship/mixed/skip/unclear decision.
+    Default: LLM expands the topic into 3-5 related queries a real
+    visitor would search, then produces a cluster-level analysis with
+    frequency-tagged rankers. Catches the "literal phrase looks
+    competitive but the broader territory is open" case (and vice
+    versa) that v8.A misses.
+
+    --strict: opt out and analyze the literal phrase only (v8.A).
 
     Caveat: AI-only — knowledge cutoff applies. Real-time SERP via a paid
     API (Brave/SerpAPI) is queued as v8.A.1.
@@ -3580,7 +3591,7 @@ def new_research(
 
     topic = _resolve_topic_arg(topic, non_interactive=False)
     try:
-        payload = research(topic, no_cache=no_cache)
+        payload = research(topic, no_cache=no_cache, strict=strict)
     except ResearchError as e:
         console.print(f"[red]Research failed:[/] {e}")
         raise typer.Exit(2)
@@ -3594,27 +3605,62 @@ def new_research(
 
 
 def _render_serp_full(payload: dict, console) -> None:
-    """Default rendering — full analysis block + decision aid."""
+    """Default rendering — full analysis block + decision aid.
+
+    Cluster-mode payloads (mode="cluster") get extra rendering for the
+    cluster queries + frequency column + per-query summary. Strict-mode
+    payloads (mode="strict") render the same shape minus those extras.
+    """
     topic = payload.get("topic", "?")
     analysis = payload.get("analysis", {})
     caveat = payload.get("knowledge_caveat", "")
     from_cache = payload.get("from_cache", False)
+    mode = payload.get("mode", "strict")
 
-    src_line = f"source: AI synthesis ({payload.get('model', 'gpt-4o-mini')})"
+    mode_label = "cluster mode" if mode == "cluster" else "strict mode (literal topic)"
+    src_line = f"source: AI synthesis ({payload.get('model', 'gpt-4o-mini')}) · {mode_label}"
     if from_cache:
         src_line += f" · cached {payload.get('cache_age_days', '?')}d ago"
     console.print(f"\n[bold]SERP research — \"{topic}\"[/]")
     console.print(f"  [dim]{src_line} · {caveat}[/]\n")
 
-    # Top rankers
+    # Cluster queries (v8.B)
+    if mode == "cluster":
+        cluster_queries = analysis.get("cluster_queries", [])
+        if cluster_queries:
+            console.print(f"  [cyan]Topic cluster[/] [dim]({len(cluster_queries)} queries):[/]")
+            for i, q in enumerate(cluster_queries, 1):
+                marker = "[bold]→[/]" if q.lower() == topic.lower() else " "
+                console.print(f"    {marker} {i}. {q}")
+            console.print()
+
+    # Top rankers — with frequency column in cluster mode
     rankers = analysis.get("top_likely_rankers", [])
+    n_queries = len(analysis.get("cluster_queries", [])) if mode == "cluster" else 1
     if rankers:
-        console.print("  [cyan]Likely top rankers[/] [dim](from training data, not live SERP):[/]")
+        if mode == "cluster":
+            console.print(
+                f"  [cyan]Cluster-level rankers[/] [dim](frequency / {n_queries} queries):[/]"
+            )
+        else:
+            console.print("  [cyan]Likely top rankers[/] [dim](from training data, not live SERP):[/]")
         for i, r in enumerate(rankers, 1):
             domain = r.get("domain", "?")
             type_ = r.get("type", "?")
             intent = r.get("intent", "?")
-            console.print(f"    {i:>2}. [bold]{domain:<28}[/] [dim]{type_} · {intent}[/]")
+            if mode == "cluster":
+                freq = r.get("frequency", 1)
+                # Color the frequency: 5/5 = red (dominates), 1/5 = green (niche)
+                freq_color = ("red" if freq >= max(1, n_queries * 0.8)
+                              else "yellow" if freq >= max(1, n_queries * 0.4)
+                              else "green")
+                freq_cell = f"[{freq_color}]{freq}/{n_queries}[/]"
+                console.print(
+                    f"    {i:>2}. [bold]{domain:<28}[/] {freq_cell}  "
+                    f"[dim]{type_} · {intent}[/]"
+                )
+            else:
+                console.print(f"    {i:>2}. [bold]{domain:<28}[/] [dim]{type_} · {intent}[/]")
 
     # Content patterns
     patterns = analysis.get("content_patterns", [])
@@ -3643,6 +3689,21 @@ def _render_serp_full(payload: dict, console) -> None:
         console.print("\n  [cyan]Suggested angles:[/]")
         for i, a in enumerate(angles, 1):
             console.print(f"    {i}. {a}")
+
+    # Per-query summary (cluster mode only)
+    per_query = analysis.get("per_query_summary", [])
+    if per_query and mode == "cluster":
+        console.print("\n  [cyan]Per-query breakdown:[/]")
+        for entry in per_query:
+            q = entry.get("query", "?")
+            hint = entry.get("decision_hint", "unclear")
+            ymyl = entry.get("ymyl", False)
+            hint_color = {"ship": "green", "mixed": "yellow",
+                          "skip": "red", "unclear": "dim"}.get(hint, "white")
+            ymyl_tag = " [red]YMYL[/]" if ymyl else ""
+            console.print(
+                f"    · {q:<40} [{hint_color}]{hint}[/]{ymyl_tag}"
+            )
 
     # Decision
     decision = analysis.get("decision", "unclear")

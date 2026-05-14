@@ -1,0 +1,74 @@
+{
+  "topic": "EV charger installation cost",
+  "topic_normalized": "ev charger installation cost",
+  "topic_hash": "9e01cd74c015",
+  "fetched_at": "2026-05-14T06:13:17.308550+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "top_likely_rankers": [
+      {
+        "domain": "energy.gov",
+        "type": "institutional",
+        "intent": "informational"
+      },
+      {
+        "domain": "homeadvisor.com",
+        "type": "vendor-published",
+        "intent": "commercial"
+      },
+      {
+        "domain": "angieslist.com",
+        "type": "community",
+        "intent": "commercial"
+      },
+      {
+        "domain": "electrek.co",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "forbes.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "evcharging.com",
+        "type": "niche-vendor",
+        "intent": "commercial"
+      },
+      {
+        "domain": "plugshare.com",
+        "type": "community",
+        "intent": "informational"
+      },
+      {
+        "domain": "cnet.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      }
+    ],
+    "content_patterns": [
+      "cost breakdowns for installation",
+      "comparison of different charger types",
+      "regional pricing variations",
+      "installation guides and tips",
+      "financing options for EV chargers"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": true,
+      "barrier": "The topic involves financial implications and safety considerations, making it sensitive."
+    },
+    "suggested_angles": [
+      "how to choose the right EV charger for your home",
+      "understanding the long-term savings of EV charger installation",
+      "government incentives for EV charger installation",
+      "common misconceptions about EV charger costs",
+      "DIY vs. professional installation: what's best?"
+    ],
+    "decision": "skip",
+    "reasoning": "The topic falls under YMYL due to its financial implications and safety concerns related to electrical installations. This portfolio policy excludes YMYL topics to mitigate risk."
+  },
+  "from_cache": false
+}
