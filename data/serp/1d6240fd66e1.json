@@ -1,0 +1,73 @@
+{
+  "topic": "your next idea",
+  "topic_normalized": "your next idea",
+  "topic_hash": "1d6240fd66e1",
+  "fetched_at": "2026-05-14T05:50:53.554183+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "top_likely_rankers": [
+      {
+        "domain": "ideas.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "creativityhub.com",
+        "type": "community",
+        "intent": "informational"
+      },
+      {
+        "domain": "brainstormingtools.com",
+        "type": "tool",
+        "intent": "informational"
+      },
+      {
+        "domain": "inspirationdaily.com",
+        "type": "publisher-listicle",
+        "intent": "informational"
+      },
+      {
+        "domain": "startupideas.net",
+        "type": "niche-vendor",
+        "intent": "commercial"
+      },
+      {
+        "domain": "ideagenerator.org",
+        "type": "tool",
+        "intent": "informational"
+      },
+      {
+        "domain": "yournextbigthing.com",
+        "type": "vendor-published",
+        "intent": "commercial"
+      },
+      {
+        "domain": "creativeideasforum.com",
+        "type": "community",
+        "intent": "informational"
+      }
+    ],
+    "content_patterns": [
+      "listicles of innovative ideas",
+      "how-to guides for idea generation",
+      "tools for brainstorming",
+      "case studies of successful ideas",
+      "community discussions on creativity"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market is competitive with many established players providing similar content."
+    },
+    "suggested_angles": [
+      "focus on niche markets for idea generation",
+      "explore unique brainstorming techniques",
+      "highlight success stories from lesser-known entrepreneurs",
+      "curate user-generated content for fresh perspectives"
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a significant interest in idea generation, the competitive landscape is dense with established content. A unique angle or niche focus may still yield opportunities, but success is not guaranteed."
+  },
+  "from_cache": false
+}

@@ -1,0 +1,21 @@
+{
+  "topic": "asdf qwerty",
+  "topic_normalized": "asdf qwerty",
+  "topic_hash": "2d5eee9b4456",
+  "fetched_at": "2026-05-14T05:59:40.627993+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "top_likely_rankers": [],
+    "content_patterns": [],
+    "competitive_signal": {
+      "saturation": "medium",
+      "ymyl_flag": false,
+      "barrier": "The topic appears to be nonsensical or too vague to analyze effectively."
+    },
+    "suggested_angles": [],
+    "decision": "unclear",
+    "reasoning": "[No real SERP data \u2014 LLM had no knowledge of this topic and returned an empty rankers list.] The topic 'asdf qwerty' does not represent a coherent subject for analysis, making it difficult to identify relevant content or competitors. Therefore, no actionable insights can be provided."
+  },
+  "from_cache": false
+}

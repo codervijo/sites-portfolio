@@ -47,9 +47,49 @@ _ALLOWED_INTENTS = frozenset({
 _ALLOWED_SATURATIONS = frozenset({"low", "medium", "medium-high", "high"})
 _ALLOWED_DECISIONS = frozenset({"ship", "mixed", "skip", "unclear"})
 
+# Placeholder / filler domain names the LLM will sometimes invent when it
+# has no real knowledge of the topic's SERP. If any of these appear in the
+# rankers list, the analysis is fabricated and gets coerced to "unclear".
+# RFC 2606 / 6761 reserves .test, .example, .invalid, .localhost — treat
+# any domain on those TLDs as a placeholder regardless of label.
+_PLACEHOLDER_LABELS = frozenset({
+    "example", "sample", "demo", "test", "placeholder",
+    "mockup", "fake", "fakesite", "foo", "bar", "baz",
+    "randomsite", "yoursite", "mysite", "anysite",
+})
+_PLACEHOLDER_TLDS = frozenset({"test", "example", "invalid", "localhost"})
+
 
 class ResearchError(RuntimeError):
     """Raised for any failure in the research pipeline. Caller maps to exit codes."""
+
+
+def _looks_like_placeholder_domain(domain: str) -> bool:
+    """True if `domain` looks like LLM-invented filler (example.com, test.net,
+    foo.io, etc.) rather than a real domain. The detector covers both the
+    common label patterns (`example`, `sample`, `demo`, …) and RFC 6761
+    reserved TLDs (`.test`, `.example`, `.invalid`, `.localhost`).
+
+    Conservative: a real domain with one of these labels (e.g. a small
+    business called "demo.io") would also be flagged. Acceptable false
+    positive — those are rare; the false-negative cost (treating
+    fabricated rankers as real) is much higher for our use case.
+    """
+    if not domain or "." not in domain:
+        return True
+    parts = domain.lower().split(".")
+    label = parts[0]
+    tld = parts[-1]
+    if label in _PLACEHOLDER_LABELS:
+        return True
+    if tld in _PLACEHOLDER_TLDS:
+        return True
+    return False
+
+
+def _placeholder_count(rankers: list[dict]) -> int:
+    """How many entries in the rankers list look like LLM-invented filler."""
+    return sum(1 for r in rankers if _looks_like_placeholder_domain(r.get("domain", "")))
 
 
 @dataclass
@@ -161,6 +201,14 @@ Constrained vocabularies (use only these):
 If the topic is YMYL (Your Money / Your Life — medical, legal,
 financial, safety-critical), set `ymyl_flag: true` and lean toward
 "skip" or "unclear" — portfolio policy excludes YMYL.
+
+CRITICAL: If you don't have specific knowledge of real domains likely
+to rank for this topic (e.g., the topic is too niche, brand-new, or
+nonsensical), set `decision: unclear` and explain in reasoning. Do
+NOT fill `top_likely_rankers` with placeholder domains like
+example.com, test.net, sample.org, demo.edu, mockup.co, fakesite.biz,
+foo.com, etc. — if you don't know real domains, the right answer
+is "unclear" with an empty or near-empty rankers list.
 
 If the topic is nonsensical or too vague to analyze, set
 `decision: unclear` and explain in reasoning.
@@ -279,10 +327,13 @@ def parse_response(raw: str) -> dict:
     if not isinstance(analysis, dict):
         raise ResearchError("model returned non-object JSON")
 
-    # Required fields with defaults for the soft ones.
+    # `top_likely_rankers` is required as a list, but may legitimately be
+    # empty when the LLM has no real data for the topic (post-prompt-fix
+    # behavior for nonsense / very-niche topics). Empty rankers + decision
+    # "unclear" is the correct shape, not an error.
     rankers = analysis.get("top_likely_rankers")
-    if not isinstance(rankers, list) or not rankers:
-        raise ResearchError("response missing or empty `top_likely_rankers`")
+    if not isinstance(rankers, list):
+        raise ResearchError("response missing `top_likely_rankers` list")
 
     # Coerce per-entry enums.
     cleaned_rankers = []
@@ -299,8 +350,6 @@ def parse_response(raw: str) -> dict:
         if intent not in _ALLOWED_INTENTS:
             intent = "informational"
         cleaned_rankers.append({"domain": domain, "type": type_, "intent": intent})
-    if not cleaned_rankers:
-        raise ResearchError("response had top_likely_rankers but none valid")
 
     competitive = analysis.get("competitive_signal") or {}
     saturation = competitive.get("saturation", "medium")
@@ -312,6 +361,31 @@ def parse_response(raw: str) -> dict:
     decision = analysis.get("decision", "unclear")
     if decision not in _ALLOWED_DECISIONS:
         decision = "unclear"
+
+    reasoning = str(analysis.get("reasoning", ""))
+
+    # Defense-in-depth: if the LLM ignored the prompt and filled the rankers
+    # list with placeholder filler (example.com, test.net, etc.), the
+    # analysis is fabricated. Coerce the decision to "unclear" and tag the
+    # reasoning so the renderer (and the user) can see the LLM had no real
+    # data. We require a majority of rankers to be placeholders — a single
+    # accidental "demo.io" doesn't poison an otherwise-real analysis.
+    #
+    # Empty rankers list also triggers — that's the LLM correctly signaling
+    # "I have no data for this topic" per the post-prompt-fix behavior.
+    if not cleaned_rankers:
+        decision = "unclear"
+        prefix = ("[No real SERP data — LLM had no knowledge of this topic "
+                  "and returned an empty rankers list.] ")
+        reasoning = prefix + reasoning
+    else:
+        n_placeholders = _placeholder_count(cleaned_rankers)
+        if n_placeholders >= max(2, len(cleaned_rankers) // 2):
+            decision = "unclear"
+            prefix = ("[No real SERP data — LLM had no specific knowledge "
+                      "of this topic and returned placeholder filler "
+                      "domains.] ")
+            reasoning = prefix + reasoning
 
     return {
         "top_likely_rankers": cleaned_rankers,
@@ -327,7 +401,7 @@ def parse_response(raw: str) -> dict:
             str(a) for a in analysis.get("suggested_angles", []) if a
         ],
         "decision": decision,
-        "reasoning": str(analysis.get("reasoning", "")),
+        "reasoning": reasoning,
     }
 
 

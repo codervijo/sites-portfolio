@@ -179,10 +179,40 @@ def test_parse_response_coerces_unknown_enum_to_safe_default():
     assert out["competitive_signal"]["saturation"] == "medium"
 
 
-def test_parse_response_raises_on_empty_rankers():
-    bad = json.dumps({"top_likely_rankers": [], "decision": "ship"})
-    with pytest.raises(serp.ResearchError, match="empty `top_likely_rankers`"):
+def test_parse_response_accepts_empty_rankers_as_unclear():
+    """Post-prompt-fix: empty rankers + decision=unclear is the LLM
+    correctly signaling 'no data for this topic.' Not an error."""
+    nonsense = json.dumps({
+        "top_likely_rankers": [],
+        "decision": "unclear",
+        "reasoning": "Topic is nonsense.",
+        "competitive_signal": {"saturation": "low", "ymyl_flag": False, "barrier": ""},
+    })
+    out = serp.parse_response(nonsense)
+    assert out["decision"] == "unclear"
+    assert out["top_likely_rankers"] == []
+    assert "No real SERP data" in out["reasoning"]
+    assert "Topic is nonsense" in out["reasoning"]
+
+
+def test_parse_response_raises_when_rankers_field_missing_entirely():
+    """A response with no `top_likely_rankers` key at all is still a
+    schema error — empty list is OK, but missing key is structural."""
+    bad = json.dumps({"decision": "ship"})
+    with pytest.raises(serp.ResearchError, match="missing `top_likely_rankers`"):
         serp.parse_response(bad)
+
+
+def test_parse_response_coerces_empty_rankers_even_when_decision_is_ship():
+    """If LLM says ship but provides no rankers, that's contradictory —
+    trust the lack of evidence and coerce to unclear."""
+    contradictory = json.dumps({
+        "top_likely_rankers": [],
+        "decision": "ship",
+        "reasoning": "Looks great.",
+    })
+    out = serp.parse_response(contradictory)
+    assert out["decision"] == "unclear"
 
 
 def test_parse_response_raises_on_malformed_json():
@@ -190,15 +220,83 @@ def test_parse_response_raises_on_malformed_json():
         serp.parse_response("{not actually json")
 
 
+def test_placeholder_detector_catches_common_filler():
+    """Placeholder domains the LLM tends to invent get detected."""
+    assert serp._looks_like_placeholder_domain("example.com")
+    assert serp._looks_like_placeholder_domain("sample.org")
+    assert serp._looks_like_placeholder_domain("test.net")
+    assert serp._looks_like_placeholder_domain("demo.edu")
+    assert serp._looks_like_placeholder_domain("placeholder.io")
+    assert serp._looks_like_placeholder_domain("mockup.co")
+    assert serp._looks_like_placeholder_domain("fakesite.biz")
+    assert serp._looks_like_placeholder_domain("foo.com")
+    # RFC 6761 reserved TLDs
+    assert serp._looks_like_placeholder_domain("anything.test")
+    assert serp._looks_like_placeholder_domain("anything.example")
+
+
+def test_placeholder_detector_passes_real_domains():
+    assert not serp._looks_like_placeholder_domain("epa.gov")
+    assert not serp._looks_like_placeholder_domain("healthline.com")
+    assert not serp._looks_like_placeholder_domain("reddit.com")
+    assert not serp._looks_like_placeholder_domain("hybridautopart.com")
+
+
+def test_placeholder_detector_handles_empty_and_malformed():
+    assert serp._looks_like_placeholder_domain("")
+    assert serp._looks_like_placeholder_domain("nodotsplain")
+
+
+def test_parse_response_coerces_to_unclear_on_majority_placeholders():
+    """The 'asdf qwerty' case — LLM filled rankers with example.com /
+    test.net / etc. instead of admitting no data. Detector should
+    flip decision to 'unclear' and tag reasoning."""
+    bad = json.dumps({
+        "top_likely_rankers": [
+            {"domain": "example.com", "type": "other", "intent": "informational"},
+            {"domain": "sample.org", "type": "other", "intent": "informational"},
+            {"domain": "test.net", "type": "other", "intent": "informational"},
+            {"domain": "demo.edu", "type": "other", "intent": "informational"},
+        ],
+        "decision": "skip",
+        "reasoning": "Nonsense topic.",
+    })
+    out = serp.parse_response(bad)
+    assert out["decision"] == "unclear"
+    assert "No real SERP data" in out["reasoning"]
+    assert "Nonsense topic" in out["reasoning"]   # original preserved after prefix
+
+
+def test_parse_response_keeps_decision_when_few_placeholders():
+    """One stray demo.io in an otherwise-real analysis shouldn't flip
+    the decision."""
+    bad = json.dumps({
+        "top_likely_rankers": [
+            {"domain": "epa.gov", "type": "institutional", "intent": "informational"},
+            {"domain": "healthline.com", "type": "publisher-listicle", "intent": "commercial"},
+            {"domain": "reddit.com", "type": "community", "intent": "informational"},
+            {"domain": "demo.io", "type": "other", "intent": "informational"},
+        ],
+        "decision": "mixed",
+        "reasoning": "Real analysis.",
+    })
+    out = serp.parse_response(bad)
+    assert out["decision"] == "mixed"   # not coerced — minority placeholders
+    assert "No real SERP data" not in out["reasoning"]
+
+
 def test_parse_response_drops_entries_without_domain():
-    """Entries missing a domain are silently dropped, but if all are dropped,
-    raise (the response is structurally bad)."""
+    """Entries missing a domain are silently dropped. If all are dropped
+    the result is the same shape as an empty-rankers response, which
+    coerces to 'unclear' rather than erroring."""
     bad = json.dumps({
         "top_likely_rankers": [{"type": "other"}, {"domain": ""}],
         "decision": "ship",
+        "reasoning": "no rankers",
     })
-    with pytest.raises(serp.ResearchError, match="none valid"):
-        serp.parse_response(bad)
+    out = serp.parse_response(bad)
+    assert out["decision"] == "unclear"
+    assert out["top_likely_rankers"] == []
 
 
 # ---------- orchestrator (research) ----------
