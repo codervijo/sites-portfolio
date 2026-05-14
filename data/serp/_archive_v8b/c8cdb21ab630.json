@@ -1,0 +1,114 @@
+{
+  "topic": "test smoke",
+  "topic_normalized": "test smoke",
+  "topic_hash": "c8cdb21ab630",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T07:04:48.710587+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "test smoke",
+      "smoke testing process",
+      "smoke test automation",
+      "importance of smoke testing",
+      "smoke test examples"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "softwaretestinghelp.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "guru99.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "testautomationu.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "atlassian.com",
+        "type": "vendor-published",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "techopedia.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "stackoverflow.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "dzone.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "smoketesting.com",
+        "type": "niche-vendor",
+        "intent": "commercial",
+        "frequency": 1
+      }
+    ],
+    "content_patterns": [
+      "how-to guides",
+      "best practices",
+      "case studies",
+      "tool comparisons",
+      "FAQs"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market is competitive with established resources and community-driven content."
+    },
+    "suggested_angles": [
+      "Focus on automation tools for smoke testing",
+      "Explore common pitfalls in smoke testing"
+    ],
+    "per_query_summary": [
+      {
+        "query": "test smoke",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "smoke testing process",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "smoke test automation",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "importance of smoke testing",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "smoke test examples",
+        "decision_hint": "ship",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a solid foundation of informational content available, the presence of established domains suggests a competitive landscape. Targeting specific angles or niches within smoke testing could yield better results."
+  },
+  "from_cache": false
+}

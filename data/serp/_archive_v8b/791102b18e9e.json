@@ -1,0 +1,115 @@
+{
+  "topic": "smoke test post-archive",
+  "topic_normalized": "smoke test post-archive",
+  "topic_hash": "791102b18e9e",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T07:06:26.473701+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "smoke test post-archive",
+      "how to conduct a smoke test",
+      "benefits of smoke testing",
+      "smoke test best practices",
+      "smoke test documentation"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "softwaretestinghelp.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "guru99.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "testautomationu.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "atlassian.com",
+        "type": "vendor-published",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "techopedia.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "capterra.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 2
+      },
+      {
+        "domain": "stackoverflow.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "smoketests.com",
+        "type": "niche-vendor",
+        "intent": "transactional",
+        "frequency": 1
+      }
+    ],
+    "content_patterns": [
+      "step-by-step guides on conducting smoke tests",
+      "lists of tools for smoke testing",
+      "case studies on smoke testing effectiveness",
+      "best practices and common pitfalls",
+      "FAQs about smoke testing"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market has established players with comprehensive resources."
+    },
+    "suggested_angles": [
+      "Focus on niche applications of smoke testing in specific industries.",
+      "Create a comprehensive guide that combines theory and practical examples.",
+      "Develop interactive content, such as quizzes or calculators, to engage users."
+    ],
+    "per_query_summary": [
+      {
+        "query": "smoke test post-archive",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "how to conduct a smoke test",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "benefits of smoke testing",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "smoke test best practices",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "smoke test documentation",
+        "decision_hint": "skip",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a solid interest in smoke testing, the presence of established resources indicates a competitive landscape. Targeting niche angles or specific applications may yield better results."
+  },
+  "from_cache": false
+}

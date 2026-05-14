@@ -1,0 +1,115 @@
+{
+  "topic": "WP security",
+  "topic_normalized": "wp security",
+  "topic_hash": "04bde796f87b",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T06:36:30.486123+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "WP security",
+      "best WordPress security plugins",
+      "how to secure a WordPress site",
+      "WordPress security checklist",
+      "common WordPress security vulnerabilities"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "wpbeginner.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "wordpress.org",
+        "type": "documentation",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "kinsta.com",
+        "type": "vendor-published",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "sucuri.net",
+        "type": "niche-vendor",
+        "intent": "commercial",
+        "frequency": 3
+      },
+      {
+        "domain": "wpsecuritylock.com",
+        "type": "niche-vendor",
+        "intent": "commercial",
+        "frequency": 3
+      },
+      {
+        "domain": "blogvault.net",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 2
+      },
+      {
+        "domain": "wpengine.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 2
+      },
+      {
+        "domain": "securityaffairs.co",
+        "type": "news",
+        "intent": "informational",
+        "frequency": 1
+      }
+    ],
+    "content_patterns": [
+      "how-to guides and tutorials",
+      "listicles of recommended plugins",
+      "checklists for securing WordPress sites",
+      "case studies on security breaches",
+      "news articles on recent vulnerabilities"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market is competitive with established players providing extensive resources."
+    },
+    "suggested_angles": [
+      "focus on niche security solutions for specific types of WordPress sites",
+      "create comprehensive guides that address both beginners and advanced users",
+      "offer unique insights into emerging security threats and trends"
+    ],
+    "per_query_summary": [
+      {
+        "query": "WP security",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "best WordPress security plugins",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "how to secure a WordPress site",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "WordPress security checklist",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "common WordPress security vulnerabilities",
+        "decision_hint": "skip",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a strong interest in WordPress security, the competitive landscape is saturated with established resources. A new site could find success by targeting niche angles or providing unique insights not covered by existing content."
+  },
+  "from_cache": false
+}
