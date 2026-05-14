@@ -179,8 +179,9 @@ archived/dropped. The cluster-level analysis lives at
 `data/serp/<YYYY-MM-DD>/clusters/<cluster-hash>.json` and references
 the per-query files. **Schema-version field on every file.**
 
-**P1.4** `--no-cache` re-fetches; default TTL = 7 days (SERPs move
-weekly; LLM synthesis used 30, but real SERP should be fresher).
+**P1.4** `--no-cache` re-fetches; default TTL = **30 days** (was 7 in
+the original draft — bumped per §8.G.1 to stretch the SerpAPI free-
+tier quota; SERPs change but gate-level verdicts don't move weekly).
 
 **P1.5** `--synthesis-only` flag short-circuits to the existing GPT
 path. Output banner must say:
@@ -651,14 +652,47 @@ go/no-go. Running degraded gates with explicit tags is better than
 hiding them — the user is reminded that the synthesis output is less
 trustworthy.
 
-### 8.G — SerpAPI tier / cost expectations
+### 8.G — SerpAPI tier / cost expectations  *(RESOLVED 2026-05-14)*
 
-The cheapest paid tier I know of is SerpAPI Bronze: $50/mo for 5000
-queries. At 5 queries per cluster, that's 1000 research runs/mo.
+**Decision:** SerpAPI **free tier** (250 queries/month, no cost).
 
-**Confirm:** is the $50/mo SerpAPI Bronze subscription within budget,
-or should the PRD assume cheaper / different vendor (DataForSEO,
-Scraperapi, etc.)?
+At 5 queries per cluster, that's ~50 research runs/month. Sufficient
+for personal portfolio operator scale (a few cluster runs per week).
+
+Three implications flow from this choice — applied to the PRD below:
+
+**8.G.1 — Cache TTL:** Bumped from 7 days → **30 days** (PRD §P1.4
+amended below). SERPs move weekly, but the gate-level verdict
+they drive doesn't move with them. A weekly re-fetch would burn
+quota without changing the call. `--no-cache` still forces a
+fresh probe when needed.
+
+**8.G.2 — Quota tracking:** New ledger at `data/serp/_quota.json`
+tracks queries used in the current UTC month. The tool:
+  - Soft-warns at 80% (200/250): "⚠ SerpAPI quota: 200/250 this month"
+  - Hard-refuses at 100% (250/250): "✗ SerpAPI quota exhausted —
+    falling back to synthesis-only mode for this run."
+  - Resets at the first day of each UTC month.
+  - `lamill settings cost report` (future ledger feature) can read
+    this file later.
+
+**8.G.3 — Auto-fallback when quota exhausted:** When the quota refuses
+a fresh fetch AND `--no-cache` was not passed AND a v2 cache is
+unavailable, the tool **automatically falls back to synthesis-only
+mode** with a loud banner:
+
+```
+⚠  SerpAPI quota exhausted (250/250 this UTC month).
+   Falling back to GPT synthesis — NOT REAL SERP DATA.
+   Quota resets <YYYY-MM-01>.
+```
+
+Better than failing the run; the operator sees what happened and
+gets a degraded-but-useful answer. The synthesis-only result is
+cached under a separate cache key so it doesn't pollute the
+real-SERP cache when quota returns.
+
+These three implementation details are now part of P1 scope.
 
 ### 8.H — Cache invalidation on schema bump
 
@@ -762,6 +796,16 @@ Error paths (missing key, SerpAPI 5xx, rate limit) tested.
 banner; `lamill new research "test" --no-cache` re-fetches; missing
 SERPAPI_KEY errors with the right pointer.
 
+**Commit P1.F** — Quota ledger at `data/serp/_quota.json` (per §8.G.2).
+Tracks queries used in the current UTC month; auto-resets on
+month-boundary. Soft-warns at 200/250; hard-refuses at 250/250 with
+auto-fallback to synthesis-only mode (loud banner per §8.G.3). New
+helper `lamill settings serpapi-quota` shows current usage.
+
+*Smoke test:* Mock a 251st-query call → fallback banner shown,
+synthesis-only output produced; ledger reset on simulated month
+change.
+
 ### Phase 2 commits
 
 **Commit P2.A** — `src/portfolio/research_gates.py` skeleton:
@@ -864,11 +908,11 @@ Honest reading, not padded, not shrunk:
 | Phase | Commits | Estimated hours | Key risks |
 |---|---|---|---|
 | Preamble | P0 | 1h | Archive migration script |
-| Phase 1 | P1.A–E | 8–10h | SerpAPI integration, error paths, retry logic, test coverage of failure modes |
+| Phase 1 | P1.A–F | 9–11h | SerpAPI integration, quota ledger + auto-fallback, error paths, retry logic, test coverage |
 | Phase 2 | P2.A–F | 10–14h | Gate 2 classifier rules, programmatic-URL regex (hard to get right), verdict-synthesis LLM call wired correctly, schema migration |
 | Phase 3 | P3.A–C | 5–7h | Operator-fit heuristics, especially the expertise check |
 | Docs + cleanup | P4 | 1–2h | |
-| **Total** | **15 commits** | **25–34h** | |
+| **Total** | **16 commits** | **26–35h** | (+1h vs original estimate for quota ledger work) |
 
 The wider range comes from Gate 2 — the classifier rules will need
 iteration once real-SERP data shows edge cases. Plan for ≥2 rounds
