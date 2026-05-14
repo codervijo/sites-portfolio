@@ -3610,10 +3610,33 @@ def new_research(
         )
         raise typer.Exit(2)
 
+    # Pre-flight: soft-warn at 80% quota usage.
+    from .serpapi_quota import quota_pct_used, read_quota, should_warn
+    if should_warn():
+        q = read_quota()
+        console.print(
+            f"[yellow]⚠  SerpAPI quota: {q['queries_used']}/{q['limit']} this UTC month "
+            f"({int(quota_pct_used()*100)}%). Consider `--synthesis-only` for "
+            f"ideation runs to stretch the cap.[/]"
+        )
+
     # Real SerpAPI path.
-    from .research_v2 import ResearchV2Error, run_research_v2
+    from .research_v2 import (
+        ResearchV2Error, ResearchV2QuotaExhausted, run_research_v2,
+    )
     try:
         payload = run_research_v2(topic, api_key=serpapi_key, no_cache=no_cache)
+    except ResearchV2QuotaExhausted as e:
+        # Auto-fallback to synthesis-only per §8.G.3 — quota's hit but
+        # the user clearly wanted research data. Better to give them a
+        # degraded answer than to refuse the run.
+        console.print(
+            f"[yellow]⚠  SerpAPI quota exhausted ({e})\n"
+            f"   Falling back to GPT synthesis — NOT REAL SERP DATA.[/]"
+        )
+        _run_research_synthesis(topic, no_cache=no_cache,
+                                brief=brief, json_out=json_out)
+        return
     except ResearchV2Error as e:
         console.print(f"[red]Research failed:[/] {e}")
         raise typer.Exit(2)

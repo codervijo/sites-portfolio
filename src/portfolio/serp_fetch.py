@@ -38,13 +38,24 @@ def fetch_serp(query: str, *, api_key: str,
 
     Raises:
       SerpFetchError: HTTP error, malformed response, missing key.
+      QuotaExhausted: SerpAPI quota for this UTC month is used up.
 
     Retries once on transient (5xx, network) failures before raising.
+    Consumes one quota unit on success (failed calls don't count).
     """
     if not api_key:
         raise SerpFetchError("SERPAPI_KEY not provided")
     if not query or not query.strip():
         raise SerpFetchError("query cannot be empty")
+
+    # Pre-flight quota check — refuses cleanly if we have no headroom,
+    # without burning an HTTP call we can't pay for.
+    from .serpapi_quota import is_quota_available, consume_quota, QuotaExhausted
+    if not is_quota_available():
+        raise QuotaExhausted(
+            "SerpAPI free-tier quota exhausted for this UTC month. "
+            "Caller should fall back to synthesis-only mode."
+        )
 
     params = {
         "engine": "google",
@@ -54,6 +65,7 @@ def fetch_serp(query: str, *, api_key: str,
     }
 
     raw = _call_with_retry(params)
+    consume_quota()   # only counts successful fetches
     return _normalize(query, raw)
 
 

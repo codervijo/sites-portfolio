@@ -37,6 +37,7 @@ from .serp_query_cache import (
     query_hash,
     save_cached_query,
 )
+from .serpapi_quota import QuotaExhausted
 from . import serp as serp_v1  # for cluster-query LLM expansion (reused)
 
 CLUSTER_TTL_DAYS = 30
@@ -46,6 +47,11 @@ DEFAULT_DEPTH = 10
 
 class ResearchV2Error(RuntimeError):
     """Raised on v2 research-pipeline failures. Caller maps to exit codes."""
+
+
+class ResearchV2QuotaExhausted(ResearchV2Error):
+    """Specific subclass — CLI catches this and auto-falls back to
+    synthesis-only mode with a loud banner per §8.G.3."""
 
 
 def cluster_hash(topic: str) -> str:
@@ -96,6 +102,11 @@ def run_research_v2(topic: str, *, api_key: str, no_cache: bool = False,
         try:
             payload = _fetch_or_cache(q, api_key=api_key, depth=depth)
             per_query.append(payload)
+        except QuotaExhausted as e:
+            # Quota's hit — refuse to limp along on partial data. Raise
+            # the specific subclass so the CLI catches it and falls back
+            # cleanly to synthesis-only mode (§8.G.3).
+            raise ResearchV2QuotaExhausted(str(e)) from e
         except SerpFetchError as e:
             fetch_errors.append(f"{q!r}: {e}")
             # Continue — partial data is still useful. Phase 2 will
