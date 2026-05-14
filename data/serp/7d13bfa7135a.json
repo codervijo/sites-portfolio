@@ -1,0 +1,115 @@
+{
+  "topic": "smoke v8.D p1.d",
+  "topic_normalized": "smoke v8.d p1.d",
+  "topic_hash": "7d13bfa7135a",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T07:21:10.526554+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "smoke v8.D p1.d",
+      "smoke v8.D performance comparison",
+      "smoke v8.D troubleshooting",
+      "smoke v8.D features",
+      "smoke v8.D vs other engines"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "developer.mozilla.org",
+        "type": "documentation",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "stackoverflow.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "github.com",
+        "type": "niche-vendor",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "medium.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "smokeball.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 2
+      },
+      {
+        "domain": "dev.to",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "techcrunch.com",
+        "type": "news",
+        "intent": "informational",
+        "frequency": 1
+      },
+      {
+        "domain": "infoq.com",
+        "type": "news",
+        "intent": "informational",
+        "frequency": 1
+      }
+    ],
+    "content_patterns": [
+      "In-depth technical documentation and guides",
+      "User-generated Q&A and troubleshooting tips",
+      "Comparative analysis articles",
+      "Performance benchmarks and case studies",
+      "Feature breakdowns and usage examples"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market is competitive with established documentation and community resources."
+    },
+    "suggested_angles": [
+      "Focus on unique use cases and performance metrics",
+      "Create a comprehensive troubleshooting guide",
+      "Develop comparison charts with other engines"
+    ],
+    "per_query_summary": [
+      {
+        "query": "smoke v8.D p1.d",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "smoke v8.D performance comparison",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "smoke v8.D troubleshooting",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "smoke v8.D features",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "smoke v8.D vs other engines",
+        "decision_hint": "ship",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a solid foundation of existing content, the competitive landscape suggests that a new site could find a niche by focusing on specific angles like troubleshooting and performance comparisons. However, the presence of established documentation and community resources may limit visibility."
+  },
+  "from_cache": false
+}

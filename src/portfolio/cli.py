@@ -3561,47 +3561,136 @@ def new_research(
     topic: str = typer.Argument("", help="Topic to research (prompted if omitted)"),
     strict: bool = typer.Option(
         False, "--strict",
-        help="Analyze the literal topic only (v8.A). Default is cluster "
-             "mode: LLM expands topic into 3-5 related queries and "
-             "produces a frequency-tagged cluster-level analysis (v8.B)."
+        help="[v8.B] Analyze the literal topic only (synthesis-only). "
+             "Default is cluster mode."
     ),
     no_cache: bool = typer.Option(False, "--no-cache",
-                                  help="Bypass the 30-day cache and re-query the LLM"),
+                                  help="Bypass cache and re-fetch"),
     brief: bool = typer.Option(False, "--brief",
-                               help="Compact one-screen output (decision + 3 bullets)"),
+                               help="Compact output"),
     json_out: bool = typer.Option(False, "--json",
-                                  help="Emit the raw analysis JSON instead of a rendered view"),
+                                  help="Emit raw JSON"),
 ) -> None:
-    """v8.B (default) — multi-keyword cluster SERP research for a new
-    project topic. Analyzes the likely search-result landscape using
-    gpt-4o-mini from training data (NOT real-time SERP).
+    """v8.D — multi-keyword cluster SERP research.
 
-    Default: LLM expands the topic into 3-5 related queries a real
-    visitor would search, then produces a cluster-level analysis with
-    frequency-tagged rankers. Catches the "literal phrase looks
-    competitive but the broader territory is open" case (and vice
-    versa) that v8.A misses.
+    When `SERPAPI_KEY` is set, fetches real-time SERP data via SerpAPI
+    for each cluster query (top-10 organic + AI Overview + PAA + Reddit
+    cards + other SERP features). When the key is missing, falls back
+    to LLM-only synthesis (v8.B behavior) with a clear "NOT REAL SERP
+    DATA" banner.
 
-    --strict: opt out and analyze the literal phrase only (v8.A).
-
-    Caveat: AI-only — knowledge cutoff applies. Real-time SERP via a paid
-    API (Brave/SerpAPI) is queued as v8.A.1.
+    P1.D scope: returns the raw cluster snapshot with per-query SERP
+    data. Gates (Phase 2), operator-profile filtering (Phase 3), and
+    interpretive verdict (Phase 4) land in subsequent commits.
     """
     from .serp import ResearchError, research
 
     topic = _resolve_topic_arg(topic, non_interactive=False)
+
+    # P1.D: prefer SerpAPI when key is present, else fall back to v8.B synthesis.
+    from .apikeys import get_key
+    serpapi_key = get_key("SERPAPI_KEY") or ""
+
+    if strict or not serpapi_key:
+        # Synthesis-only path (v8.B). P1.E will tighten this with explicit
+        # `--synthesis-only` flag + loud banner.
+        if not serpapi_key:
+            console.print(
+                "[yellow]⚠  SERPAPI_KEY not set — falling back to LLM-only synthesis "
+                "(NOT REAL SERP DATA). Set via `lamill settings apikeys set "
+                "SERPAPI_KEY <key>` for real-time data.[/]"
+            )
+        try:
+            payload = research(topic, no_cache=no_cache, strict=strict)
+        except ResearchError as e:
+            console.print(f"[red]Research failed:[/] {e}")
+            raise typer.Exit(2)
+
+        if json_out:
+            _render_serp_json(payload)
+        elif brief:
+            _render_serp_brief(payload, console)
+        else:
+            _render_serp_full(payload, console)
+        return
+
+    # P1.D: real SerpAPI path.
+    from .research_v2 import ResearchV2Error, run_research_v2
     try:
-        payload = research(topic, no_cache=no_cache, strict=strict)
-    except ResearchError as e:
+        payload = run_research_v2(topic, api_key=serpapi_key, no_cache=no_cache)
+    except ResearchV2Error as e:
         console.print(f"[red]Research failed:[/] {e}")
         raise typer.Exit(2)
 
     if json_out:
         _render_serp_json(payload)
-    elif brief:
-        _render_serp_brief(payload, console)
     else:
-        _render_serp_full(payload, console)
+        _render_research_v2_full(payload, console)
+
+
+def _render_research_v2_full(payload: dict, console) -> None:
+    """P1.D renderer for `research-cluster-v2` snapshots. Minimal —
+    shows the cluster + per-query top organic + key SERP features.
+    Phase 2 will add the gate output + verdict between cluster and
+    per-query sections."""
+    topic = payload.get("topic", "?")
+    cluster_queries = payload.get("cluster_queries", [])
+    per_query = payload.get("per_query_results", [])
+    from_cache = payload.get("from_cache", False)
+    fetch_errors = payload.get("fetch_errors", [])
+
+    src_line = f"source: SerpAPI · {len(cluster_queries)} queries"
+    if from_cache:
+        src_line += " · from cluster cache"
+    console.print(f"\n[bold]SERP research — \"{topic}\"[/]")
+    console.print(f"  [dim]{src_line}[/]\n")
+
+    # Cluster
+    console.print(f"  [cyan]Topic cluster:[/]")
+    for i, q in enumerate(cluster_queries, 1):
+        marker = "[bold]→[/]" if q.lower() == topic.lower() else " "
+        console.print(f"    {marker} {i}. {q}")
+    console.print()
+
+    # Per-query SERP summaries
+    for pq in per_query:
+        q = pq.get("query", "?")
+        organic = pq.get("organic_results", [])
+        features = pq.get("features", {})
+        console.print(f"  [bold cyan]Query:[/] {q}")
+
+        # Top 5 organic
+        for r in organic[:5]:
+            pos = r.get("position", "?")
+            dom = r.get("domain", "?")
+            console.print(f"    {pos:>2}. [bold]{dom:<28}[/] [dim]{r.get('title', '')[:55]}[/]")
+
+        # Key SERP features (only present ones)
+        f_tags = []
+        if features.get("ai_overview", {}).get("present"):
+            f_tags.append("[yellow]AI Overview[/]")
+        if features.get("reddit_card", {}).get("present"):
+            pos = features["reddit_card"].get("position", "?")
+            f_tags.append(f"[yellow]Reddit #{pos}[/]")
+        if features.get("featured_snippet", {}).get("present"):
+            f_tags.append("[yellow]Featured snippet[/]")
+        if features.get("local_pack", {}).get("present"):
+            f_tags.append("[yellow]Local Pack[/]")
+        if features.get("video_pack", {}).get("present"):
+            f_tags.append("[yellow]Video Pack[/]")
+        if f_tags:
+            console.print(f"    [dim]Features:[/] " + " · ".join(f_tags))
+        console.print()
+
+    if fetch_errors:
+        console.print(f"  [yellow]Fetch errors ({len(fetch_errors)}):[/]")
+        for err in fetch_errors[:3]:
+            console.print(f"    · {err}")
+
+    console.print(
+        "  [dim]Phase 1 of v8.D — raw SERP data only. Phases 2-4 (gates / "
+        "operator-fit / interpretive verdict) land in subsequent commits.[/]"
+    )
 
 
 def _render_serp_full(payload: dict, console) -> None:

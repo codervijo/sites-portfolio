@@ -1,0 +1,127 @@
+{
+  "topic": "EV charger installation",
+  "topic_normalized": "ev charger installation",
+  "topic_hash": "d4c607a3f2c8",
+  "mode": "cluster",
+  "fetched_at": "2026-05-14T07:15:25.721594+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "EV charger installation",
+      "how to install an EV charger at home",
+      "cost of EV charger installation",
+      "best EV chargers for home installation",
+      "EV charger installation requirements"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "energy.gov",
+        "type": "institutional",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "electrek.co",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "homeadvisor.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 4
+      },
+      {
+        "domain": "forbes.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "chargepoint.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 3
+      },
+      {
+        "domain": "plugshare.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "electricalcontractor.com",
+        "type": "documentation",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "angieslist.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 2
+      },
+      {
+        "domain": "greenmountainenergy.com",
+        "type": "vendor-published",
+        "intent": "commercial",
+        "frequency": 1
+      },
+      {
+        "domain": "reddit.com",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 1
+      }
+    ],
+    "content_patterns": [
+      "guides on installation processes",
+      "cost breakdowns for installation",
+      "reviews of different EV chargers",
+      "requirements and regulations for installation",
+      "community discussions and experiences"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The market is competitive with established informational and commercial players."
+    },
+    "suggested_angles": [
+      "DIY installation tips for EV chargers",
+      "Comparative analysis of EV charger brands",
+      "Understanding local regulations for EV charger installation"
+    ],
+    "per_query_summary": [
+      {
+        "query": "EV charger installation",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "how to install an EV charger at home",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "cost of EV charger installation",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "best EV chargers for home installation",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "EV charger installation requirements",
+        "decision_hint": "mixed",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a solid interest in EV charger installation, the competitive landscape is quite saturated with established players. A new site could find opportunities in niche angles but would face challenges in ranking against authoritative sources."
+  },
+  "from_cache": false
+}
