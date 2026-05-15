@@ -83,7 +83,7 @@ def _root_callback(ctx: typer.Context) -> None:
         run_menu()
 
 
-@app.command()
+# focus — kept as implementation for `fleet focus`.
 def focus(
     show_all: bool = typer.Option(False, "--all", help="Show the full ranked list, not just top 5"),
     refresh: bool = typer.Option(False, "--refresh",
@@ -93,11 +93,11 @@ def focus(
         help="Also flag SEO signals on sites <90d old (suppressed by default — those signals are normal in the Google freshness window)",
     ),
 ) -> None:
-    """[v7.A — moved to `portfolio fleet focus`] Where to focus today.
+    """Where to focus today — top priorities across the fleet.
 
     Reads from caches only — never blocks on a live fetch. If a cache
-    is missing, that signal is silently skipped. Run `check live` /
-    `check seo` first to populate them. `--refresh` does it for you.
+    is missing, that signal is silently skipped. Run `fleet live` /
+    `fleet seo` first to populate them. `--refresh` does it for you.
     """
     from .check import latest_snapshot as live_latest
     from .check import load_snapshot as load_live
