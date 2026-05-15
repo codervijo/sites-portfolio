@@ -22,6 +22,9 @@ from portfolio.research_gates import (
     GateResult,
     GateResults,
     OperatorFitResult,
+    _query_is_polluted,
+    _stem,
+    _tokenize_stems,
     evaluate_cluster,
     evaluate_gate_1,
     evaluate_gate_2,
@@ -29,6 +32,34 @@ from portfolio.research_gates import (
     is_moat_required,
     synthesize_verdict,
 )
+
+
+# ---------- helpers ----------
+
+
+def _query_payload(query: str, titles: list[str]) -> dict:
+    """Build a `serp-query-v1`-shaped dict with the given top-N titles."""
+    return {
+        "schema": "serp-query-v1",
+        "query": query,
+        "organic_results": [
+            {"position": i + 1, "title": t, "url": f"https://x.test/{i}",
+             "domain": "x.test", "snippet": "", "displayed_link": "x.test"}
+            for i, t in enumerate(titles)
+        ],
+        "features": {},
+    }
+
+
+def _cluster(topic: str, queries_with_titles: list[tuple[str, list[str]]],
+             source: str = "serpapi") -> dict:
+    return {
+        "schema": "research-cluster-v2",
+        "topic": topic,
+        "source": source,
+        "cluster_queries": [q for q, _ in queries_with_titles],
+        "per_query_results": [_query_payload(q, t) for q, t in queries_with_titles],
+    }
 
 
 # ---------- constants ----------
@@ -129,13 +160,6 @@ def test_gate_results_to_dict_keys_match_schema():
 # ---------- stub gate functions ----------
 
 
-def test_evaluate_gate_1_stub_returns_pending():
-    r = evaluate_gate_1({"topic": "x"})
-    assert r.label == LABEL_PENDING
-    assert r.passed is None
-    assert "P2.B" in " ".join(r.findings)
-
-
 def test_evaluate_gate_2_stub_returns_pending():
     r = evaluate_gate_2({"topic": "x"})
     assert r.label == LABEL_PENDING
@@ -146,6 +170,268 @@ def test_evaluate_gate_3_stub_returns_pending():
     g2 = GateResult(passed=False, label=LABEL_FAIL)
     r = evaluate_gate_3(g2, None)
     assert r.label == LABEL_PENDING
+
+
+# ---------- Gate 1: stemmer + tokenizer ----------
+
+
+def test_stem_strips_common_suffixes():
+    assert _stem("running") == "runn"
+    assert _stem("installation") == "install"
+    assert _stem("plugins") == "plugin"
+    assert _stem("vehicles") == "vehicl"
+
+
+def test_stem_preserves_short_tokens():
+    """Tokens that would become <3 chars after stripping are left alone."""
+    assert _stem("ev") == "ev"
+    assert _stem("car") == "car"
+    assert _stem("ai") == "ai"
+
+
+def test_tokenize_stems_drops_stopwords():
+    out = _tokenize_stems("the best EV charger for a home")
+    # `the`, `best`, `for`, `a` are stopwords.
+    assert "the" not in out
+    assert "best" not in out
+    assert "for" not in out
+    assert "ev" in out
+    assert "home" in out
+
+
+def test_tokenize_stems_empty():
+    assert _tokenize_stems("") == set()
+    assert _tokenize_stems("   ") == set()
+
+
+def test_tokenize_stems_splits_punctuation():
+    out = _tokenize_stems("how-to: install an EV charger!")
+    assert "install" in out
+    assert "ev" in out
+    # "charger" → light stemmer strips the "er" suffix → "charg"
+    assert "charg" in out
+
+
+# ---------- Gate 1: pollution detection ----------
+
+
+def test_query_is_polluted_when_no_titles_match():
+    """Top-3 titles about Tesla Model 3 won't stem-match an EV-charger cluster."""
+    payload = _query_payload("ev charger installation cost", [
+        "2026 Tesla Model 3 Review",
+        "Top 10 Sports Cars of 2026",
+        "Used Honda Civics Under $10K",
+    ])
+    cluster_stems = _tokenize_stems("ev charger installation cost")
+    assert _query_is_polluted(payload, cluster_stems) is True
+
+
+def test_query_is_polluted_false_when_one_title_matches():
+    """At least one stem-match is enough to mark unpolluted."""
+    payload = _query_payload("ev charger installation cost", [
+        "How to Install an EV Charger at Home",
+        "Random unrelated title",
+        "Another random one",
+    ])
+    cluster_stems = _tokenize_stems("ev charger installation cost")
+    assert _query_is_polluted(payload, cluster_stems) is False
+
+
+def test_query_is_polluted_when_no_organic_results():
+    """0-results query treated as polluted (PRD §8.J option 1)."""
+    payload = {"query": "x", "organic_results": []}
+    assert _query_is_polluted(payload, {"foo", "bar"}) is True
+
+
+def test_query_is_polluted_only_inspects_top_3():
+    """4th result shouldn't rescue a polluted top-3."""
+    payload = _query_payload("ev charger", [
+        "Tesla news",
+        "Tesla rumor",
+        "Used cars",
+        # 4th and beyond ignored:
+        "EV Charger installation guide",
+    ])
+    cluster_stems = _tokenize_stems("ev charger")
+    assert _query_is_polluted(payload, cluster_stems) is True
+
+
+# ---------- Gate 1: full evaluation ----------
+
+
+def _const_estimator(per_query_volume: int):
+    """Return a fake volume estimator that gives every query the same SV."""
+    def _est(queries):
+        return {q: per_query_volume for q in queries}
+    return _est
+
+
+def _explicit_estimator(volumes: dict[str, int]):
+    """Return a fake estimator that uses an exact lookup table."""
+    def _est(queries):
+        return {q: volumes.get(q, 0) for q in queries}
+    return _est
+
+
+def test_gate_1_passes_when_clean_cluster_meets_threshold():
+    """Clean cluster (no pollution) + 1500 SV × 5 = 7500 ≥ 5000 → PASS."""
+    cluster = _cluster("ev charger installation cost", [
+        ("ev charger installation cost", ["Best EV Charger Installation Tips", "x", "y"]),
+        ("home ev charger installation", ["Home EV Charger Setup", "x", "y"]),
+        ("cost of ev charging at home", ["EV Home Charging Costs", "x", "y"]),
+        ("level 2 ev charger install", ["Level 2 EV Charger Install Guide", "x", "y"]),
+        ("ev charger wiring", ["EV Charger Wiring Basics", "x", "y"]),
+    ])
+    r = evaluate_gate_1(cluster, volume_estimator=_const_estimator(1500))
+    assert r.passed is True
+    assert r.label == LABEL_PASS
+    assert r.raw["pollution_adjusted_volume"] == 7500
+    assert r.raw["polluted_queries"] == []
+    assert "low-confidence" in " ".join(r.findings).lower()
+
+
+def test_gate_1_fails_when_volume_below_threshold():
+    cluster = _cluster("niche topic", [
+        ("niche topic about widgets", ["Niche topic widget guide", "x", "y"]),
+        ("niche topic widgets info", ["Niche topic widget guide", "x", "y"]),
+    ])
+    # 2 × 1000 = 2000 < 5000 → FAIL
+    r = evaluate_gate_1(cluster, volume_estimator=_const_estimator(1000))
+    assert r.passed is False
+    assert r.label == LABEL_FAIL
+    assert r.raw["pollution_adjusted_volume"] == 2000
+
+
+def test_gate_1_pollution_drops_adjusted_volume_below_threshold():
+    """Two queries clean (6K SV), three polluted — adjusted ends up 6K → PASS still.
+    Then bump pollution to drop adjusted below 5K → FAIL."""
+    cluster = _cluster("ev charger installation", [
+        ("ev charger installation guide", ["EV Charger Installation Guide", "x", "y"]),
+        ("home ev charger setup", ["Home EV Charger Setup Tips", "x", "y"]),
+        # The next three queries are polluted — none of the topic stems
+        # ({ev, charg, install}) appear in any of the top-3 titles.
+        ("level 2 wiring", ["Random celebrity news", "Stock tips", "Pet care"]),
+        ("home electrical", ["Movie review", "Sports update", "Weather"]),
+        ("plug standards", ["Off topic one", "Off topic two", "Off topic three"]),
+    ])
+    r = evaluate_gate_1(cluster, volume_estimator=_const_estimator(3000))
+    # 2 clean × 3000 = 6000 → PASS
+    assert r.passed is True
+    assert len(r.raw["polluted_queries"]) == 3
+    assert r.raw["pollution_adjusted_volume"] == 6000
+
+    # Drop volume so even 2 clean queries don't clear 5K.
+    r2 = evaluate_gate_1(cluster, volume_estimator=_const_estimator(2000))
+    assert r2.passed is False
+    assert r2.raw["pollution_adjusted_volume"] == 4000
+
+
+def test_gate_1_fails_when_all_polluted():
+    """All queries polluted → adjusted volume = 0 → FAIL even with high total."""
+    cluster = _cluster("ev charger installation", [
+        # Topic stems are {ev, charg, install}. None of these titles
+        # contain any of those stems — the queries themselves use the
+        # words but the SERP returned off-topic content.
+        ("ev charger installation cost", ["Stock market news", "Sports update", "Movie review"]),
+        ("home ev charger", ["Celebrity gossip", "Weather report", "Recipe"]),
+    ])
+    r = evaluate_gate_1(cluster, volume_estimator=_const_estimator(50_000))
+    assert r.passed is False
+    assert r.raw["pollution_adjusted_volume"] == 0
+    assert r.raw["total_volume"] == 100_000  # original total still surfaced
+    assert len(r.raw["polluted_queries"]) == 2
+
+
+def test_gate_1_fails_when_zero_results():
+    """Query with no organic results counts as polluted (PRD §8.J option 1)."""
+    cluster = {
+        "schema": "research-cluster-v2",
+        "topic": "ev charger installation",
+        "source": "serpapi",
+        "cluster_queries": ["ev charger installation"],
+        "per_query_results": [{
+            "schema": "serp-query-v1",
+            "query": "ev charger installation",
+            "organic_results": [],
+            "features": {},
+        }],
+    }
+    r = evaluate_gate_1(cluster, volume_estimator=_const_estimator(100_000))
+    assert r.passed is False
+    assert r.raw["polluted_queries"] == ["ev charger installation"]
+
+
+def test_gate_1_synthesis_only_skips_pollution_detection():
+    """Synthesis-only mode skips pollution check, uses total volume,
+    and tags findings as `[from LLM guess]` per PRD §8.F option 1."""
+    cluster = {
+        "schema": "research-cluster-v2",
+        "topic": "ev charger installation",
+        "source": "gpt-synthesis-fallback",
+        "cluster_queries": ["a", "b", "c"],
+        "per_query_results": [],  # synthesis-only has no real SERP
+    }
+    r = evaluate_gate_1(cluster, volume_estimator=_const_estimator(2500))
+    # 3 × 2500 = 7500 → PASS, no pollution penalty
+    assert r.passed is True
+    assert r.raw["pollution_adjusted_volume"] == 7500
+    assert r.raw["polluted_queries"] == []
+    assert r.raw["synthesis_only"] is True
+    assert any("[from LLM guess]" in f for f in r.findings)
+
+
+def test_gate_1_handles_missing_query_payload():
+    """A cluster_queries entry with no matching per_query_results = polluted."""
+    cluster = {
+        "schema": "research-cluster-v2",
+        "topic": "ev charger",
+        "source": "serpapi",
+        "cluster_queries": ["ev charger one", "ev charger two"],
+        "per_query_results": [
+            _query_payload("ev charger one", ["EV Charger One Guide", "x", "y"]),
+            # "ev charger two" payload missing
+        ],
+    }
+    r = evaluate_gate_1(cluster, volume_estimator=_const_estimator(3000))
+    assert "ev charger two" in r.raw["polluted_queries"]
+
+
+def test_gate_1_handles_estimator_failure():
+    """An estimator that raises is caught — every query gets 0 SV."""
+    def _exploding(queries):
+        raise RuntimeError("boom")
+    cluster = _cluster("x", [("x clean", ["X clean title", "y", "z"])])
+    r = evaluate_gate_1(cluster, volume_estimator=_exploding)
+    assert r.passed is False
+    assert r.raw["pollution_adjusted_volume"] == 0
+    assert any("volume estimator failed" in f for f in r.findings)
+
+
+def test_gate_1_uses_explicit_per_query_volumes():
+    """Different volumes per query → adjusted sum is precise."""
+    # Topic stems = {ev, charg}. Third query's titles don't contain
+    # either, so it's polluted regardless of the query name.
+    cluster = _cluster("ev charger", [
+        ("ev charger installation", ["EV Charger install tips", "x", "y"]),
+        ("ev charger reviews", ["EV Charger Reviews 2026", "x", "y"]),
+        ("level 2 standards", ["Random stuff", "More random", "Yet more"]),
+    ])
+    volumes = {
+        "ev charger installation": 4000,
+        "ev charger reviews": 2000,
+        "level 2 standards": 100_000,   # polluted, doesn't count
+    }
+    r = evaluate_gate_1(cluster, volume_estimator=_explicit_estimator(volumes))
+    assert r.raw["pollution_adjusted_volume"] == 6000
+    assert r.passed is True
+    assert "level 2 standards" in r.raw["polluted_queries"]
+
+
+def test_gate_1_raw_carries_threshold():
+    """Caller can read the threshold from raw — useful for the renderer."""
+    cluster = _cluster("x", [("x clean", ["X clean title", "y", "z"])])
+    r = evaluate_gate_1(cluster, volume_estimator=_const_estimator(0))
+    assert r.raw["threshold"] == GATE_1_VOLUME_THRESHOLD
 
 
 # ---------- moat-required helper ----------
@@ -212,38 +498,42 @@ def test_synthesize_verdict_accepts_op_fit_kw():
 
 def test_evaluate_cluster_returns_full_gate_results():
     """The orchestrator returns a GateResults with all four slots
-    populated, even when every individual gate is a stub PENDING."""
+    populated. Gate 1 is real (P2.B+) — empty per-query data means it
+    FAILs (zero pollution-adjusted volume). Gate 2 / 3 are still stubs."""
     cluster = {"topic": "x", "cluster_queries": ["x"], "per_query_results": []}
-    r = evaluate_cluster(cluster)
+    r = evaluate_cluster(cluster, volume_estimator=lambda qs: {q: 0 for q in qs})
     assert isinstance(r, GateResults)
-    assert r.gate_1_market.label == LABEL_PENDING
+    assert r.gate_1_market.label == LABEL_FAIL
     assert r.gate_2_serp.label == LABEL_PENDING
     assert r.gate_3_moat.label == LABEL_PENDING
     assert isinstance(r.operator_fit, OperatorFitResult)
 
 
 def test_evaluate_cluster_carries_moat_through():
-    cluster = {"topic": "x"}
-    r = evaluate_cluster(cluster, moat_sentence="my moat")
+    cluster = {"topic": "x", "cluster_queries": [], "per_query_results": []}
+    r = evaluate_cluster(cluster, moat_sentence="my moat",
+                         volume_estimator=lambda qs: {})
     assert r.moat_provided == "my moat"
 
 
 def test_evaluate_cluster_defaults_no_moat():
-    cluster = {"topic": "x"}
-    r = evaluate_cluster(cluster)
+    cluster = {"topic": "x", "cluster_queries": [], "per_query_results": []}
+    r = evaluate_cluster(cluster, volume_estimator=lambda qs: {})
     assert r.moat_provided is None
 
 
 def test_evaluate_cluster_with_operator_fit_carries_through():
-    cluster = {"topic": "x"}
+    cluster = {"topic": "x", "cluster_queries": [], "per_query_results": []}
     op = OperatorFitResult(warnings=["builder + writer niche"])
-    r = evaluate_cluster(cluster, operator_fit=op)
+    r = evaluate_cluster(cluster, operator_fit=op,
+                         volume_estimator=lambda qs: {})
     assert r.operator_fit.warnings == ["builder + writer niche"]
 
 
 def test_evaluate_cluster_non_interactive_does_not_crash():
     """The non_interactive flag is part of the orchestrator signature
     so the CLI's --json / --non-interactive paths can pass it."""
-    cluster = {"topic": "x"}
-    r = evaluate_cluster(cluster, non_interactive=True)
+    cluster = {"topic": "x", "cluster_queries": [], "per_query_results": []}
+    r = evaluate_cluster(cluster, non_interactive=True,
+                         volume_estimator=lambda qs: {})
     assert r.gate_3_moat.label == LABEL_PENDING
