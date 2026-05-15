@@ -496,3 +496,127 @@ def test_check_090_warn_when_every_url_unreachable(tmp_path, monkeypatch):
     r = run(str(site))
     assert r.status == "warn"
     assert "all 2 sitemap URL(s) unreachable" in r.message
+
+
+# ---------- CHECK_091 — live-jsonld-parses ----------
+
+
+def _stub_check_091(monkeypatch, *, urls, htmls):
+    """Patch get_sitemap_urls + fetch_html for CHECK_091's run()."""
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_091_live_jsonld_parses.get_sitemap_urls",
+        lambda origin: urls,
+    )
+    def _fetch(url):
+        if url in htmls:
+            return htmls[url]
+        raise LiveFetchError(f"no stub for {url}")
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_091_live_jsonld_parses.fetch_html",
+        _fetch,
+    )
+
+
+def _site_with_homepage(tmp_path, name="x.test", homepage="https://x.test/"):
+    site = tmp_path / name
+    site.mkdir()
+    (site / "package.json").write_text(f'{{"homepage": "{homepage}"}}')
+    return site
+
+
+def test_check_091_skipped_when_not_web_project(tmp_path):
+    from portfolio.checks.seo.check_091_live_jsonld_parses import run
+    r = run(str(tmp_path))
+    assert r.status == "warn"
+
+
+def test_check_091_skipped_when_no_live_url(tmp_path):
+    from portfolio.checks.seo.check_091_live_jsonld_parses import run
+    site = tmp_path / "portfolio"
+    site.mkdir()
+    (site / "package.json").write_text("{}")
+    r = run(str(site))
+    assert r.status == "warn"
+    assert "no live URL" in r.message
+
+
+def test_check_091_passes_when_all_blocks_parse(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_091_live_jsonld_parses import run
+    site = _site_with_homepage(tmp_path)
+    valid_html = (
+        '<head><script type="application/ld+json">'
+        '{"@type":"WebSite","url":"https://x.test/"}'
+        '</script></head>'
+    )
+    _stub_check_091(
+        monkeypatch,
+        urls=["https://x.test/a", "https://x.test/b"],
+        htmls={"https://x.test/a": valid_html, "https://x.test/b": valid_html},
+    )
+    r = run(str(site))
+    assert r.status == "pass"
+    assert "2 JSON-LD block(s)" in r.message
+
+
+def test_check_091_fails_when_a_block_doesnt_parse(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_091_live_jsonld_parses import run
+    site = _site_with_homepage(tmp_path)
+    bad_html = '<script type="application/ld+json">not json at all</script>'
+    _stub_check_091(
+        monkeypatch,
+        urls=["https://x.test/broken"],
+        htmls={"https://x.test/broken": bad_html},
+    )
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "https://x.test/broken" in r.message
+
+
+def test_check_091_pass_when_no_blocks_anywhere(tmp_path, monkeypatch):
+    """No JSON-LD on any page → not a CHECK_091 failure (CHECK_078
+    covers `has-json-ld`)."""
+    from portfolio.checks.seo.check_091_live_jsonld_parses import run
+    site = _site_with_homepage(tmp_path)
+    _stub_check_091(
+        monkeypatch,
+        urls=["https://x.test/"],
+        htmls={"https://x.test/": "<html><head></head><body/></html>"},
+    )
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_091_warn_when_every_url_unreachable(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_091_live_jsonld_parses import run
+    site = _site_with_homepage(tmp_path)
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_091_live_jsonld_parses.get_sitemap_urls",
+        lambda origin: ["https://x.test/a"],
+    )
+    def _explode(url):
+        raise LiveFetchError("net")
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_091_live_jsonld_parses.fetch_html",
+        _explode,
+    )
+    r = run(str(site))
+    assert r.status == "warn"
+
+
+def test_check_091_reports_per_url_block_index(tmp_path, monkeypatch):
+    """Failure message names the URL + which block (#1, #2) failed."""
+    from portfolio.checks.seo.check_091_live_jsonld_parses import run
+    site = _site_with_homepage(tmp_path)
+    # Two blocks on one page — only the second is broken.
+    html = (
+        '<script type="application/ld+json">{"@type":"WebSite"}</script>'
+        '<script type="application/ld+json">{broken}</script>'
+    )
+    _stub_check_091(
+        monkeypatch,
+        urls=["https://x.test/page"],
+        htmls={"https://x.test/page": html},
+    )
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "https://x.test/page#2" in r.message
