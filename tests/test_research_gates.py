@@ -169,10 +169,79 @@ def test_evaluate_gate_2_empty_cluster_weak_pass():
     assert r.passed is True
 
 
-def test_evaluate_gate_3_stub_returns_pending():
-    g2 = GateResult(passed=False, label=LABEL_FAIL)
+def test_evaluate_gate_3_not_required_returns_pass():
+    """When Gate 2 didn't detect a specialty/programmatic incumbent,
+    Gate 3 is a free PASS regardless of moat input."""
+    g2 = GateResult(passed=True, label=LABEL_PASS, raw={"classifications": {}})
     r = evaluate_gate_3(g2, None)
+    assert r.label == LABEL_PASS
+    assert r.passed is True
+    assert r.raw["required"] is False
+
+
+def test_evaluate_gate_3_required_with_moat_passes():
+    """Moat required + sentence provided → PASS, sentence stored."""
+    g2 = GateResult(passed=False, label=LABEL_FAIL, raw={
+        "classifications": {
+            "specialty_incumbent": {"present": True, "incumbents": {"x.com": ["q"]}},
+            "programmatic_at_scale": {"present": False, "incumbents": {}},
+        }
+    })
+    r = evaluate_gate_3(g2, "I will win on X because Y, and Z can't close it in 6mo.")
+    assert r.passed is True
+    assert r.label == LABEL_PASS
+    assert "I will win on X" in r.raw["moat_sentence"]
+    assert r.raw["required"] is True
+
+
+def test_evaluate_gate_3_required_empty_input_interactive_fails():
+    """Moat required + empty sentence + interactive mode → FAIL."""
+    g2 = GateResult(passed=False, label=LABEL_FAIL, raw={
+        "classifications": {
+            "specialty_incumbent": {"present": True, "incumbents": {"x.com": ["q"]}},
+        }
+    })
+    r = evaluate_gate_3(g2, None, non_interactive=False)
+    assert r.passed is False
+    assert r.label == LABEL_FAIL
+
+
+def test_evaluate_gate_3_required_empty_input_non_interactive_pending():
+    """Moat required + empty sentence + non-interactive mode → PENDING.
+    User can re-run without --non-interactive to fill it in."""
+    g2 = GateResult(passed=False, label=LABEL_FAIL, raw={
+        "classifications": {
+            "specialty_incumbent": {"present": True, "incumbents": {"x.com": ["q"]}},
+        }
+    })
+    r = evaluate_gate_3(g2, None, non_interactive=True)
+    assert r.passed is None
     assert r.label == LABEL_PENDING
+
+
+def test_evaluate_gate_3_strips_whitespace_only_sentence():
+    """A sentence that's only whitespace counts as empty."""
+    g2 = GateResult(passed=False, label=LABEL_FAIL, raw={
+        "classifications": {
+            "programmatic_at_scale": {"present": True, "incumbents": {"x.com": ["a", "b", "c"]}}
+        }
+    })
+    r = evaluate_gate_3(g2, "   \n\t  ", non_interactive=False)
+    assert r.passed is False
+    assert r.label == LABEL_FAIL
+
+
+def test_evaluate_gate_3_required_with_programmatic_only():
+    """PROGRAMMATIC_AT_SCALE alone also triggers moat-required."""
+    g2 = GateResult(passed=False, label=LABEL_FAIL, raw={
+        "classifications": {
+            "specialty_incumbent": {"present": False, "incumbents": {}},
+            "programmatic_at_scale": {"present": True, "incumbents": {"e.com": ["a", "b", "c"]}},
+        }
+    })
+    r = evaluate_gate_3(g2, "valid moat sentence")
+    assert r.passed is True
+    assert r.raw["required"] is True
 
 
 # ---------- Gate 1: stemmer + tokenizer ----------
@@ -799,15 +868,17 @@ def test_synthesize_verdict_accepts_op_fit_kw():
 
 def test_evaluate_cluster_returns_full_gate_results():
     """The orchestrator returns a GateResults with all four slots
-    populated. Gate 1 + Gate 2 are real (P2.B/C); Gate 3 is still a
-    stub. An empty cluster → Gate 1 FAIL (zero volume), Gate 2
-    WEAK-PASS (no kill-tier but also no beatable)."""
+    populated. All three gates are real (P2.B/C/D). An empty cluster:
+      - Gate 1 FAIL (zero pollution-adjusted volume)
+      - Gate 2 WEAK-PASS (no kill-tier, no beatable)
+      - Gate 3 PASS (no specialty/programmatic incumbent → not required)
+    """
     cluster = {"topic": "x", "cluster_queries": ["x"], "per_query_results": []}
     r = evaluate_cluster(cluster, volume_estimator=lambda qs: {q: 0 for q in qs})
     assert isinstance(r, GateResults)
     assert r.gate_1_market.label == LABEL_FAIL
     assert r.gate_2_serp.label == LABEL_WEAK_PASS
-    assert r.gate_3_moat.label == LABEL_PENDING
+    assert r.gate_3_moat.label == LABEL_PASS
     assert isinstance(r.operator_fit, OperatorFitResult)
 
 
@@ -834,8 +905,38 @@ def test_evaluate_cluster_with_operator_fit_carries_through():
 
 def test_evaluate_cluster_non_interactive_does_not_crash():
     """The non_interactive flag is part of the orchestrator signature
-    so the CLI's --json / --non-interactive paths can pass it."""
+    so the CLI's --json / --non-interactive paths can pass it. For an
+    empty cluster (no Gate 2 incumbent), Gate 3 is not required and
+    PASSes without prompting."""
     cluster = {"topic": "x", "cluster_queries": [], "per_query_results": []}
     r = evaluate_cluster(cluster, non_interactive=True,
                          volume_estimator=lambda qs: {})
+    assert r.gate_3_moat.label == LABEL_PASS
+
+
+def test_evaluate_cluster_non_interactive_with_incumbent_yields_pending_g3():
+    """When Gate 2 detects an incumbent AND --non-interactive is set
+    AND no moat is provided, Gate 3 is PENDING (waiting for the user
+    to re-run interactively)."""
+    cluster = {
+        "schema": "research-cluster-v2",
+        "topic": "ev charger",
+        "source": "serpapi",
+        "cluster_queries": ["a", "b", "c"],
+        "per_query_results": [
+            {
+                "schema": "serp-query-v1", "query": q,
+                "organic_results": [
+                    {"position": 1, "domain": "evpedia.com",
+                     "url": "https://evpedia.com/article", "title": "EV"},
+                ],
+                "features": {},
+            }
+            for q in ["a", "b", "c"]
+        ],
+    }
+    r = evaluate_cluster(cluster, non_interactive=True,
+                         volume_estimator=lambda qs: {q: 0 for q in qs})
+    assert r.gate_2_serp.label == LABEL_FAIL
     assert r.gate_3_moat.label == LABEL_PENDING
+    assert r.moat_required is True

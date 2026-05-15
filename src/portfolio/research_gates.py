@@ -647,25 +647,60 @@ def evaluate_gate_2(cluster: dict, *,
     )
 
 
+# ---------- Gate 3 (Moat) — P2.D ----------
+
+# Reason strings — surfaced both in findings text and in raw for the
+# renderer. Keep these as constants so callers and tests can pattern-match.
+_MOAT_NOT_REQUIRED = "not required (no specialty/programmatic incumbent)"
+_MOAT_PROVIDED = "moat acknowledged"
+_MOAT_DECLINED = "no moat provided"
+_MOAT_PENDING = "pending operator input (non-interactive mode)"
+
+
 def evaluate_gate_3(gate_2: GateResult, moat_sentence: str | None,
                     *, non_interactive: bool = False) -> GateResult:
     """Gate 3 (Moat) — required only when Gate 2 detected a specialty
-    or programmatic incumbent.
+    or programmatic incumbent (PRD §P2.4).
 
-    The moat-required check inspects `gate_2.raw["classifications"]`
-    for the kill-tier classifier flags. When required:
-      - `moat_sentence` non-empty → PASS, sentence stored on `.raw`
-      - `moat_sentence` empty/None AND `non_interactive` → PENDING
-      - `moat_sentence` empty/None AND interactive → FAIL
+    Resolution table (`required` from `is_moat_required(gate_2)`):
 
-    When not required, returns PASS with an explanatory finding.
+      | required | moat_sentence | non_interactive | label   | passed |
+      |----------|---------------|-----------------|---------|--------|
+      | False    | anything      | anything        | PASS    | True   |
+      | True     | non-empty     | anything        | PASS    | True   |
+      | True     | empty/None    | False           | FAIL    | False  |
+      | True     | empty/None    | True            | PENDING | None   |
 
-    Stub returns PENDING for now. P2.D fills it in.
+    The moat sentence is stored on `.raw["moat_sentence"]` when provided
+    — the cluster snapshot caches it for re-runs / `--json` consumers.
     """
+    required = is_moat_required(gate_2)
+    if not required:
+        return GateResult(
+            passed=True, label=LABEL_PASS,
+            findings=[_MOAT_NOT_REQUIRED],
+            raw={"required": False, "moat_sentence": None},
+        )
+
+    sentence = (moat_sentence or "").strip()
+    if sentence:
+        return GateResult(
+            passed=True, label=LABEL_PASS,
+            findings=[_MOAT_PROVIDED, f'"{sentence}"'],
+            raw={"required": True, "moat_sentence": sentence},
+        )
+
+    if non_interactive:
+        return GateResult(
+            passed=None, label=LABEL_PENDING,
+            findings=[_MOAT_PENDING],
+            raw={"required": True, "moat_sentence": None},
+        )
+
     return GateResult(
-        passed=None, label=LABEL_PENDING,
-        findings=["Gate 3 not yet implemented (P2.D)"],
-        raw={"stub": True},
+        passed=False, label=LABEL_FAIL,
+        findings=[_MOAT_DECLINED],
+        raw={"required": True, "moat_sentence": None},
     )
 
 
