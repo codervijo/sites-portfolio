@@ -7,8 +7,10 @@ a project directory.
 
 Three probe layers, each independently optional:
 
-  1. Live HTTP — synchronous fetch of `https://<domain>/`, `/robots.txt`,
-     and `/sitemap.xml`; checks HSTS header on the root response.
+  1. Live HTTP — synchronous fetch of `https://<domain>/` and `/robots.txt`;
+     parses `Sitemap:` directives from robots.txt and probes each declared
+     URL (with fallback to `/sitemap.xml`, `/sitemap-index.xml`,
+     `/sitemap_index.xml`); checks HSTS header on the root response.
 
   2. GSC totals — `query_totals()` over the last N days for every GSC
      property covering the domain (uses existing `gsc.py` OAuth path).
@@ -70,22 +72,62 @@ class SEORow:
     crux_inp_p75: float | None = None      # ms
     crux_cls_p75: float | None = None
 
+    # URL of the sitemap that responded 200 — useful for the dashboard
+    # to surface non-default paths (e.g. /sitemap-index.xml). None when
+    # no sitemap was found OR the probe was skipped.
+    sitemap_url: str | None = None
+
     notes: list[str] = field(default_factory=list)
 
 
 # ---------- HTTP probes ----------
 
 
+# Conventional sitemap paths to try when robots.txt doesn't declare one.
+# Order matters: `/sitemap.xml` is by far the most common; `-index` and
+# `_index` cover the two index conventions seen in the wild.
+_SITEMAP_FALLBACK_PATHS = ("/sitemap.xml", "/sitemap-index.xml", "/sitemap_index.xml")
+
+
+def _parse_robots_sitemaps(body: str) -> list[str]:
+    """Extract absolute sitemap URLs from a robots.txt body. Case-insensitive
+    on the directive name; ignores blank/comment lines and malformed entries
+    (anything that isn't `http(s)://...`).
+    """
+    urls: list[str] = []
+    for line in body.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Match `Sitemap: <url>` (case-insensitive directive name).
+        if ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        if key.strip().lower() != "sitemap":
+            continue
+        url = val.strip()
+        if url.startswith("http://") or url.startswith("https://"):
+            urls.append(url)
+    return urls
+
+
 def probe_http(domain: str, *, timeout: float = HTTP_TIMEOUT,
                client: httpx.Client | None = None) -> dict[str, Any]:
-    """Fetch the root, /robots.txt, and /sitemap.xml. Returns a dict with
-    keys: status, error, hsts, robots_served, sitemap_served.
+    """Fetch the root + /robots.txt, then probe for the sitemap. Returns a
+    dict with keys: status, error, hsts, robots_served, sitemap_served,
+    sitemap_url.
+
+    Sitemap discovery: read `Sitemap:` directives from robots.txt; if any
+    are declared, probe each in turn (first 200 wins). If robots is missing
+    or declares no sitemap, fall back to /sitemap.xml, /sitemap-index.xml,
+    /sitemap_index.xml in that order.
 
     Caller may inject an `httpx.Client` (used by tests for transport mocks).
     """
     out: dict[str, Any] = {
         "status": None, "error": None, "hsts": None,
         "robots_served": None, "sitemap_served": None,
+        "sitemap_url": None,
     }
     own_client = client is None
     if client is None:
@@ -102,6 +144,7 @@ def probe_http(domain: str, *, timeout: float = HTTP_TIMEOUT,
             out["error"] = f"{type(e).__name__}: {e}"
             return out
 
+        robots_body = ""
         try:
             r = client.get(f"https://{domain}/robots.txt")
             ctype = r.headers.get("content-type", "").lower()
@@ -113,14 +156,30 @@ def probe_http(domain: str, *, timeout: float = HTTP_TIMEOUT,
                 or (ctype == "" and "user-agent" in r.text.lower())
             )
             out["robots_served"] = ok
+            if ok:
+                robots_body = r.text
         except httpx.HTTPError:
             out["robots_served"] = False
 
-        try:
-            s = client.get(f"https://{domain}/sitemap.xml")
-            out["sitemap_served"] = s.status_code == 200
-        except httpx.HTTPError:
-            out["sitemap_served"] = False
+        # Build sitemap-candidate list: declared in robots.txt first
+        # (already absolute URLs), then fallback paths under the same host.
+        declared = _parse_robots_sitemaps(robots_body) if robots_body else []
+        candidates: list[str] = list(declared)
+        for path in _SITEMAP_FALLBACK_PATHS:
+            url = f"https://{domain}{path}"
+            if url not in candidates:
+                candidates.append(url)
+
+        out["sitemap_served"] = False
+        for url in candidates:
+            try:
+                s = client.get(url)
+            except httpx.HTTPError:
+                continue
+            if s.status_code == 200:
+                out["sitemap_served"] = True
+                out["sitemap_url"] = str(s.url)
+                break
     finally:
         if own_client:
             client.close()
@@ -454,6 +513,7 @@ def run_seo(
         row.hsts = http["hsts"]
         row.robots_served = http["robots_served"]
         row.sitemap_served = http["sitemap_served"]
+        row.sitemap_url = http.get("sitemap_url")
 
         local_service = None
         if not auth_skipped and creds is not None:

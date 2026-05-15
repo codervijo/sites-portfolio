@@ -10,6 +10,7 @@ import pytest
 from portfolio.seo_runtime import (
     SEORow,
     _live_domains_from_snapshot,
+    _parse_robots_sitemaps,
     overall_status,
     probe_crux,
     probe_gsc,
@@ -83,6 +84,108 @@ def test_probe_http_robots_must_be_text():
     with httpx.Client(transport=transport, follow_redirects=True) as client:
         r = probe_http("example.com", client=client)
     assert r["robots_served"] is False
+
+
+def test_probe_http_sitemap_url_passes_through_on_default():
+    """When /sitemap.xml works, sitemap_url records the full URL."""
+    transport = _mock_transport({
+        "/": httpx.Response(200),
+        "/robots.txt": httpx.Response(200,
+                                      headers={"content-type": "text/plain"},
+                                      text="User-agent: *\n"),
+        "/sitemap.xml": httpx.Response(200, text="<urlset/>"),
+    })
+    with httpx.Client(transport=transport, follow_redirects=True) as client:
+        r = probe_http("example.com", client=client)
+    assert r["sitemap_served"] is True
+    assert r["sitemap_url"] == "https://example.com/sitemap.xml"
+
+
+def test_probe_http_sitemap_falls_back_to_index_path():
+    """When /sitemap.xml 404s, try /sitemap-index.xml — covers calcengine.site."""
+    transport = _mock_transport({
+        "/": httpx.Response(200),
+        "/robots.txt": httpx.Response(200,
+                                      headers={"content-type": "text/plain"},
+                                      text="User-agent: *\nAllow: /\n"),
+        "/sitemap.xml": httpx.Response(404),
+        "/sitemap-index.xml": httpx.Response(200, text="<sitemapindex/>"),
+    })
+    with httpx.Client(transport=transport, follow_redirects=True) as client:
+        r = probe_http("example.com", client=client)
+    assert r["sitemap_served"] is True
+    assert r["sitemap_url"] == "https://example.com/sitemap-index.xml"
+
+
+def test_probe_http_sitemap_follows_robots_directive():
+    """A `Sitemap:` directive in robots.txt wins — even when it points at
+    a host the probe wouldn't otherwise try (e.g. www subdomain)."""
+    def handler(request):
+        path = request.url.path
+        host = request.url.host
+        if host == "example.com" and path == "/":
+            return httpx.Response(200)
+        if host == "example.com" and path == "/robots.txt":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                text="User-agent: *\nSitemap: https://www.example.com/sitemap-index.xml\n",
+            )
+        if host == "example.com" and path == "/sitemap.xml":
+            return httpx.Response(404)
+        if host == "www.example.com" and path == "/sitemap-index.xml":
+            return httpx.Response(200, text="<sitemapindex/>")
+        return httpx.Response(404)
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport, follow_redirects=True) as client:
+        r = probe_http("example.com", client=client)
+    assert r["sitemap_served"] is True
+    assert r["sitemap_url"] == "https://www.example.com/sitemap-index.xml"
+
+
+def test_probe_http_sitemap_all_candidates_404():
+    transport = _mock_transport({
+        "/": httpx.Response(200),
+        "/robots.txt": httpx.Response(200,
+                                      headers={"content-type": "text/plain"},
+                                      text="User-agent: *\n"),
+    })
+    with httpx.Client(transport=transport, follow_redirects=True) as client:
+        r = probe_http("example.com", client=client)
+    assert r["sitemap_served"] is False
+    assert r["sitemap_url"] is None
+
+
+def test_parse_robots_sitemaps_basic():
+    body = "User-agent: *\nDisallow:\nSitemap: https://x.com/a.xml\n"
+    assert _parse_robots_sitemaps(body) == ["https://x.com/a.xml"]
+
+
+def test_parse_robots_sitemaps_multiple_and_case_insensitive():
+    body = (
+        "User-agent: *\n"
+        "sitemap: https://x.com/a.xml\n"
+        "SITEMAP: https://x.com/b.xml\n"
+        "Sitemap: https://x.com/c.xml\n"
+    )
+    assert _parse_robots_sitemaps(body) == [
+        "https://x.com/a.xml", "https://x.com/b.xml", "https://x.com/c.xml"
+    ]
+
+
+def test_parse_robots_sitemaps_ignores_comments_and_relative():
+    body = (
+        "# Sitemap: https://x.com/commented.xml\n"
+        "Sitemap: /relative.xml\n"      # ignored — must be absolute http(s)
+        "Sitemap: ftp://x.com/wrong\n"  # ignored — wrong scheme
+        "Sitemap: https://x.com/ok.xml\n"
+    )
+    assert _parse_robots_sitemaps(body) == ["https://x.com/ok.xml"]
+
+
+def test_parse_robots_sitemaps_empty():
+    assert _parse_robots_sitemaps("") == []
+    assert _parse_robots_sitemaps("User-agent: *\nDisallow:\n") == []
 
 
 # ---------- GSC probe ----------
