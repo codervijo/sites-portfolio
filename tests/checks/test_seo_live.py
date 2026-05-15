@@ -620,3 +620,211 @@ def test_check_091_reports_per_url_block_index(tmp_path, monkeypatch):
     r = run(str(site))
     assert r.status == "fail"
     assert "https://x.test/page#2" in r.message
+
+
+# ---------- CHECK_092 — live-jsonld-url-matches-canonical ----------
+
+
+def _stub_check_092(monkeypatch, *, urls, htmls):
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical.get_sitemap_urls",
+        lambda origin: urls,
+    )
+    def _fetch(url):
+        if url in htmls:
+            return htmls[url]
+        raise LiveFetchError(f"no stub for {url}")
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical.fetch_html",
+        _fetch,
+    )
+
+
+def _page_with_canonical_and_jsonld(canonical: str, jsonld_url: str,
+                                    jsonld_type: str = "WebApplication") -> str:
+    return (
+        '<html><head>'
+        f'<link rel="canonical" href="{canonical}" />'
+        '<script type="application/ld+json">'
+        f'{{"@type":"{jsonld_type}","url":"{jsonld_url}"}}'
+        '</script>'
+        '</head><body/></html>'
+    )
+
+
+def test_check_092_passes_when_url_matches_canonical(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    canonical = "https://x.test/page"
+    html = _page_with_canonical_and_jsonld(canonical, canonical)
+    _stub_check_092(monkeypatch,
+                    urls=["https://x.test/page"],
+                    htmls={"https://x.test/page": html})
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_092_catches_washcalc_regression(tmp_path, monkeypatch):
+    """The exact bug from washcalc.app's audit:
+       canonical = https://www.washcalc.app/calculators/driveway
+       JSON-LD url = https://www.washcalc.app/ (homepage)
+    Different paths → FAIL."""
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    page_url = "https://www.washcalc.app/calculators/driveway"
+    html = _page_with_canonical_and_jsonld(
+        canonical="https://www.washcalc.app/calculators/driveway",
+        jsonld_url="https://www.washcalc.app/",
+        jsonld_type="WebApplication",
+    )
+    _stub_check_092(monkeypatch, urls=[page_url], htmls={page_url: html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "WebApplication" in r.message
+    assert "https://www.washcalc.app/" in r.message       # the wrong url
+    assert "calculators/driveway" in r.message            # the canonical
+
+
+def test_check_092_normalizes_trailing_slash():
+    """A trailing slash on deeper paths is ignored; URLs that only
+    differ in a trailing slash count as matching."""
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import (
+        _normalize_url,
+    )
+    assert _normalize_url("https://x.test/page/") == _normalize_url("https://x.test/page")
+    # Root slash kept (origin form).
+    assert _normalize_url("https://x.test/") == "https://x.test/"
+
+
+def test_check_092_lowercases_scheme_and_host():
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import (
+        _normalize_url,
+    )
+    assert (_normalize_url("HTTPS://X.TEST/PAGE")
+            == _normalize_url("https://x.test/PAGE"))
+
+
+def test_check_092_skips_nodes_outside_page_level_types(tmp_path, monkeypatch):
+    """A BreadcrumbList item's `url`/`item` should NOT be checked
+    against canonical — those are navigation links."""
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    # Canonical doesn't match the breadcrumb item URLs — but the check
+    # shouldn't fire on those.
+    html = (
+        '<head>'
+        '<link rel="canonical" href="https://x.test/products/widget" />'
+        '<script type="application/ld+json">'
+        '{"@type":"BreadcrumbList","itemListElement":['
+        '{"@type":"ListItem","position":1,"name":"Home","item":"https://x.test/"},'
+        '{"@type":"ListItem","position":2,"name":"Products","item":"https://x.test/products"}'
+        ']}'
+        '</script>'
+        '</head><body/>'
+    )
+    _stub_check_092(monkeypatch,
+                    urls=["https://x.test/products/widget"],
+                    htmls={"https://x.test/products/widget": html})
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_092_fires_on_softwareapplication(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    html = _page_with_canonical_and_jsonld(
+        canonical="https://x.test/calc",
+        jsonld_url="https://x.test/",
+        jsonld_type="SoftwareApplication",
+    )
+    _stub_check_092(monkeypatch, urls=["https://x.test/calc"],
+                    htmls={"https://x.test/calc": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "SoftwareApplication" in r.message
+
+
+def test_check_092_pass_when_no_canonical(tmp_path, monkeypatch):
+    """No canonical → nothing to compare against → pass.
+    (Missing canonical is CHECK_072's territory.)"""
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    html = (
+        '<head>'
+        '<script type="application/ld+json">{"@type":"WebApplication","url":"https://x.test/anywhere"}</script>'
+        '</head><body/>'
+    )
+    _stub_check_092(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_092_pass_when_no_page_level_url_field(tmp_path, monkeypatch):
+    """A page-level node without a `url` field → pass."""
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    html = (
+        '<head>'
+        '<link rel="canonical" href="https://x.test/p" />'
+        '<script type="application/ld+json">{"@type":"WebPage","name":"X"}</script>'
+        '</head><body/>'
+    )
+    _stub_check_092(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_092_walks_into_graph(tmp_path, monkeypatch):
+    """@graph wrapped JSON-LD: nodes inside the graph are inspected."""
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    html = (
+        '<head>'
+        '<link rel="canonical" href="https://x.test/calc" />'
+        '<script type="application/ld+json">'
+        '{"@context":"https://schema.org","@graph":['
+        '{"@type":"Organization","name":"X"},'
+        '{"@type":"WebApplication","url":"https://x.test/"}'
+        ']}'
+        '</script>'
+        '</head><body/>'
+    )
+    _stub_check_092(monkeypatch, urls=["https://x.test/calc"],
+                    htmls={"https://x.test/calc": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "WebApplication" in r.message
+
+
+def test_check_092_multiple_mismatches_reported(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    bad1 = _page_with_canonical_and_jsonld(
+        "https://x.test/a", "https://x.test/", "WebApplication")
+    bad2 = _page_with_canonical_and_jsonld(
+        "https://x.test/b", "https://x.test/", "SoftwareApplication")
+    _stub_check_092(monkeypatch,
+                    urls=["https://x.test/a", "https://x.test/b"],
+                    htmls={"https://x.test/a": bad1, "https://x.test/b": bad2})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "2 mismatch(es)" in r.message
+
+
+def test_check_092_warn_when_every_url_unreachable(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical import run
+    site = _site_with_homepage(tmp_path)
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical.get_sitemap_urls",
+        lambda origin: ["https://x.test/a"],
+    )
+    def _explode(url):
+        raise LiveFetchError("net")
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_092_live_jsonld_url_matches_canonical.fetch_html",
+        _explode,
+    )
+    r = run(str(site))
+    assert r.status == "warn"
