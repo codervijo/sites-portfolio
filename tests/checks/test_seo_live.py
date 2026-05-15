@@ -828,3 +828,171 @@ def test_check_092_warn_when_every_url_unreachable(tmp_path, monkeypatch):
     )
     r = run(str(site))
     assert r.status == "warn"
+
+
+# ---------- CHECK_093 — live-faqpage-shape ----------
+
+
+def _stub_check_093(monkeypatch, *, urls, htmls):
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_093_live_faqpage_shape.get_sitemap_urls",
+        lambda origin: urls,
+    )
+    def _fetch(url):
+        if url in htmls:
+            return htmls[url]
+        raise LiveFetchError(f"no stub for {url}")
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_093_live_faqpage_shape.fetch_html",
+        _fetch,
+    )
+
+
+def _faqpage_html(faqpage_obj: dict) -> str:
+    import json as _json
+    return (
+        '<head><script type="application/ld+json">'
+        + _json.dumps(faqpage_obj)
+        + '</script></head><body/>'
+    )
+
+
+def test_check_093_pass_when_faqpage_well_formed(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _faqpage_html({
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": "Q1?",
+             "acceptedAnswer": {"@type": "Answer", "text": "A1"}},
+            {"@type": "Question", "name": "Q2?",
+             "acceptedAnswer": {"@type": "Answer", "text": "A2"}},
+        ],
+    })
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+    assert "1 FAQPage block(s)" in r.message
+
+
+def test_check_093_pass_when_no_faqpage_anywhere(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = (
+        '<head><script type="application/ld+json">'
+        '{"@type":"WebApplication"}</script></head><body/>'
+    )
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+    assert "no FAQPage" in r.message
+
+
+def test_check_093_fails_when_main_entity_empty(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _faqpage_html({"@type": "FAQPage", "mainEntity": []})
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "mainEntity missing or empty" in r.message
+
+
+def test_check_093_fails_when_main_entity_missing(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _faqpage_html({"@type": "FAQPage"})
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+
+
+def test_check_093_fails_when_question_has_no_answer(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _faqpage_html({
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": "Q1?",
+             "acceptedAnswer": {"@type": "Answer", "text": "A1"}},
+            {"@type": "Question", "name": "Q2 missing answer?"},
+        ],
+    })
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "Q2 missing answer" in r.message
+    assert "no acceptedAnswer" in r.message
+
+
+def test_check_093_fails_when_answer_text_empty(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _faqpage_html({
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": "Q?",
+             "acceptedAnswer": {"@type": "Answer", "text": "   "}},
+        ],
+    })
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "empty acceptedAnswer.text" in r.message
+
+
+def test_check_093_fails_when_question_has_no_name(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _faqpage_html({
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question",
+             "acceptedAnswer": {"@type": "Answer", "text": "A"}},
+        ],
+    })
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "has no `name`" in r.message
+
+
+def test_check_093_fails_when_item_is_not_question(tmp_path, monkeypatch):
+    """mainEntity[] should contain Questions; anything else is a shape bug."""
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _faqpage_html({
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Thing", "name": "wrong"},
+        ],
+    })
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "expected Question" in r.message
+
+
+def test_check_093_walks_graph(tmp_path, monkeypatch):
+    """FAQPage nested inside @graph is still inspected."""
+    from portfolio.checks.seo.check_093_live_faqpage_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _faqpage_html({
+        "@context": "https://schema.org",
+        "@graph": [
+            {"@type": "WebApplication"},
+            {"@type": "FAQPage", "mainEntity": []},
+        ],
+    })
+    _stub_check_093(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
