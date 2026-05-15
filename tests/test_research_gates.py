@@ -160,10 +160,13 @@ def test_gate_results_to_dict_keys_match_schema():
 # ---------- stub gate functions ----------
 
 
-def test_evaluate_gate_2_stub_returns_pending():
-    r = evaluate_gate_2({"topic": "x"})
-    assert r.label == LABEL_PENDING
-    assert r.passed is None
+def test_evaluate_gate_2_empty_cluster_weak_pass():
+    """Empty cluster: no kill-tier fires, but also no beatable results.
+    Result is WEAK-PASS (passed=True, but findings flag the void)."""
+    r = evaluate_gate_2({"topic": "x", "cluster_queries": [],
+                        "per_query_results": []}, media_pubs={})
+    assert r.label == LABEL_WEAK_PASS
+    assert r.passed is True
 
 
 def test_evaluate_gate_3_stub_returns_pending():
@@ -434,6 +437,304 @@ def test_gate_1_raw_carries_threshold():
     assert r.raw["threshold"] == GATE_1_VOLUME_THRESHOLD
 
 
+# ---------- Gate 2: helpers ----------
+
+
+def _organic(domain: str, url: str = "", title: str = "") -> dict:
+    return {
+        "position": 1,
+        "domain": domain,
+        "url": url or f"https://{domain}/article",
+        "title": title or f"Article on {domain}",
+        "snippet": "",
+        "displayed_link": domain,
+    }
+
+
+def _cluster_with_organic(topic: str, queries: list[tuple[str, list[dict]]],
+                          ai_overview_queries: list[str] | None = None,
+                          source: str = "serpapi") -> dict:
+    ai_overview_queries = ai_overview_queries or []
+    return {
+        "schema": "research-cluster-v2",
+        "topic": topic,
+        "source": source,
+        "cluster_queries": [q for q, _ in queries],
+        "per_query_results": [
+            {
+                "schema": "serp-query-v1",
+                "query": q,
+                "organic_results": orgs,
+                "features": {
+                    "ai_overview": {"present": q in ai_overview_queries,
+                                    "cited_domains": []},
+                },
+            }
+            for q, orgs in queries
+        ],
+    }
+
+
+# ---------- Gate 2: individual classifiers ----------
+
+
+def test_gate_2_reddit_present_fires_on_any_query():
+    """Reddit alone is not a kill condition — but the classifier fires."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("ev charger installation", [_organic("reddit.com"), _organic("a.com"),
+                                     _organic("b.com")]),
+        ("ev charger cost", [_organic("c.com"), _organic("d.com"),
+                             _organic("e.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.raw["classifications"]["reddit_present"]["present"] is True
+    # Reddit alone shouldn't kill — WEAK-PASS or PASS.
+    assert r.label != LABEL_FAIL
+
+
+def test_gate_2_ai_overview_dominant_kills_alone():
+    """≥2 queries with AI Overview present → FAIL (kill-tier)."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("x.com"), _organic("y.com"), _organic("z.com"),
+               _organic("w.com")]),
+        ("b", [_organic("x2.com"), _organic("y2.com"), _organic("z2.com")]),
+    ], ai_overview_queries=["a", "b"])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.label == LABEL_FAIL
+    assert "ai_overview_dominant" in r.raw["kill_tier_reasons"]
+
+
+def test_gate_2_ai_overview_single_query_does_not_kill():
+    """Only one query with AI Overview → not dominant → not killed."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("x.com"), _organic("y.com"), _organic("z.com"),
+               _organic("w.com")]),
+        ("b", [_organic("x2.com"), _organic("y2.com"), _organic("z2.com")]),
+    ], ai_overview_queries=["a"])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.raw["classifications"]["ai_overview_dominant"]["dominant"] is False
+    assert r.label != LABEL_FAIL
+
+
+def test_gate_2_programmatic_at_scale_kills():
+    """Same domain in 3 of 3 queries → PROGRAMMATIC_AT_SCALE → FAIL."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("evpedia.com"), _organic("x.com"), _organic("y.com")]),
+        ("b", [_organic("evpedia.com"), _organic("z.com"), _organic("w.com")]),
+        ("c", [_organic("evpedia.com"), _organic("v.com"), _organic("u.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.label == LABEL_FAIL
+    assert r.raw["classifications"]["programmatic_at_scale"]["present"] is True
+    assert "evpedia.com" in r.raw["classifications"]["programmatic_at_scale"]["incumbents"]
+
+
+def test_gate_2_programmatic_at_scale_needs_three_queries():
+    """Same domain in only 2 queries → PROGRAMMATIC_AT_SCALE doesn't fire."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("evpedia.com")]),
+        ("b", [_organic("evpedia.com")]),
+        ("c", [_organic("x.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.raw["classifications"]["programmatic_at_scale"]["present"] is False
+
+
+def test_gate_2_specialty_incumbent_fires_on_year_pattern():
+    """Domain with /2026/ in URL → SPECIALTY_INCUMBENT → FAIL."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("notesla.com",
+                        url="https://notesla.com/2026/model-y-charging-guide")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.label == LABEL_FAIL
+    assert "notesla.com" in r.raw["classifications"]["specialty_incumbent"]["incumbents"]
+
+
+def test_gate_2_specialty_incumbent_fires_on_state_pattern():
+    """`/tx/state/` → SPECIALTY_INCUMBENT."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("evrebates.com",
+                        url="https://evrebates.com/tx/state/charger-incentives")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.label == LABEL_FAIL
+
+
+def test_gate_2_specialty_incumbent_skips_media_domains():
+    """A media domain with a /2026/ URL is NOT a specialty incumbent."""
+    media_pubs = {"automotive": ["caranddriver.com"]}
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("caranddriver.com",
+                        url="https://caranddriver.com/2026/ev-roundup")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs=media_pubs)
+    assert r.raw["classifications"]["specialty_incumbent"]["present"] is False
+
+
+def test_gate_2_specialty_incumbent_skips_reddit():
+    """Reddit URLs that happen to have /year/ patterns don't trigger."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("reddit.com",
+                        url="https://reddit.com/r/electricvehicles/2026/thread")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.raw["classifications"]["specialty_incumbent"]["present"] is False
+
+
+def test_gate_2_media_locked_needs_two_queries():
+    """≥2 queries with media-pub in top-10 → MEDIA_LOCKED."""
+    media_pubs = {"automotive": ["caranddriver.com", "motortrend.com"]}
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("caranddriver.com")]),
+        ("b", [_organic("motortrend.com")]),
+        ("c", [_organic("x.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs=media_pubs)
+    assert r.raw["classifications"]["media_locked"]["locked"] is True
+
+
+def test_gate_2_media_locked_only_one_query_doesnt_fire():
+    media_pubs = {"automotive": ["caranddriver.com"]}
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("caranddriver.com")]),
+        ("b", [_organic("x.com")]),
+        ("c", [_organic("y.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs=media_pubs)
+    assert r.raw["classifications"]["media_locked"]["locked"] is False
+
+
+def test_gate_2_reddit_plus_media_kills():
+    """REDDIT_PRESENT + MEDIA_LOCKED → FAIL (both intents locked)."""
+    media_pubs = {"automotive": ["caranddriver.com", "motortrend.com"]}
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("reddit.com"), _organic("caranddriver.com")]),
+        ("b", [_organic("motortrend.com")]),
+        ("c", [_organic("x.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs=media_pubs)
+    assert r.label == LABEL_FAIL
+    assert "reddit_and_media_locked" in r.raw["kill_tier_reasons"]
+
+
+def test_gate_2_reddit_alone_does_not_kill():
+    """REDDIT_PRESENT alone, no media-locked → no kill."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("reddit.com")]),
+        ("b", [_organic("x.com"), _organic("y.com"), _organic("z.com"),
+               _organic("w.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.label != LABEL_FAIL
+
+
+# ---------- Gate 2: pass/fail/weak-pass synthesis ----------
+
+
+def test_gate_2_passes_with_three_beatable_domains():
+    """≥3 unique non-classified domains AND no kill-tier → PASS."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("x.com"), _organic("y.com"), _organic("z.com"),
+               _organic("w.com"), _organic("v.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.label == LABEL_PASS
+    assert r.passed is True
+    assert r.raw["classifications"]["potentially_beatable"]["count"] >= 3
+
+
+def test_gate_2_weak_pass_when_few_beatable_no_kill():
+    """No kill-tier but < 3 beatable → WEAK-PASS."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("x.com"), _organic("y.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert r.label == LABEL_WEAK_PASS
+    assert r.passed is True
+
+
+def test_gate_2_excludes_wikipedia_from_beatable():
+    """Wikipedia is an institutional ranker — not a beatable competitor."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("wikipedia.org"), _organic("x.com")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    domains = {b["domain"] for b in r.raw["classifications"]["potentially_beatable"]["domains"]}
+    assert "wikipedia.org" not in domains
+    assert "x.com" in domains
+
+
+def test_gate_2_findings_include_specialty_details():
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("notesla.com",
+                        url="https://notesla.com/2026/charger-list")]),
+    ])
+    r = evaluate_gate_2(cluster, media_pubs={})
+    joined = " ".join(r.findings)
+    assert "notesla.com" in joined
+    assert "specialty incumbent" in joined.lower()
+
+
+def test_gate_2_synthesis_only_tags_findings():
+    cluster = {
+        "schema": "research-cluster-v2",
+        "topic": "x",
+        "source": "gpt-synthesis-fallback",
+        "cluster_queries": ["a"],
+        "per_query_results": [],
+    }
+    r = evaluate_gate_2(cluster, media_pubs={})
+    assert any("[from LLM guess]" in f for f in r.findings)
+    assert r.raw["synthesis_only"] is True
+
+
+# ---------- Gate 2: moat-required helper integration ----------
+
+
+def test_is_moat_required_with_real_gate_2_specialty():
+    """The dict-with-`present`-flag shape from real Gate 2 triggers moat."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("notesla.com",
+                        url="https://notesla.com/2026/list")]),
+    ])
+    g2 = evaluate_gate_2(cluster, media_pubs={})
+    assert is_moat_required(g2) is True
+
+
+def test_is_moat_required_with_real_gate_2_ai_overview_kill_but_no_incumbent():
+    """AI-Overview kill does NOT require a moat (PRD §P2.4 — only
+    specialty/programmatic incumbents trigger the moat prompt)."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("x.com"), _organic("y.com"), _organic("z.com")]),
+        ("b", [_organic("x2.com"), _organic("y2.com"), _organic("z2.com")]),
+    ], ai_overview_queries=["a", "b"])
+    g2 = evaluate_gate_2(cluster, media_pubs={})
+    assert g2.label == LABEL_FAIL
+    assert is_moat_required(g2) is False
+
+
+# ---------- Gate 2: media-publications loader ----------
+
+
+def test_load_media_publications_returns_dict():
+    """Loader reads the on-disk TOML and returns vertical → domains dict."""
+    from portfolio.research_gates import load_media_publications
+    pubs = load_media_publications()
+    assert isinstance(pubs, dict)
+    # The shipped allow-list includes automotive — sanity check it loaded.
+    assert "automotive" in pubs
+    assert "caranddriver.com" in pubs["automotive"]
+
+
+def test_load_media_publications_domains_are_lowercased():
+    from portfolio.research_gates import load_media_publications
+    pubs = load_media_publications()
+    for vert, doms in pubs.items():
+        for d in doms:
+            assert d == d.lower(), f"{vert}: {d!r} not lowercased"
+
+
 # ---------- moat-required helper ----------
 
 
@@ -498,13 +799,14 @@ def test_synthesize_verdict_accepts_op_fit_kw():
 
 def test_evaluate_cluster_returns_full_gate_results():
     """The orchestrator returns a GateResults with all four slots
-    populated. Gate 1 is real (P2.B+) — empty per-query data means it
-    FAILs (zero pollution-adjusted volume). Gate 2 / 3 are still stubs."""
+    populated. Gate 1 + Gate 2 are real (P2.B/C); Gate 3 is still a
+    stub. An empty cluster → Gate 1 FAIL (zero volume), Gate 2
+    WEAK-PASS (no kill-tier but also no beatable)."""
     cluster = {"topic": "x", "cluster_queries": ["x"], "per_query_results": []}
     r = evaluate_cluster(cluster, volume_estimator=lambda qs: {q: 0 for q in qs})
     assert isinstance(r, GateResults)
     assert r.gate_1_market.label == LABEL_FAIL
-    assert r.gate_2_serp.label == LABEL_PENDING
+    assert r.gate_2_serp.label == LABEL_WEAK_PASS
     assert r.gate_3_moat.label == LABEL_PENDING
     assert isinstance(r.operator_fit, OperatorFitResult)
 

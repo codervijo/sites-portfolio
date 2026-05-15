@@ -333,15 +333,317 @@ def evaluate_gate_1(cluster: dict, *,
     )
 
 
-def evaluate_gate_2(cluster: dict) -> GateResult:
-    """Gate 2 (SERP) — seven classifiers + pass/fail/weak-pass.
+# ---------- Gate 2 (SERP) — P2.C ----------
 
-    Stub: returns PENDING. P2.C replaces this with the real logic.
+# Programmatic-URL patterns (PRD §P2.3 SPECIALTY_INCUMBENT classifier).
+# A URL matching any of these is a signal that the page belongs to a
+# template-generated programmatic cluster.
+_PROGRAMMATIC_URL_PATTERNS = [
+    re.compile(r"/(?:19|20)\d{2}/"),                       # year segment
+    re.compile(r"/v\d+\b"),                                # version segment
+    re.compile(r"/[a-z]{2}/(?:state|states)/"),            # state-code/state
+    re.compile(r"/[a-z\-]+(?:city|town)\b"),               # geo
+    re.compile(r"/(?:model|models|version)/[a-z0-9\-]+"),  # model identifier
+]
+
+# Threshold for PROGRAMMATIC_AT_SCALE — domain in N+ cluster queries' top-10.
+_PROGRAMMATIC_SCALE_THRESHOLD = 3
+
+# Threshold for MEDIA_LOCKED + AI_OVERVIEW_DOMINANT — ≥N cluster queries
+# carry the signal.
+_MEDIA_LOCKED_THRESHOLD = 2
+_AI_OVERVIEW_DOMINANT_THRESHOLD = 2
+
+
+def load_media_publications() -> dict[str, list[str]]:
+    """Load the media-pub allow-list from
+    `data/research/media_publications.toml`. Returns
+    `{vertical: [domains]}`. Returns `{}` if the file is missing — the
+    MEDIA_LOCKED classifier will silently no-op rather than crash."""
+    import tomllib
+    from .data import ROOT
+    p = ROOT / "data" / "research" / "media_publications.toml"
+    if not p.exists():
+        return {}
+    try:
+        with p.open("rb") as f:
+            doc = tomllib.load(f)
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, list[str]] = {}
+    for vert, section in doc.items():
+        if isinstance(section, dict):
+            domains = section.get("domains", [])
+            if isinstance(domains, list):
+                out[vert] = [str(d).lower().strip() for d in domains if d]
+    return out
+
+
+def _all_organic(cluster: dict) -> list[tuple[str, dict]]:
+    """Yield (query, organic_result) pairs across the cluster's top-10s."""
+    out: list[tuple[str, dict]] = []
+    for p in cluster.get("per_query_results", []) or []:
+        q = p.get("query", "")
+        for r in (p.get("organic_results", []) or [])[:10]:
+            out.append((q, r))
+    return out
+
+
+def _detect_reddit_present(cluster: dict) -> dict:
+    """REDDIT_PRESENT — `reddit.com` in any cluster query's top-10."""
+    hits: list[str] = []
+    for q, r in _all_organic(cluster):
+        d = (r.get("domain") or "").lower()
+        if d == "reddit.com" or d.endswith(".reddit.com"):
+            if q not in hits:
+                hits.append(q)
+    return {"present": bool(hits), "queries": hits}
+
+
+def _detect_ai_overview_dominant(cluster: dict) -> dict:
+    """AI_OVERVIEW_DOMINANT — `ai_overview.present == True` on ≥2 queries."""
+    hits: list[str] = []
+    for p in cluster.get("per_query_results", []) or []:
+        feats = p.get("features", {}) or {}
+        ai = feats.get("ai_overview") or {}
+        if ai.get("present"):
+            hits.append(p.get("query", ""))
+    return {
+        "dominant": len(hits) >= _AI_OVERVIEW_DOMINANT_THRESHOLD,
+        "queries": hits,
+        "count": len(hits),
+    }
+
+
+def _detect_programmatic_at_scale(cluster: dict) -> dict:
+    """PROGRAMMATIC_AT_SCALE — same domain in ≥3 cluster queries' top-10."""
+    from collections import defaultdict
+    by_domain: defaultdict[str, set] = defaultdict(set)
+    for q, r in _all_organic(cluster):
+        d = (r.get("domain") or "").lower()
+        if d:
+            by_domain[d].add(q)
+    incumbents = {
+        d: sorted(qs) for d, qs in by_domain.items()
+        if len(qs) >= _PROGRAMMATIC_SCALE_THRESHOLD
+    }
+    return {"present": bool(incumbents), "incumbents": incumbents}
+
+
+def _detect_specialty_incumbent(cluster: dict, *,
+                                excluded_domains: set[str]) -> dict:
+    """SPECIALTY_INCUMBENT — domain ranks ≥1 query with a URL matching the
+    programmatic-pattern regex AND is not in the excluded set
+    (media/Reddit/wiki/etc.)."""
+    hits: dict[str, list[str]] = {}
+    for q, r in _all_organic(cluster):
+        d = (r.get("domain") or "").lower()
+        url = (r.get("url") or "").lower()
+        if not d or not url:
+            continue
+        if d in excluded_domains:
+            continue
+        for pat in _PROGRAMMATIC_URL_PATTERNS:
+            if pat.search(url):
+                if d not in hits:
+                    hits[d] = []
+                if q not in hits[d]:
+                    hits[d].append(q)
+                break
+    return {"present": bool(hits), "incumbents": hits}
+
+
+def _detect_media_locked(cluster: dict, *,
+                         media_pubs: dict[str, list[str]]) -> dict:
+    """MEDIA_LOCKED — ≥2 cluster queries return a media-pub domain in top-10."""
+    all_media: set[str] = set()
+    domain_to_vertical: dict[str, str] = {}
+    for vert, doms in media_pubs.items():
+        for d in doms:
+            all_media.add(d)
+            domain_to_vertical[d] = vert
+    if not all_media:
+        return {"locked": False, "queries": {}, "count": 0, "verticals": []}
+
+    by_query: dict[str, list[str]] = {}
+    for q, r in _all_organic(cluster):
+        d = (r.get("domain") or "").lower()
+        if d in all_media:
+            by_query.setdefault(q, []).append(d)
+
+    verticals = sorted({
+        domain_to_vertical[d]
+        for doms in by_query.values() for d in doms
+    })
+    return {
+        "locked": len(by_query) >= _MEDIA_LOCKED_THRESHOLD,
+        "queries": by_query,
+        "count": len(by_query),
+        "verticals": verticals,
+    }
+
+
+def _detect_potentially_beatable(cluster: dict, *,
+                                 classified_domains: set[str]) -> dict:
+    """POTENTIALLY_BEATABLE — domains not claimed by a kill-tier classifier.
+    Weak signal: counts unique domains that look generic (no programmatic
+    URL, not in media list, not Reddit / Wikipedia)."""
+    seen: set[str] = set()
+    beatable: list[dict] = []
+    for q, r in _all_organic(cluster):
+        d = (r.get("domain") or "").lower()
+        if not d or d in seen:
+            continue
+        if d in classified_domains:
+            continue
+        if d == "wikipedia.org" or d.endswith(".wikipedia.org"):
+            continue
+        seen.add(d)
+        beatable.append({
+            "domain": d,
+            "query": q,
+            "title": r.get("title", ""),
+        })
+    return {"count": len(beatable), "domains": beatable}
+
+
+def evaluate_gate_2(cluster: dict, *,
+                    media_pubs: dict[str, list[str]] | None = None,
+                    ) -> GateResult:
+    """Gate 2 (SERP) — six classifiers + pass/fail/weak-pass.
+
+    Classifiers (PRD §P2.3):
+      - REDDIT_PRESENT
+      - AI_OVERVIEW_DOMINANT
+      - PROGRAMMATIC_AT_SCALE
+      - SPECIALTY_INCUMBENT
+      - MEDIA_LOCKED
+      - POTENTIALLY_BEATABLE
+
+    BRANDED_LOCKED is deferred — it's not in the PASS/FAIL decision per
+    PRD §P2.3, and a robust brand-detection mechanism is out of scope.
+
+    Fail conditions (PRD §P2.3):
+      - SPECIALTY_INCUMBENT or PROGRAMMATIC_AT_SCALE → FAIL (moat required)
+      - REDDIT_PRESENT AND MEDIA_LOCKED → FAIL (both intents locked)
+      - AI_OVERVIEW_DOMINANT alone → FAIL
+
+    Pass: ≥3 POTENTIALLY_BEATABLE AND no kill-tier classifier fires.
+    Else: WEAK PASS (findings flag what would force a niche-down).
+
+    `media_pubs` defaults to the on-disk allow-list (load_media_publications).
+    Inject a dict for tests.
     """
+    cluster_queries = cluster.get("cluster_queries", []) or []
+    source = cluster.get("source", "serpapi")
+    synthesis_only = source != "serpapi"
+
+    if media_pubs is None:
+        media_pubs = load_media_publications()
+
+    reddit = _detect_reddit_present(cluster)
+    ai_ov = _detect_ai_overview_dominant(cluster)
+    prog = _detect_programmatic_at_scale(cluster)
+
+    # SPECIALTY_INCUMBENT excludes Reddit + every media-list domain.
+    excluded = {"reddit.com"}
+    for doms in media_pubs.values():
+        excluded.update(doms)
+    spec = _detect_specialty_incumbent(cluster, excluded_domains=excluded)
+
+    media = _detect_media_locked(cluster, media_pubs=media_pubs)
+
+    # Build the set of domains already classified by a non-beatable
+    # classifier — these are excluded from POTENTIALLY_BEATABLE.
+    classified_domains: set[str] = set()
+    classified_domains.update(prog["incumbents"].keys())
+    classified_domains.update(spec["incumbents"].keys())
+    if reddit["present"]:
+        classified_domains.add("reddit.com")
+    for doms in media["queries"].values():
+        classified_domains.update(doms)
+
+    beatable = _detect_potentially_beatable(
+        cluster, classified_domains=classified_domains,
+    )
+
+    classifications = {
+        "specialty_incumbent": spec,
+        "programmatic_at_scale": prog,
+        "ai_overview_dominant": ai_ov,
+        "media_locked": media,
+        "reddit_present": reddit,
+        "potentially_beatable": beatable,
+    }
+
+    # Decide pass/fail per PRD §P2.3.
+    kill_tier_reasons: list[str] = []
+    if spec["present"]:
+        kill_tier_reasons.append("specialty_incumbent")
+    if prog["present"]:
+        kill_tier_reasons.append("programmatic_at_scale")
+    if reddit["present"] and media["locked"]:
+        kill_tier_reasons.append("reddit_and_media_locked")
+    if ai_ov["dominant"] and not kill_tier_reasons:
+        kill_tier_reasons.append("ai_overview_dominant")
+
+    findings: list[str] = []
+
+    if spec["present"]:
+        for d, qs in spec["incumbents"].items():
+            findings.append(
+                f"specialty incumbent: {d} ({len(qs)} queries, programmatic URLs)"
+            )
+    if prog["present"]:
+        for d, qs in prog["incumbents"].items():
+            findings.append(
+                f"programmatic at scale: {d} ({len(qs)}/{len(cluster_queries)} queries)"
+            )
+    if ai_ov["dominant"]:
+        findings.append(
+            f"AI Overview dominant: {ai_ov['count']}/{len(cluster_queries)} queries"
+        )
+    if reddit["present"] and media["locked"]:
+        findings.append(
+            f"locked intent: Reddit ({len(reddit['queries'])} queries) "
+            f"+ major media ({media['count']} queries)"
+        )
+    elif reddit["present"]:
+        findings.append(
+            f"Reddit present: {len(reddit['queries'])}/{len(cluster_queries)} queries "
+            "(discussion intent locked)"
+        )
+    elif media["locked"]:
+        verticals = ", ".join(media["verticals"]) if media["verticals"] else ""
+        verticals_str = f" ({verticals})" if verticals else ""
+        findings.append(
+            f"media-locked: {media['count']}/{len(cluster_queries)} queries{verticals_str}"
+        )
+
+    findings.append(
+        f"{beatable['count']} potentially beatable results"
+    )
+
+    if synthesis_only:
+        findings.append("[from LLM guess] — synthesis-only mode, classifiers degraded")
+
+    if kill_tier_reasons:
+        passed = False
+        label = LABEL_FAIL
+    elif beatable["count"] >= GATE_2_BEATABLE_THRESHOLD:
+        passed = True
+        label = LABEL_PASS
+    else:
+        passed = True
+        label = LABEL_WEAK_PASS
+
     return GateResult(
-        passed=None, label=LABEL_PENDING,
-        findings=["Gate 2 not yet implemented (P2.C)"],
-        raw={"stub": True},
+        passed=passed, label=label, findings=findings,
+        raw={
+            "classifications": classifications,
+            "kill_tier_reasons": kill_tier_reasons,
+            "synthesis_only": synthesis_only,
+        },
     )
 
 
@@ -399,13 +701,19 @@ def is_moat_required(gate_2: GateResult) -> bool:
     PROGRAMMATIC_AT_SCALE classifier hit.
 
     Used by callers to decide whether to prompt the user before
-    invoking `evaluate_gate_3`.
+    invoking `evaluate_gate_3`. Tolerant of two shapes for
+    `classifications.<name>`:
+      - dict with `"present": bool` (real P2.C output)
+      - truthy list/value (legacy test fixtures)
     """
     cls = gate_2.raw.get("classifications", {}) if gate_2.raw else {}
-    if cls.get("specialty_incumbent"):
-        return True
-    if cls.get("programmatic_at_scale"):
-        return True
+    for key in ("specialty_incumbent", "programmatic_at_scale"):
+        v = cls.get(key)
+        if isinstance(v, dict):
+            if v.get("present"):
+                return True
+        elif v:
+            return True
     return False
 
 

@@ -1,0 +1,124 @@
+# Major-industry-publication allow-list for v8.D Gate 2 (MEDIA_LOCKED
+# classifier). PRD §8.D option 1 — static, curated, lives as data.
+#
+# How it's used: Gate 2's MEDIA_LOCKED classifier fires when ≥2 cluster
+# queries return a result from any of these domains in the top-10. The
+# vertical labels are flavor for findings ("media-locked by automotive
+# publications: caranddriver.com, motortrend.com"); detection itself
+# runs against the union of all domains here.
+#
+# How to grow this list: when a new vertical appears in your research
+# work, add a `[<vertical>]` block with a `domains = [...]` list. Use
+# bare-domain form (no scheme, no www. — match keys are lowercased
+# domains as they appear in SerpAPI's `displayed_link` field).
+
+[automotive]
+domains = [
+    "caranddriver.com",
+    "motortrend.com",
+    "autoweek.com",
+    "autoblog.com",
+    "jalopnik.com",
+    "edmunds.com",
+    "kbb.com",
+    "thedrive.com",
+]
+
+[ev_electric]
+domains = [
+    "insideevs.com",
+    "electrek.co",
+    "cleantechnica.com",
+    "evannex.com",
+    "plugincars.com",
+]
+
+[tech]
+domains = [
+    "techcrunch.com",
+    "theverge.com",
+    "wired.com",
+    "arstechnica.com",
+    "engadget.com",
+    "gizmodo.com",
+    "tomshardware.com",
+    "zdnet.com",
+]
+
+[wordpress_cms]
+domains = [
+    "wpengine.com",
+    "wpbeginner.com",
+    "kinsta.com",
+    "wpmudev.com",
+    "smashingmagazine.com",
+]
+
+[home]
+domains = [
+    "thespruce.com",
+    "hgtv.com",
+    "housebeautiful.com",
+    "apartmenttherapy.com",
+    "thisoldhouse.com",
+    "bobvila.com",
+]
+
+[finance]
+domains = [
+    "forbes.com",
+    "bloomberg.com",
+    "cnbc.com",
+    "marketwatch.com",
+    "fool.com",
+    "investopedia.com",
+    "nerdwallet.com",
+]
+
+[fitness_wellness]
+domains = [
+    "menshealth.com",
+    "womenshealth.com",
+    "self.com",
+    "shape.com",
+    "runnersworld.com",
+    "healthline.com",
+]
+
+[food]
+domains = [
+    "bonappetit.com",
+    "foodnetwork.com",
+    "epicurious.com",
+    "seriouseats.com",
+    "foodandwine.com",
+]
+
+[travel]
+domains = [
+    "tripadvisor.com",
+    "lonelyplanet.com",
+    "travelandleisure.com",
+    "cntraveler.com",
+    "afar.com",
+]
+
+[gaming]
+domains = [
+    "ign.com",
+    "kotaku.com",
+    "polygon.com",
+    "pcgamer.com",
+    "gamespot.com",
+    "rockpapershotgun.com",
+]
+
+[general_news]
+domains = [
+    "nytimes.com",
+    "washingtonpost.com",
+    "theatlantic.com",
+    "vox.com",
+    "thecut.com",
+    "newyorker.com",
+]
