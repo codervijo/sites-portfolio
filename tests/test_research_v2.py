@@ -245,3 +245,76 @@ def test_cluster_capped_at_5_queries(_stub_dir, monkeypatch):
     _stub_serpapi(monkeypatch)
     payload = research_v2.run_research_v2("topic", api_key="fake")
     assert len(payload["cluster_queries"]) == 5
+
+
+# ---------- P2.F — schema gate on cluster cache ----------
+
+
+def test_cluster_schema_mismatch_is_cache_miss(_stub_dir, monkeypatch):
+    """A cached cluster with a non-v2 schema field is treated as a miss
+    and triggers a fresh fetch (PRD P2.7 — old v8.B caches archived,
+    new schema bumps force re-fetch)."""
+    import json
+    from datetime import datetime, timezone
+
+    _stub_llm(monkeypatch)
+    _stub_serpapi(monkeypatch)
+    # Seed a stale-schema snapshot on disk.
+    topic = "ev charger"
+    p = research_v2.cluster_cache_path(topic)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({
+        "schema": "v8.B-legacy",
+        "topic": topic,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "cluster_queries": ["stale"],
+        "per_query_results": [],
+    }))
+    # Run — should fall through to fresh fetch (cluster_queries come
+    # from the stubbed LLM, not the stale file).
+    payload = research_v2.run_research_v2(topic, api_key="fake")
+    assert payload["schema"] == research_v2.CLUSTER_SCHEMA
+    assert payload["cluster_queries"] != ["stale"]
+    assert payload["from_cache"] is False
+
+
+def test_cluster_schema_missing_is_cache_miss(_stub_dir, monkeypatch):
+    """A cached file with NO schema field is also treated as a miss."""
+    import json
+    from datetime import datetime, timezone
+
+    _stub_llm(monkeypatch)
+    _stub_serpapi(monkeypatch)
+    topic = "ev charger"
+    p = research_v2.cluster_cache_path(topic)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({
+        "topic": topic,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "cluster_queries": ["stale"],
+    }))
+    payload = research_v2.run_research_v2(topic, api_key="fake")
+    assert payload["from_cache"] is False
+
+
+def test_save_cluster_snapshot_is_public():
+    """The renamed-to-public save helper is importable + callable.
+    CLI uses this to persist gates back into the snapshot after Phase 2."""
+    from portfolio.research_v2 import save_cluster_snapshot, _save_cluster_snapshot
+    assert save_cluster_snapshot is _save_cluster_snapshot  # alias intact
+
+
+def test_save_cluster_snapshot_writes_atomically(_stub_dir):
+    """Atomic write: tmp file is renamed in place; no half-written file."""
+    snapshot = {
+        "schema": research_v2.CLUSTER_SCHEMA,
+        "topic": "x", "cluster_queries": [], "per_query_results": [],
+    }
+    p = research_v2.save_cluster_snapshot("x", snapshot)
+    assert p.exists()
+    import json
+    loaded = json.loads(p.read_text())
+    assert loaded["topic"] == "x"
+    # No leftover tmp file in the directory
+    tmps = list(p.parent.glob("*.tmp"))
+    assert tmps == []

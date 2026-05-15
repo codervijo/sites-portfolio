@@ -207,8 +207,14 @@ _save_cluster_snapshot = save_cluster_snapshot
 
 def _load_cached_cluster(topic: str) -> dict | None:
     """Walk date subdirs newest-first looking for a cluster snapshot
-    for this topic that's within TTL. Same pattern as
-    `load_cached_query()`."""
+    for this topic that's within TTL AND on the current schema.
+
+    Cache misses on:
+      - file unreadable / malformed JSON
+      - missing/unparseable `fetched_at`
+      - schema mismatch (PRD P2.7 — old `v8.B` shape is treated as miss)
+      - older than CLUSTER_TTL_DAYS
+    """
     from datetime import timedelta
     if not SERP_DIR.exists():
         return None
@@ -227,6 +233,10 @@ def _load_cached_cluster(topic: str) -> dict | None:
         try:
             payload = json.loads(cf.read_text())
         except (OSError, ValueError):
+            continue
+        # Schema gate: anything not on the current schema (or missing
+        # the field entirely) is a miss. Forces re-fetch on schema bump.
+        if payload.get("schema") != CLUSTER_SCHEMA:
             continue
         fetched_iso = payload.get("fetched_at")
         if not fetched_iso:
