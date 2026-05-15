@@ -1,0 +1,123 @@
+{
+  "schema": "serp-query-v1",
+  "query": "WP security",
+  "fetched_at": "2026-05-15T12:04:46.006449+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "wordfence.com",
+      "url": "https://www.wordfence.com/",
+      "title": "Wordfence: WordPress Security Plugin",
+      "snippet": "The Wordfence WordPress security plugin provides free enterprise-class WordPress security, protecting your website from hacks and malware.",
+      "displayed_link": "https://www.wordfence.com"
+    },
+    {
+      "position": 2,
+      "domain": "wpsecurityninja.com",
+      "url": "https://wpsecurityninja.com/",
+      "title": "WordPress Security Made Easy | WP Security Ninja - Firewall ...",
+      "snippet": "Secure your WordPress site effortlessly using WP Security Ninja. Our plugin provides comprehensive security with malware scanning, firewall, and real-time ...",
+      "displayed_link": "https://wpsecurityninja.com"
+    },
+    {
+      "position": 3,
+      "domain": "wordpress.org",
+      "url": "https://wordpress.org/plugins/all-in-one-wp-security-and-firewall/",
+      "title": "All-In-One Security (AIOS) \u2013 Security and Firewall",
+      "snippet": "Protect your website investment with All-In-One Security (AIOS) \u2013 a comprehensive and easy to use security plugin designed especially for WordPress.",
+      "displayed_link": "https://wordpress.org \u203a plugins \u203a all-in-one-wp-security..."
+    },
+    {
+      "position": 4,
+      "domain": "wpcerber.com",
+      "url": "https://wpcerber.com/",
+      "title": "WP Cerber Security WordPress plugin: firewall, anti-spam ...",
+      "snippet": "WP Cerber is the comprehensive solution you need to protect your WordPress website from a myriad of threats, including brute-force attacks, malware, spam, and ...",
+      "displayed_link": "https://wpcerber.com"
+    },
+    {
+      "position": 5,
+      "domain": "wpengine.com",
+      "url": "https://wpengine.com/blog/wordpress-security-and-antivirus-plugins/",
+      "title": "Security and Antivirus Plugins for WordPress",
+      "snippet": "Top 7 WordPress Antivirus and Security Plugins \u00b7 1. BulletProof Security \u00b7 2. Sucuri Security \u00b7 3. iThemes Security \u00b7 4. All In One Security ( ...",
+      "displayed_link": "https://wpengine.com \u203a blog \u203a wordpress-security-and-..."
+    },
+    {
+      "position": 6,
+      "domain": "hackertarget.com",
+      "url": "https://hackertarget.com/wordpress-security-scan/",
+      "title": "WordPress Security Scan",
+      "snippet": "Online WordPress Security Scanner to test vulnerabilities and health of a WordPress installation. Checks include application security, WordPress plugins, ...",
+      "displayed_link": "https://hackertarget.com \u203a wordpress-security-scan"
+    },
+    {
+      "position": 7,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/Wordpress/comments/17dpwhm/what_plugins_would_you_recommend_for_security/",
+      "title": "What plugins would you recommend for security?",
+      "snippet": "I have just set up a new Wordpress blog but am unsure what plugins are best for safety and security?I know it's not good to \"bloat\" a website with plugins ...",
+      "displayed_link": "100+ comments \u00b7 2 years ago"
+    },
+    {
+      "position": 8,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=HWObyVESt24",
+      "title": "All in One WP Security and Firewall Settings - FREE ...",
+      "snippet": "The Ultimate WordPress Security Guide To Prevent Hacking & Malware Attacks. WPCrafter.com WordPress For Non-Techies",
+      "displayed_link": "33.4K+ views \u00b7 3 years ago"
+    },
+    {
+      "position": 9,
+      "domain": "wpsec.com",
+      "url": "https://wpsec.com/",
+      "title": "Online WordPress Security Scan for Vulnerabilities | WP Sec",
+      "snippet": "WPSec.com is an online security scanner for WordPress vulnerabilities. We keep track of all your WordPress installations and tell you as soon as they are ...",
+      "displayed_link": "https://wpsec.com"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": [
+        "bluehost.com",
+        "cloudflare.com",
+        "esokia.com",
+        "jetpack.com",
+        "namecheap.com",
+        "osomstudio.com",
+        "reddit.com",
+        "rivuletiq.com",
+        "wordpress.org",
+        "wp-rocket.me",
+        "wpbeginner.com",
+        "wpcreative.com.au",
+        "wpengine.com",
+        "youtube.com"
+      ]
+    },
+    "people_also_ask": [
+      "How much does Wordfence cost?",
+      "What is all in one WP security?",
+      "Is WPScan free?",
+      "Is Wordfence safe?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 7
+    }
+  }
+}

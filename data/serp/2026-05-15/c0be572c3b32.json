@@ -1,0 +1,114 @@
+{
+  "schema": "serp-query-v1",
+  "query": "WordPress security plugins",
+  "fetched_at": "2026-05-15T12:04:52.804017+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "wordfence.com",
+      "url": "https://www.wordfence.com/",
+      "title": "Wordfence: WordPress Security Plugin",
+      "snippet": "The Wordfence WordPress security plugin provides free enterprise-class WordPress security, protecting your website from hacks and malware.",
+      "displayed_link": "https://www.wordfence.com"
+    },
+    {
+      "position": 2,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/Wordpress/comments/17dpwhm/what_plugins_would_you_recommend_for_security/",
+      "title": "What plugins would you recommend for security?",
+      "snippet": "I have just set up a new Wordpress blog but am unsure what plugins are best for safety and security?I know it's not good to \"bloat\" a website with plugins ...",
+      "displayed_link": "100+ comments \u00b7 2 years ago"
+    },
+    {
+      "position": 3,
+      "domain": "supporthost.com",
+      "url": "https://supporthost.com/wordpress-security-plugins/",
+      "title": "The 8 Best WordPress Security Plugins",
+      "snippet": "The 8 Best WordPress Security Plugins \u00b7 1. Wordfence \u00b7 2. Sucuri Security \u00b7 3. BulletProof Security \u00b7 4. Jetpack \u00b7 5. Cloudflare \u00b7 6. All-In-One ...",
+      "displayed_link": "https://supporthost.com \u203a Blog \u203a Security"
+    },
+    {
+      "position": 4,
+      "domain": "wordpress.org",
+      "url": "https://wordpress.org/plugins/tags/security/",
+      "title": "Plugins categorized as security",
+      "snippet": "Improve your WP security with powerful one-click tools like backup, WAF, and malware scan. Includes free tools like stats, CDN and social sharing.",
+      "displayed_link": "https://wordpress.org \u203a plugins \u203a tags \u203a security"
+    },
+    {
+      "position": 5,
+      "domain": "miniorange.com",
+      "url": "https://www.miniorange.com/blog/best-wordpress-security-plugins/",
+      "title": "12 Best WordPress Security Plugins for 2026",
+      "snippet": "12 Best WordPress Security Plugins to Protect Your Website \u00b7 12. CleanTalk Security \u00b7 11. BulletProof Security \u00b7 10. Jetpack Security \u00b7 9.",
+      "displayed_link": "https://www.miniorange.com \u203a Home \u203a Wordpress"
+    },
+    {
+      "position": 6,
+      "domain": "sitecare.com",
+      "url": "https://sitecare.com/best-wordpress-security-plugins/",
+      "title": "Best WordPress Security Plugins: A Layered Approach",
+      "snippet": "Discover top WordPress security plugins and why layered protection\u2014server, edge, app, and user\u2014is key to full-site defense.",
+      "displayed_link": "https://sitecare.com \u203a Blog"
+    },
+    {
+      "position": 7,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/Wordpress/comments/17qjc2y/any_free_but_reliable_security_plugins_that_i/",
+      "title": "any free but reliable security plugins that i need to install?",
+      "snippet": "most of the best security plugins I see are paid, are there those that are free? my client doesn\u2019t have a budget anymore to subscribe for security ...",
+      "displayed_link": "40+ comments \u00b7 2 years ago"
+    },
+    {
+      "position": 8,
+      "domain": "wpbeginner.com",
+      "url": "https://www.wpbeginner.com/plugins/best-wordpress-security-plugins-compared/",
+      "title": "6 Best WordPress Security Plugins to Protect Your Site ...",
+      "snippet": "6 Best WordPress Security Plugins to Protect Your Site (Compared) \u00b7 1. Cloudflare \u00b7 2. Sucuri \u00b7 3. MalCare \u00b7 4. Wordfence \u00b7 5. SolidWP \u00b7 6. All-In-One WP ...",
+      "displayed_link": "https://www.wpbeginner.com \u203a WordPress Plugins"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": [
+        "armemberplugin.com",
+        "bluehost.com",
+        "elementor.com",
+        "malcare.com",
+        "miniorange.com",
+        "optinmonster.com",
+        "reddit.com",
+        "siteground.com",
+        "supporthost.com",
+        "wpbeginner.com",
+        "wpcerber.com",
+        "wpmarmite.com",
+        "youtube.com"
+      ]
+    },
+    "people_also_ask": [
+      "Which security plugin is best for WordPress?",
+      "Why are people moving away from WordPress?",
+      "Is Wordfence the best WordPress security plugin?",
+      "What is the 2fa plugin for WordPress?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 2
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "schema": "serp-query-v1",
+  "query": "EV charger installation",
+  "fetched_at": "2026-05-15T12:06:09.148522+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "chargeprotexas.com",
+      "url": "https://chargeprotexas.com/ev-charger-installation-cost-texas/",
+      "title": "EV Charger Installation Cost in Texas (2026 Guide)",
+      "snippet": "Licensed electricians in Texas generally charge $100 \u2013 $150 per hour, and most installations take 2\u20136 hours. Simple installations where the main ...",
+      "displayed_link": "https://chargeprotexas.com \u203a Blog"
+    },
+    {
+      "position": 2,
+      "domain": "homedepot.com",
+      "url": "https://www.homedepot.com/services/c/ev-charger-installation/602dbf444",
+      "title": "EV Charger Installation at The Home Depot",
+      "snippet": "Installation is completed by a local certified installer\u2014an EV charging expert who is licensed, insured and background-checked ...",
+      "displayed_link": "https://www.homedepot.com \u203a Home Services"
+    },
+    {
+      "position": 3,
+      "domain": "lowes.com",
+      "url": "https://www.lowes.com/l/install/ev-charging",
+      "title": "EV Charger Installation",
+      "snippet": "With Lowe's and Qmerit, the installation process typically takes three to six weeks from start to finish. When it's done, you'll experience the convenience and ...",
+      "displayed_link": "https://www.lowes.com \u203a install \u203a ev-charging"
+    },
+    {
+      "position": 4,
+      "domain": "constellation.com",
+      "url": "https://www.constellation.com/energy-101/energy-innovation/installing-ev-charger-at-home.html",
+      "title": "Costs & FAQs of Installing an EV Charger at Home",
+      "snippet": "You will need a special 240V socket installed and use a specialized J1172 \u201cJ-plug\u201d or NACS plug depending on your vehicle to connect your car.",
+      "displayed_link": "https://www.constellation.com \u203a energy-innovation \u203a in..."
+    },
+    {
+      "position": 5,
+      "domain": "goodfaithenergy.com",
+      "url": "https://goodfaithenergy.com/ev-charger/",
+      "title": "Texas EV Charger Installation",
+      "snippet": "Good Faith Energy provides expert installation of top EV charging systems for residential homes and commercial properties. We handle site evaluation, equipment ...",
+      "displayed_link": "https://goodfaithenergy.com \u203a ev-charger"
+    },
+    {
+      "position": 6,
+      "domain": "enphase.com",
+      "url": "https://enphase.com/ev-chargers/learn/video/ev-charger-usage/tips-installing-ev-charger",
+      "title": "Tips on installing an EV charger | Enphase",
+      "snippet": "We recommend using a licensed electrician to install the product because there are specific electrical requirements for the product itself.",
+      "displayed_link": "https://enphase.com \u00b7 Dec 23, 2022"
+    },
+    {
+      "position": 7,
+      "domain": "divechaservices.com",
+      "url": "https://www.divechaservices.com/ev-charger-installation",
+      "title": "EV Charger Installation Service in Houston, Texas",
+      "snippet": "Divecha Services enables EV charger installation for residential, commercial and business applications. Call us today to talk to our experts!",
+      "displayed_link": "https://www.divechaservices.com \u203a ev-charger-installation"
+    },
+    {
+      "position": 8,
+      "domain": "peakevsolutions.com",
+      "url": "https://peakevsolutions.com/ev-charger-installation-in-texas/",
+      "title": "EV Charger Installation in Texas: A Complete Guide",
+      "snippet": "On average, EV charger installation in Texas costs between $500 and $2,000. While there's an initial investment, the long-term cost savings can ...",
+      "displayed_link": "https://peakevsolutions.com \u203a ev-charger-installation-in-t..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "How much does an EV charger installation cost?",
+      "What charger does the Hyundai Kona use?",
+      "What stops someone from unplugging your electric car?",
+      "How much does it cost to have an EV charger put in?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": true
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

@@ -186,14 +186,23 @@ def _build_cluster_snapshot(*, topic: str, cluster_queries: list[str],
     }
 
 
-def _save_cluster_snapshot(topic: str, snapshot: dict) -> Path:
-    """Atomic write to data/serp/<today>/clusters/<topic-hash>.json."""
+def save_cluster_snapshot(topic: str, snapshot: dict) -> Path:
+    """Atomic write to data/serp/<today>/clusters/<topic-hash>.json.
+
+    Public so the CLI can re-persist after gates are computed (the
+    initial save happens during fetch with no gate data; gates are
+    appended in a second write).
+    """
     p = cluster_cache_path(topic)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(snapshot, indent=2) + "\n")
     tmp.replace(p)
     return p
+
+
+# Back-compat alias — old call sites used the private name.
+_save_cluster_snapshot = save_cluster_snapshot
 
 
 def _load_cached_cluster(topic: str) -> dict | None:

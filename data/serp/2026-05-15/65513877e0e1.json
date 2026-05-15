@@ -1,0 +1,91 @@
+{
+  "schema": "serp-query-v1",
+  "query": "EV charger installation requirements",
+  "fetched_at": "2026-05-15T12:06:28.445291+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "afdc.energy.gov",
+      "url": "https://afdc.energy.gov/laws/9773",
+      "title": "Electric Vehicle (EV) Charger Installation Requirements",
+      "snippet": "Vendors that install EV chargers must comply with Illinois Commerce Commission (ICC) certification requirements. Certified installers must meet training and ...",
+      "displayed_link": "https://afdc.energy.gov \u203a laws"
+    },
+    {
+      "position": 2,
+      "domain": "qmerit.com",
+      "url": "https://qmerit.com/blog/electric-vehicle-charger-installation-faq-for-contractors/",
+      "title": "Electric Vehicle Charger Installation FAQ For Contractors",
+      "snippet": "You'll start the installation process. This includes running conduit from the panel to the charger or outlet, installing the breaker and emergency disconnect.",
+      "displayed_link": "https://qmerit.com \u203a blog \u203a electric-vehicle-charger-instal..."
+    },
+    {
+      "position": 3,
+      "domain": "enphase.com",
+      "url": "https://enphase.com/ev-chargers/learn/ev-charging-station-installation-considerations",
+      "title": "Installing EV Charging Station",
+      "snippet": "Hardwired EV charging stations require a certified electrician to install, are recommended for safe outdoor use, and typically offer a larger range of amperage ...",
+      "displayed_link": "https://enphase.com \u203a ev-chargers \u203a learn \u203a ev-charging..."
+    },
+    {
+      "position": 4,
+      "domain": "epa.gov",
+      "url": "https://www.epa.gov/greenvehicles/getting-started-home-ev-charging",
+      "title": "Getting Started with Home EV Charging",
+      "snippet": "If your home has at least 200-Amps and two empty slots for a double-pole circuit breaker in your panel, you likely have capacity for a Level 2 charger. Even 100 ...",
+      "displayed_link": "https://www.epa.gov \u203a greenvehicles \u203a getting-started-h..."
+    },
+    {
+      "position": 5,
+      "domain": "acp.com",
+      "url": "https://www.acp.com/blog/what-are-the-ev-charger-installation-requirements",
+      "title": "Essential Guide to EV Charger Installation Requirements",
+      "snippet": "Discover the key requirements for installing an EV charger at home or commercial property. Learn about site selection, power supply, ...",
+      "displayed_link": "https://www.acp.com \u203a blog \u203a what-are-the-ev-charger-..."
+    },
+    {
+      "position": 6,
+      "domain": "homedepot.com",
+      "url": "https://www.homedepot.com/c/ah/how-to-install-an-EV-charger/9ba683603be9fa5395fab901feb6903c",
+      "title": "How to Install an EV Charger",
+      "snippet": "Follow the manufacturer's height specifications, usually at least 18 in. from the garage floor and between 36-48 in. from the floor to the ...",
+      "displayed_link": "https://www.homedepot.com \u203a ... \u203a Pro Guides"
+    },
+    {
+      "position": 7,
+      "domain": "constellation.com",
+      "url": "https://www.constellation.com/energy-101/energy-innovation/installing-ev-charger-at-home.html",
+      "title": "Costs & FAQs of Installing an EV Charger at Home",
+      "snippet": "You will need a special 240V socket installed and use a specialized J1172 \u201cJ-plug\u201d or NACS plug depending on your vehicle to connect your car.",
+      "displayed_link": "https://www.constellation.com \u203a energy-innovation \u203a in..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "What is required to install an EV charger?",
+      "What are the NEC requirements for EV chargers?",
+      "What is the 80 20 rule EV?",
+      "Is 200 amps enough for a house with EV charger?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": true
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

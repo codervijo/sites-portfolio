@@ -1,0 +1,103 @@
+{
+  "schema": "serp-query-v1",
+  "query": "common WordPress security vulnerabilities",
+  "fetched_at": "2026-05-15T12:04:55.317962+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "wordfence.com",
+      "url": "https://www.wordfence.com/threat-intel/vulnerabilities",
+      "title": "WordPress Vulnerability Database",
+      "snippet": "All Vulnerabilities ; 4.3. CVE-2026-7563 \u00b7 momopon1415 ; 8.8. CVE-2026-6228 \u00b7 Colin Xu ; 7.5. CVE-2026-6403 \u00b7 Itthidej Aramsri (Boeing777) ; 9.8. CVE-2026-5229 \u00b7 Nabil ...",
+      "displayed_link": "https://www.wordfence.com \u203a threat-intel \u203a vulnerabilities"
+    },
+    {
+      "position": 2,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/Wordpress/comments/15abagf/wordpress_vulnerabilities/",
+      "title": "WordPress vulnerabilities : r/Wordpress",
+      "snippet": "Implementing strong security practices, such as using strong passwords, enabling two-factor authentication, and using security plugins like ...",
+      "displayed_link": "20+ comments \u00b7 2 years ago"
+    },
+    {
+      "position": 3,
+      "domain": "jetpack.com",
+      "url": "https://jetpack.com/resources/wordpress-security-issues-and-vulnerabilities/",
+      "title": "30+ of the Most Common WordPress Security Issues & ...",
+      "snippet": "The main types of security threats WordPress sites face \u00b7 1. Malware and virus infections \u00b7 2. SQL injection attacks \u00b7 3. Cross-Site Scripting ( ...",
+      "displayed_link": "https://jetpack.com \u203a resources \u203a wordpress-security-iss..."
+    },
+    {
+      "position": 4,
+      "domain": "kaspersky.com",
+      "url": "https://www.kaspersky.com/blog/wordpress-security-issues/49955/",
+      "title": "What security issues does WordPress have?",
+      "snippet": "1. Vulnerabilities in plugins, themes, and the WordPress core (in that order of descending importance) \u00b7 2. Weak passwords and lack of two-factor ...",
+      "displayed_link": "https://www.kaspersky.com \u203a ... \u203a Category: SMB"
+    },
+    {
+      "position": 5,
+      "domain": "learn.wordpress.org",
+      "url": "https://learn.wordpress.org/lesson/fixing-common-security-vulnerabilities/",
+      "title": "Fixing common security vulnerabilities - Learn WordPress",
+      "snippet": "In this lesson, you're going to learn how to apply these principles when developing your WordPress plugins and themes, by fixing an insecurely coded form ...",
+      "displayed_link": "https://learn.wordpress.org \u203a lesson \u203a fixing-common-s..."
+    },
+    {
+      "position": 6,
+      "domain": "medium.com",
+      "url": "https://medium.com/techiepedia/common-vulnerabilities-in-wordpress-sites-10157635c3a4",
+      "title": "Common Vulnerabilities in Wordpress Sites",
+      "snippet": "I will try to mention some of the common wordpress misconfiguration and vulnerabilities that i know in this blog! Let's begin hacking Wordpress!",
+      "displayed_link": "250+ likes \u00b7 2 years ago"
+    },
+    {
+      "position": 7,
+      "domain": "sitelock.com",
+      "url": "https://www.sitelock.com/blog/how-to-fix-wordpress-vulnerabilities/",
+      "title": "WordPress Vulnerabilities - Fixing Common Issues",
+      "snippet": "Out of the box, your WordPress website is vulnerable to security threats such as bots, brute force attacks, backdoor intrusions, and other risks ...",
+      "displayed_link": "https://www.sitelock.com \u203a Sitelock Blog"
+    },
+    {
+      "position": 8,
+      "domain": "kinsta.com",
+      "url": "https://kinsta.com/blog/is-wordpress-secure/",
+      "title": "Is WordPress Secure? Here's What the Data Says",
+      "snippet": "The most common vulnerability type was Cross-Site Scripting (XSS), which made up 53.3% of all new WordPress vulnerabilities. XSS issues often ...",
+      "displayed_link": "https://kinsta.com \u203a ... \u203a Blog \u203a WordPress Security"
+    },
+    {
+      "position": 9,
+      "domain": "raidboxes.io",
+      "url": "https://raidboxes.io/en/blog/security/wordpress-vulnerabilities/",
+      "title": "The 4 biggest WordPress security vulnerabilities",
+      "snippet": "The most common hacks against WordPress websites include malware, backdoors, SEO spam, brute force attacks, SQL injections, DDoS attacks and ...",
+      "displayed_link": "https://raidboxes.io \u203a Home \u203a Security"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 2
+    }
+  }
+}

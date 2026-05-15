@@ -3570,6 +3570,11 @@ def new_research(
                                help="Compact output"),
     json_out: bool = typer.Option(False, "--json",
                                   help="Emit raw JSON"),
+    non_interactive: bool = typer.Option(
+        False, "--non-interactive",
+        help="Skip the Gate 3 moat prompt (PENDING result; re-run "
+             "interactively to fill in). Implied by --json.",
+    ),
 ) -> None:
     """v8.D — multi-keyword cluster SERP research.
 
@@ -3641,10 +3646,107 @@ def new_research(
         console.print(f"[red]Research failed:[/] {e}")
         raise typer.Exit(2)
 
+    # v8.D Phase 2 — run gates + verdict on top of the cluster.
+    # Optimization: if this is a cache hit AND the snapshot already
+    # carries gates from a previous run, skip the recompute (Gate 1
+    # burns an OpenAI volume call; classifiers are cheap but verdict
+    # would be re-prompted needlessly).
+    cache_has_gates = (
+        payload.get("from_cache") and payload.get("gates")
+        and payload.get("verdict")
+    )
+    if not cache_has_gates:
+        gates = _run_gates_with_prompt(
+            payload, console=console,
+            non_interactive=non_interactive or json_out,
+        )
+        gates_dict = gates.to_dict()
+        payload["gates"] = {
+            "gate_1_market": gates_dict["gate_1_market"],
+            "gate_2_serp": gates_dict["gate_2_serp"],
+            "gate_3_moat": gates_dict["gate_3_moat"],
+        }
+        payload["operator_fit"] = gates_dict["operator_fit"]
+        payload["verdict"] = gates.verdict
+        payload["suggested_reductions"] = list(gates.suggested_reductions)
+        payload["moat_required"] = gates.moat_required
+        payload["moat_provided"] = gates.moat_provided
+
+        # Persist gates back to the cluster snapshot so the next run
+        # sees the verdict + moat without re-prompting / re-spending
+        # the volume-estimator call.
+        from .research_v2 import save_cluster_snapshot
+        try:
+            save_cluster_snapshot(topic, payload)
+        except OSError as e:
+            console.print(f"[dim]warn: could not persist gates: {e}[/]")
+
     if json_out:
         _render_serp_json(payload)
     else:
         _render_research_v2_full(payload, console)
+
+
+def _run_gates_with_prompt(cluster: dict, *, console,
+                           non_interactive: bool):
+    """Run Gate 1 + Gate 2, prompt for moat if required, then Gate 3 +
+    verdict + reductions. Returns a `GateResults`.
+
+    Splitting the orchestration here (vs calling `evaluate_cluster()`
+    directly) lets the prompt land between Gate 2 and Gate 3 without
+    re-running Gate 1's LLM volume call.
+    """
+    from .research_gates import (
+        OperatorFitResult, VERDICT_NICHE_DOWN, GateResults,
+        evaluate_gate_1, evaluate_gate_2, evaluate_gate_3,
+        is_moat_required, suggest_reductions, synthesize_verdict,
+    )
+    g1 = evaluate_gate_1(cluster)
+    g2 = evaluate_gate_2(cluster)
+    moat_sentence: str | None = None
+    if not non_interactive and is_moat_required(g2):
+        moat_sentence = _prompt_for_moat(g2, console)
+    g3 = evaluate_gate_3(g2, moat_sentence, non_interactive=non_interactive)
+    op_fit = OperatorFitResult()
+    verdict = synthesize_verdict(g1, g2, g3, op_fit=op_fit)
+    reductions: list[str] = []
+    if verdict == VERDICT_NICHE_DOWN:
+        reductions = suggest_reductions(cluster.get("topic", ""), g1, g2, g3)
+    return GateResults(
+        gate_1_market=g1, gate_2_serp=g2, gate_3_moat=g3,
+        operator_fit=op_fit, verdict=verdict,
+        suggested_reductions=reductions,
+        moat_required=is_moat_required(g2),
+        moat_provided=moat_sentence,
+    )
+
+
+def _prompt_for_moat(g2, console) -> str | None:
+    """Interactive prompt for Gate 3 — shown only when Gate 2 detected
+    a specialty/programmatic incumbent."""
+    cls = g2.raw.get("classifications", {})
+    triggers = []
+    spec = cls.get("specialty_incumbent", {})
+    if isinstance(spec, dict) and spec.get("present"):
+        triggers.append("a specialty incumbent")
+    prog = cls.get("programmatic_at_scale", {})
+    if isinstance(prog, dict) and prog.get("present"):
+        triggers.append("a programmatic incumbent")
+    trigger_str = " + ".join(triggers) or "an incumbent"
+
+    console.print()
+    console.print(f"  [bold yellow]Gate 3 (Moat):[/] Required because Gate 2 detected {trigger_str}.")
+    console.print('  Format: [dim]"I will win on [query pattern] because [incumbent gap],')
+    console.print('           and the incumbent cannot close this gap in 6 months because')
+    console.print('           [structural reason]."[/]')
+    console.print()
+    console.print("  Enter your moat sentence (or press Enter to skip and accept NO-GO):")
+    try:
+        line = input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return None
+    return line or None
 
 
 def _run_research_synthesis(topic: str, *, no_cache: bool,
@@ -3672,10 +3774,11 @@ def _run_research_synthesis(topic: str, *, no_cache: bool,
 
 
 def _render_research_v2_full(payload: dict, console) -> None:
-    """P1.D renderer for `research-cluster-v2` snapshots. Minimal —
-    shows the cluster + per-query top organic + key SERP features.
-    Phase 2 will add the gate output + verdict between cluster and
-    per-query sections."""
+    """v8.D renderer for `research-cluster-v2` snapshots. Shows the
+    cluster, gates + verdict + reductions (if present), and per-query
+    SERP details. Gates section is omitted when `payload["gates"]` is
+    absent — keeps the renderer compatible with older snapshots
+    written before Phase 2 wired the gates in."""
     topic = payload.get("topic", "?")
     cluster_queries = payload.get("cluster_queries", [])
     per_query = payload.get("per_query_results", [])
@@ -3694,6 +3797,10 @@ def _render_research_v2_full(payload: dict, console) -> None:
         marker = "[bold]→[/]" if q.lower() == topic.lower() else " "
         console.print(f"    {marker} {i}. {q}")
     console.print()
+
+    # Gates + verdict + reductions (Phase 2)
+    if "gates" in payload:
+        _render_gates_block(payload, console)
 
     # Per-query SERP summaries
     for pq in per_query:
@@ -3730,10 +3837,58 @@ def _render_research_v2_full(payload: dict, console) -> None:
         for err in fetch_errors[:3]:
             console.print(f"    · {err}")
 
-    console.print(
-        "  [dim]Phase 1 of v8.D — raw SERP data only. Phases 2-4 (gates / "
-        "operator-fit / interpretive verdict) land in subsequent commits.[/]"
-    )
+
+def _gate_marker(label: str) -> str:
+    """Status glyph + color for a gate label."""
+    if label == "PASS":
+        return "[green]✓ PASS[/]"
+    if label == "FAIL":
+        return "[red]✗ FAIL[/]"
+    if label == "WEAK-PASS":
+        return "[yellow]~ WEAK PASS[/]"
+    if label == "PENDING":
+        return "[dim]… PENDING[/]"
+    return f"[dim]{label}[/]"
+
+
+def _verdict_marker(verdict: str) -> str:
+    if verdict == "GO":
+        return "[bold green]GO[/]"
+    if verdict == "NICHE-DOWN":
+        return "[bold yellow]NICHE-DOWN[/]"
+    return "[bold red]NO-GO[/]"
+
+
+def _render_gates_block(payload: dict, console) -> None:
+    """v8.D Phase 2 — gate findings + verdict + suggested reductions."""
+    gates = payload.get("gates", {})
+    g1 = gates.get("gate_1_market", {})
+    g2 = gates.get("gate_2_serp", {})
+    g3 = gates.get("gate_3_moat", {})
+    verdict = payload.get("verdict", "NO-GO")
+    reductions = payload.get("suggested_reductions", []) or []
+
+    def _render_gate(name: str, gate: dict) -> None:
+        marker = _gate_marker(gate.get("label", "?"))
+        findings = gate.get("findings", []) or []
+        first = findings[0] if findings else ""
+        console.print(f"  [bold]{name:<20}[/] {marker:<20}  [dim]· {first}[/]")
+        for f in findings[1:]:
+            console.print(f"  {'':<20} {'':<20}  [dim]· {f}[/]")
+
+    _render_gate("Gate 1 (Market):", g1)
+    _render_gate("Gate 2 (SERP):", g2)
+    _render_gate("Gate 3 (Moat):", g3)
+    console.print()
+
+    console.print(f"  [bold]Verdict:[/] {_verdict_marker(verdict)}")
+
+    if verdict == "NICHE-DOWN" and reductions:
+        console.print()
+        console.print(f"  [bold]Suggested reductions:[/]")
+        for i, red in enumerate(reductions, 1):
+            console.print(f"    {i}. {red}")
+    console.print()
 
 
 def _render_serp_full(payload: dict, console) -> None:

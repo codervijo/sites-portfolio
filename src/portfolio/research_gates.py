@@ -711,21 +711,131 @@ def synthesize_verdict(g1: GateResult, g2: GateResult, g3: GateResult,
                        *, op_fit: OperatorFitResult | None = None) -> str:
     """Compose final verdict per PRD §P2.5.
 
-    The table:
-      | Gates                                          | Verdict       |
-      |------------------------------------------------|---------------|
-      | Gate 1 FAIL                                    | NO-GO         |
-      | Gate 2 FAIL AND Gate 3 PROVIDED                | NICHE-DOWN    |
-      | Gate 2 FAIL AND no moat                        | NO-GO         |
-      | G1 PASS + G2 WEAK-PASS + Gate 3 not required   | NICHE-DOWN    |
-      | All gates PASS                                 | GO            |
+    Decision table (top-down, first match wins):
 
-    Operator-fit's `auto_fail_gate_2` flag (Phase 3) is honored by
-    treating Gate 2 as FAIL even if its label is PASS / WEAK-PASS.
+      | Condition                                       | Verdict     |
+      |-------------------------------------------------|-------------|
+      | Gate 1 FAIL                                     | NO-GO       |
+      | Gate 2 FAIL AND Gate 3 PASS (moat provided)     | NICHE-DOWN  |
+      | Gate 2 FAIL AND Gate 3 not PASS                 | NO-GO       |
+      | Gate 2 WEAK-PASS                                | NICHE-DOWN  |
+      | All gates PASS                                  | GO          |
+      | (fallback — defensive)                          | NO-GO       |
 
-    Stub returns NO-GO until P2.E fills it in.
+    Operator-fit's `auto_fail_gate_2` (Phase 3) treats Gate 2 as FAIL
+    regardless of its label — moat-required check on Gate 3 still
+    applies. When Gate 1 PASSes and Gate 2 PASSes but auto_fail_gate_2
+    is set, the outcome shifts to NICHE-DOWN (operator-fit-driven
+    narrowing) unless a moat was provided.
     """
+    auto_fail = op_fit.auto_fail_gate_2 if op_fit else False
+
+    # Gate 1 is the hard floor — no market, no go.
+    if g1.label == LABEL_FAIL:
+        return VERDICT_NO_GO
+
+    # Treat Gate 2 as failed if op-fit flagged auto-fail.
+    g2_failed = g2.label == LABEL_FAIL or auto_fail
+
+    if g2_failed:
+        # Moat acknowledged → NICHE-DOWN (you can still ship, narrowly).
+        if g3.label == LABEL_PASS and g3.raw.get("moat_sentence"):
+            return VERDICT_NICHE_DOWN
+        # Otherwise (FAIL, PENDING, or no moat sentence) → NO-GO.
+        return VERDICT_NO_GO
+
+    if g2.label == LABEL_WEAK_PASS:
+        return VERDICT_NICHE_DOWN
+
+    if g1.label == LABEL_PASS and g2.label == LABEL_PASS and g3.label == LABEL_PASS:
+        return VERDICT_GO
+
+    # Defensive fallback — shouldn't reach here if labels are well-formed.
     return VERDICT_NO_GO
+
+
+# ---------- Suggested reductions (NICHE-DOWN only) ----------
+
+
+# Reduction axes from PRD §P2.6. Surfaced as static guidance to the LLM
+# so it stays grounded; also exported so the renderer can show them
+# when verdict is NICHE-DOWN even if the LLM call fails.
+REDUCTION_AXES = (
+    "segment",     # drop a brand, vertical, sub-category
+    "geography",   # regional only
+    "persona",     # specific role / experience level
+    "use_case",    # one task vs the full workflow
+    "depth",       # tool vs content, data vs explanation
+    "moment",      # triggered vs evergreen
+)
+
+
+def suggest_reductions(topic: str, g1: GateResult, g2: GateResult,
+                       g3: GateResult, *, llm_call=None) -> list[str]:
+    """Generate 2-3 niche-down reductions for a NICHE-DOWN verdict.
+
+    Uses the LLM with the gate findings as context, prompts for concrete
+    reductions across the PRD §P2.6 axes. Returns a list of 1-3 short
+    strings — empty list if the LLM call fails (renderer shows the
+    axes instead).
+
+    `llm_call` is injectable for tests — defaults to a single OpenAI
+    call. Signature: `(system: str, user: str) -> str`.
+    """
+    findings_blob = "\n".join([
+        "Gate 1 (Market) findings:",
+        *[f"  - {f}" for f in g1.findings],
+        "Gate 2 (SERP) findings:",
+        *[f"  - {f}" for f in g2.findings],
+        "Gate 3 (Moat):",
+        *[f"  - {f}" for f in g3.findings],
+    ])
+
+    system = (
+        "You are a niche-research analyst helping a solo portfolio operator. "
+        "Given gate findings about a topic where one or more gates failed, "
+        "suggest 2-3 concrete *reductions* — ways to narrow the niche so it "
+        "becomes operator-viable. Use the axes: segment, geography, persona, "
+        "use_case, depth, moment. Reply with JSON ONLY in the shape: "
+        '{"reductions": ["...", "...", "..."]}. Each reduction should be one '
+        "short sentence (≤ 20 words). No prefacing or commentary."
+    )
+    user = (
+        f"Topic: {topic}\n\n"
+        f"{findings_blob}\n\n"
+        f"Available reduction axes: {', '.join(REDUCTION_AXES)}.\n"
+        "Suggest 2-3 reductions."
+    )
+
+    if llm_call is None:
+        from .serp import _openai_api_key, call_openai
+        try:
+            api_key = _openai_api_key()
+        except Exception:
+            return []
+        def _default_llm(system_msg, user_msg):
+            return call_openai(system_msg, user_msg, api_key=api_key)
+        llm_call = _default_llm
+
+    try:
+        raw = llm_call(system, user)
+    except Exception:    # noqa: BLE001
+        return []
+
+    raw = (raw or "").strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw)
+
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+
+    reds = parsed.get("reductions", [])
+    if not isinstance(reds, list):
+        return []
+    return [str(r).strip() for r in reds if isinstance(r, (str, int, float)) and str(r).strip()][:3]
 
 
 # ---------- helpers (shared across gates) ----------
@@ -756,25 +866,37 @@ def evaluate_cluster(cluster: dict, *, moat_sentence: str | None = None,
                      non_interactive: bool = False,
                      operator_fit: OperatorFitResult | None = None,
                      volume_estimator: VolumeEstimator | None = None,
+                     reductions_llm_call=None,
+                     skip_reductions: bool = False,
                      ) -> GateResults:
     """Run all three gates against a cluster snapshot and return the
     composed `GateResults`. The orchestrator entry point used by the CLI.
 
-    `volume_estimator` is forwarded to Gate 1 (P2.B). Tests inject a
-    fake; the CLI lets it default to the LLM-backed estimator.
+    `volume_estimator` is forwarded to Gate 1 (P2.B). `reductions_llm_call`
+    is forwarded to `suggest_reductions()` when verdict is NICHE-DOWN.
+    `skip_reductions=True` short-circuits the LLM call (used by tests
+    and by callers who'll render reductions separately).
     """
     g1 = evaluate_gate_1(cluster, volume_estimator=volume_estimator)
     g2 = evaluate_gate_2(cluster)
     g3 = evaluate_gate_3(g2, moat_sentence, non_interactive=non_interactive)
     op_fit = operator_fit or OperatorFitResult()
     verdict = synthesize_verdict(g1, g2, g3, op_fit=op_fit)
+
+    reductions: list[str] = []
+    if verdict == VERDICT_NICHE_DOWN and not skip_reductions:
+        reductions = suggest_reductions(
+            cluster.get("topic", ""), g1, g2, g3,
+            llm_call=reductions_llm_call,
+        )
+
     return GateResults(
         gate_1_market=g1,
         gate_2_serp=g2,
         gate_3_moat=g3,
         operator_fit=op_fit,
         verdict=verdict,
-        suggested_reductions=[],
+        suggested_reductions=reductions,
         moat_required=is_moat_required(g2),
         moat_provided=moat_sentence,
     )

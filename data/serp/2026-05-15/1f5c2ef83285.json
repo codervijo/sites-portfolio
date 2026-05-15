@@ -1,0 +1,127 @@
+{
+  "schema": "serp-query-v1",
+  "query": "best EV chargers for home installation",
+  "fetched_at": "2026-05-15T12:06:26.765308+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "caranddriver.com",
+      "url": "https://www.caranddriver.com/shopping-advice/a39917614/best-home-ev-chargers-tested/",
+      "title": "Tested: Best Home EV Chargers for 2026",
+      "snippet": "We tested some of the top home EV charging units on the market to find the best electric car chargers out there today.",
+      "displayed_link": "https://www.caranddriver.com \u203a Shopping Advice"
+    },
+    {
+      "position": 2,
+      "domain": "motortrend.com",
+      "url": "https://www.motortrend.com/gear-reviews/best-home-ev-chargers",
+      "title": "The Best Home EV Chargers of 2026",
+      "snippet": "Best Overall: Tesla Wall Connector ; Best Upgrade Buy: Emporia Pro ; Best Budget Pick for J1772 EVs: Autel MaxiCharger AC Lite 40A ; Best for ...",
+      "displayed_link": "https://www.motortrend.com \u203a gear-reviews \u203a best-home..."
+    },
+    {
+      "position": 3,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/evcharging/comments/1n0116f/anyone_recommend_a_good_level_2_home_charger/",
+      "title": "Anyone recommend a good level 2 home charger?",
+      "snippet": "I see all kinds of level 2 chargers on Amazon and have no idea what to look for. Anyone have any recommendations or what I should look for? This is for ...",
+      "displayed_link": "100+ comments \u00b7 8 months ago"
+    },
+    {
+      "position": 4,
+      "domain": "evpulse.com",
+      "url": "https://www.evpulse.com/recommendations/the-best-home-ev-chargers",
+      "title": "The best home EV chargers",
+      "snippet": "1. Top Pick: EVIQO Level 2 EV charger \u00b7 2. Runner-up: Wallbox Pulsar Plus \u00b7 3. Best on a budget smart charger: Emporia EV charger \u00b7 4. Best on a ...",
+      "displayed_link": "https://www.evpulse.com \u203a recommendations \u203a the-best..."
+    },
+    {
+      "position": 5,
+      "domain": "evchargerreviews.net",
+      "url": "https://www.evchargerreviews.net/best-ev-chargers-for-home-use/",
+      "title": "Best Level 2 Home EV Chargers, We Tested 20+",
+      "snippet": "Top Level 2 EV Chargers We Tested ; Premium Pick: ChargePoint Home Flex ( $559.00 $494.00) ; Best App: EVIQO EV Charger ( $510.00 $418.99) ; Best for Teslas: Tesla ...",
+      "displayed_link": "https://www.evchargerreviews.net \u203a best-ev-chargers-fo..."
+    },
+    {
+      "position": 6,
+      "domain": "smartchargeamerica.com",
+      "url": "https://smartchargeamerica.com/electric-car-chargers/home/?srsltid=AfmBOoo8I1wRKPM_zH1dvsVTKc8skm1RxLHsBCcLGktzpzYXePeieafw",
+      "title": "Home Electric Car Chargers - EV Charging Stations - EVSE",
+      "snippet": "The Emporia Classic Smart EV Charger is a robust Level 2 home charging station that delivers up to 11.5 kW (48 A) via hardwired installation or up to 9.6 kW ...",
+      "displayed_link": "https://smartchargeamerica.com \u203a electric-car-chargers"
+    },
+    {
+      "position": 7,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=sBTxLK1QC6M",
+      "title": "The Best EV Chargers Of 2025",
+      "snippet": "After thoroughly using and testing dozens of electric vehicle chargers, these are my picks for the best EV chargers of 2025.",
+      "displayed_link": "115.7K+ views \u00b7 6 months ago"
+    },
+    {
+      "position": 8,
+      "domain": "nytimes.com",
+      "url": "https://www.nytimes.com/wirecutter/reviews/best-electric-vehicle-chargers-for-home/",
+      "title": "The 6 Best Electric Vehicle Chargers for Home of 2026",
+      "snippet": "Likewise, we found the Emporia Classic Level 2 EV Charger (NACS version) to be the best for Teslas and other EVs with a J3400 connector (also ...",
+      "displayed_link": "https://www.nytimes.com \u203a ... \u203a Batteries and charging"
+    },
+    {
+      "position": 9,
+      "domain": "energysage.com",
+      "url": "https://www.energysage.com/ev-charging/ev-charging-stations/",
+      "title": "Best Level 2 EV Chargers in 2026",
+      "snippet": "What are the best Level 2 EV chargers? \u00b7 1. ChargePoint Home Flex \u00b7 2. Emporia Pro \u00b7 3. Tesla Universal Wall Connector \u00b7 4. Grizzl-E Ultimate 48A \u00b7 5 ...",
+      "displayed_link": "https://www.energysage.com \u203a ev-charging-stations"
+    },
+    {
+      "position": 10,
+      "domain": "bestbuy.com",
+      "url": "https://www.bestbuy.com/site/garage/electric-car-chargers/pcmcat265100050011.c?id=pcmcat265100050011",
+      "title": "Electric Car Chargers: EV Chargers",
+      "snippet": "Level 2 chargers are generally preferred for full EVs, which need a bigger charger. They are faster because they use a 240V outlet, the same as some appliances.",
+      "displayed_link": "https://www.bestbuy.com \u203a ... \u203a Tools & Garage"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": [
+        "amazon.com",
+        "b2c2.poweredbyefi.org",
+        "energysage.com",
+        "evpulse.com",
+        "google.com",
+        "nuwattenergy.com",
+        "peakevsolutions.com",
+        "reddit.com",
+        "rivianforums.com",
+        "youtube.com"
+      ]
+    },
+    "people_also_ask": [
+      "What is the best EV charger to install at home?",
+      "How much does it cost to have an EV charger installed in your house?",
+      "What stops someone from unplugging your electric car?",
+      "What charger does the Hyundai Kona use?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 3
+    }
+  }
+}

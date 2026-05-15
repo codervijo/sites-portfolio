@@ -1,0 +1,100 @@
+{
+  "schema": "serp-query-v1",
+  "query": "how to secure WordPress site",
+  "fetched_at": "2026-05-15T12:04:48.452673+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/Wordpress/comments/15g8hgj/how_do_i_secure_a_wordpress_site/",
+      "title": "How do I secure a WordPress site?",
+      "snippet": "The company I work at makes cybersecurity hardware and we are launching a new WordPress site in about 6 weeks. I have been tasked with finding out what ...",
+      "displayed_link": "100+ comments \u00b7 2 years ago"
+    },
+    {
+      "position": 2,
+      "domain": "developer.wordpress.org",
+      "url": "https://developer.wordpress.org/advanced-administration/security/hardening/",
+      "title": "Hardening WordPress \u2013 Advanced Administration Handbook",
+      "snippet": "This article will go through some common forms of vulnerabilities, and the things you can do to help keep your WordPress installation secure.",
+      "displayed_link": "https://developer.wordpress.org \u203a security \u203a hardening"
+    },
+    {
+      "position": 3,
+      "domain": "cloudflare.com",
+      "url": "https://www.cloudflare.com/learning/security/how-to-improve-wordpress-security/",
+      "title": "How to improve WordPress security",
+      "snippet": "Users can improve WordPress security by keeping their site updated, enforcing strict user access requirements, and regularly scanning for critical ...",
+      "displayed_link": "https://www.cloudflare.com \u203a learning \u203a how-to-impro..."
+    },
+    {
+      "position": 4,
+      "domain": "nordlayer.com",
+      "url": "https://nordlayer.com/blog/wordpress-security-best-practices/",
+      "title": "Guide to WordPress Security Best Practices",
+      "snippet": "WordPress site security can be improved by using a Virtual Private Network (VPN). A VPN encrypts exchanged data traffic, making it difficult for hackers to ...",
+      "displayed_link": "https://nordlayer.com \u203a Blog"
+    },
+    {
+      "position": 5,
+      "domain": "godaddy.com",
+      "url": "https://www.godaddy.com/help/secure-my-wordpress-site-8430",
+      "title": "Secure my WordPress site",
+      "snippet": "Secure my WordPress site \u00b7 Use a secure password and change it regularly \u00b7 Limit sign in attempts \u00b7 Keep your site updated \u00b7 Delete themes and plugins you don't ...",
+      "displayed_link": "https://www.godaddy.com \u203a help \u203a secure-my-wordpre..."
+    },
+    {
+      "position": 6,
+      "domain": "theideabureau.co",
+      "url": "https://theideabureau.co/resources/the-essentials-for-keeping-your-wordpress-site-secure/",
+      "title": "The essentials for keeping your WordPress site secure",
+      "snippet": "Checklist for keeping your WordPress site secure \u00b7 Update your WordPress instance and plugins regularly \u00b7 Enable good user management procedures ...",
+      "displayed_link": "https://theideabureau.co \u203a resources \u203a the-essentials-for-..."
+    },
+    {
+      "position": 7,
+      "domain": "siteground.com",
+      "url": "https://www.siteground.com/tutorials/wordpress/security/",
+      "title": "WordPress Security Tutorial",
+      "snippet": "Learn what are the best practices for securing your WordPress site, and how to implement them with minimal hassle.",
+      "displayed_link": "https://www.siteground.com \u203a ... \u203a WordPress Tutorials"
+    },
+    {
+      "position": 8,
+      "domain": "wp-rocket.me",
+      "url": "https://wp-rocket.me/blog/wordpress-security-best-practices/",
+      "title": "Top 16 WordPress Security Best Practices and Tips for 2026",
+      "snippet": "1. Put Your Site Offline. You should temporarily put your site offline or in maintenance mode to prevent further access. This limits the spread of malware in ...",
+      "displayed_link": "https://wp-rocket.me \u203a Blog \u203a Page speed and caching"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "How do I make my WordPress website secure?",
+      "Why are people moving away from WordPress?",
+      "Is WordPress outdated in 2026?",
+      "How do I make my entire WordPress site private?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 1
+    }
+  }
+}

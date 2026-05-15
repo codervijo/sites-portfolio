@@ -1,0 +1,751 @@
+{
+  "schema": "research-cluster-v2",
+  "topic": "EV charger installation",
+  "topic_normalized": "ev charger installation",
+  "topic_hash": "ca7d7e3b4e9d",
+  "fetched_at": "2026-05-15T12:06:28.445875+00:00",
+  "source": "serpapi",
+  "cluster_queries": [
+    "EV charger installation",
+    "how to install an EV charger at home",
+    "cost of EV charger installation",
+    "best EV chargers for home installation",
+    "EV charger installation requirements"
+  ],
+  "per_query_files": [
+    "2026-05-15/ca7d7e3b4e9d.json",
+    "2026-05-15/fc6cab9ac50d.json",
+    "2026-05-15/5c01155b75c7.json",
+    "2026-05-15/1f5c2ef83285.json",
+    "2026-05-15/65513877e0e1.json"
+  ],
+  "per_query_results": [
+    {
+      "schema": "serp-query-v1",
+      "query": "EV charger installation",
+      "fetched_at": "2026-05-15T12:06:09.148522+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "chargeprotexas.com",
+          "url": "https://chargeprotexas.com/ev-charger-installation-cost-texas/",
+          "title": "EV Charger Installation Cost in Texas (2026 Guide)",
+          "snippet": "Licensed electricians in Texas generally charge $100 \u2013 $150 per hour, and most installations take 2\u20136 hours. Simple installations where the main ...",
+          "displayed_link": "https://chargeprotexas.com \u203a Blog"
+        },
+        {
+          "position": 2,
+          "domain": "homedepot.com",
+          "url": "https://www.homedepot.com/services/c/ev-charger-installation/602dbf444",
+          "title": "EV Charger Installation at The Home Depot",
+          "snippet": "Installation is completed by a local certified installer\u2014an EV charging expert who is licensed, insured and background-checked ...",
+          "displayed_link": "https://www.homedepot.com \u203a Home Services"
+        },
+        {
+          "position": 3,
+          "domain": "lowes.com",
+          "url": "https://www.lowes.com/l/install/ev-charging",
+          "title": "EV Charger Installation",
+          "snippet": "With Lowe's and Qmerit, the installation process typically takes three to six weeks from start to finish. When it's done, you'll experience the convenience and ...",
+          "displayed_link": "https://www.lowes.com \u203a install \u203a ev-charging"
+        },
+        {
+          "position": 4,
+          "domain": "constellation.com",
+          "url": "https://www.constellation.com/energy-101/energy-innovation/installing-ev-charger-at-home.html",
+          "title": "Costs & FAQs of Installing an EV Charger at Home",
+          "snippet": "You will need a special 240V socket installed and use a specialized J1172 \u201cJ-plug\u201d or NACS plug depending on your vehicle to connect your car.",
+          "displayed_link": "https://www.constellation.com \u203a energy-innovation \u203a in..."
+        },
+        {
+          "position": 5,
+          "domain": "goodfaithenergy.com",
+          "url": "https://goodfaithenergy.com/ev-charger/",
+          "title": "Texas EV Charger Installation",
+          "snippet": "Good Faith Energy provides expert installation of top EV charging systems for residential homes and commercial properties. We handle site evaluation, equipment ...",
+          "displayed_link": "https://goodfaithenergy.com \u203a ev-charger"
+        },
+        {
+          "position": 6,
+          "domain": "enphase.com",
+          "url": "https://enphase.com/ev-chargers/learn/video/ev-charger-usage/tips-installing-ev-charger",
+          "title": "Tips on installing an EV charger | Enphase",
+          "snippet": "We recommend using a licensed electrician to install the product because there are specific electrical requirements for the product itself.",
+          "displayed_link": "https://enphase.com \u00b7 Dec 23, 2022"
+        },
+        {
+          "position": 7,
+          "domain": "divechaservices.com",
+          "url": "https://www.divechaservices.com/ev-charger-installation",
+          "title": "EV Charger Installation Service in Houston, Texas",
+          "snippet": "Divecha Services enables EV charger installation for residential, commercial and business applications. Call us today to talk to our experts!",
+          "displayed_link": "https://www.divechaservices.com \u203a ev-charger-installation"
+        },
+        {
+          "position": 8,
+          "domain": "peakevsolutions.com",
+          "url": "https://peakevsolutions.com/ev-charger-installation-in-texas/",
+          "title": "EV Charger Installation in Texas: A Complete Guide",
+          "snippet": "On average, EV charger installation in Texas costs between $500 and $2,000. While there's an initial investment, the long-term cost savings can ...",
+          "displayed_link": "https://peakevsolutions.com \u203a ev-charger-installation-in-t..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "How much does an EV charger installation cost?",
+          "What charger does the Hyundai Kona use?",
+          "What stops someone from unplugging your electric car?",
+          "How much does it cost to have an EV charger put in?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": true
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "how to install an EV charger at home",
+      "fetched_at": "2026-05-15T12:06:13.140237+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/electricvehicles/comments/144ejb8/how_did_you_handle_getting_a_charger_installed_at/",
+          "title": "How did you handle getting a charger installed at your ...",
+          "snippet": "I'm doing some research on this process and getting very different answers. Did you have to buy the charger yourself and then find an installer? ...",
+          "displayed_link": "130+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 2,
+          "domain": "constellation.com",
+          "url": "https://www.constellation.com/energy-101/energy-innovation/installing-ev-charger-at-home.html",
+          "title": "Costs & FAQs of Installing an EV Charger at Home",
+          "snippet": "You will need a special 240V socket installed and use a specialized J1172 \u201cJ-plug\u201d or NACS plug depending on your vehicle to connect your car.",
+          "displayed_link": "https://www.constellation.com \u203a energy-innovation \u203a in..."
+        },
+        {
+          "position": 3,
+          "domain": "epa.gov",
+          "url": "https://www.epa.gov/greenvehicles/getting-started-home-ev-charging",
+          "title": "Getting Started with Home EV Charging",
+          "snippet": "Choose the Power Level for Your Vehicle \u00b7 Select the Connector for Your Vehicle \u00b7 Choose the Charger Features You Want \u00b7 Hire an Electrician for Installing a New ...",
+          "displayed_link": "https://www.epa.gov \u203a greenvehicles \u203a getting-started-h..."
+        },
+        {
+          "position": 4,
+          "domain": "qmerit.com",
+          "url": "https://qmerit.com/blog/how-to-install-an-ev-charger-at-home/",
+          "title": "How to Install an EV Charger at Home",
+          "snippet": "Installation costs range from as low as $800 to more than $2,500, averaging $1,700 nationally for a standard installation with no system or ...",
+          "displayed_link": "https://qmerit.com \u203a blog \u203a how-to-install-an-ev-charger-..."
+        },
+        {
+          "position": 5,
+          "domain": "sce.com",
+          "url": "https://www.sce.com/clean-energy-efficiency/electric-vehicles/ev-charging-at-home",
+          "title": "How to Charge Your Electric Vehicle at Home",
+          "snippet": "Make sure your home is EV ready. You'll need a licensed electrician to install a Level 2 charging station. Even if you plan to use a Level 1 charging cord ...",
+          "displayed_link": "https://www.sce.com \u203a ev-charging-at-home"
+        },
+        {
+          "position": 6,
+          "domain": "charliediyte.co.uk",
+          "url": "https://charliediyte.co.uk/blog/blog/installing-a-home-ev-charge-point",
+          "title": "Installing A Home EV Charge Point - Charlie DIYte",
+          "snippet": "In today's blog I'll be running through everything you need to know before installing your Home EV charge point - so that you're a lot ...",
+          "displayed_link": "https://charliediyte.co.uk \u203a blog \u203a blog \u203a installing-a-ho..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": false
+        },
+        "people_also_ask": [
+          "Can I install an EV charger myself?",
+          "How much does it cost to have an EV home charger installed?",
+          "What charger does the Hyundai Kona use?",
+          "What type of charger cable does a Nissan Leaf use?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 1
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "cost of EV charger installation",
+      "fetched_at": "2026-05-15T12:06:19.697871+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "energysage.com",
+          "url": "https://www.energysage.com/ev-charging/how-much-does-ev-charger-installation-cost/",
+          "title": "How Much Does an EV Charger Installation Cost?",
+          "snippet": "The typical cost to install an EV charger ranges from $800 to $3,000, depending on your home's electrical set up, based on data from Qmerit\u2014the ...",
+          "displayed_link": "https://www.energysage.com \u203a Ev charging"
+        },
+        {
+          "position": 2,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/electricvehicles/comments/wn63oa/how_much_did_it_cost_you_to_install_a_level_2/",
+          "title": "how much did it cost you to install a level 2 charger at home?",
+          "snippet": "Also where do you live and when was the install done",
+          "displayed_link": "240+ comments \u00b7 3 years ago"
+        },
+        {
+          "position": 3,
+          "domain": "costcoauto.com",
+          "url": "https://www.costcoauto.com/automotive_articles/ev/the-cost-of-charging-an-ev-at-home.aspx",
+          "title": "The Cost of Charging an EV at Home",
+          "snippet": "Hiring a licensed electrician to install a 240V outlet and hardwire the charger can cost $400 to $1,200 or more if electrical system upgrades are needed.1 ...",
+          "displayed_link": "https://www.costcoauto.com \u203a automotive_articles \u203a the-..."
+        },
+        {
+          "position": 4,
+          "domain": "qmerit.com",
+          "url": "https://qmerit.com/faq/how-much-does-installation-cost/",
+          "title": "How Much Does EV Charger Installation Cost?",
+          "snippet": "The average EV charger installation cost is between $800 and $2,500 on average, with a typical cost of $1,700 for a standard installation, but keep in mind that ...",
+          "displayed_link": "https://qmerit.com \u203a faq \u203a how-much-does-installation-cost"
+        },
+        {
+          "position": 5,
+          "domain": "getneocharge.com",
+          "url": "https://getneocharge.com/a/blog/how-much-does-it-cost-to-install-a-home-charging-station?srsltid=AfmBOopxuivHhkNiWz6G4M-HGY4U1kHhI3YUyLFO6LJ21ogzxdOkCI4A",
+          "title": "How Much Does It Cost to Install a Home EV Charging ...",
+          "snippet": "Short answer: Most homeowners pay $850\u2013$2,700 for a basic Level 2 install (charger + labor + permit). Panel upgrades, long wire runs, ...",
+          "displayed_link": "https://getneocharge.com \u203a Blog \u203a EV Charging"
+        },
+        {
+          "position": 6,
+          "domain": "sunrun.com",
+          "url": "https://www.sunrun.com/go-solar-center/solar-articles/how-much-to-install-ev-charger-at-home",
+          "title": "How Much Does It Cost To Install An EV Charger At Home?",
+          "snippet": "Installing an EV charger at home typically costs between $800 and $2,500 in 2026, depending on equipment, electrical capacity, and installation ...",
+          "displayed_link": "https://www.sunrun.com \u203a go-solar-center \u203a solar-articles"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "How much does it cost to install an EV car charger?",
+          "Can a normal electrician install an EV charger?",
+          "How much does it cost to have an EV charger put in?",
+          "What is the 80/20 rule for EV charging?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 2
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "best EV chargers for home installation",
+      "fetched_at": "2026-05-15T12:06:26.765308+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "caranddriver.com",
+          "url": "https://www.caranddriver.com/shopping-advice/a39917614/best-home-ev-chargers-tested/",
+          "title": "Tested: Best Home EV Chargers for 2026",
+          "snippet": "We tested some of the top home EV charging units on the market to find the best electric car chargers out there today.",
+          "displayed_link": "https://www.caranddriver.com \u203a Shopping Advice"
+        },
+        {
+          "position": 2,
+          "domain": "motortrend.com",
+          "url": "https://www.motortrend.com/gear-reviews/best-home-ev-chargers",
+          "title": "The Best Home EV Chargers of 2026",
+          "snippet": "Best Overall: Tesla Wall Connector ; Best Upgrade Buy: Emporia Pro ; Best Budget Pick for J1772 EVs: Autel MaxiCharger AC Lite 40A ; Best for ...",
+          "displayed_link": "https://www.motortrend.com \u203a gear-reviews \u203a best-home..."
+        },
+        {
+          "position": 3,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/evcharging/comments/1n0116f/anyone_recommend_a_good_level_2_home_charger/",
+          "title": "Anyone recommend a good level 2 home charger?",
+          "snippet": "I see all kinds of level 2 chargers on Amazon and have no idea what to look for. Anyone have any recommendations or what I should look for? This is for ...",
+          "displayed_link": "100+ comments \u00b7 8 months ago"
+        },
+        {
+          "position": 4,
+          "domain": "evpulse.com",
+          "url": "https://www.evpulse.com/recommendations/the-best-home-ev-chargers",
+          "title": "The best home EV chargers",
+          "snippet": "1. Top Pick: EVIQO Level 2 EV charger \u00b7 2. Runner-up: Wallbox Pulsar Plus \u00b7 3. Best on a budget smart charger: Emporia EV charger \u00b7 4. Best on a ...",
+          "displayed_link": "https://www.evpulse.com \u203a recommendations \u203a the-best..."
+        },
+        {
+          "position": 5,
+          "domain": "evchargerreviews.net",
+          "url": "https://www.evchargerreviews.net/best-ev-chargers-for-home-use/",
+          "title": "Best Level 2 Home EV Chargers, We Tested 20+",
+          "snippet": "Top Level 2 EV Chargers We Tested ; Premium Pick: ChargePoint Home Flex ( $559.00 $494.00) ; Best App: EVIQO EV Charger ( $510.00 $418.99) ; Best for Teslas: Tesla ...",
+          "displayed_link": "https://www.evchargerreviews.net \u203a best-ev-chargers-fo..."
+        },
+        {
+          "position": 6,
+          "domain": "smartchargeamerica.com",
+          "url": "https://smartchargeamerica.com/electric-car-chargers/home/?srsltid=AfmBOoo8I1wRKPM_zH1dvsVTKc8skm1RxLHsBCcLGktzpzYXePeieafw",
+          "title": "Home Electric Car Chargers - EV Charging Stations - EVSE",
+          "snippet": "The Emporia Classic Smart EV Charger is a robust Level 2 home charging station that delivers up to 11.5 kW (48 A) via hardwired installation or up to 9.6 kW ...",
+          "displayed_link": "https://smartchargeamerica.com \u203a electric-car-chargers"
+        },
+        {
+          "position": 7,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=sBTxLK1QC6M",
+          "title": "The Best EV Chargers Of 2025",
+          "snippet": "After thoroughly using and testing dozens of electric vehicle chargers, these are my picks for the best EV chargers of 2025.",
+          "displayed_link": "115.7K+ views \u00b7 6 months ago"
+        },
+        {
+          "position": 8,
+          "domain": "nytimes.com",
+          "url": "https://www.nytimes.com/wirecutter/reviews/best-electric-vehicle-chargers-for-home/",
+          "title": "The 6 Best Electric Vehicle Chargers for Home of 2026",
+          "snippet": "Likewise, we found the Emporia Classic Level 2 EV Charger (NACS version) to be the best for Teslas and other EVs with a J3400 connector (also ...",
+          "displayed_link": "https://www.nytimes.com \u203a ... \u203a Batteries and charging"
+        },
+        {
+          "position": 9,
+          "domain": "energysage.com",
+          "url": "https://www.energysage.com/ev-charging/ev-charging-stations/",
+          "title": "Best Level 2 EV Chargers in 2026",
+          "snippet": "What are the best Level 2 EV chargers? \u00b7 1. ChargePoint Home Flex \u00b7 2. Emporia Pro \u00b7 3. Tesla Universal Wall Connector \u00b7 4. Grizzl-E Ultimate 48A \u00b7 5 ...",
+          "displayed_link": "https://www.energysage.com \u203a ev-charging-stations"
+        },
+        {
+          "position": 10,
+          "domain": "bestbuy.com",
+          "url": "https://www.bestbuy.com/site/garage/electric-car-chargers/pcmcat265100050011.c?id=pcmcat265100050011",
+          "title": "Electric Car Chargers: EV Chargers",
+          "snippet": "Level 2 chargers are generally preferred for full EVs, which need a bigger charger. They are faster because they use a 240V outlet, the same as some appliances.",
+          "displayed_link": "https://www.bestbuy.com \u203a ... \u203a Tools & Garage"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": [
+            "amazon.com",
+            "b2c2.poweredbyefi.org",
+            "energysage.com",
+            "evpulse.com",
+            "google.com",
+            "nuwattenergy.com",
+            "peakevsolutions.com",
+            "reddit.com",
+            "rivianforums.com",
+            "youtube.com"
+          ]
+        },
+        "people_also_ask": [
+          "What is the best EV charger to install at home?",
+          "How much does it cost to have an EV charger installed in your house?",
+          "What stops someone from unplugging your electric car?",
+          "What charger does the Hyundai Kona use?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 3
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "EV charger installation requirements",
+      "fetched_at": "2026-05-15T12:06:28.445291+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "afdc.energy.gov",
+          "url": "https://afdc.energy.gov/laws/9773",
+          "title": "Electric Vehicle (EV) Charger Installation Requirements",
+          "snippet": "Vendors that install EV chargers must comply with Illinois Commerce Commission (ICC) certification requirements. Certified installers must meet training and ...",
+          "displayed_link": "https://afdc.energy.gov \u203a laws"
+        },
+        {
+          "position": 2,
+          "domain": "qmerit.com",
+          "url": "https://qmerit.com/blog/electric-vehicle-charger-installation-faq-for-contractors/",
+          "title": "Electric Vehicle Charger Installation FAQ For Contractors",
+          "snippet": "You'll start the installation process. This includes running conduit from the panel to the charger or outlet, installing the breaker and emergency disconnect.",
+          "displayed_link": "https://qmerit.com \u203a blog \u203a electric-vehicle-charger-instal..."
+        },
+        {
+          "position": 3,
+          "domain": "enphase.com",
+          "url": "https://enphase.com/ev-chargers/learn/ev-charging-station-installation-considerations",
+          "title": "Installing EV Charging Station",
+          "snippet": "Hardwired EV charging stations require a certified electrician to install, are recommended for safe outdoor use, and typically offer a larger range of amperage ...",
+          "displayed_link": "https://enphase.com \u203a ev-chargers \u203a learn \u203a ev-charging..."
+        },
+        {
+          "position": 4,
+          "domain": "epa.gov",
+          "url": "https://www.epa.gov/greenvehicles/getting-started-home-ev-charging",
+          "title": "Getting Started with Home EV Charging",
+          "snippet": "If your home has at least 200-Amps and two empty slots for a double-pole circuit breaker in your panel, you likely have capacity for a Level 2 charger. Even 100 ...",
+          "displayed_link": "https://www.epa.gov \u203a greenvehicles \u203a getting-started-h..."
+        },
+        {
+          "position": 5,
+          "domain": "acp.com",
+          "url": "https://www.acp.com/blog/what-are-the-ev-charger-installation-requirements",
+          "title": "Essential Guide to EV Charger Installation Requirements",
+          "snippet": "Discover the key requirements for installing an EV charger at home or commercial property. Learn about site selection, power supply, ...",
+          "displayed_link": "https://www.acp.com \u203a blog \u203a what-are-the-ev-charger-..."
+        },
+        {
+          "position": 6,
+          "domain": "homedepot.com",
+          "url": "https://www.homedepot.com/c/ah/how-to-install-an-EV-charger/9ba683603be9fa5395fab901feb6903c",
+          "title": "How to Install an EV Charger",
+          "snippet": "Follow the manufacturer's height specifications, usually at least 18 in. from the garage floor and between 36-48 in. from the floor to the ...",
+          "displayed_link": "https://www.homedepot.com \u203a ... \u203a Pro Guides"
+        },
+        {
+          "position": 7,
+          "domain": "constellation.com",
+          "url": "https://www.constellation.com/energy-101/energy-innovation/installing-ev-charger-at-home.html",
+          "title": "Costs & FAQs of Installing an EV Charger at Home",
+          "snippet": "You will need a special 240V socket installed and use a specialized J1172 \u201cJ-plug\u201d or NACS plug depending on your vehicle to connect your car.",
+          "displayed_link": "https://www.constellation.com \u203a energy-innovation \u203a in..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "What is required to install an EV charger?",
+          "What are the NEC requirements for EV chargers?",
+          "What is the 80 20 rule EV?",
+          "Is 200 amps enough for a house with EV charger?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": true
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    }
+  ],
+  "fetch_errors": [],
+  "from_cache": true,
+  "gates": {
+    "gate_1_market": {
+      "passed": true,
+      "label": "PASS",
+      "findings": [
+        "23,000 SV/month after pollution adjustment (LLM estimate, low-confidence)"
+      ],
+      "raw": {
+        "pollution_adjusted_volume": 23000,
+        "total_volume": 23000,
+        "polluted_queries": [],
+        "unpolluted_queries": [
+          "EV charger installation",
+          "how to install an EV charger at home",
+          "cost of EV charger installation",
+          "best EV chargers for home installation",
+          "EV charger installation requirements"
+        ],
+        "per_query_volumes": {
+          "EV charger installation": 12000,
+          "how to install an EV charger at home": 4000,
+          "cost of EV charger installation": 3000,
+          "best EV chargers for home installation": 2500,
+          "EV charger installation requirements": 1500
+        },
+        "topic_stems": [
+          "charg",
+          "ev",
+          "install"
+        ],
+        "threshold": 5000,
+        "synthesis_only": false
+      }
+    },
+    "gate_2_serp": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "programmatic at scale: constellation.com (3/5 queries)",
+        "programmatic at scale: reddit.com (3/5 queries)",
+        "programmatic at scale: qmerit.com (3/5 queries)",
+        "AI Overview dominant: 4/5 queries",
+        "Reddit present: 3/5 queries (discussion intent locked)",
+        "21 potentially beatable results"
+      ],
+      "raw": {
+        "classifications": {
+          "specialty_incumbent": {
+            "present": false,
+            "incumbents": {}
+          },
+          "programmatic_at_scale": {
+            "present": true,
+            "incumbents": {
+              "constellation.com": [
+                "EV charger installation",
+                "EV charger installation requirements",
+                "how to install an EV charger at home"
+              ],
+              "reddit.com": [
+                "best EV chargers for home installation",
+                "cost of EV charger installation",
+                "how to install an EV charger at home"
+              ],
+              "qmerit.com": [
+                "EV charger installation requirements",
+                "cost of EV charger installation",
+                "how to install an EV charger at home"
+              ]
+            }
+          },
+          "ai_overview_dominant": {
+            "dominant": true,
+            "queries": [
+              "EV charger installation",
+              "cost of EV charger installation",
+              "best EV chargers for home installation",
+              "EV charger installation requirements"
+            ],
+            "count": 4
+          },
+          "media_locked": {
+            "locked": false,
+            "queries": {
+              "best EV chargers for home installation": [
+                "caranddriver.com",
+                "motortrend.com",
+                "nytimes.com"
+              ]
+            },
+            "count": 1,
+            "verticals": [
+              "automotive",
+              "general_news"
+            ]
+          },
+          "reddit_present": {
+            "present": true,
+            "queries": [
+              "how to install an EV charger at home",
+              "cost of EV charger installation",
+              "best EV chargers for home installation"
+            ]
+          },
+          "potentially_beatable": {
+            "count": 21,
+            "domains": [
+              {
+                "domain": "chargeprotexas.com",
+                "query": "EV charger installation",
+                "title": "EV Charger Installation Cost in Texas (2026 Guide)"
+              },
+              {
+                "domain": "homedepot.com",
+                "query": "EV charger installation",
+                "title": "EV Charger Installation at The Home Depot"
+              },
+              {
+                "domain": "lowes.com",
+                "query": "EV charger installation",
+                "title": "EV Charger Installation"
+              },
+              {
+                "domain": "goodfaithenergy.com",
+                "query": "EV charger installation",
+                "title": "Texas EV Charger Installation"
+              },
+              {
+                "domain": "enphase.com",
+                "query": "EV charger installation",
+                "title": "Tips on installing an EV charger | Enphase"
+              },
+              {
+                "domain": "divechaservices.com",
+                "query": "EV charger installation",
+                "title": "EV Charger Installation Service in Houston, Texas"
+              },
+              {
+                "domain": "peakevsolutions.com",
+                "query": "EV charger installation",
+                "title": "EV Charger Installation in Texas: A Complete Guide"
+              },
+              {
+                "domain": "epa.gov",
+                "query": "how to install an EV charger at home",
+                "title": "Getting Started with Home EV Charging"
+              },
+              {
+                "domain": "sce.com",
+                "query": "how to install an EV charger at home",
+                "title": "How to Charge Your Electric Vehicle at Home"
+              },
+              {
+                "domain": "charliediyte.co.uk",
+                "query": "how to install an EV charger at home",
+                "title": "Installing A Home EV Charge Point - Charlie DIYte"
+              },
+              {
+                "domain": "energysage.com",
+                "query": "cost of EV charger installation",
+                "title": "How Much Does an EV Charger Installation Cost?"
+              },
+              {
+                "domain": "costcoauto.com",
+                "query": "cost of EV charger installation",
+                "title": "The Cost of Charging an EV at Home"
+              },
+              {
+                "domain": "getneocharge.com",
+                "query": "cost of EV charger installation",
+                "title": "How Much Does It Cost to Install a Home EV Charging ..."
+              },
+              {
+                "domain": "sunrun.com",
+                "query": "cost of EV charger installation",
+                "title": "How Much Does It Cost To Install An EV Charger At Home?"
+              },
+              {
+                "domain": "evpulse.com",
+                "query": "best EV chargers for home installation",
+                "title": "The best home EV chargers"
+              },
+              {
+                "domain": "evchargerreviews.net",
+                "query": "best EV chargers for home installation",
+                "title": "Best Level 2 Home EV Chargers, We Tested 20+"
+              },
+              {
+                "domain": "smartchargeamerica.com",
+                "query": "best EV chargers for home installation",
+                "title": "Home Electric Car Chargers - EV Charging Stations - EVSE"
+              },
+              {
+                "domain": "youtube.com",
+                "query": "best EV chargers for home installation",
+                "title": "The Best EV Chargers Of 2025"
+              },
+              {
+                "domain": "bestbuy.com",
+                "query": "best EV chargers for home installation",
+                "title": "Electric Car Chargers: EV Chargers"
+              },
+              {
+                "domain": "afdc.energy.gov",
+                "query": "EV charger installation requirements",
+                "title": "Electric Vehicle (EV) Charger Installation Requirements"
+              },
+              {
+                "domain": "acp.com",
+                "query": "EV charger installation requirements",
+                "title": "Essential Guide to EV Charger Installation Requirements"
+              }
+            ]
+          }
+        },
+        "kill_tier_reasons": [
+          "programmatic_at_scale"
+        ],
+        "synthesis_only": false
+      }
+    },
+    "gate_3_moat": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "no moat provided"
+      ],
+      "raw": {
+        "required": true,
+        "moat_sentence": null
+      }
+    }
+  },
+  "operator_fit": {
+    "warnings": [],
+    "auto_fail_gate_2": false
+  },
+  "verdict": "NO-GO",
+  "suggested_reductions": [],
+  "moat_required": true,
+  "moat_provided": null
+}

@@ -1,0 +1,582 @@
+{
+  "schema": "research-cluster-v2",
+  "topic": "WP security",
+  "topic_normalized": "wp security",
+  "topic_hash": "bd6b6a31fb5d",
+  "fetched_at": "2026-05-15T12:04:55.320398+00:00",
+  "source": "serpapi",
+  "cluster_queries": [
+    "WP security",
+    "WordPress security best practices",
+    "how to secure WordPress site",
+    "WordPress security plugins",
+    "common WordPress security vulnerabilities"
+  ],
+  "per_query_files": [
+    "2026-05-15/bd6b6a31fb5d.json",
+    "2026-05-15/7c9ccfd17063.json",
+    "2026-05-15/a86741941634.json",
+    "2026-05-15/c0be572c3b32.json",
+    "2026-05-15/a72ed2c7ed07.json"
+  ],
+  "per_query_results": [
+    {
+      "schema": "serp-query-v1",
+      "query": "WP security",
+      "fetched_at": "2026-05-15T12:04:46.006449+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "wordfence.com",
+          "url": "https://www.wordfence.com/",
+          "title": "Wordfence: WordPress Security Plugin",
+          "snippet": "The Wordfence WordPress security plugin provides free enterprise-class WordPress security, protecting your website from hacks and malware.",
+          "displayed_link": "https://www.wordfence.com"
+        },
+        {
+          "position": 2,
+          "domain": "wpsecurityninja.com",
+          "url": "https://wpsecurityninja.com/",
+          "title": "WordPress Security Made Easy | WP Security Ninja - Firewall ...",
+          "snippet": "Secure your WordPress site effortlessly using WP Security Ninja. Our plugin provides comprehensive security with malware scanning, firewall, and real-time ...",
+          "displayed_link": "https://wpsecurityninja.com"
+        },
+        {
+          "position": 3,
+          "domain": "wordpress.org",
+          "url": "https://wordpress.org/plugins/all-in-one-wp-security-and-firewall/",
+          "title": "All-In-One Security (AIOS) \u2013 Security and Firewall",
+          "snippet": "Protect your website investment with All-In-One Security (AIOS) \u2013 a comprehensive and easy to use security plugin designed especially for WordPress.",
+          "displayed_link": "https://wordpress.org \u203a plugins \u203a all-in-one-wp-security..."
+        },
+        {
+          "position": 4,
+          "domain": "wpcerber.com",
+          "url": "https://wpcerber.com/",
+          "title": "WP Cerber Security WordPress plugin: firewall, anti-spam ...",
+          "snippet": "WP Cerber is the comprehensive solution you need to protect your WordPress website from a myriad of threats, including brute-force attacks, malware, spam, and ...",
+          "displayed_link": "https://wpcerber.com"
+        },
+        {
+          "position": 5,
+          "domain": "wpengine.com",
+          "url": "https://wpengine.com/blog/wordpress-security-and-antivirus-plugins/",
+          "title": "Security and Antivirus Plugins for WordPress",
+          "snippet": "Top 7 WordPress Antivirus and Security Plugins \u00b7 1. BulletProof Security \u00b7 2. Sucuri Security \u00b7 3. iThemes Security \u00b7 4. All In One Security ( ...",
+          "displayed_link": "https://wpengine.com \u203a blog \u203a wordpress-security-and-..."
+        },
+        {
+          "position": 6,
+          "domain": "hackertarget.com",
+          "url": "https://hackertarget.com/wordpress-security-scan/",
+          "title": "WordPress Security Scan",
+          "snippet": "Online WordPress Security Scanner to test vulnerabilities and health of a WordPress installation. Checks include application security, WordPress plugins, ...",
+          "displayed_link": "https://hackertarget.com \u203a wordpress-security-scan"
+        },
+        {
+          "position": 7,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/Wordpress/comments/17dpwhm/what_plugins_would_you_recommend_for_security/",
+          "title": "What plugins would you recommend for security?",
+          "snippet": "I have just set up a new Wordpress blog but am unsure what plugins are best for safety and security?I know it's not good to \"bloat\" a website with plugins ...",
+          "displayed_link": "100+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 8,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=HWObyVESt24",
+          "title": "All in One WP Security and Firewall Settings - FREE ...",
+          "snippet": "The Ultimate WordPress Security Guide To Prevent Hacking & Malware Attacks. WPCrafter.com WordPress For Non-Techies",
+          "displayed_link": "33.4K+ views \u00b7 3 years ago"
+        },
+        {
+          "position": 9,
+          "domain": "wpsec.com",
+          "url": "https://wpsec.com/",
+          "title": "Online WordPress Security Scan for Vulnerabilities | WP Sec",
+          "snippet": "WPSec.com is an online security scanner for WordPress vulnerabilities. We keep track of all your WordPress installations and tell you as soon as they are ...",
+          "displayed_link": "https://wpsec.com"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": [
+            "bluehost.com",
+            "cloudflare.com",
+            "esokia.com",
+            "jetpack.com",
+            "namecheap.com",
+            "osomstudio.com",
+            "reddit.com",
+            "rivuletiq.com",
+            "wordpress.org",
+            "wp-rocket.me",
+            "wpbeginner.com",
+            "wpcreative.com.au",
+            "wpengine.com",
+            "youtube.com"
+          ]
+        },
+        "people_also_ask": [
+          "How much does Wordfence cost?",
+          "What is all in one WP security?",
+          "Is WPScan free?",
+          "Is Wordfence safe?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 7
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "WordPress security best practices",
+      "fetched_at": "2026-05-15T12:04:47.324053+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "nordlayer.com",
+          "url": "https://nordlayer.com/blog/wordpress-security-best-practices/",
+          "title": "Guide to WordPress Security Best Practices",
+          "snippet": "WordPress security best practices \u00b7 Use a secure WordPress hosting provider \u00b7 Regularly update your themes, plugins, and WordPress core \u00b7 Use unique username/ ...",
+          "displayed_link": "https://nordlayer.com \u203a Blog"
+        },
+        {
+          "position": 2,
+          "domain": "wpengine.com",
+          "url": "https://wpengine.com/blog/wordpress-security-tips-best-practices/",
+          "title": "7 WordPress Security Best Practices Every Site Owner ...",
+          "snippet": "7 WordPress security best practices \u00b7 1. Keep your themes, plugins, and WordPress version up to date \u00b7 2. Apply username and password best practices \u00b7 3. Limit ...",
+          "displayed_link": "https://wpengine.com \u203a blog \u203a wordpress-security-tips-..."
+        },
+        {
+          "position": 3,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/Wordpress/comments/1i5fvg8/best_practices_to_secure_wordpress_website/",
+          "title": "Best Practices to Secure WordPress website",
+          "snippet": "Always have daily offsite backup. Hacked? You can restore right away \u00b7 Keep plugins up to date \u00b7 Use 2FA for logins \u00b7 Put your website behind ...",
+          "displayed_link": "50+ comments \u00b7 1 year ago"
+        },
+        {
+          "position": 4,
+          "domain": "developer.wordpress.org",
+          "url": "https://developer.wordpress.org/advanced-administration/security/hardening/",
+          "title": "Hardening WordPress \u2013 Advanced Administration Handbook",
+          "snippet": "Always keep your operating system and the software on it, especially your web browser, up to date to protect you from security vulnerabilities.",
+          "displayed_link": "https://developer.wordpress.org \u203a security \u203a hardening"
+        },
+        {
+          "position": 5,
+          "domain": "wp-rocket.me",
+          "url": "https://wp-rocket.me/blog/wordpress-security-best-practices/",
+          "title": "Top 16 WordPress Security Best Practices and Tips for 2026",
+          "snippet": "Start with the basics: enable auto-updates, remove unused plugins, use strong passwords, activate backups, and install a trusted security plugin. These simple ...",
+          "displayed_link": "https://wp-rocket.me \u203a Blog \u203a Page speed and caching"
+        },
+        {
+          "position": 6,
+          "domain": "wordfence.com",
+          "url": "https://www.wordfence.com/wordpress-security/",
+          "title": "WordPress Security: 6 Vital Security Layers To Protect Your ...",
+          "snippet": "Upgrade your WordPress security with Wordfence's detailed guide covering 6 critical security layers. Protect against hackers, malware, ...",
+          "displayed_link": "https://www.wordfence.com \u203a wordpress-security"
+        },
+        {
+          "position": 7,
+          "domain": "wpscan.com",
+          "url": "https://wpscan.com/blog/wordpress-security-checklist/",
+          "title": "The Ultimate WordPress Security Checklist",
+          "snippet": "Keep WordPress core, themes, and plugins up to date; Apply strict username and password policies; Implement role-based access and permissions ...",
+          "displayed_link": "https://wpscan.com \u203a blog \u203a wordpress-security-checklist"
+        },
+        {
+          "position": 8,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=D0Q6448Fpo8",
+          "title": "How to Secure Your WordPress Site in 2025",
+          "snippet": "We're going to go through how to secure your WordPress site and cover everything from Simply keeping things up toate to hardening and configuration changes.",
+          "displayed_link": "5.7K+ views \u00b7 1 year ago"
+        },
+        {
+          "position": 9,
+          "domain": "miniorange.com",
+          "url": "https://www.miniorange.com/blog/wordpress-security-best-practices/",
+          "title": "10 WordPress Security Best Practices and Tips for 2026",
+          "snippet": "Start by updating your site regularly, use a security plugin, enable 2FA, and limit login attempts. Then, go deeper by securing core files, ...",
+          "displayed_link": "https://www.miniorange.com \u203a Home \u203a Wordpress"
+        },
+        {
+          "position": 10,
+          "domain": "siteground.com",
+          "url": "https://www.siteground.com/wordpress-security-ebook",
+          "title": "25+ WordPress Security Best Practices for Your Website",
+          "snippet": "Learn how to control your WordPress website's access, activity logs, and login attempts and use HTTPS encryption, security headers, firewall plugins, and more.",
+          "displayed_link": "https://www.siteground.com \u203a wordpress-security-ebook"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "Why are people moving away from WordPress?",
+          "How can you secure a WordPress website effectively?",
+          "Is WordPress outdated in 2026?",
+          "Is WordPress good for security?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 3
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "how to secure WordPress site",
+      "fetched_at": "2026-05-15T12:04:48.452673+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/Wordpress/comments/15g8hgj/how_do_i_secure_a_wordpress_site/",
+          "title": "How do I secure a WordPress site?",
+          "snippet": "The company I work at makes cybersecurity hardware and we are launching a new WordPress site in about 6 weeks. I have been tasked with finding out what ...",
+          "displayed_link": "100+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 2,
+          "domain": "developer.wordpress.org",
+          "url": "https://developer.wordpress.org/advanced-administration/security/hardening/",
+          "title": "Hardening WordPress \u2013 Advanced Administration Handbook",
+          "snippet": "This article will go through some common forms of vulnerabilities, and the things you can do to help keep your WordPress installation secure.",
+          "displayed_link": "https://developer.wordpress.org \u203a security \u203a hardening"
+        },
+        {
+          "position": 3,
+          "domain": "cloudflare.com",
+          "url": "https://www.cloudflare.com/learning/security/how-to-improve-wordpress-security/",
+          "title": "How to improve WordPress security",
+          "snippet": "Users can improve WordPress security by keeping their site updated, enforcing strict user access requirements, and regularly scanning for critical ...",
+          "displayed_link": "https://www.cloudflare.com \u203a learning \u203a how-to-impro..."
+        },
+        {
+          "position": 4,
+          "domain": "nordlayer.com",
+          "url": "https://nordlayer.com/blog/wordpress-security-best-practices/",
+          "title": "Guide to WordPress Security Best Practices",
+          "snippet": "WordPress site security can be improved by using a Virtual Private Network (VPN). A VPN encrypts exchanged data traffic, making it difficult for hackers to ...",
+          "displayed_link": "https://nordlayer.com \u203a Blog"
+        },
+        {
+          "position": 5,
+          "domain": "godaddy.com",
+          "url": "https://www.godaddy.com/help/secure-my-wordpress-site-8430",
+          "title": "Secure my WordPress site",
+          "snippet": "Secure my WordPress site \u00b7 Use a secure password and change it regularly \u00b7 Limit sign in attempts \u00b7 Keep your site updated \u00b7 Delete themes and plugins you don't ...",
+          "displayed_link": "https://www.godaddy.com \u203a help \u203a secure-my-wordpre..."
+        },
+        {
+          "position": 6,
+          "domain": "theideabureau.co",
+          "url": "https://theideabureau.co/resources/the-essentials-for-keeping-your-wordpress-site-secure/",
+          "title": "The essentials for keeping your WordPress site secure",
+          "snippet": "Checklist for keeping your WordPress site secure \u00b7 Update your WordPress instance and plugins regularly \u00b7 Enable good user management procedures ...",
+          "displayed_link": "https://theideabureau.co \u203a resources \u203a the-essentials-for-..."
+        },
+        {
+          "position": 7,
+          "domain": "siteground.com",
+          "url": "https://www.siteground.com/tutorials/wordpress/security/",
+          "title": "WordPress Security Tutorial",
+          "snippet": "Learn what are the best practices for securing your WordPress site, and how to implement them with minimal hassle.",
+          "displayed_link": "https://www.siteground.com \u203a ... \u203a WordPress Tutorials"
+        },
+        {
+          "position": 8,
+          "domain": "wp-rocket.me",
+          "url": "https://wp-rocket.me/blog/wordpress-security-best-practices/",
+          "title": "Top 16 WordPress Security Best Practices and Tips for 2026",
+          "snippet": "1. Put Your Site Offline. You should temporarily put your site offline or in maintenance mode to prevent further access. This limits the spread of malware in ...",
+          "displayed_link": "https://wp-rocket.me \u203a Blog \u203a Page speed and caching"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "How do I make my WordPress website secure?",
+          "Why are people moving away from WordPress?",
+          "Is WordPress outdated in 2026?",
+          "How do I make my entire WordPress site private?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 1
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "WordPress security plugins",
+      "fetched_at": "2026-05-15T12:04:52.804017+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "wordfence.com",
+          "url": "https://www.wordfence.com/",
+          "title": "Wordfence: WordPress Security Plugin",
+          "snippet": "The Wordfence WordPress security plugin provides free enterprise-class WordPress security, protecting your website from hacks and malware.",
+          "displayed_link": "https://www.wordfence.com"
+        },
+        {
+          "position": 2,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/Wordpress/comments/17dpwhm/what_plugins_would_you_recommend_for_security/",
+          "title": "What plugins would you recommend for security?",
+          "snippet": "I have just set up a new Wordpress blog but am unsure what plugins are best for safety and security?I know it's not good to \"bloat\" a website with plugins ...",
+          "displayed_link": "100+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 3,
+          "domain": "supporthost.com",
+          "url": "https://supporthost.com/wordpress-security-plugins/",
+          "title": "The 8 Best WordPress Security Plugins",
+          "snippet": "The 8 Best WordPress Security Plugins \u00b7 1. Wordfence \u00b7 2. Sucuri Security \u00b7 3. BulletProof Security \u00b7 4. Jetpack \u00b7 5. Cloudflare \u00b7 6. All-In-One ...",
+          "displayed_link": "https://supporthost.com \u203a Blog \u203a Security"
+        },
+        {
+          "position": 4,
+          "domain": "wordpress.org",
+          "url": "https://wordpress.org/plugins/tags/security/",
+          "title": "Plugins categorized as security",
+          "snippet": "Improve your WP security with powerful one-click tools like backup, WAF, and malware scan. Includes free tools like stats, CDN and social sharing.",
+          "displayed_link": "https://wordpress.org \u203a plugins \u203a tags \u203a security"
+        },
+        {
+          "position": 5,
+          "domain": "miniorange.com",
+          "url": "https://www.miniorange.com/blog/best-wordpress-security-plugins/",
+          "title": "12 Best WordPress Security Plugins for 2026",
+          "snippet": "12 Best WordPress Security Plugins to Protect Your Website \u00b7 12. CleanTalk Security \u00b7 11. BulletProof Security \u00b7 10. Jetpack Security \u00b7 9.",
+          "displayed_link": "https://www.miniorange.com \u203a Home \u203a Wordpress"
+        },
+        {
+          "position": 6,
+          "domain": "sitecare.com",
+          "url": "https://sitecare.com/best-wordpress-security-plugins/",
+          "title": "Best WordPress Security Plugins: A Layered Approach",
+          "snippet": "Discover top WordPress security plugins and why layered protection\u2014server, edge, app, and user\u2014is key to full-site defense.",
+          "displayed_link": "https://sitecare.com \u203a Blog"
+        },
+        {
+          "position": 7,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/Wordpress/comments/17qjc2y/any_free_but_reliable_security_plugins_that_i/",
+          "title": "any free but reliable security plugins that i need to install?",
+          "snippet": "most of the best security plugins I see are paid, are there those that are free? my client doesn\u2019t have a budget anymore to subscribe for security ...",
+          "displayed_link": "40+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 8,
+          "domain": "wpbeginner.com",
+          "url": "https://www.wpbeginner.com/plugins/best-wordpress-security-plugins-compared/",
+          "title": "6 Best WordPress Security Plugins to Protect Your Site ...",
+          "snippet": "6 Best WordPress Security Plugins to Protect Your Site (Compared) \u00b7 1. Cloudflare \u00b7 2. Sucuri \u00b7 3. MalCare \u00b7 4. Wordfence \u00b7 5. SolidWP \u00b7 6. All-In-One WP ...",
+          "displayed_link": "https://www.wpbeginner.com \u203a WordPress Plugins"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": [
+            "armemberplugin.com",
+            "bluehost.com",
+            "elementor.com",
+            "malcare.com",
+            "miniorange.com",
+            "optinmonster.com",
+            "reddit.com",
+            "siteground.com",
+            "supporthost.com",
+            "wpbeginner.com",
+            "wpcerber.com",
+            "wpmarmite.com",
+            "youtube.com"
+          ]
+        },
+        "people_also_ask": [
+          "Which security plugin is best for WordPress?",
+          "Why are people moving away from WordPress?",
+          "Is Wordfence the best WordPress security plugin?",
+          "What is the 2fa plugin for WordPress?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 2
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "common WordPress security vulnerabilities",
+      "fetched_at": "2026-05-15T12:04:55.317962+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "wordfence.com",
+          "url": "https://www.wordfence.com/threat-intel/vulnerabilities",
+          "title": "WordPress Vulnerability Database",
+          "snippet": "All Vulnerabilities ; 4.3. CVE-2026-7563 \u00b7 momopon1415 ; 8.8. CVE-2026-6228 \u00b7 Colin Xu ; 7.5. CVE-2026-6403 \u00b7 Itthidej Aramsri (Boeing777) ; 9.8. CVE-2026-5229 \u00b7 Nabil ...",
+          "displayed_link": "https://www.wordfence.com \u203a threat-intel \u203a vulnerabilities"
+        },
+        {
+          "position": 2,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/Wordpress/comments/15abagf/wordpress_vulnerabilities/",
+          "title": "WordPress vulnerabilities : r/Wordpress",
+          "snippet": "Implementing strong security practices, such as using strong passwords, enabling two-factor authentication, and using security plugins like ...",
+          "displayed_link": "20+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 3,
+          "domain": "jetpack.com",
+          "url": "https://jetpack.com/resources/wordpress-security-issues-and-vulnerabilities/",
+          "title": "30+ of the Most Common WordPress Security Issues & ...",
+          "snippet": "The main types of security threats WordPress sites face \u00b7 1. Malware and virus infections \u00b7 2. SQL injection attacks \u00b7 3. Cross-Site Scripting ( ...",
+          "displayed_link": "https://jetpack.com \u203a resources \u203a wordpress-security-iss..."
+        },
+        {
+          "position": 4,
+          "domain": "kaspersky.com",
+          "url": "https://www.kaspersky.com/blog/wordpress-security-issues/49955/",
+          "title": "What security issues does WordPress have?",
+          "snippet": "1. Vulnerabilities in plugins, themes, and the WordPress core (in that order of descending importance) \u00b7 2. Weak passwords and lack of two-factor ...",
+          "displayed_link": "https://www.kaspersky.com \u203a ... \u203a Category: SMB"
+        },
+        {
+          "position": 5,
+          "domain": "learn.wordpress.org",
+          "url": "https://learn.wordpress.org/lesson/fixing-common-security-vulnerabilities/",
+          "title": "Fixing common security vulnerabilities - Learn WordPress",
+          "snippet": "In this lesson, you're going to learn how to apply these principles when developing your WordPress plugins and themes, by fixing an insecurely coded form ...",
+          "displayed_link": "https://learn.wordpress.org \u203a lesson \u203a fixing-common-s..."
+        },
+        {
+          "position": 6,
+          "domain": "medium.com",
+          "url": "https://medium.com/techiepedia/common-vulnerabilities-in-wordpress-sites-10157635c3a4",
+          "title": "Common Vulnerabilities in Wordpress Sites",
+          "snippet": "I will try to mention some of the common wordpress misconfiguration and vulnerabilities that i know in this blog! Let's begin hacking Wordpress!",
+          "displayed_link": "250+ likes \u00b7 2 years ago"
+        },
+        {
+          "position": 7,
+          "domain": "sitelock.com",
+          "url": "https://www.sitelock.com/blog/how-to-fix-wordpress-vulnerabilities/",
+          "title": "WordPress Vulnerabilities - Fixing Common Issues",
+          "snippet": "Out of the box, your WordPress website is vulnerable to security threats such as bots, brute force attacks, backdoor intrusions, and other risks ...",
+          "displayed_link": "https://www.sitelock.com \u203a Sitelock Blog"
+        },
+        {
+          "position": 8,
+          "domain": "kinsta.com",
+          "url": "https://kinsta.com/blog/is-wordpress-secure/",
+          "title": "Is WordPress Secure? Here's What the Data Says",
+          "snippet": "The most common vulnerability type was Cross-Site Scripting (XSS), which made up 53.3% of all new WordPress vulnerabilities. XSS issues often ...",
+          "displayed_link": "https://kinsta.com \u203a ... \u203a Blog \u203a WordPress Security"
+        },
+        {
+          "position": 9,
+          "domain": "raidboxes.io",
+          "url": "https://raidboxes.io/en/blog/security/wordpress-vulnerabilities/",
+          "title": "The 4 biggest WordPress security vulnerabilities",
+          "snippet": "The most common hacks against WordPress websites include malware, backdoors, SEO spam, brute force attacks, SQL injections, DDoS attacks and ...",
+          "displayed_link": "https://raidboxes.io \u203a Home \u203a Security"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 2
+        }
+      }
+    }
+  ],
+  "fetch_errors": [],
+  "from_cache": false
+}

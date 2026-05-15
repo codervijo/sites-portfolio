@@ -847,20 +847,194 @@ def test_is_moat_required_false_when_classifications_missing():
 # ---------- synthesize_verdict (stub) ----------
 
 
-def test_synthesize_verdict_stub_returns_no_go():
-    """Stub returns NO-GO until P2.E lands. Locks the function signature."""
-    g_pending = GateResult(passed=None, label=LABEL_PENDING)
-    assert synthesize_verdict(g_pending, g_pending, g_pending) == VERDICT_NO_GO
+def test_synthesize_verdict_gate_1_fail_is_no_go():
+    """Gate 1 FAIL → NO-GO regardless of other gates."""
+    g1 = GateResult(passed=False, label=LABEL_FAIL)
+    g_pass = GateResult(passed=True, label=LABEL_PASS)
+    assert synthesize_verdict(g1, g_pass, g_pass) == VERDICT_NO_GO
 
 
-def test_synthesize_verdict_accepts_op_fit_kw():
-    """Keyword-only operator-fit param is part of the signature so
-    Phase 3 can wire it without changing call sites."""
+def test_synthesize_verdict_all_pass_is_go():
     g = GateResult(passed=True, label=LABEL_PASS)
-    op = OperatorFitResult(warnings=["w"], auto_fail_gate_2=True)
-    result = synthesize_verdict(g, g, g, op_fit=op)
-    # Stub still returns NO-GO — but the call must accept op_fit.
-    assert result in {VERDICT_GO, VERDICT_NICHE_DOWN, VERDICT_NO_GO}
+    assert synthesize_verdict(g, g, g) == VERDICT_GO
+
+
+def test_synthesize_verdict_gate_2_fail_with_moat_is_niche_down():
+    """Gate 2 FAIL + Gate 3 PASS with moat sentence → NICHE-DOWN."""
+    g1 = GateResult(passed=True, label=LABEL_PASS)
+    g2 = GateResult(passed=False, label=LABEL_FAIL)
+    g3 = GateResult(passed=True, label=LABEL_PASS,
+                    raw={"required": True, "moat_sentence": "my moat"})
+    assert synthesize_verdict(g1, g2, g3) == VERDICT_NICHE_DOWN
+
+
+def test_synthesize_verdict_gate_2_fail_no_moat_is_no_go():
+    """Gate 2 FAIL + Gate 3 FAIL → NO-GO."""
+    g1 = GateResult(passed=True, label=LABEL_PASS)
+    g2 = GateResult(passed=False, label=LABEL_FAIL)
+    g3 = GateResult(passed=False, label=LABEL_FAIL)
+    assert synthesize_verdict(g1, g2, g3) == VERDICT_NO_GO
+
+
+def test_synthesize_verdict_gate_2_fail_pending_moat_is_no_go():
+    """Gate 2 FAIL + Gate 3 PENDING (non-interactive) → NO-GO."""
+    g1 = GateResult(passed=True, label=LABEL_PASS)
+    g2 = GateResult(passed=False, label=LABEL_FAIL)
+    g3 = GateResult(passed=None, label=LABEL_PENDING)
+    assert synthesize_verdict(g1, g2, g3) == VERDICT_NO_GO
+
+
+def test_synthesize_verdict_weak_pass_g2_is_niche_down():
+    """Gate 2 WEAK-PASS → NICHE-DOWN (no kill-tier but findings flag
+    what would force narrowing)."""
+    g1 = GateResult(passed=True, label=LABEL_PASS)
+    g2 = GateResult(passed=True, label=LABEL_WEAK_PASS)
+    g3 = GateResult(passed=True, label=LABEL_PASS, raw={"required": False})
+    assert synthesize_verdict(g1, g2, g3) == VERDICT_NICHE_DOWN
+
+
+def test_synthesize_verdict_op_fit_auto_fail_overrides_pass():
+    """Operator-fit's auto_fail_gate_2=True treats Gate 2 as FAILED
+    even when its label is PASS — verdict shifts to NO-GO without moat."""
+    g_pass = GateResult(passed=True, label=LABEL_PASS)
+    g3_fail = GateResult(passed=False, label=LABEL_FAIL)
+    op = OperatorFitResult(auto_fail_gate_2=True)
+    assert synthesize_verdict(g_pass, g_pass, g3_fail, op_fit=op) == VERDICT_NO_GO
+
+
+def test_synthesize_verdict_op_fit_auto_fail_with_moat_is_niche_down():
+    g_pass = GateResult(passed=True, label=LABEL_PASS)
+    g3_moat = GateResult(passed=True, label=LABEL_PASS,
+                         raw={"required": True, "moat_sentence": "moat"})
+    op = OperatorFitResult(auto_fail_gate_2=True)
+    assert synthesize_verdict(g_pass, g_pass, g3_moat, op_fit=op) == VERDICT_NICHE_DOWN
+
+
+# ---------- Suggested reductions ----------
+
+
+def test_suggest_reductions_returns_list_from_llm():
+    from portfolio.research_gates import suggest_reductions
+    def _fake_llm(system, user):
+        return '{"reductions": ["narrow to EV", "regional only", "post-fault trigger"]}'
+    g = GateResult(passed=False, label=LABEL_FAIL)
+    out = suggest_reductions("x", g, g, g, llm_call=_fake_llm)
+    assert out == ["narrow to EV", "regional only", "post-fault trigger"]
+
+
+def test_suggest_reductions_caps_at_three():
+    from portfolio.research_gates import suggest_reductions
+    def _fake_llm(s, u):
+        return '{"reductions": ["a", "b", "c", "d", "e"]}'
+    g = GateResult(passed=False, label=LABEL_FAIL)
+    assert len(suggest_reductions("x", g, g, g, llm_call=_fake_llm)) == 3
+
+
+def test_suggest_reductions_strips_markdown_fences():
+    from portfolio.research_gates import suggest_reductions
+    def _fake_llm(s, u):
+        return '```json\n{"reductions": ["a", "b"]}\n```'
+    g = GateResult(passed=False, label=LABEL_FAIL)
+    assert suggest_reductions("x", g, g, g, llm_call=_fake_llm) == ["a", "b"]
+
+
+def test_suggest_reductions_returns_empty_on_llm_error():
+    from portfolio.research_gates import suggest_reductions
+    def _exploding(s, u):
+        raise RuntimeError("openai down")
+    g = GateResult(passed=False, label=LABEL_FAIL)
+    assert suggest_reductions("x", g, g, g, llm_call=_exploding) == []
+
+
+def test_suggest_reductions_returns_empty_on_bad_json():
+    from portfolio.research_gates import suggest_reductions
+    def _bad(s, u):
+        return "this isn't json"
+    g = GateResult(passed=False, label=LABEL_FAIL)
+    assert suggest_reductions("x", g, g, g, llm_call=_bad) == []
+
+
+def test_suggest_reductions_skips_empty_strings():
+    """Empty reductions in the LLM list are filtered out."""
+    from portfolio.research_gates import suggest_reductions
+    def _fake_llm(s, u):
+        return '{"reductions": ["valid", "", "  ", "also valid"]}'
+    g = GateResult(passed=False, label=LABEL_FAIL)
+    out = suggest_reductions("x", g, g, g, llm_call=_fake_llm)
+    assert out == ["valid", "also valid"]
+
+
+def test_reduction_axes_constant():
+    from portfolio.research_gates import REDUCTION_AXES
+    assert set(REDUCTION_AXES) == {
+        "segment", "geography", "persona", "use_case", "depth", "moment",
+    }
+
+
+# ---------- evaluate_cluster: end-to-end orchestration ----------
+
+
+def test_evaluate_cluster_calls_reductions_only_on_niche_down():
+    """suggest_reductions LLM is called only when verdict=NICHE-DOWN."""
+    # Titles contain "ev" / "charg" so Gate 1 won't mark them polluted.
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [
+            _organic("x.com", title="EV charger guide on X"),
+            _organic("y.com", title="EV charger picks Y"),
+        ]),
+    ])
+    called = []
+    def _fake(s, u):
+        called.append((s, u))
+        return '{"reductions": ["narrow it"]}'
+    # No kill-tier classifiers + only 2 beatable → Gate 2 WEAK-PASS → NICHE-DOWN.
+    r = evaluate_cluster(
+        cluster,
+        volume_estimator=lambda qs: {q: 10_000 for q in qs},
+        reductions_llm_call=_fake,
+    )
+    assert r.verdict == VERDICT_NICHE_DOWN
+    assert called  # was called
+    assert r.suggested_reductions == ["narrow it"]
+
+
+def test_evaluate_cluster_skips_reductions_on_no_go():
+    """No LLM call for NO-GO verdicts (Gate 1 fail)."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("y.com", title="EV charger Y article")]),
+    ])
+    called = []
+    def _fake(s, u):
+        called.append(1)
+        return '{"reductions": []}'
+    r = evaluate_cluster(
+        cluster,
+        volume_estimator=lambda qs: {q: 0 for q in qs},   # → Gate 1 FAIL
+        reductions_llm_call=_fake,
+    )
+    assert r.verdict == VERDICT_NO_GO
+    assert called == []
+    assert r.suggested_reductions == []
+
+
+def test_evaluate_cluster_skip_reductions_flag():
+    """skip_reductions=True bypasses the LLM call even for NICHE-DOWN."""
+    cluster = _cluster_with_organic("ev charger", [
+        ("a", [_organic("y.com", title="EV charger article on Y")]),
+    ])
+    called = []
+    def _fake(s, u):
+        called.append(1)
+        return '{"reductions": ["x"]}'
+    r = evaluate_cluster(
+        cluster,
+        volume_estimator=lambda qs: {q: 10_000 for q in qs},
+        reductions_llm_call=_fake,
+        skip_reductions=True,
+    )
+    assert r.verdict == VERDICT_NICHE_DOWN
+    assert called == []
+    assert r.suggested_reductions == []
 
 
 # ---------- evaluate_cluster (orchestrator) ----------

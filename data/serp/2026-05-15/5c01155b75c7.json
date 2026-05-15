@@ -1,0 +1,84 @@
+{
+  "schema": "serp-query-v1",
+  "query": "cost of EV charger installation",
+  "fetched_at": "2026-05-15T12:06:19.697871+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "energysage.com",
+      "url": "https://www.energysage.com/ev-charging/how-much-does-ev-charger-installation-cost/",
+      "title": "How Much Does an EV Charger Installation Cost?",
+      "snippet": "The typical cost to install an EV charger ranges from $800 to $3,000, depending on your home's electrical set up, based on data from Qmerit\u2014the ...",
+      "displayed_link": "https://www.energysage.com \u203a Ev charging"
+    },
+    {
+      "position": 2,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/electricvehicles/comments/wn63oa/how_much_did_it_cost_you_to_install_a_level_2/",
+      "title": "how much did it cost you to install a level 2 charger at home?",
+      "snippet": "Also where do you live and when was the install done",
+      "displayed_link": "240+ comments \u00b7 3 years ago"
+    },
+    {
+      "position": 3,
+      "domain": "costcoauto.com",
+      "url": "https://www.costcoauto.com/automotive_articles/ev/the-cost-of-charging-an-ev-at-home.aspx",
+      "title": "The Cost of Charging an EV at Home",
+      "snippet": "Hiring a licensed electrician to install a 240V outlet and hardwire the charger can cost $400 to $1,200 or more if electrical system upgrades are needed.1 ...",
+      "displayed_link": "https://www.costcoauto.com \u203a automotive_articles \u203a the-..."
+    },
+    {
+      "position": 4,
+      "domain": "qmerit.com",
+      "url": "https://qmerit.com/faq/how-much-does-installation-cost/",
+      "title": "How Much Does EV Charger Installation Cost?",
+      "snippet": "The average EV charger installation cost is between $800 and $2,500 on average, with a typical cost of $1,700 for a standard installation, but keep in mind that ...",
+      "displayed_link": "https://qmerit.com \u203a faq \u203a how-much-does-installation-cost"
+    },
+    {
+      "position": 5,
+      "domain": "getneocharge.com",
+      "url": "https://getneocharge.com/a/blog/how-much-does-it-cost-to-install-a-home-charging-station?srsltid=AfmBOopxuivHhkNiWz6G4M-HGY4U1kHhI3YUyLFO6LJ21ogzxdOkCI4A",
+      "title": "How Much Does It Cost to Install a Home EV Charging ...",
+      "snippet": "Short answer: Most homeowners pay $850\u2013$2,700 for a basic Level 2 install (charger + labor + permit). Panel upgrades, long wire runs, ...",
+      "displayed_link": "https://getneocharge.com \u203a Blog \u203a EV Charging"
+    },
+    {
+      "position": 6,
+      "domain": "sunrun.com",
+      "url": "https://www.sunrun.com/go-solar-center/solar-articles/how-much-to-install-ev-charger-at-home",
+      "title": "How Much Does It Cost To Install An EV Charger At Home?",
+      "snippet": "Installing an EV charger at home typically costs between $800 and $2,500 in 2026, depending on equipment, electrical capacity, and installation ...",
+      "displayed_link": "https://www.sunrun.com \u203a go-solar-center \u203a solar-articles"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "How much does it cost to install an EV car charger?",
+      "Can a normal electrician install an EV charger?",
+      "How much does it cost to have an EV charger put in?",
+      "What is the 80/20 rule for EV charging?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 2
+    }
+  }
+}

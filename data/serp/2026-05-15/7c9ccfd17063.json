@@ -1,0 +1,116 @@
+{
+  "schema": "serp-query-v1",
+  "query": "WordPress security best practices",
+  "fetched_at": "2026-05-15T12:04:47.324053+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "nordlayer.com",
+      "url": "https://nordlayer.com/blog/wordpress-security-best-practices/",
+      "title": "Guide to WordPress Security Best Practices",
+      "snippet": "WordPress security best practices \u00b7 Use a secure WordPress hosting provider \u00b7 Regularly update your themes, plugins, and WordPress core \u00b7 Use unique username/ ...",
+      "displayed_link": "https://nordlayer.com \u203a Blog"
+    },
+    {
+      "position": 2,
+      "domain": "wpengine.com",
+      "url": "https://wpengine.com/blog/wordpress-security-tips-best-practices/",
+      "title": "7 WordPress Security Best Practices Every Site Owner ...",
+      "snippet": "7 WordPress security best practices \u00b7 1. Keep your themes, plugins, and WordPress version up to date \u00b7 2. Apply username and password best practices \u00b7 3. Limit ...",
+      "displayed_link": "https://wpengine.com \u203a blog \u203a wordpress-security-tips-..."
+    },
+    {
+      "position": 3,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/Wordpress/comments/1i5fvg8/best_practices_to_secure_wordpress_website/",
+      "title": "Best Practices to Secure WordPress website",
+      "snippet": "Always have daily offsite backup. Hacked? You can restore right away \u00b7 Keep plugins up to date \u00b7 Use 2FA for logins \u00b7 Put your website behind ...",
+      "displayed_link": "50+ comments \u00b7 1 year ago"
+    },
+    {
+      "position": 4,
+      "domain": "developer.wordpress.org",
+      "url": "https://developer.wordpress.org/advanced-administration/security/hardening/",
+      "title": "Hardening WordPress \u2013 Advanced Administration Handbook",
+      "snippet": "Always keep your operating system and the software on it, especially your web browser, up to date to protect you from security vulnerabilities.",
+      "displayed_link": "https://developer.wordpress.org \u203a security \u203a hardening"
+    },
+    {
+      "position": 5,
+      "domain": "wp-rocket.me",
+      "url": "https://wp-rocket.me/blog/wordpress-security-best-practices/",
+      "title": "Top 16 WordPress Security Best Practices and Tips for 2026",
+      "snippet": "Start with the basics: enable auto-updates, remove unused plugins, use strong passwords, activate backups, and install a trusted security plugin. These simple ...",
+      "displayed_link": "https://wp-rocket.me \u203a Blog \u203a Page speed and caching"
+    },
+    {
+      "position": 6,
+      "domain": "wordfence.com",
+      "url": "https://www.wordfence.com/wordpress-security/",
+      "title": "WordPress Security: 6 Vital Security Layers To Protect Your ...",
+      "snippet": "Upgrade your WordPress security with Wordfence's detailed guide covering 6 critical security layers. Protect against hackers, malware, ...",
+      "displayed_link": "https://www.wordfence.com \u203a wordpress-security"
+    },
+    {
+      "position": 7,
+      "domain": "wpscan.com",
+      "url": "https://wpscan.com/blog/wordpress-security-checklist/",
+      "title": "The Ultimate WordPress Security Checklist",
+      "snippet": "Keep WordPress core, themes, and plugins up to date; Apply strict username and password policies; Implement role-based access and permissions ...",
+      "displayed_link": "https://wpscan.com \u203a blog \u203a wordpress-security-checklist"
+    },
+    {
+      "position": 8,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=D0Q6448Fpo8",
+      "title": "How to Secure Your WordPress Site in 2025",
+      "snippet": "We're going to go through how to secure your WordPress site and cover everything from Simply keeping things up toate to hardening and configuration changes.",
+      "displayed_link": "5.7K+ views \u00b7 1 year ago"
+    },
+    {
+      "position": 9,
+      "domain": "miniorange.com",
+      "url": "https://www.miniorange.com/blog/wordpress-security-best-practices/",
+      "title": "10 WordPress Security Best Practices and Tips for 2026",
+      "snippet": "Start by updating your site regularly, use a security plugin, enable 2FA, and limit login attempts. Then, go deeper by securing core files, ...",
+      "displayed_link": "https://www.miniorange.com \u203a Home \u203a Wordpress"
+    },
+    {
+      "position": 10,
+      "domain": "siteground.com",
+      "url": "https://www.siteground.com/wordpress-security-ebook",
+      "title": "25+ WordPress Security Best Practices for Your Website",
+      "snippet": "Learn how to control your WordPress website's access, activity logs, and login attempts and use HTTPS encryption, security headers, firewall plugins, and more.",
+      "displayed_link": "https://www.siteground.com \u203a wordpress-security-ebook"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Why are people moving away from WordPress?",
+      "How can you secure a WordPress website effectively?",
+      "Is WordPress outdated in 2026?",
+      "Is WordPress good for security?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 3
+    }
+  }
+}
