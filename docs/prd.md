@@ -62,7 +62,7 @@ Sole user: Vijo. No multi-tenancy, no permissions, no public surface. CLI-only.
 
 ## 5. Phases
 
-Strict sequence (option a). 51 phases total · **1 dropped** (v8.C deliberately dropped 2026-05-13). v8.D + v8.E + v11.A planned 2026-05-14 (research-module rebuild + interpretive/audit layer + per-site deploy declarations; full PRDs inlined in §8). v11.B/C/D follow v11.A. **v8.D (research-module-v2) is the active queue, with P1 already shipped (P0-P1.F done as of 2026-05-14).** v8.E (Phase 4 interpretive/audit), v9 (analytical roll-ups), v10 (deploy verification), v11 (deploy-target declaration + HostGator + SFTP) follow.
+Strict sequence (option a). 52 phases total · **1 dropped** (v8.C deliberately dropped 2026-05-13). v8.D + v8.E + v11.A + v12.A planned 2026-05-14/15 (research-module rebuild + interpretive/audit layer + per-site deploy declarations + fleet-wide hosting view; full PRDs inlined in §8). v11.B/C/D follow v11.A. **v8.D (research-module-v2) is the active queue, with P1 already shipped (P0-P1.F done as of 2026-05-14).** v8.E (Phase 4 interpretive/audit), v9 (analytical roll-ups), v10 (deploy verification), v11 (deploy-target declaration + HostGator + SFTP), v12 (fleet-wide hosting view) follow.
 
 Note on read/write surfaces: portfolio is **read-only** through v2 (domain suggest). **v3 (bootstrap) is the first write surface** — it creates new project dirs, runs `git init`, scaffolds files. **v4 is read-only** (validation-mode domain suggest only prints info and a manual-checkout URL — domain registration is gated behind a Y/n confirmation that calls Porkbun's `/domain/create`; no project-dir writes). **v5 is read-only** (universal check catalog + check flags; v5.D writes only to OAuth token + `data/gsc/` snapshots, not project dirs). **v6.C (remediation) is the second project-dir write surface** — it modifies existing project dirs to fix conformance gaps. **v8.D (domain-list refresh tooling)** writes to `data/domains/*.csv` + `data/portfolio.json` (already user-mutable), not project dirs. Everything else (v6.A–B, v7, v8.A–C) is read-only.
 
@@ -219,6 +219,7 @@ Note on v8 insertion (2026-05-13 PM):
 | **v11.B** | Drift detection + lamill.toml conformance checks *(deferred from v11.A; full PRD TBD)* | CHECK_xxx series comparing `lamill.toml` declaration vs DNS-resolved actual + live HTTP probe (extends `project diagnose`'s existing inference). `has-lamill-toml` + `lamill-toml-valid` + `deploy-drift` checks. ~6-8h. |
 | **v11.C** | HostGator cPanel integration *(deferred; full PRD TBD)* | API pull of domains / WordPress installs / disk usage via cPanel API. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
 | **v11.D** | SFTP deploy abstraction *(deferred; full PRD TBD)* | `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
+| **v12.A** | `fleet hosting` — fleet-wide Vercel/CF deploy state *(planned 2026-05-15, full PRD inlined in §8.4)* | Read-only fleet view: walks Vercel + Cloudflare Pages APIs, matches each fleet domain to a project by configured custom domain, reports `latest_deploy_status` / `last_successful_deploy_at` / `consecutive_failures`. Cached snapshot at `data/hosting/<date>.json` mirroring `data/seo/` shape; `--refresh` re-walks. Status emoji table (✓ / ⚠ / ✗ / 💤 / —). Three phases: P1 walkers + cache, P2 renderer + CLI, P3 dashboard + diagnose integration. ~12-17h. 10 open questions. |
 
 ## 6. Conformance rules
 
@@ -2915,4 +2916,547 @@ Sign off:
 - [ ] Open questions §6.A–H resolved
 - [ ] Schema reviewed
 - [ ] Effort estimate accepted
+- [ ] Author signoff
+
+---
+
+---
+
+### 8.4 — v12.A · `fleet hosting` — fleet-wide Vercel/CF deploy state
+
+
+## 1. Problem statement
+
+**Current state.** The tool infers each site's deploy platform from
+filesystem markers (`wrangler.toml` / `vercel.json` / package.json
+deps — see `project.py:25-30`) and from DNS heuristics during
+`project diagnose`. It never asks Vercel or Cloudflare directly.
+That leaves three blind spots:
+
+1. **Stale deploys.** A site can have a clean `vercel.json` checked
+   in and a Vercel project that hasn't built successfully in months.
+   Today nothing surfaces that — the operator only notices when a
+   visitor reports a broken URL.
+2. **Forgotten projects.** Older sites that were spun up, deployed
+   once, then ignored. Still consuming a Vercel project / CF Pages
+   project slot; status invisible.
+3. **Build regressions.** A push that breaks the build → Vercel /
+   CF Pages quietly leaves the previous version live (`READY`) but
+   the latest deploy is `ERROR`. `project check` shows the local
+   repo as clean and a casual look at the live URL works fine.
+   Fleet view should call this out — *something* about this site
+   regressed.
+
+**What's broken.**
+
+1. No fleet-wide view of "which sites deployed successfully recently"
+   vs. "which sites are erroring on every push" vs. "which sites
+   haven't deployed in months."
+2. The deploy-platform inference (from local files) is intent, not
+   reality. A site could declare Vercel locally but actually serve
+   from Cloudflare Pages (or vice versa, after a migration). Without
+   walking the provider APIs, the tool can't see the drift.
+3. The operator has to log into each platform dashboard to check
+   build status. Doesn't scale past ~5 sites.
+
+**What good looks like.**
+
+- One `lamill fleet hosting` command that returns a per-domain
+  status table covering every live-site/forwarder domain.
+- Per-row: provider, last deploy status, last successful deploy
+  timestamp, consecutive-failure count.
+- Status emoji that compresses the four dimensions into a glance:
+  ✓ healthy, ⚠ degraded, ✗ failing, 💤 stale, — no project found.
+- Cached like `fleet seo` — daily snapshot in `data/hosting/`; cache
+  hit by default; `--refresh` re-walks the APIs.
+- Scoped to live-site/forwarder domains only (skip parked/dead).
+- Read-only — no triggering of deploys, no writes. Existing `new
+  deploy` covers the create-and-write surface; this is the read-back.
+
+---
+
+## 2. Goals and non-goals
+
+**Goals**
+
+- Add `lamill fleet hosting` as a peer of `fleet seo` — same shape:
+  read-only, cached, refreshable, emoji table.
+- Walk both Vercel and Cloudflare Pages APIs using existing tokens
+  (no new credentials beyond `VERCEL_TOKEN`, which gets added to
+  `apikeys.KNOWN_KEYS`).
+- Match each Vercel / CF Pages project to a fleet domain by the
+  project's configured custom domain — server-side truth, not
+  local-file inference.
+- Persist results to `data/hosting/<YYYY-MM-DD>.json` mirroring
+  `data/seo/` shape. Snapshot is git-tracked (same convention as
+  the other layers) so trend analysis later can read history.
+- Surface a deploy-platform conflict signal when the same domain
+  appears on both providers (drift).
+
+**Non-goals** (deferred — listed for forward-reference, not designed
+in v12.A)
+
+- Triggering deploys (write surface; `new deploy` already exists for
+  the bootstrap-and-create path).
+- Netlify / GitHub Pages / direct-Worker / HostGator / Render walkers
+  (designed as pluggable providers from v1 but only Vercel + CF Pages
+  ship in v12.A).
+- Cost / pricing reports.
+- Auto-flagging consecutive failures as a `fleet focus` signal.
+- Integration with v11.A `lamill.toml` declarations (separate PRD
+  once v11.A ships — `fleet hosting` reads server truth, `lamill.toml`
+  declares intent; comparing the two is the drift detector).
+- Real-time webhooks (Vercel / CF can both push deploy events but
+  v12.A is pull-only).
+
+---
+
+## 3. User journey
+
+```text
+$ lamill fleet hosting
+[dim]Reading data/hosting/2026-05-15.json (1.2h old · use --refresh to re-fetch)[/]
+
+Domain                Provider          Status  Last Success           Failures
+airsucks.com          cloudflare-pages  ✓       2026-05-14 16:12 UTC   0
+calcengine.site       vercel            ✓       2026-05-13 09:44 UTC   0
+hybridautopart.com    vercel            ⚠       2026-05-09 11:00 UTC   2
+linkedcsi.live        vercel            ✗       —                      5
+kwizicle.com          cloudflare-pages  💤      2026-02-08 22:01 UTC   0
+csinorcal.church      —                 —       —                      —
+
+  6 live-site/forwarder domains · 1 ERROR · 1 stale · 1 unowned
+  [dim]Run `lamill fleet hosting --refresh` to re-probe (Vercel + CF API).[/]
+```
+
+```text
+$ lamill fleet hosting --refresh
+[cyan]Walking Vercel (1 team, 14 projects)...[/]
+[cyan]Walking Cloudflare Pages (1 account, 8 projects)...[/]
+[cyan]Resolving 22 fleet domains against 22 projects...[/]
+[green]Snapshot:[/] data/hosting/2026-05-15.json
+<same table as above, fresh data>
+```
+
+```text
+$ lamill fleet hosting --only linkedcsi.live
+<single-row probe; bypasses snapshot>
+```
+
+`--refresh` and `--only` follow the existing `fleet seo` conventions.
+
+---
+
+## 4. Functional requirements (the three phases)
+
+### Phase 1 — Provider walkers + per-domain match (~6–8h)
+
+**P1.1** Add `VERCEL_TOKEN` to `apikeys.KNOWN_KEYS` (matches the
+existing `CF_API_TOKEN` / `CF_ACCOUNT_ID` pattern) and a
+`_probe_vercel()` connectivity check in `apikeys.py`.
+
+**P1.2** New module `src/portfolio/hosting.py` with the
+`HostingRow` dataclass (see §5.1) plus two walkers:
+
+- `walk_vercel(token: str, only_domain: str | None = None) -> list[HostingRow]`
+- `walk_cf_pages(api_token: str, account_id: str, only_domain: str | None = None) -> list[HostingRow]`
+
+Each walker:
+- Paginates the projects-list endpoint.
+- For each project, reads the latest deploy + walks deployment
+  history (capped at N=10 — see §6.D) to find the most recent
+  successful build and count consecutive failures from the head.
+- Maps custom domains to fleet domains via a bare-host match
+  (resolves `www.` prefix to the bare form).
+- Returns one `HostingRow` per matched fleet domain; unmatched
+  projects are dropped silently (they're not in the fleet).
+
+**P1.3** Top-level orchestrator `run_hosting(domains: list[str]) ->
+list[HostingRow]`:
+- Calls both walkers in parallel via `ThreadPoolExecutor`
+  (matches `seo_runtime.run_seo` pattern).
+- For each fleet domain not matched by either walker, emits a row
+  with `provider=None`.
+- For domains matched by BOTH providers, emits a row with both
+  providers plus a `provider_conflict: True` flag in `notes[]`.
+
+**P1.4** New module `src/portfolio/hosting_cache.py` mirroring
+`seo_cache.py`:
+- `save_snapshot(rows, *, scope)` → `data/hosting/<UTC-date>.json`
+- `latest_snapshot()` / `load_snapshot(path)` / `rows_from_snapshot`
+- `is_stale(path, max_age_hours=24)` — same 24h threshold as SEO
+
+**P1.5** No CLI wiring yet — Phase 1 is library-only. Smoke test:
+direct Python call producing a valid snapshot file.
+
+### Phase 2 — Table renderer + CLI surface (~4–6h)
+
+**P2.1** New `fleet hosting` Typer command at `cli.py:fleet_hosting`
+near `fleet_seo`. Flags:
+- `--refresh` (force re-walk + overwrite snapshot)
+- `--only <DOMAIN>` (single-domain probe, bypass snapshot)
+- `--json` (raw snapshot JSON)
+- `--scope wip|all` (matches `fleet seo`'s `--only` semantics — see
+  §6.B; renamed here to avoid shadowing `--only DOMAIN`)
+
+**P2.2** Cache-eligibility logic identical to `_run_check_seo_mode`:
+- Default: read latest snapshot if it exists AND covers every
+  domain in the requested scope.
+- `--refresh`: force walker run, overwrite snapshot.
+- `--only DOMAIN`: bypass cache entirely.
+
+**P2.3** Scope filter: read the latest `data/checks/<date>.json`
+classification snapshot, keep only domains classified
+`live-site` or `forwarder`. Refresh the live snapshot first if
+it's older than the SEO-style threshold (matches `fleet seo`).
+
+**P2.4** `_render_hosting_table(rows, console)` produces the table
+in §3. Five columns: Domain · Provider · Status · Last Success ·
+Failures. Status glyph rules (PRD §3 table reproduced in
+`hosting.py` as a constant). Footer shows rollup counts.
+
+**P2.5** Loud-warning surface when a `VERCEL_TOKEN` or
+`CF_API_TOKEN` is missing on `--refresh` — partial coverage is
+clearly labeled in the table footer ("Vercel skipped: token
+missing").
+
+### Phase 3 — Dashboard + diagnose integration (~2–3h)
+
+**P3.1** `fleet dashboard` gains a `Hosting` column joined from
+the latest hosting snapshot (same shape as the existing Live /
+SEO / Git triad). Glyph derives from the hosting row's status.
+
+**P3.2** `project diagnose <domain>` surfaces a "Hosting:" section
+when the latest hosting snapshot covers the domain. Renders
+provider + status + last-success date. Failures show the failure
+count; READY shows nothing beyond "✓ healthy."
+
+**P3.3** Docs:
+- `docs/CLAUDE.md` brief on the new view + cache file.
+- `AI_AGENTS.md` mention of the new command for the curious.
+- `docs/Prompts.md` dated H2 entry.
+
+---
+
+## 5. Data model
+
+### 5.1 — `HostingRow` dataclass
+
+```python
+@dataclass
+class HostingRow:
+    """One domain's deploy state across Vercel + Cloudflare Pages."""
+    domain: str
+
+    # Provider mapping (None when neither walker matched).
+    provider: str | None             # "vercel" | "cloudflare-pages" | None
+    project_slug: str | None         # vercel/cf-pages project name
+    project_id: str | None           # opaque API ID
+
+    # Latest deploy state.
+    latest_deploy_status: str | None # READY | ERROR | BUILDING | CANCELED | None
+    latest_deploy_at: str | None     # ISO 8601 UTC
+    last_successful_deploy_at: str | None
+    consecutive_failures: int = 0
+
+    # Diagnostic + drift signals.
+    provider_conflict: bool = False  # set when both walkers matched
+    error: str | None = None         # walker-level error (auth, rate-limit, …)
+    notes: list[str] = field(default_factory=list)
+```
+
+### 5.2 — Snapshot file shape
+
+`data/hosting/<YYYY-MM-DD>.json`:
+
+```json
+{
+  "schema": "hosting-v1",
+  "fetched_at": "2026-05-15T...",
+  "providers_walked": ["vercel", "cloudflare-pages"],
+  "scope": "live-site",
+  "rows": [
+    {
+      "domain": "calcengine.site",
+      "provider": "vercel",
+      "project_slug": "calcengine-site",
+      "project_id": "prj_abc123",
+      "latest_deploy_status": "READY",
+      "latest_deploy_at": "2026-05-15T09:44:00+00:00",
+      "last_successful_deploy_at": "2026-05-15T09:44:00+00:00",
+      "consecutive_failures": 0,
+      "provider_conflict": false,
+      "error": null,
+      "notes": []
+    }
+  ]
+}
+```
+
+Schema-versioned for forward-compatibility (same pattern as
+`research-cluster-v2` from v8.D).
+
+### 5.3 — Status emoji rules
+
+The glyph is derived at render time, not stored on disk (cheaper
+to update rendering than to migrate snapshots).
+
+| Glyph | Condition |
+|---|---|
+| `✓` | `latest_deploy_status == "READY"` AND `latest_deploy_at` within `RECENT_DAYS` (default 30) |
+| `⚠` | `latest_deploy_status == "ERROR"` AND `last_successful_deploy_at` is non-null AND within 30d |
+| `✗` | `latest_deploy_status == "ERROR"` AND no successful deploy in last 30d (or never) |
+| `💤` | `latest_deploy_at` older than `STALE_DAYS` (default 90), regardless of status |
+| `—` | `provider is None` |
+| `?` | walker `error` populated (token, rate-limit) — shown but doesn't roll up |
+
+`BUILDING` and `CANCELED` render as `⏳` / `⊘` with the deploy
+timestamp; for rollup purposes they're treated as "no current
+verdict" (skipped from the counts).
+
+---
+
+## 6. Open questions (resolve before implementation)
+
+### 6.A — VERCEL_TOKEN scope
+
+A Vercel personal access token sees only the personal account's
+projects, not other teams the user belongs to. Vercel team tokens
+see only one team. Three options:
+
+1. **Personal token only.** Document the expectation ("create at
+   vercel.com/account/tokens"). Operators with multi-team setups
+   need to consolidate or stitch manually.
+2. **Multi-token support.** Accept `VERCEL_TOKEN_PERSONAL`,
+   `VERCEL_TOKEN_TEAM_X` env vars. Walker concatenates results.
+   More flexible, more config burden.
+3. **Single token + team-list config.** One token; `portfolio.env`
+   lists team slugs to query.
+
+**Recommendation: option 1.** Operator-scale tool, single user.
+
+### 6.B — `--only` flag name collision
+
+`fleet seo --only wip|all` and the prompt's "Scope: live-site
+domains only" suggest a scope flag, but I also want `--only DOMAIN`
+for single-domain probes. Three options:
+
+1. Keep `--only DOMAIN` for single-domain probe; rename the scope
+   flag to `--scope wip|all`. Diverges from `fleet seo`.
+2. Use `--domain DOMAIN` for single-domain probe; `--only wip|all`
+   for scope. Matches the old `check seo --domain` form.
+3. Drop the scope flag entirely — always operate on live-site +
+   forwarder. The user's prompt suggests this is fine.
+
+**Recommendation: option 3.** Scope is always live-site +
+forwarder; `--only DOMAIN` is the single-domain probe.
+
+### 6.C — `RECENT_DAYS` / `STALE_DAYS` thresholds
+
+Hardcoded 30 / 90 in `hosting.py`, or configurable via
+`portfolio.env`? Three options:
+
+1. Hardcoded constants — change in code if needed.
+2. Two new env keys: `HOSTING_RECENT_DAYS`, `HOSTING_STALE_DAYS`.
+3. Per-domain override via `lamill.toml` (depends on v11.A).
+
+**Recommendation: option 1 for v12.A.** Revisit if real fleet data
+shows the thresholds are wrong.
+
+### 6.D — Deployment history lookback
+
+`consecutive_failures` requires walking deployments back to the
+last `READY`. How far back?
+
+1. **Cap at N=10 per project.** Common case: 0-2 failures. Worst
+   case ~10 deployments × N projects API calls. ~50 calls for a
+   25-domain fleet, well within rate limits.
+2. **Page until READY found.** Unbounded — could explode if a
+   project has never succeeded.
+3. **Two-tier: stop at N=10, mark as "≥10 consecutive failures."**
+   Worst-case bounded but signal preserved.
+
+**Recommendation: option 3.** Honest about the cap; surfaces the
+runaway-failures case in findings.
+
+### 6.E — Domain ↔ project matching
+
+The prompt says "Match projects to fleet domains by configured
+custom domain." Bare-host match:
+
+1. **Bare-host normalize.** Strip leading `www.` from both sides
+   before comparison. `calcengine.site` matches both
+   `["www.calcengine.site"]` and `["calcengine.site"]`.
+2. **Exact match.** A project with only `www.X` doesn't match the
+   bare-X fleet entry. (Probably wrong for the user's case — more
+   restrictive than they want.)
+
+**Recommendation: option 1 (bare-host normalize).**
+
+### 6.F — Provider conflict (same domain on both)
+
+When the same domain appears on both a Vercel project and a CF
+Pages project — that's deploy drift, possibly accidental.
+
+1. **Two rows in the snapshot, one for each provider.** Renderer
+   shows both; rollup counts as a single conflict.
+2. **One row with both providers in a `providers` list; status
+   from the "active" one (DNS-resolved).** Simpler row, requires
+   DNS lookup to decide which is active.
+3. **One row, first provider wins, conflict noted in `notes[]`.**
+   Simplest, least diagnostic.
+
+**Recommendation: option 1.** Drift should be visible — two rows
+make it obvious; renderer can deduplicate visually with the
+conflict glyph.
+
+### 6.G — Snapshot interpretation of "add a hosting slot"
+
+The prompt: "Snapshot: add a `hosting` slot to the existing snapshot
+model so it can be refreshed independently from other layers."
+
+Two readings:
+
+1. **New file `data/hosting/<date>.json`** — mirrors the per-layer
+   separation pattern (`data/seo/`, `data/checks/`, `data/gsc/`,
+   `data/serp/`). Refresh independence comes for free since each
+   file has its own lifecycle.
+2. **Join into a unified snapshot.** Add a `hosting` key to the
+   existing fleet-dashboard model. Different lifecycle problem.
+
+**Recommendation: option 1.** Matches every other layer in this
+tool. Confirm interpretation with user.
+
+### 6.H — Walker error surfaces
+
+A 401 from Vercel (bad token) or 5xx from CF API: how should the
+table render rows for affected domains?
+
+1. **Per-row `error` field.** Affected rows render with `?` glyph
+   and an error count in the footer. Other provider's rows still
+   render normally.
+2. **Hard exit on auth failure.** Don't render a partial table
+   when half the data is missing.
+3. **Skip the affected provider entirely.** Footer says "Vercel
+   skipped: 401."
+
+**Recommendation: option 3.** A 401 means the entire walker
+returns nothing useful; clearer to skip + warn than to render N
+empty rows. 5xx + rate-limit get per-row `error` (option 1).
+
+### 6.I — Snapshot retention
+
+Same as v8.D §8.E: keep forever (git-tracked) vs trim vs untracked.
+
+**Recommendation: keep forever, git-tracked.** Same as every other
+layer. Disk isn't a constraint.
+
+### 6.J — Test strategy
+
+All real API calls mocked at the `httpx`/`requests` layer (same
+pattern as `tests/test_gsc_recrawl.py` from the
+`feat/gsc-recrawl-subcommand` branch). No CI calls to real Vercel
+or Cloudflare APIs.
+
+**Recommendation: confirm option, then proceed.**
+
+---
+
+## 7. Implementation plan (commit-by-commit)
+
+### Phase 1 commits
+
+**P1.A** `apikeys.py`: add `VERCEL_TOKEN` to `KNOWN_KEYS` +
+`_probe_vercel()` (`GET /v2/user`, 5s timeout). One new test in
+`test_apikeys.py`.
+
+**P1.B** `src/portfolio/hosting.py`: dataclasses (`HostingRow`),
+constants (`RECENT_DAYS`, `STALE_DAYS`, `MAX_DEPLOY_LOOKBACK`).
+
+**P1.C** `walk_vercel()` — paginated projects list + per-project
+deployments. Mocked unit tests.
+
+**P1.D** `walk_cf_pages()` — same shape against the CF API.
+
+**P1.E** `run_hosting()` orchestrator + domain-match logic +
+provider-conflict detection.
+
+**P1.F** `hosting_cache.py` mirroring `seo_cache.py`. Save / load
+/ is_stale / rows_from_snapshot. Atomic write.
+
+### Phase 2 commits
+
+**P2.A** `fleet hosting` CLI shell + cache-eligibility logic +
+`--refresh` / `--only` / `--json` flags. No render yet (prints
+"render coming in P2.B" or similar to keep the shell testable).
+
+**P2.B** `_render_hosting_table()` + status-emoji helper. Five
+columns; footer with rollup counts.
+
+**P2.C** Token-missing surface (P2.5) + walker-error rendering
+(per §6.H). Tests for partial-coverage flows.
+
+### Phase 3 commits
+
+**P3.A** `dashboard.py`: new `Hosting` column joining the latest
+`data/hosting/` snapshot.
+
+**P3.B** `diagnose.py`: optional "Hosting:" section when a hosting
+snapshot covers the diagnosed domain.
+
+**P3.C** Docs (docs/CLAUDE.md, AI_AGENTS.md, docs/Prompts.md dated
+entry).
+
+---
+
+## 8. Effort estimate
+
+| Phase | Commits | Hours | Risk |
+|---|---|---|---|
+| P1 walkers + cache | P1.A–F | 6–8 | Vercel + CF API pagination, deploy-history shape variability |
+| P2 renderer + CLI | P2.A–C | 4–6 | Edge cases in domain↔project matching (subdomains, `www.`, provider conflicts) |
+| P3 dashboard + diagnose | P3.A–C | 2–3 | Minimal — both surfaces already do joins from snapshot files |
+| **Total** | **12 commits** | **12–17h** | Real API quirks surface only on first run against the user's fleet |
+
+---
+
+## 9. Future considerations (deferred, named only)
+
+- **Netlify / GitHub Pages / direct-Worker walkers** — pluggable
+  provider pattern was designed in §4 P1.2 to support these. One
+  new walker per platform.
+- **`lamill.toml` cross-reference** — once v11.A ships, compare
+  declared platform vs. observed platform. Drift becomes a CHECK
+  catalog entry.
+- **Build-failure root-cause** — fetch the build log for the
+  latest ERROR deploy and surface the failing step. Separate PRD;
+  needs careful scope (logs can be MB-scale).
+- **Deploy-trigger CLI** — `lamill new redeploy <domain>` to
+  retry the latest failed deploy. Write surface, separate PRD.
+- **Snapshot diff renderer** — "what changed in deploy state vs
+  yesterday's snapshot?" View on top of the existing snapshots.
+- **Webhook subscriber** — Vercel / CF can push deploy events;
+  receive them and update the snapshot incrementally instead of
+  polling. Out of scope for v12.A (poll is fine at fleet scale).
+- **Cost / pricing reporting** — Vercel and CF expose usage
+  metrics; could land in a `fleet costs` view. Separate PRD.
+
+---
+
+## 10. Approval
+
+This PRD is **draft, awaiting review**. Before any code lands:
+
+1. Resolve the 10 open questions in §6.
+2. Confirm the snapshot shape (§5.2) is right (esp. §6.G).
+3. Confirm the 12–17h effort estimate is acceptable.
+4. Confirm provider scope (Vercel + CF Pages only; deferred list
+   in §9 is acceptable).
+
+Sign off:
+
+- [ ] Open questions §6.A–J resolved
+- [ ] Snapshot schema reviewed
+- [ ] Effort estimate accepted
+- [ ] Provider scope confirmed (Vercel + CF Pages for v12.A)
 - [ ] Author signoff
