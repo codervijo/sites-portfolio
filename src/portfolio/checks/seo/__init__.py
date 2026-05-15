@@ -1,8 +1,16 @@
-"""SEO-category checks: assets (favicon, robots.txt, sitemap.xml) and meta
-tags parsed from index.html or src/pages/index.astro.
+"""SEO-category checks.
 
-Note this is the *static-source* SEO category — files-on-disk, not the
-deployed site. v5.D will add live-runtime SEO checks (CHECK_090+).
+Two sub-families:
+
+  - Static-source (CHECK_060–080) — read files on disk (favicon,
+    robots.txt, sitemap.xml, meta tags parsed from index.html or
+    src/pages/index.astro). Run by `lamill project check`.
+
+  - Live-runtime (CHECK_090–095, v5.D) — fetch the deployed URLs as
+    Googlebot and validate what indexers see. Shared helpers in
+    `_live.py`; each check fetches every sitemap URL through a
+    per-process cache so the cluster runs in one round-trip. Network
+    failures degrade to `warn`, not `fail`.
 """
 from __future__ import annotations
 

@@ -1182,3 +1182,173 @@ def test_check_094_walks_graph(tmp_path, monkeypatch):
                     htmls={"https://x.test/p": html})
     r = run(str(site))
     assert r.status == "fail"
+
+
+# ---------- CHECK_095 — live-faq-answers-in-html ----------
+
+
+def _stub_check_095(monkeypatch, *, urls, htmls):
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_095_live_faq_answers_in_html.get_sitemap_urls",
+        lambda origin: urls,
+    )
+    def _fetch(url):
+        if url in htmls:
+            return htmls[url]
+        raise LiveFetchError(f"no stub for {url}")
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_095_live_faq_answers_in_html.fetch_html",
+        _fetch,
+    )
+
+
+def _page_with_faqs(faqs: list[tuple[str, str]], body_answers: list[str]) -> str:
+    """Build a page with FAQPage JSON-LD listing `faqs` and a body
+    containing each string in `body_answers`."""
+    import json as _json
+    faq_obj = {
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": q,
+             "acceptedAnswer": {"@type": "Answer", "text": a}}
+            for q, a in faqs
+        ],
+    }
+    body_text = "<br />\n".join(body_answers)
+    return (
+        '<html><head><script type="application/ld+json">'
+        + _json.dumps(faq_obj)
+        + '</script></head><body><div class="content">'
+        + body_text
+        + '</div></body></html>'
+    )
+
+
+def test_check_095_pass_when_all_answers_in_body(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import run
+    site = _site_with_homepage(tmp_path)
+    answer = "Most pros charge $0.20–$0.25 per square foot. A typical driveway lands $160–$250."
+    html = _page_with_faqs(
+        faqs=[("How much per sq ft?", answer)],
+        body_answers=[answer],
+    )
+    _stub_check_095(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_095_pass_when_no_faqpage_at_all(tmp_path, monkeypatch):
+    """No FAQPage block → nothing to check → pass."""
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import run
+    site = _site_with_homepage(tmp_path)
+    html = '<head><script type="application/ld+json">{"@type":"WebApplication"}</script></head><body>x</body>'
+    _stub_check_095(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_095_fails_when_answer_only_in_jsonld(tmp_path, monkeypatch):
+    """The exact washcalc accordion case: 5 Qs in JSON-LD, only 1
+    rendered in body (closed accordions hidden)."""
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import run
+    site = _site_with_homepage(tmp_path)
+    answers = [
+        "Most pros charge $0.20 per square foot for a standard residential job.",
+        "Heavy soiling adds about thirty percent to typical labor time totals.",
+        "Hot water and chemicals can reduce per-job time on tough stains.",
+        "Soft wash is required for older siding to avoid surface damage.",
+        "A standard two-story home takes around two to three hours to wash.",
+    ]
+    faqs = [(f"Q{i}?", a) for i, a in enumerate(answers, 1)]
+    # Only answer #1 is rendered in body — the rest are hidden in closed
+    # accordions and therefore absent from the SSR HTML.
+    html = _page_with_faqs(faqs=faqs, body_answers=[answers[0]])
+    _stub_check_095(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "4 FAQ answer(s)" in r.message
+    # Should name the questions that are missing.
+    assert "Q2" in r.message or "Q3" in r.message
+
+
+def test_check_095_strips_script_tags_before_searching(tmp_path, monkeypatch):
+    """The answer text in JSON-LD must not satisfy the body-presence
+    check — script content is stripped first."""
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import run
+    site = _site_with_homepage(tmp_path)
+    answer = "This text only exists inside JSON-LD and nowhere else on the page body."
+    # The body has NO matching text — only the JSON-LD script does.
+    html = _page_with_faqs(
+        faqs=[("Q?", answer)],
+        body_answers=["totally unrelated body content here"],
+    )
+    _stub_check_095(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+
+
+def test_check_095_tolerates_minor_whitespace_differences(tmp_path, monkeypatch):
+    """Body wraps the answer differently from the JSON-LD source — the
+    signature match should still succeed."""
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import run
+    site = _site_with_homepage(tmp_path)
+    answer = "Most pros charge $0.20 per square foot for a standard driveway."
+    body_with_wrap = (
+        "<p>Most pros</p><p>charge $0.20 per square foot</p>"
+        "<span>for a standard driveway.</span>"
+    )
+    html = _page_with_faqs(faqs=[("Q?", answer)], body_answers=[body_with_wrap])
+    _stub_check_095(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_095_skips_too_short_answers(tmp_path, monkeypatch):
+    """A 1-word answer ("Yes.") is too short for a meaningful signature
+    — skip rather than risk a false-positive match against boilerplate."""
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import run
+    site = _site_with_homepage(tmp_path)
+    html = _page_with_faqs(
+        faqs=[("Is it free?", "Yes.")],
+        body_answers=["totally unrelated body content here"],
+    )
+    _stub_check_095(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+
+
+def test_check_095_warn_when_every_url_unreachable(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import run
+    site = _site_with_homepage(tmp_path)
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_095_live_faq_answers_in_html.get_sitemap_urls",
+        lambda origin: ["https://x.test/a"],
+    )
+    def _explode(url):
+        raise LiveFetchError("net")
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_095_live_faq_answers_in_html.fetch_html",
+        _explode,
+    )
+    r = run(str(site))
+    assert r.status == "warn"
+
+
+def test_signature_takes_first_n_words():
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import (
+        _signature, SIGNATURE_WORDS,
+    )
+    text = " ".join(f"word{i}" for i in range(20))
+    sig = _signature(text)
+    assert len(sig.split()) == SIGNATURE_WORDS
+
+
+def test_signature_lowercase():
+    from portfolio.checks.seo.check_095_live_faq_answers_in_html import _signature
+    assert _signature("Hello World") == "hello world"
