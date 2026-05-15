@@ -67,7 +67,7 @@ def test_v7a_menu_includes_expected_commands():
     labels = {c.label for _, cmds in MENU_GROUPS for c in cmds}
     for required in (
         "project check", "project fix", "project seo",
-        "fleet focus", "fleet check", "fleet seo", "fleet live",
+        "fleet focus", "fleet check", "fleet seo", "fleet domains",
         "fleet fix", "fleet drift",
         "fleet info summary", "fleet info expiring", "fleet info cleanup",
         "new suggest", "new bootstrap", "new deploy",

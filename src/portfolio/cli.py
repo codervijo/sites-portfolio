@@ -19,22 +19,12 @@ from .check import (
 from .data import PORTFOLIO_JSON, cleanup as run_cleanup, load_domains, load_plan
 
 app = typer.Typer(
-    help=(
-        "lamill — manage your domain fleet + sites/ workspace.\n"
-        "Primary namespaces:\n"
-        "  project  — per-project ops (check, fix, seo, diagnose, set-launched)\n"
-        "  fleet    — cross-fleet ops (focus, live, seo, check, fix, drift, repos, dashboard, info)\n"
-        "  new      — create new things (suggest, bootstrap, deploy, research)\n"
-        "  settings — setup / debug (catalog, gsc, apikeys)"
-    ),
+    help="lamill — manage your domain fleet + sites/ workspace.",
     add_completion=False,
 )
 console = Console()
 
-new_app = typer.Typer(
-    help="Add new domains / projects (suggest, bootstrap, deploy, research).",
-    no_args_is_help=True,
-)
+new_app = typer.Typer(help="Add new domains / projects.", no_args_is_help=True)
 app.add_typer(new_app, name="new")
 
 # v7.A — scope-first restructure. `project` for ops on one project,
@@ -42,30 +32,18 @@ app.add_typer(new_app, name="new")
 # Each new command is a thin wrapper that forwards to existing logic;
 # old paths (`info status`, `check git --domain`, etc.) are kept as
 # deprecation aliases that print a one-line nudge and forward.
-fleet_app = typer.Typer(
-    help="Cross-portfolio ops (focus, live, seo, check, fix, drift, repos, dashboard, info).",
-    no_args_is_help=True,
-)
+fleet_app = typer.Typer(help="Cross-portfolio ops.", no_args_is_help=True)
 fleet_info_app = typer.Typer(
     help="Read-only inventory views (summary, expiring, cleanup).",
     no_args_is_help=True,
 )
-settings_app = typer.Typer(
-    help="Setup / debug surfaces (catalog, gsc, apikeys).",
-    no_args_is_help=True,
-)
-settings_catalog_app = typer.Typer(
-    help="Inspect the check catalog itself.",
-    no_args_is_help=True,
-)
-settings_gsc_app = typer.Typer(
-    help="Google Search Console integration.",
-    no_args_is_help=True,
-)
-settings_apikeys_app = typer.Typer(
-    help="Manage credentials in portfolio.env.",
-    no_args_is_help=True,
-)
+settings_app = typer.Typer(help="Setup / debug.", no_args_is_help=True)
+settings_catalog_app = typer.Typer(help="Inspect the check catalog.",
+                                   no_args_is_help=True)
+settings_gsc_app = typer.Typer(help="Google Search Console integration.",
+                               no_args_is_help=True)
+settings_apikeys_app = typer.Typer(help="Manage credentials in portfolio.env.",
+                                   no_args_is_help=True)
 app.add_typer(fleet_app, name="fleet")
 fleet_app.add_typer(fleet_info_app, name="info")
 app.add_typer(settings_app, name="settings")
@@ -96,7 +74,7 @@ def focus(
     """Where to focus today — top priorities across the fleet.
 
     Reads from caches only — never blocks on a live fetch. If a cache
-    is missing, that signal is silently skipped. Run `fleet live` /
+    is missing, that signal is silently skipped. Run `fleet domains` /
     `fleet seo` first to populate them. `--refresh` does it for you.
     """
     from .check import latest_snapshot as live_latest
@@ -543,7 +521,7 @@ _SEVERITY_COLOR = {"error": "red", "warn": "yellow", "info": "cyan"}
 # one transition window.
 
 
-# check_live — kept as implementation for `fleet live`.
+# check_live — kept as implementation for `fleet domains`.
 def check_live(
     only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (ignored when --domain is set)"),
     concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests"),
@@ -3379,7 +3357,7 @@ def _render_bootstrap_summary(result, domain: str) -> None:
     console.print("  [bold cyan]Deploy[/]")
     console.print(f"    portfolio new deploy {domain}     [dim]# create GH repo + Cloudflare Pages project[/]")
     console.print("  [bold cyan]Verify after deploy[/]")
-    console.print(f"    portfolio fleet live                         [dim]# refresh check snapshot[/]")
+    console.print(f"    lamill fleet domains                       [dim]# refresh check snapshot[/]")
     console.print(f"    portfolio project check {domain}      [dim]# full conformance report[/]")
 
 
@@ -4060,16 +4038,14 @@ def new_deploy(
 
 
 # `project` namespace — per-project ops (check, fix, seo, diagnose, set-launched).
-project_app = typer.Typer(
-    help="Per-project ops (check, fix, seo, diagnose, set-launched).",
-    no_args_is_help=True,
-)
+project_app = typer.Typer(help="Per-project ops.", no_args_is_help=True)
 app.add_typer(project_app, name="project")
 
 
 @project_app.command("fix")
 def project_fix(
-    name: str = typer.Argument("", help="Project name (fuzzy-matched). Required unless --all."),
+    name: str = typer.Argument("", metavar="DOMAIN",
+                               help="Domain (fuzzy-matched). Required unless --all."),
     fix_all: bool = typer.Option(False, "--all", help="Apply fixes across every eligible project (v6.D)"),
     apply_changes: bool = typer.Option(False, "--apply", help="Actually write the changes (default is dry-run)"),
     rule_filter: list[str] = typer.Option(None, "--rule", help="Run only this CHECK_ID (repeatable)"),
@@ -4093,7 +4069,7 @@ def project_fix(
     Tier 1 (templated) and Tier 2 (--ai) fixers — see v6.C / v6.C.1.
     """
     if fix_all and name:
-        console.print("[red]Pass either <name> or --all, not both.[/]")
+        console.print("[red]Pass either <DOMAIN> or --all, not both.[/]")
         raise typer.Exit(2)
     if fix_all:
         _run_project_fix_all(apply_changes=apply_changes,
@@ -4102,7 +4078,7 @@ def project_fix(
                              use_ai=use_ai)
         return
     if not name:
-        console.print("[red]'project fix' needs a <name> argument (or --all).[/]")
+        console.print("[red]'project fix' needs a <DOMAIN> argument (or --all).[/]")
         raise typer.Exit(2)
     from .fix_registry import (
         fixable_check_ids, get_tier_1, get_tier_2, list_tier_2,
@@ -4513,18 +4489,17 @@ def _run_project_fix_all(*, apply_changes: bool, rule_filter, assume_yes: bool,
 
 @project_app.command("check")
 def project_check(
-    name: str = typer.Argument(..., help="Project name (fuzzy-matched against domains)"),
+    name: str = typer.Argument(..., metavar="DOMAIN",
+                               help="Domain (fuzzy-matched)"),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON instead of human table"),
     catalog_only: bool = typer.Option(
         False, "--catalog-only",
         help="Skip git/deploy/prompts; show only the per-rule catalog table",
     ),
 ) -> None:
-    """v7.A — full per-project status: conformance + git + deploy + prompts.
+    """Full per-project status: conformance + git + deploy + prompts.
 
-    Replaces `info status` (deprecated alias still works). With
-    `--catalog-only`, behaves like the per-rule view formerly at
-    `check git --domain <name>`.
+    With `--catalog-only`, shows just the per-rule catalog table.
     """
     if catalog_only:
         # Map to the per-repo detail rendering used by `check git --domain`.
@@ -4554,13 +4529,13 @@ def project_check(
 
 @project_app.command("seo")
 def project_seo(
-    name: str = typer.Argument(..., help="Domain (single-domain runtime SEO probe)"),
+    name: str = typer.Argument(..., metavar="DOMAIN",
+                               help="Domain (single-domain runtime SEO probe)"),
     days: int = typer.Option(28, "--days"),
     refresh: bool = typer.Option(False, "--refresh"),
     sort_by: str = typer.Option("impressions", "--sort"),
 ) -> None:
-    """v7.A — runtime SEO probe (HTTP + GSC + CrUX) for one domain.
-    Replaces `check seo --domain <name>` (deprecated alias works)."""
+    """Runtime SEO probe (HTTP + GSC + CrUX) for one domain."""
     _run_check_seo_mode(days=days, only_domain=name.lower(),
                         sort_by=sort_by, only="wip", concurrency=20,
                         refresh=refresh)
@@ -4583,7 +4558,8 @@ def project_diagnose(
 
 @project_app.command("set-launched")
 def project_set_launched(
-    name: str = typer.Argument(..., help="Project / domain name"),
+    name: str = typer.Argument(..., metavar="DOMAIN",
+                               help="Domain"),
     launched_date: str = typer.Argument(
         ..., metavar="YYYY-MM-DD",
         help="ISO date the site went live (e.g. 2026-04-18)",
@@ -4623,16 +4599,17 @@ def fleet_focus(
         help="Also flag SEO signals on sites <90d old",
     ),
 ) -> None:
-    """v7.A — top priorities across the fleet (formerly top-level `focus`)."""
+    """Top priorities across the fleet — ranked attention list."""
     focus(show_all=show_all, refresh=refresh, include_young=include_young)
 
 
-@fleet_app.command("live")
-def fleet_live(
+@fleet_app.command("domains")
+def fleet_domains(
     only: str = typer.Option("wip", "--only", "-o"),
     concurrency: int = typer.Option(20, "--concurrency", "-c"),
 ) -> None:
-    """v7.A — fetch + classify each domain → snapshot. Was `check live`."""
+    """Fetch each domain over HTTP and classify it (live-site / forwarder /
+    parked / dead) → snapshot in data/checks/."""
     check_live(only=only, concurrency=concurrency, domain="")
 
 
@@ -4644,8 +4621,7 @@ def fleet_seo(
     sort_by: str = typer.Option("impressions", "--sort"),
     refresh: bool = typer.Option(False, "--refresh"),
 ) -> None:
-    """v7.A — runtime SEO probe across all live-site/forwarder domains.
-    Was `check seo` (no `--domain`)."""
+    """Runtime SEO probe across all live-site/forwarder domains."""
     check_seo(days=days, domain="", repo="", only=only,
               concurrency=concurrency, sort_by=sort_by, refresh=refresh)
 
@@ -4655,7 +4631,7 @@ def fleet_check(
     detail: bool = typer.Option(False, "--detail"),
     check_id: str = typer.Option("", "--check"),
 ) -> None:
-    """v7.A — cross-repo catalog summary. Was `check git`."""
+    """Cross-repo catalog summary across every sites/<domain>/ repo."""
     check_git(detail=detail, check_id=check_id, domain="", repo="")
 
 
@@ -4666,7 +4642,7 @@ def fleet_fix(
     assume_yes: bool = typer.Option(False, "--yes"),
     use_ai: bool = typer.Option(False, "--ai"),
 ) -> None:
-    """v7.A — fleetwide remediation. Was `project fix --all`."""
+    """Fleetwide remediation — auto-fix conformance gaps across every eligible site."""
     _run_project_fix_all(apply_changes=apply_changes,
                          rule_filter=rule_filter,
                          assume_yes=assume_yes,
@@ -4675,7 +4651,7 @@ def fleet_fix(
 
 @fleet_app.command("drift")
 def fleet_drift() -> None:
-    """v7.A — cross-source inconsistencies. Was `info drift`."""
+    """Surface inconsistencies across the four sources of truth."""
     info_drift()
 
 
@@ -4736,7 +4712,7 @@ def fleet_dashboard(
     Read-only by default: just renders from the latest cached
     `data/checks/<date>.json` and `data/seo/<date>.json`. Git status
     is always live (local FS only). `--refresh` re-runs live + SEO
-    probes (≈ same cost as `fleet live` + `fleet seo --refresh`).
+    probes (≈ same cost as `fleet domains` + `fleet seo --refresh`).
     """
     if scope not in ("wip", "all"):
         console.print(f"[red]--only must be 'wip' or 'all', got {scope!r}.[/]")
@@ -4754,9 +4730,9 @@ def fleet_dashboard(
 @fleet_info_app.command("summary")
 def fleet_info_summary(
     verbose: bool = typer.Option(False, "--verbose", "-v",
-                                 help="Add the full domain list (replaces old `info list`)"),
+                                 help="Add the per-domain table."),
 ) -> None:
-    """v7.A — portfolio overview. `--verbose` adds the per-domain table."""
+    """Portfolio overview — category counts + value rollup. `--verbose` adds the per-domain table."""
     info_summary()
     if verbose:
         console.print()
@@ -4767,7 +4743,7 @@ def fleet_info_summary(
 def fleet_info_expiring(
     within: int = typer.Option(180, "--within", "-w"),
 ) -> None:
-    """v7.A — domains expiring within N days. Was `info expiring`."""
+    """Domains expiring within N days."""
     info_expiring(within=within)
 
 
@@ -4778,8 +4754,7 @@ def fleet_info_cleanup(
         help="Also fetch RDAP creation_date per domain (~0.5s each, ~15s for full fleet)."
     ),
 ) -> None:
-    """v7.A — rebuild data/portfolio.json from registrar CSVs.
-    Was `info cleanup`. `--refresh-rdap` adds the domain-age fetch."""
+    """Rebuild data/portfolio.json from registrar CSVs. `--refresh-rdap` adds the domain-age fetch."""
     info_cleanup(refresh_rdap=refresh_rdap)
 
 
@@ -4791,7 +4766,7 @@ def settings_catalog_list(
     category: str = typer.Option("", "--category", "-c"),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
-    """v7.A — list every check in the catalog. Was `check catalog`."""
+    """List every check in the catalog."""
     check_catalog(category=category, json_out=json_out)
 
 
@@ -4799,8 +4774,7 @@ def settings_catalog_list(
 def settings_catalog_describe(
     check_id: str = typer.Argument(..., help="Check ID (e.g. CHECK_001)"),
 ) -> None:
-    """v7.A — show one check's metadata + source link.
-    Was `check describe`."""
+    """Show one check's metadata + source link."""
     check_describe(check_id=check_id)
 
 
@@ -4823,23 +4797,22 @@ def settings_catalog_run(
 def settings_gsc_auth(
     force: bool = typer.Option(False, "--force"),
 ) -> None:
-    """v7.A — set up / refresh GSC OAuth. Was `gsc auth`."""
+    """Set up / refresh GSC OAuth — one-time interactive login."""
     gsc_auth(force=force)
 
 
 @settings_gsc_app.command("status")
 def settings_gsc_status(
     refresh: bool = typer.Option(False, "--refresh",
-                                 help="Pull latest GSC totals + write a snapshot (was `gsc sync`)"),
+                                 help="Pull latest GSC totals + write a snapshot."),
     days: int = typer.Option(28, "--days", "-d",
                              help="Window size for --refresh"),
     lag_days: int = typer.Option(3, "--lag-days"),
     concurrency: int = typer.Option(5, "--concurrency", "-c"),
 ) -> None:
-    """v7.A — GSC integration status. Without flags: lists verified
-    properties + cross-references with WIP domains + shows latest
-    snapshot diff (was `gsc list` + `gsc compare`). With `--refresh`:
-    pulls fresh totals + writes a new snapshot (was `gsc sync`).
+    """GSC integration status. Default: verified properties + WIP-domain
+    cross-reference + latest snapshot diff. `--refresh` pulls fresh
+    totals + writes a new snapshot.
     """
     if refresh:
         gsc_sync(days=days, lag_days=lag_days, concurrency=concurrency)
@@ -4865,12 +4838,12 @@ _TICK = {
 
 @settings_apikeys_app.command("list")
 def settings_apikeys_list() -> None:
-    """v7.A — list every known credential in portfolio.env, with a
-    set/not-set marker AND a connectivity tick per provider.
+    """List every known credential in portfolio.env, with a set/not-set
+    marker AND a connectivity tick per provider.
 
     Probes hit each provider's API once (~5-10s total). Catches typos
-    immediately ("did I paste the right key?") rather than discovering
-    failures later when the actual feature uses the credential.
+    immediately rather than discovering failures later when the actual
+    feature uses the credential.
     """
     from .apikeys import KNOWN_KEYS, get_key, probe_all
 
@@ -4903,12 +4876,11 @@ def settings_apikeys_set(
     force: bool = typer.Option(False, "--force",
                                help="Allow setting a key not in the known list"),
 ) -> None:
-    """v7.A — set a credential in portfolio.env. Strict by default
-    (only known keys); `--force` allows arbitrary key names.
+    """Set a credential in portfolio.env. Strict by default (only known
+    keys); `--force` allows arbitrary key names.
 
     Atomic write — preserves comments, blank lines, and ordering of
-    untouched keys. If the key already exists, the existing line is
-    updated; new keys append at the end.
+    untouched keys. Existing keys are updated in place; new keys append.
     """
     from .apikeys import KNOWN_KEYS, set_key
     if key not in KNOWN_KEYS and not force:
@@ -4928,7 +4900,7 @@ def settings_apikeys_delete(
     assume_yes: bool = typer.Option(False, "--yes",
                                     help="Skip the confirmation prompt"),
 ) -> None:
-    """v7.A — remove a credential from portfolio.env."""
+    """Remove a credential from portfolio.env."""
     from .apikeys import delete_key, get_key
     if not get_key(key):
         console.print(f"[dim]{key} is already absent — nothing to do.[/]")

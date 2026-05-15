@@ -2,7 +2,7 @@
 
 Joins three cached signals into a single per-domain row:
 
-  - Live  (data/checks/<date>.json)  — HTTP class + status from `fleet live`
+  - Live  (data/checks/<date>.json)  — HTTP class + status from `fleet domains`
   - SEO   (data/seo/<date>.json)     — robots/sitemap/GSC from `fleet seo`
   - Git   (local filesystem)         — own-repo + last-commit age + catalog
                                        pass% from `project check` machinery
