@@ -4819,6 +4819,76 @@ def settings_gsc_auth(
     gsc_auth(force=force)
 
 
+@settings_gsc_app.command("recrawl")
+def settings_gsc_recrawl(
+    site: str = typer.Option(..., "--site",
+                             help="Site domain (e.g. washcalc.app). Must be a "
+                                  "registered GSC property and have a "
+                                  "sites/<domain>/ directory."),
+    urls: str = typer.Option(None, "--urls",
+                             help="Path to a newline-list of URLs to inspect. "
+                                  "Default: every URL in the site's sitemap."),
+    since: str = typer.Option(None, "--since",
+                              help="ISO-8601 baseline timestamp (e.g. "
+                                   "2026-05-15T12:39Z). Default: HEAD commit "
+                                   "time of the site's git repo."),
+    no_append: bool = typer.Option(False, "--no-append",
+                                   help="Print the report but don't append it "
+                                        "to docs/growth.md."),
+) -> None:
+    """Report which sitemap URLs Google has re-crawled since a baseline.
+
+    Read-only — uses webmasters.readonly scope. CANNOT trigger a re-crawl;
+    Google's Indexing API is officially restricted to JobPosting and
+    BroadcastEvent content. For general web pages, "Request Indexing"
+    must still be clicked manually in Search Console.
+
+    Quota: urlInspection.index.inspect is capped at ~2000/property/day.
+    Default URL set comes from the site's sitemap (typically 5-50 URLs);
+    batch large sites by passing --urls explicitly.
+    """
+    from pathlib import Path
+    from .gsc_recrawl import (
+        RecrawlError, append_to_growth_md, format_markdown_report,
+        read_urls_from_file, resolve_site_dir, run_recrawl,
+    )
+    try:
+        site_dir = resolve_site_dir(site)
+    except RecrawlError as e:
+        console.print(f"[red]Recrawl error:[/] {e}")
+        raise typer.Exit(2)
+
+    url_list = None
+    if urls:
+        url_path = Path(urls).expanduser()
+        if not url_path.is_file():
+            console.print(f"[red]--urls file not found:[/] {url_path}")
+            raise typer.Exit(2)
+        url_list = read_urls_from_file(url_path)
+        if not url_list:
+            console.print(f"[red]--urls file is empty:[/] {url_path}")
+            raise typer.Exit(2)
+
+    try:
+        report = run_recrawl(site, urls=url_list, since=since)
+    except RecrawlError as e:
+        console.print(f"[red]Recrawl error:[/] {e}")
+        raise typer.Exit(2)
+    except Exception as e:
+        console.print(f"[red]Inspection failed:[/] {type(e).__name__}: {e}")
+        raise typer.Exit(2)
+
+    md = format_markdown_report(report)
+    console.print(md)
+
+    if not no_append:
+        try:
+            written = append_to_growth_md(site_dir, md)
+            console.print(f"\n[dim]Appended to {written.relative_to(site_dir)}[/]")
+        except OSError as e:
+            console.print(f"[yellow]warn: could not append to growth.md: {e}[/]")
+
+
 @settings_gsc_app.command("status")
 def settings_gsc_status(
     refresh: bool = typer.Option(False, "--refresh",
