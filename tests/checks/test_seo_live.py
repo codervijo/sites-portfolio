@@ -996,3 +996,189 @@ def test_check_093_walks_graph(tmp_path, monkeypatch):
                     htmls={"https://x.test/p": html})
     r = run(str(site))
     assert r.status == "fail"
+
+
+# ---------- CHECK_094 — live-breadcrumblist-shape ----------
+
+
+def _stub_check_094(monkeypatch, *, urls, htmls):
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_094_live_breadcrumblist_shape.get_sitemap_urls",
+        lambda origin: urls,
+    )
+    def _fetch(url):
+        if url in htmls:
+            return htmls[url]
+        raise LiveFetchError(f"no stub for {url}")
+    monkeypatch.setattr(
+        "portfolio.checks.seo.check_094_live_breadcrumblist_shape.fetch_html",
+        _fetch,
+    )
+
+
+def _breadcrumb_html(obj: dict) -> str:
+    import json as _json
+    return (
+        '<head><script type="application/ld+json">'
+        + _json.dumps(obj)
+        + '</script></head><body/>'
+    )
+
+
+def _good_breadcrumb(*items: tuple[int, str, str]) -> dict:
+    """items is a tuple of (position, name, url)."""
+    return {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": p, "name": n, "item": u}
+            for p, n, u in items
+        ],
+    }
+
+
+def test_check_094_pass_when_well_formed(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html(_good_breadcrumb(
+        (1, "Home", "https://x.test/"),
+        (2, "Products", "https://x.test/products"),
+        (3, "Widget", "https://x.test/products/widget"),
+    ))
+    _stub_check_094(monkeypatch, urls=["https://x.test/products/widget"],
+                    htmls={"https://x.test/products/widget": html})
+    r = run(str(site))
+    assert r.status == "pass"
+    assert "1 BreadcrumbList" in r.message
+
+
+def test_check_094_pass_when_no_breadcrumblist_anywhere(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = '<head><script type="application/ld+json">{"@type":"WebApplication"}</script></head><body/>'
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "pass"
+    assert "no BreadcrumbList" in r.message
+
+
+def test_check_094_fails_when_itemlist_empty(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html({"@type": "BreadcrumbList", "itemListElement": []})
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "itemListElement missing or empty" in r.message
+
+
+def test_check_094_fails_when_positions_not_sequential(tmp_path, monkeypatch):
+    """Positions 1, 2, 4 (skipping 3) → not sequential → fail."""
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html(_good_breadcrumb(
+        (1, "A", "https://x.test/a"),
+        (2, "B", "https://x.test/b"),
+        (4, "D", "https://x.test/d"),
+    ))
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "not sequential" in r.message
+
+
+def test_check_094_fails_when_positions_start_at_zero(tmp_path, monkeypatch):
+    """Positions 0, 1, 2 — must start at 1 per BreadcrumbList convention."""
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html(_good_breadcrumb(
+        (0, "Home", "https://x.test/"),
+        (1, "Products", "https://x.test/products"),
+    ))
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+
+
+def test_check_094_fails_when_item_missing_name(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html({
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "item": "https://x.test/"},
+        ],
+    })
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "missing/empty `name`" in r.message
+
+
+def test_check_094_fails_when_item_missing_url(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html({
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Home"},
+        ],
+    })
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "missing/empty `item`" in r.message
+
+
+def test_check_094_fails_when_position_is_string(tmp_path, monkeypatch):
+    """Position must be an integer — `"1"` string fails."""
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html({
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": "1", "name": "Home", "item": "https://x.test/"},
+        ],
+    })
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "non-integer position" in r.message
+
+
+def test_check_094_fails_when_listitem_type_missing(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html({
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"position": 1, "name": "Home", "item": "https://x.test/"},
+        ],
+    })
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
+    assert "expected ListItem" in r.message
+
+
+def test_check_094_walks_graph(tmp_path, monkeypatch):
+    from portfolio.checks.seo.check_094_live_breadcrumblist_shape import run
+    site = _site_with_homepage(tmp_path)
+    html = _breadcrumb_html({
+        "@context": "https://schema.org",
+        "@graph": [
+            {"@type": "WebApplication"},
+            {"@type": "BreadcrumbList", "itemListElement": []},
+        ],
+    })
+    _stub_check_094(monkeypatch, urls=["https://x.test/p"],
+                    htmls={"https://x.test/p": html})
+    r = run(str(site))
+    assert r.status == "fail"
