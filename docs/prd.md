@@ -62,7 +62,7 @@ Sole user: Vijo. No multi-tenancy, no permissions, no public surface. CLI-only.
 
 ## 5. Phases
 
-Strict sequence (option a). 43 phases total · **1 dropped** (v8.C deliberately dropped 2026-05-13). v8.D + v8.E planned 2026-05-14 (research-module rebuild + interpretive/audit layer; see `docs/prd/research-module-v2.md` and `docs/prd/research-module-phase4.md`). 37/43 phases done · 1 dropped · 5 planned. **v8.D (research-module-v2) is the active queue.** v8.E (Phase 4 interpretive/audit), v9 (analytical roll-ups), v10 (deploy verification) follow.
+Strict sequence (option a). 51 phases total · **1 dropped** (v8.C deliberately dropped 2026-05-13). v8.D + v8.E + v11.A planned 2026-05-14 (research-module rebuild + interpretive/audit layer + per-site deploy declarations; full PRDs inlined in §8). v11.B/C/D follow v11.A. **v8.D (research-module-v2) is the active queue, with P1 already shipped (P0-P1.F done as of 2026-05-14).** v8.E (Phase 4 interpretive/audit), v9 (analytical roll-ups), v10 (deploy verification), v11 (deploy-target declaration + HostGator + SFTP) follow.
 
 Note on read/write surfaces: portfolio is **read-only** through v2 (domain suggest). **v3 (bootstrap) is the first write surface** — it creates new project dirs, runs `git init`, scaffolds files. **v4 is read-only** (validation-mode domain suggest only prints info and a manual-checkout URL — domain registration is gated behind a Y/n confirmation that calls Porkbun's `/domain/create`; no project-dir writes). **v5 is read-only** (universal check catalog + check flags; v5.D writes only to OAuth token + `data/gsc/` snapshots, not project dirs). **v6.C (remediation) is the second project-dir write surface** — it modifies existing project dirs to fix conformance gaps. **v8.D (domain-list refresh tooling)** writes to `data/domains/*.csv` + `data/portfolio.json` (already user-mutable), not project dirs. Everything else (v6.A–B, v7, v8.A–C) is read-only.
 
@@ -206,8 +206,8 @@ Note on v8 insertion (2026-05-13 PM):
 | **v8.A** | `new research <topic>` core command | New standalone command: fetch top-20 SERP via Brave Search API (already integrated for v4.C); synthesize via gpt-4o-mini (top ranking domains, content patterns, gap analysis); print decision-aid output (top rankers, content-type breakdown, suggested angles, "ship/skip" recommendation). Read-only. Cache results to `data/serp/<topic-hash>.json` with 7-day TTL (same pattern as brainstorm cache). `--no-cache` to force fresh; `--json` for machine output; `--depth N` for non-default fetch size. Standalone-first integration so `new suggest` stays fast. |
 | **v8.B** | Multi-keyword cluster mode | LLM-generated keyword cluster from a single topic (3-5 related queries), merged SERP across the cluster, deduped + scored by frequency. Catches the topic-cluster gap that literal-topic-only would miss. `--strict` flag to opt out and use the literal topic only. |
 | **v8.C** | ~~Integration with `new suggest` workflow~~ | **Dropped 2026-05-13.** Originally planned as a `--research` flag on `new suggest`. User chose to keep `new research` and `new suggest` as separate composable steps. |
-| **v8.D** | Research module v2 — real SERP + three-gate framework + operator profile *(planned 2026-05-14, PRD `docs/prd/research-module-v2.md`)* | Rebuild of v8.A/B from AI-only synthesis to SerpAPI primary with synthesis fallback. Three internal phases: P1 SerpAPI fetch + per-query dated snapshots, P2 three-gate logic (Market / SERP-with-7-classifiers / Moat-interactive-prompt), P3 operator profile (`~/.lamill/operator.yaml`) filtering. New verdict vocabulary: GO / NICHE-DOWN / NO-GO. Schema bump with old caches archived. ~25-34h. 10 open questions in PRD before implementation. |
-| **v8.E** | Research module Phase 4 — interpretive verdict + adversarial audit *(planned 2026-05-14, PRD `docs/prd/research-module-phase4.md`)* | Interpretive layer on top of v8.D's mechanical gates. Phase 4a: primary verdict via Claude Sonnet (new Anthropic API). Phase 4b: adversarial audit by GPT-4o (steel-mans opposite verdict; six failure modes). Phase 4c: reconciliation surfacing disagreement (REVIEW_REQUIRED first-class verdict). Opt-in via `--verify`. Versioned prompts at `prompts/`. ~20-26h on top of v8.D. 10 open questions + audit prompt awaiting review. |
+| **v8.D** | Research module v2 — real SERP + three-gate framework + operator profile *(planned 2026-05-14, full PRD inlined in §8.1)* | Rebuild of v8.A/B from AI-only synthesis to SerpAPI primary with synthesis fallback. Three internal phases: P1 SerpAPI fetch + per-query dated snapshots, P2 three-gate logic (Market / SERP-with-7-classifiers / Moat-interactive-prompt), P3 operator profile (`~/.lamill/operator.yaml`) filtering. New verdict vocabulary: GO / NICHE-DOWN / NO-GO. Schema bump with old caches archived. ~26-35h. **P1 already shipped (P0-P1.F done as of 2026-05-14); P2 (gates) up next.** 10 open questions resolved. |
+| **v8.E** | Research module Phase 4 — interpretive verdict + adversarial audit *(planned 2026-05-14, full PRD inlined in §8.2)* | Interpretive layer on top of v8.D's mechanical gates. Phase 4a: primary verdict via Claude Sonnet (new Anthropic API). Phase 4b: adversarial audit by GPT-4o (steel-mans opposite verdict; six failure modes). Phase 4c: reconciliation surfacing disagreement (REVIEW_REQUIRED first-class verdict). Opt-in via `--verify`. Versioned prompts at `prompts/`. ~20-26h on top of v8.D. 10 open questions + audit prompt awaiting review. |
 | **v9.A** | GSC trend correlation *(was v7.B pre-2026-05-13; was v7.H pre-2026-05-13-pm)* | GSC trend per project (28d clicks/imp/pos, w/w delta) over PERSISTED `data/gsc/` snapshots. **Distinct from v5.D** — v5.D is the runtime live check (one query, current state); v9.A is the longitudinal analytical layer (week-over-week deltas, trend lines). |
 | **v9.B** | Roll-up *(was v7.C pre-2026-05-13; was v7.I pre-2026-05-13-pm)* | `portfolio project list` · `--stale N` filter · `--json` · aggregate verdict counts |
 | **v9.C** | Optional LLM content seeding *(was v3.D pre-2026-05-07; was v9.A pre-2026-05-09; was v7.A pre-2026-05-10; was v7.D pre-2026-05-13; was v7.J pre-2026-05-13-pm; postponed indefinitely)* | `--seed-content` flag on `portfolio new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1–2 supporting pages from the topic (similar prompt pipeline to v2.A's brainstorm) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style (no narrative content) · *postponed indefinitely (2026-05-04 user call); v3.D built first* |
@@ -215,6 +215,10 @@ Note on v8 insertion (2026-05-13 PM):
 | **v10.B** | HEAD vs deployed *(was v10.B pre-2026-05-09; was v8.B pre-2026-05-13-pm)* | deploy-freshness signal · deploy-fresh conformance check · reads `version.json` from live URL |
 | **v10.C** | Build status + deploy lag *(was v10.C pre-2026-05-09; was v8.C pre-2026-05-13-pm)* | deploy lag (push → live) · last build status via Cloudflare/Vercel API · last-build-success conformance · *requires platform tokens — major new infra* |
 | **v10.D** | Domain-list refresh tooling *(new 2026-05-09; last-priority; was v8.D pre-2026-05-13-pm)* | Flag-only enhancements to existing `cleanup` (no new commands per user direction): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct $EDITOR on `data/portfolio.json` is documented in AI_AGENTS.md as the no-tooling path. |
+| **v11.A** | `lamill.toml` per-site deploy declaration *(planned 2026-05-14, full PRD inlined in §8.3)* | Visible TOML file at each `sites/<domain>/` repo root declaring where the site deploys. Closes the gap for hosts without canonical configs (HostGator, WordPress, custom VPS). Schema: `[deploy]` (platform, account, branch, custom_domains) + `[hosting]` (cPanel/FTP breadcrumbs when applicable) + `[notes]`. CLI: `project set-deploy`, `project show-deploy`, `fleet repos --add-deploy-declarations` migration. `new bootstrap` writes it automatically. ~12-16h. 8 open questions in PRD. |
+| **v11.B** | Drift detection + lamill.toml conformance checks *(deferred from v11.A; full PRD TBD)* | CHECK_xxx series comparing `lamill.toml` declaration vs DNS-resolved actual + live HTTP probe (extends `project diagnose`'s existing inference). `has-lamill-toml` + `lamill-toml-valid` + `deploy-drift` checks. ~6-8h. |
+| **v11.C** | HostGator cPanel integration *(deferred; full PRD TBD)* | API pull of domains / WordPress installs / disk usage via cPanel API. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
+| **v11.D** | SFTP deploy abstraction *(deferred; full PRD TBD)* | `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
 
 ## 6. Conformance rules
 
@@ -249,3 +253,2666 @@ portfolio enforces these on sibling sites/* projects via `project status`. Failu
 Append-only log. Questions get answered (with date) but never deleted.
 
 - *(no open questions at this time — all v1 scoping decisions are locked in AI_AGENTS.md and this PRD)*
+
+## 8. Detailed PRDs
+
+The phase rows above (v8.D / v8.E / v11.A) reference detailed designs.
+Inlined here rather than living as separate files in docs/prd/.
+Each retains its own structure (problem statement → goals → requirements
+→ open questions → effort estimate → approval).
+
+---
+
+### 8.1 — v8.D · Research module v2 (real SERP + three-gate + operator profile)
+
+
+## 1. Problem statement
+
+**Current state.** `lamill new research <topic>` asks gpt-4o-mini to
+synthesize a SERP analysis from training data. The output looks
+authoritative — ranked domains, content patterns, suggested angles,
+ship/mixed/skip decision — but the underlying data is the LLM's guess
+about what was ranking at training time, biased toward famous domains,
+and blind to AI Overview, Reddit threads, news cycles, programmatic
+incumbents, and anything that's appeared since the cutoff.
+
+**What's broken.**
+1. **Wrong verdicts in real use.** Four recent niche evaluations got
+   verdicts that didn't match what the operator (me) discovered when
+   I looked at the SERP myself. The tool was telling me "MIXED" on
+   niches that should have been NO-GO, and "SKIP" on niches with
+   clear lanes available.
+2. **Three-state decision conflates different situations.** A SERP
+   dominated by a programmatic incumbent reads the same as a SERP
+   where Reddit ranks #3 with a discussion-locked intent. Materially
+   different verdicts; current output renders them identically as
+   "competition is high."
+3. **"Suggested angles" generates content ideas, not moats.** First-
+   instinct LLM ideas like "focus on regional cost variations" survive
+   no scrutiny when tested against the structural-moat question.
+4. **Operator constraints absent.** The tool gives the same verdict to
+   a writer with credentialed expertise and to a builder running a
+   weekly-cadence portfolio. They face different versions of the same
+   niche.
+
+**What good looks like.**
+- Real SERP data (organic + SERP features) is the input, with a clearly-
+  labeled GPT-synthesis fallback for the missing-key / no-budget path.
+- Verdicts come from explicit, separately-reasoned gates, not a single
+  LLM judgment.
+- The operator profile is read on every run and constrains the verdict.
+- The output is honest about uncertainty: "Gate 2 fails" is a different
+  message from "Gate 2 fails because of programmatic incumbent X," and
+  "operator lacks expertise" is a different message from "SERP is too
+  competitive."
+- When a niche fails, the tool suggests *how to narrow it* (axes:
+  segment / geography / persona / use case / depth / moment) rather
+  than just rejecting the topic.
+
+---
+
+## 2. Goals and non-goals
+
+**Goals**
+
+- Replace synthesis-as-primary with **real-SERP-as-primary** via
+  SerpAPI; keep synthesis as an explicitly-labeled fallback.
+- Encode the three-gate framework (Market / SERP / Moat) as the
+  decision engine, not a single LLM judgment.
+- Add an **operator profile** read at the start of every research run.
+- Introduce a three-state verdict (**GO / NICHE-DOWN / NO-GO**) that
+  forces the "narrow the wedge" answer to be a first-class output.
+- All three phases land behind the existing `lamill new research`
+  command — no new top-level surface.
+
+**Non-goals** (deferred — listed for forward-reference, not designed
+in v2)
+
+- DR / domain-authority scoring (manual eyeballing is fine at n=1)
+- Cross-niche comparison mode (run two probes back-to-back)
+- SERP diff / change-over-time snapshots
+- Cost-ceiling / revenue projection math
+- Auto-generated moat sentences (requires human judgment)
+- Cluster generation from real keyword tools (LLM is the cluster source
+  for v2; revisit if the limitation bites)
+
+These are explicitly out-of-scope. If they get added later they get
+their own PRD.
+
+---
+
+## 3. User journey (me running this on a new niche idea)
+
+```text
+$ lamill new research "ev charger installation cost"
+
+[reads operator.yaml from ~/.lamill/operator.yaml]
+[loads SERPAPI_KEY from portfolio.env via load_env()]
+[LLM expands "ev charger installation cost" into 5 cluster queries]
+[for each query: SerpAPI top-10 organic + SERP features]
+[runs Gate 1, Gate 2 against the real SERP data]
+[Gate 2 detects specialty incumbent — prompts me interactively for Gate 3]
+[applies operator-profile constraints]
+[emits verdict + suggested reductions]
+
+  Gate 1 (Market):  ✓ PASS  · 12.4K SV after pollution adjustment
+                            · 1 of 5 queries polluted (muscle-car spam)
+
+  Gate 2 (SERP):    ✗ FAIL  · notateslaapp.com programmatic incumbent
+                              (Tesla updates) — ranks 5/5 cluster queries
+                            · reddit.com #3 (discussion intent locked)
+                            · 2 results potentially beatable
+
+  Gate 3 (Moat):    Required because Gate 2 detected programmatic incumbent.
+                    Enter a one-sentence testable moat (or press Enter to skip):
+                    > _
+
+  Operator fit:     ⚠ WARN  · Builder profile + niche rewards content writing
+                            · narrow to tool/data wedge instead
+
+  Verdict: NICHE-DOWN
+  Suggested reductions:
+    1. By segment: drop Tesla, lead with Rivian/Ford (less programmatic crowding)
+    2. By depth: focus only on diagnostic-flow integration (tool wedge)
+    3. By moment: trigger-based (post-fault) instead of browse-based
+
+  Source: SerpAPI · 5 queries · cached as data/serp/2026-05-14/<hash>.json
+```
+
+The interactive Gate 3 prompt is the **only** interactive moment.
+Everything else is non-interactive output. The `--json` mode skips
+Gate 3's prompt entirely and emits `moat_required: true, moat_provided: null`
+so a script can handle it.
+
+---
+
+## 4. Functional requirements (the three phases)
+
+### Phase 1 — Real SERP data
+
+**P1.1** Add `SERPAPI_KEY` to the `portfolio.env` template **and** to
+`apikeys.KNOWN_KEYS` so `lamill settings apikeys list/set` covers it.
+Add a `_probe_serpapi()` connectivity check alongside the existing
+OpenAI / CrUX / Porkbun / CF probes.
+
+**P1.2** New module `src/portfolio/serp_fetch.py` (or extend `serp.py`)
+with `fetch_serp(query: str) -> dict` returning the SerpAPI response
+normalized to a stable shape:
+```json
+{
+  "query": "...",
+  "fetched_at": "2026-05-14T...",
+  "organic_results": [
+    {"position": 1, "domain": "...", "url": "...", "title": "...",
+     "snippet": "...", "displayed_link": "..."}
+  ],
+  "features": {
+    "ai_overview": {"present": true, "cited_domains": ["..."]},
+    "people_also_ask": ["...", "..."],
+    "featured_snippet": {"present": false},
+    "image_pack": {"present": true},
+    "video_pack": {"present": false},
+    "local_pack": {"present": false},
+    "reddit_card": {"present": true, "position": 3}
+  }
+}
+```
+
+**P1.3** Cache per-query SerpAPI responses to
+`data/serp/<YYYY-MM-DD>/<query-hash>.json` (date subdir, hash per query)
+so a day's worth of probes cluster naturally and old days can be
+archived/dropped. The cluster-level analysis lives at
+`data/serp/<YYYY-MM-DD>/clusters/<cluster-hash>.json` and references
+the per-query files. **Schema-version field on every file.**
+
+**P1.4** `--no-cache` re-fetches; default TTL = **30 days** (was 7 in
+the original draft — bumped per §8.G.1 to stretch the SerpAPI free-
+tier quota; SERPs change but gate-level verdicts don't move weekly).
+
+**P1.5** `--synthesis-only` flag short-circuits to the existing GPT
+path. Output banner must say:
+```
+⚠  source: GPT synthesis (fallback) — NOT REAL SERP DATA
+   knowledge cutoff applies, verdicts are heuristic only
+```
+…and the gates still run, but their results are explicitly tagged
+`[from LLM guess]` in the rendered output.
+
+**P1.6** If `SERPAPI_KEY` is missing AND `--synthesis-only` is not set,
+emit a one-line error pointing at `lamill settings apikeys set
+SERPAPI_KEY` and exit 2. Don't silently fall back — that's the bug
+the current tool has.
+
+**P1.7** If SerpAPI request fails (rate limit, network, 5xx), retry
+once, then fall back to synthesis-only mode with a loud warning. The
+cached output of the failed query path is NOT written, so the next
+run retries.
+
+### Phase 2 — Three-gate decision logic
+
+**P2.1** New module `src/portfolio/research_gates.py`. Pure logic —
+takes a cluster-level dict (output of Phase 1's fetch + LLM cluster
+expansion) and returns a `GateResults` dataclass:
+
+```python
+@dataclass
+class GateResult:
+    passed: bool | None    # None = "pending input" (Gate 3 before prompt)
+    label: str             # "PASS" | "FAIL" | "PENDING"
+    findings: list[str]    # bullet-point reasons, rendered in output
+    raw: dict              # debug / json mode
+
+@dataclass
+class GateResults:
+    gate_1_market: GateResult
+    gate_2_serp: GateResult
+    gate_3_moat: GateResult
+    operator_fit: OperatorFitResult
+    verdict: str           # "GO" | "NICHE-DOWN" | "NO-GO"
+    suggested_reductions: list[str]
+    moat_required: bool
+    moat_provided: str | None
+```
+
+**P2.2 — Gate 1 (Market):**
+- For each cluster query, get a per-query volume estimate (see Open
+  Question §8.A — we don't have real volume out of the box).
+- **Pollution detection:** for each query, check whether the top-3
+  organic result titles contain at least one keyword stem from the
+  cluster (defined as: tokenized cluster query, lowercased, stopwords
+  removed, simple Porter-stem-equivalent — implementation may use a
+  light-weight `re`-based stemmer rather than nltk).
+- A query is "polluted" if 0/3 of its top results stem-match the
+  cluster.
+- `pollution_adjusted_volume = sum_of_unpolluted_query_volumes`
+- **Gate 1 PASS** if pollution-adjusted ≥ 5K SV/month. **FAIL** else.
+
+**P2.3 — Gate 2 (SERP):** Classify each top-10 domain in the merged
+cluster:
+
+| Classifier | Detection rule |
+|---|---|
+| `SPECIALTY_INCUMBENT` | Domain ranks for ≥1 query AND URL matches programmatic-pattern regex (`/(?:19\|20)\d{2}/`, `/v\d+\b/`, `/[A-Z]{2}/(?:state)/`, `/[a-z\-]+(?:city\|town)/`, `/(?:model\|version)/[a-z0-9\-]+`) AND domain is not media/Reddit/manufacturer (see §8.D for the major-media allow-list resolution) |
+| `PROGRAMMATIC_AT_SCALE` | Same domain in 3+ cluster queries' top-10 with similar URL templates |
+| `MEDIA_LOCKED` | ≥2 cluster queries return a result from the major-industry-media list (§8.D) in top 10 |
+| `REDDIT_PRESENT` | `reddit.com` in any cluster query's top 10 |
+| `BRANDED_LOCKED` | For branded queries (detected via the cluster including a known brand term), the brand's own domain is top 3 |
+| `AI_OVERVIEW_DOMINANT` | `ai_overview.present == True` on ≥2 cluster queries |
+| `POTENTIALLY_BEATABLE` | A ranking domain not matching any of the above, with weak signals (no `wikipedia.org` link in their SERP entry, no obvious institutional name) |
+
+**Gate 2 FAIL** if ANY of the following:
+- `SPECIALTY_INCUMBENT` or `PROGRAMMATIC_AT_SCALE` detected
+- `REDDIT_PRESENT` AND `MEDIA_LOCKED` (both intents locked)
+- `AI_OVERVIEW_DOMINANT` alone
+
+**Gate 2 PASS** if ≥3 `POTENTIALLY_BEATABLE` results AND no kill-tier
+classifiers fire.
+
+Otherwise: **WEAK PASS** — passes but the findings list flags the
+specific lock that would force a niche-down.
+
+**P2.4 — Gate 3 (Moat):** Only required if Gate 2 detected
+`SPECIALTY_INCUMBENT` or `PROGRAMMATIC_AT_SCALE`. The tool prints:
+
+```
+Gate 3 (Moat): Required because Gate 2 detected a specialty incumbent.
+Format: "I will win on [query pattern] because [incumbent gap], and the
+incumbent cannot close this gap in 6 months because [structural reason]."
+
+Enter your moat sentence (or press Enter to skip and accept NO-GO):
+> _
+```
+
+If the user enters a sentence, Gate 3 = PASS and the sentence is
+stored in the snapshot. If the user presses Enter, Gate 3 = FAIL.
+
+In `--non-interactive` or `--json` mode, Gate 3 = `PENDING` and the
+verdict accounts for it as if it had failed (the user can re-run
+without `--non-interactive` to fill in).
+
+**P2.5 — Verdict synthesis:**
+
+| Gates | Verdict |
+|---|---|
+| Gate 1 FAIL | **NO-GO** (market too small) |
+| Gate 2 FAIL AND Gate 3 PROVIDED | **NICHE-DOWN** (moat acknowledged, narrow the scope) |
+| Gate 2 FAIL AND no moat | **NO-GO** |
+| Gate 1 PASS + Gate 2 WEAK-PASS + Gate 3 not required | **NICHE-DOWN** (the "weak pass" findings drive the reductions) |
+| All gates PASS | **GO** |
+
+**P2.6 — Suggested reductions** (when verdict = NICHE-DOWN): emit 2-3
+concrete reductions across these axes, generated by the LLM given the
+gate findings as context:
+
+- segment (drop a brand, vertical, sub-category)
+- geography (regional only)
+- persona (specific role / experience level)
+- use case (one task vs the full workflow)
+- depth (tool vs content, data vs explanation)
+- moment (triggered vs evergreen, post-event vs browse)
+
+**P2.7** Remove the existing `ship | mixed | skip | unclear` decision
+field from snapshots. Mark this as a breaking schema change; the
+schema version bumps from `v8.B` to `v8.C-research-v2`. Old caches
+become invalid and get re-fetched on next access.
+
+### Phase 3 — Operator profile
+
+**P3.1** New file at `~/.lamill/operator.yaml` (or alternative — see
+Open Question §8.B). Schema (proposed):
+
+```yaml
+expertise:
+  - SEO and programmatic content
+  - Python and CLI tooling
+  - Domain portfolio management
+workflow_preference: builder    # builder | writer | mixed
+motivation_cadence: weekly      # weekly | monthly | quarterly
+hours_per_week: 10
+budget_monthly: 100
+existing_fleet:
+  - hybridautopart.com
+  - voltloop.site
+  - lamill.io
+```
+
+**P3.2** `OperatorProfile` dataclass + loader in
+`src/portfolio/operator_profile.py`. Loader returns an empty profile
+(all fields = None / empty lists) if the file is missing — tool still
+runs, just without operator-fit gates.
+
+**P3.3** New CLI surface: `lamill settings operator show | edit`.
+- `show` prints the loaded profile (or "no profile configured").
+- `edit` opens the file in `$EDITOR` (creates it from a template if
+  absent).
+
+**P3.4 — Operator-fit constraints (applied after Gate 2):**
+
+- **Expertise check:** if the cluster's primary intent is `informational`
+  (≥3/5 queries) AND the SERP rewards E-E-A-T (heuristic: ≥3/10 top
+  organic results are institutional or publisher-listicle with named
+  authors visible in snippet) AND none of the cluster's primary topic
+  terms (extracted via simple noun-phrase split) appear in
+  `operator.expertise[]`, then **auto-fail Gate 2** with the finding:
+  > "Operator lacks declared expertise; narrow to tool/data wedge."
+
+- **Workflow check:** if `workflow_preference == "builder"` AND the
+  cluster has ≥3/5 queries returning publisher-listicle-dominant SERPs
+  (content writing rewarded), emit a warning (doesn't fail Gate 2 by
+  itself, but adds a `niche-down` finding):
+  > "Builder profile + niche rewards content. Narrow to tool wedge."
+
+- **Cadence check:** if `motivation_cadence == "weekly"` AND the
+  cluster's intent is "evergreen reference" (proxy: top results are
+  >2 years old by visible date), warn:
+  > "Cadence: weekly. Niche metrics move monthly+. Watch motivation."
+
+- **Fleet adjacency:** for each of `operator.existing_fleet`, check
+  whether the SERP's top-10 includes that domain or whether its
+  `lamill fleet info summary` category matches the cluster's topic.
+  If yes, surface as a finding:
+  > "Adjacent to your existing hybridautopart.com (DR-equivalent in
+  >  the auto-repair vertical). Consider extending vs starting fresh."
+
+**P3.5** All operator-fit findings render under a separate
+"Operator fit" section in the output, between Gate 3 and the verdict.
+They influence the verdict (auto-fail Gate 2 or add reductions) but
+don't replace Gate 2.
+
+---
+
+## 5. Data model changes
+
+### Per-query SerpAPI snapshot (new, Phase 1)
+
+`data/serp/<YYYY-MM-DD>/<query-hash>.json`:
+```json
+{
+  "schema": "serp-query-v1",
+  "query": "ev charger installation cost",
+  "query_hash": "<12-char-sha256>",
+  "fetched_at": "2026-05-14T19:00:00+00:00",
+  "source": "serpapi",
+  "organic_results": [ /* see P1.2 */ ],
+  "features": { /* see P1.2 */ }
+}
+```
+
+### Cluster analysis snapshot (refactor, Phase 1+2)
+
+`data/serp/<YYYY-MM-DD>/clusters/<cluster-hash>.json`:
+```json
+{
+  "schema": "research-cluster-v2",
+  "topic": "ev charger installation cost",
+  "topic_hash": "...",
+  "fetched_at": "...",
+  "source": "serpapi",                     // or "gpt-synthesis-fallback"
+  "knowledge_caveat": "...",               // present only if source = gpt-...
+  "cluster_queries": [...],
+  "per_query_files": ["<query-hash>.json", ...],
+  "operator_snapshot": { /* copy of operator.yaml at probe time */ },
+  "gates": {
+    "gate_1_market": {
+      "passed": true,
+      "label": "PASS",
+      "findings": ["12.4K SV after pollution adjustment", "..."],
+      "raw": {"pollution_adjusted_volume": 12400, "polluted_queries": [...]}
+    },
+    "gate_2_serp": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [...],
+      "raw": {"classifications": {...}}
+    },
+    "gate_3_moat": {
+      "passed": null,
+      "label": "PENDING",
+      "findings": [],
+      "raw": {}
+    }
+  },
+  "operator_fit": {
+    "warnings": [...],
+    "auto_fail_gate_2": false
+  },
+  "verdict": "NICHE-DOWN",                 // GO | NICHE-DOWN | NO-GO
+  "suggested_reductions": [...],
+  "moat_required": true,
+  "moat_provided": null
+}
+```
+
+### Removed fields
+
+These v8.B fields disappear from the cluster snapshot:
+- `analysis.decision` (replaced by `verdict`)
+- `analysis.top_likely_rankers` (replaced by per-query files +
+  classifications)
+- `analysis.competitive_signal` (replaced by gate findings)
+- `analysis.suggested_angles` (replaced by `suggested_reductions`
+  which is only present when verdict = NICHE-DOWN)
+- `mode` (no more `cluster | strict`; cluster is the only mode)
+
+Old caches are invalidated on schema-version mismatch (see P2.7).
+
+---
+
+## 6. Config schema
+
+### portfolio.env (existing, additive)
+
+Append to the auto-generated template in `suggest.py:ensure_portfolio_env()`:
+```
+# v8.C — SerpAPI key for real-SERP research (lamill new research).
+# Plan: $50/mo for SerpAPI's "Bronze" tier (5000 queries/mo). Sign up
+# at https://serpapi.com/. Leave blank to use --synthesis-only fallback.
+SERPAPI_KEY=
+```
+
+### ~/.lamill/operator.yaml (new, Phase 3)
+
+See P3.1 above. Defaults if the file is missing:
+
+```python
+OperatorProfile(
+    expertise=[],
+    workflow_preference="mixed",   # least-opinionated default
+    motivation_cadence="monthly",  # mid
+    hours_per_week=None,
+    budget_monthly=None,
+    existing_fleet=[],             # loaded separately from portfolio.json fallback
+)
+```
+
+If `existing_fleet` is empty in operator.yaml, the loader falls back to
+the canonical inventory (every domain in `data/portfolio.json` whose
+category is NOT in `IGNORE_CATEGORIES`).
+
+---
+
+## 7. Output format (target state)
+
+Example output reproduced from §3 above, structurally:
+
+```
+SERP research — "<topic>"
+  source: SerpAPI · 5 queries · cached 0d ago
+
+  Topic cluster:
+    → 1. <literal>
+      2. <expanded>
+      ... (5 queries total)
+
+  Gate 1 (Market):  ✓ PASS  · <volume> SV after pollution adjustment
+                            · <N> of 5 queries polluted (<reason>)
+
+  Gate 2 (SERP):    ✗ FAIL  · <classifier-finding-1>
+                            · <classifier-finding-2>
+                            · <N> results potentially beatable
+
+  Gate 3 (Moat):    [pending operator input | PASS | FAIL]
+                    [moat sentence echoed back if provided]
+
+  Operator fit:     ⚠ WARN  · <fit-finding-1>
+                            · <fit-finding-2>
+
+  Verdict: <GO | NICHE-DOWN | NO-GO>
+
+  Suggested reductions:  (only if verdict = NICHE-DOWN)
+    1. <reduction-1>
+    2. <reduction-2>
+    3. <reduction-3>
+
+  Source: SerpAPI · cached as data/serp/<date>/<hash>.json
+```
+
+`--brief` collapses to one-line per gate + verdict + 2 reductions.
+`--json` emits the full cluster-snapshot JSON shape from §5.
+
+---
+
+## 8. Open questions to resolve before implementation
+
+These are questions where the prompt's spec is under-specified or where
+existing-code constraints conflict with the spec. **Resolve these
+before any code lands.**
+
+### 8.A — Volume data source
+
+The spec requires Gate 1 to fail when "pollution-adjusted volume <
+5K SV/month." **SerpAPI's organic-search endpoint does not return
+search volume.** Three options:
+
+1. **Skip real volume entirely.** Use LLM volume estimates as proxy
+   (acknowledged unreliable). Gate 1 becomes "LLM estimates X SV;
+   confidence: low."
+2. **SerpAPI's keyword research add-on** (~+$100/mo). Real volume data
+   from Google Ads-style sources. Doubles SerpAPI bill.
+3. **Use a free volume proxy** — e.g., the count of unique organic
+   results in top 100 (deep results = high-volume signal), or Google
+   autocomplete suggestion count, or Reddit/forum mention count via
+   SerpAPI's Reddit search. Heuristic, but free.
+
+**My recommendation: option 3 + label honestly as a proxy.** Avoids
+the cost bump and gives a usable signal. Real volume becomes a future
+upgrade with its own PRD.
+
+**Your call:** which option?
+
+### 8.B — Operator config location
+
+Spec says `~/.lamill/operator.yaml`. Existing convention is per-project
+config in `portfolio.env` at the repo root. Three options:
+
+1. **Global at `~/.lamill/operator.yaml`** (per the spec) — fits the
+   "this is about me, not the repo" framing, but breaks the
+   everything-in-the-repo pattern.
+2. **Per-project at `<repo>/operator.yaml`** — fits existing pattern,
+   makes the config part of the lamill repo, easier to version.
+3. **Hybrid: load `<repo>/operator.yaml` if present, else fall back to
+   `~/.lamill/operator.yaml`** — supports both patterns.
+
+**My recommendation: option 1 (global at `~/.lamill/`).** Operator
+profile is genuinely about the person, not the repo. Lives outside the
+repo for a reason. The existing per-project pattern is the right
+default for things like API keys; operator-profile is a different kind
+of config.
+
+### 8.C — Config file format (YAML vs TOML vs JSON)
+
+No YAML lib in the codebase today. Adding pyyaml is a new dep.
+
+1. **YAML** (per spec) — most human-friendly, but adds pyyaml dep
+2. **TOML** — Python 3.11+ stdlib via `tomllib` (read-only), no new
+   dep. Reasonable for read-many-write-rare config.
+3. **JSON** — no new dep, no nice config syntax (no comments).
+
+**My recommendation: TOML.** Stdlib, no new dep, supports comments,
+and we only need read at runtime (writes happen via `$EDITOR`).
+
+**Your call:** YAML (per spec), TOML, or JSON?
+
+### 8.D — "Major industry publication" classification source
+
+Gate 2's `MEDIA_LOCKED` classifier requires identifying when a SERP
+result is from a major industry publication. Three options:
+
+1. **Static allow-list per topic.** `data/research/media_publications.toml`
+   with entries like `automotive: [caranddriver.com, motortrend.com,
+   autoweek.com, ...]`. Pro: deterministic. Con: requires curation; new
+   topics need updates.
+2. **LLM classification.** Send each ranking domain to gpt-4o-mini:
+   "Is <domain> a major industry publication in <topic-vertical>?
+   yes/no." Pro: flexible. Con: reintroduces LLM at a critical signal
+   point, adds ~10 calls per research run.
+3. **Heuristic:** check domain via `tldextract` + `data/portfolio.json`
+   manual flags + Wikipedia API "does this domain have a Wikipedia
+   article?" Pro: free, structural. Con: not all major pubs have WP
+   articles; complex.
+
+**My recommendation: option 1 (static allow-list).** It's the
+operator's tool, the operator can maintain it. Seeded with ~20 verticals
+covering my fleet (automotive, EV, HVAC, indoor air, cricket, …); add
+more as new verticals appear. List is data, not code; lives in
+`data/research/media_publications.toml`.
+
+**Your call:** confirm option 1 or pick differently.
+
+### 8.E — Snapshot retention policy
+
+Per-query files at `data/serp/<YYYY-MM-DD>/<query-hash>.json` could
+accumulate quickly. Three options:
+
+1. **Keep forever.** Same as `data/checks/` and `data/seo/`. Disk usage
+   is fine at personal scale (probably < 100MB/yr).
+2. **Auto-trim after N days.** Delete date subdirs older than 90 days.
+3. **No git-tracking.** Add `data/serp/` to `.gitignore`. Snapshots
+   become local-only.
+
+The current `data/checks/`, `data/seo/`, and `data/serp/` are all
+git-tracked (we explicitly chose this for v8.A so trend analysis can
+read history).
+
+**My recommendation: option 1 (keep forever, git-tracked).** Disk
+isn't a constraint; trend data is valuable when a future feature wants
+"how has the SERP for X changed in 6 months?"
+
+**Your call:** confirm or change.
+
+### 8.F — `--synthesis-only` and the three-gate logic
+
+Synthesis-only mode runs the gates from LLM-guessed data instead of
+real SERP. Gate 2's URL-pattern detection collapses (LLM doesn't return
+real URLs — just domain names). Two options:
+
+1. **Run gates anyway** with a loud "[from LLM guess]" tag on every
+   finding. Gate 2 mostly skips URL-pattern detection, relies more on
+   LLM's qualitative judgment of "is this a programmatic incumbent
+   pattern?"
+2. **Skip Gate 2 entirely in synthesis-only mode** and emit only Gate
+   1 + Gate 3 + operator fit. Verdict becomes mostly operator-fit-driven.
+
+**My recommendation: option 1.** Synthesis-only is for ideation, not
+go/no-go. Running degraded gates with explicit tags is better than
+hiding them — the user is reminded that the synthesis output is less
+trustworthy.
+
+### 8.G — SerpAPI tier / cost expectations  *(RESOLVED 2026-05-14)*
+
+**Decision:** SerpAPI **free tier** (250 queries/month, no cost).
+
+At 5 queries per cluster, that's ~50 research runs/month. Sufficient
+for personal portfolio operator scale (a few cluster runs per week).
+
+Three implications flow from this choice — applied to the PRD below:
+
+**8.G.1 — Cache TTL:** Bumped from 7 days → **30 days** (PRD §P1.4
+amended below). SERPs move weekly, but the gate-level verdict
+they drive doesn't move with them. A weekly re-fetch would burn
+quota without changing the call. `--no-cache` still forces a
+fresh probe when needed.
+
+**8.G.2 — Quota tracking:** New ledger at `data/serp/_quota.json`
+tracks queries used in the current UTC month. The tool:
+  - Soft-warns at 80% (200/250): "⚠ SerpAPI quota: 200/250 this month"
+  - Hard-refuses at 100% (250/250): "✗ SerpAPI quota exhausted —
+    falling back to synthesis-only mode for this run."
+  - Resets at the first day of each UTC month.
+  - `lamill settings cost report` (future ledger feature) can read
+    this file later.
+
+**8.G.3 — Auto-fallback when quota exhausted:** When the quota refuses
+a fresh fetch AND `--no-cache` was not passed AND a v2 cache is
+unavailable, the tool **automatically falls back to synthesis-only
+mode** with a loud banner:
+
+```
+⚠  SerpAPI quota exhausted (250/250 this UTC month).
+   Falling back to GPT synthesis — NOT REAL SERP DATA.
+   Quota resets <YYYY-MM-01>.
+```
+
+Better than failing the run; the operator sees what happened and
+gets a degraded-but-useful answer. The synthesis-only result is
+cached under a separate cache key so it doesn't pollute the
+real-SERP cache when quota returns.
+
+These three implementation details are now part of P1 scope.
+
+### 8.H — Cache invalidation on schema bump
+
+When the cluster snapshot schema changes from v8.B → v2 (P2.7), the
+existing `data/serp/*.json` files become unreadable. Options:
+
+1. **Delete `data/serp/*.json` on first v2 run** with a one-line
+   migration note. Cleanest.
+2. **Move them to `data/serp/_archive_v8b/`** for forensics.
+3. **Try to migrate** the old shape forward. Most fields don't have
+   v2 equivalents; this is mostly a no-op.
+
+**My recommendation: option 2.** Move, don't delete. Zero data loss
+risk; the archive can be removed later by hand.
+
+### 8.I — Existing v8.A `--strict` mode
+
+The v8.A literal-topic-only mode (`--strict`) currently exists. The v2
+spec doesn't mention it, and the new framework assumes cluster mode
+always. Options:
+
+1. **Drop `--strict`** in v2 — cluster is the only mode.
+2. **Keep `--strict`** as a parallel path that runs only literal-topic
+   SerpAPI + gates on 1 query instead of 5.
+
+**My recommendation: drop `--strict`.** The cluster mode is more useful;
+keeping strict around for the rare case adds maintenance burden. If
+someone wants literal-topic SerpAPI, they can pass a `--depth 1` flag
+later — but for now, drop.
+
+### 8.J — Volume data fallback when SerpAPI proxy fails
+
+When Gate 1 uses the proxy from Option 3 above (organic-count heuristic
+or autocomplete), and the proxy fails for a specific query (e.g.,
+SerpAPI returned 0 results — query is too niche), Gate 1 needs a
+behavior. Options:
+
+1. **Treat 0-results queries as 0 SV.** Pollution-adjusted volume
+   drops; Gate 1 may fail. Honest behavior.
+2. **Treat 0-results queries as "unknown SV"** and pass the gate if
+   ≥3 of 5 queries have data. Less honest but more forgiving.
+
+**My recommendation: option 1.** Honest about the gap.
+
+---
+
+## 9. Implementation plan (commit-by-commit, with smoke tests)
+
+### Preamble commit (zero-risk refactor)
+
+**Commit P0** — Move `data/serp/*.json` and `data/serp/_index.json`
+into `data/serp/_archive_v8b/`. Update `serp.py` to point at the
+archive read-only for `lamill new research --replay-cache <topic>` (a
+debugging flag — not user-facing). Sets up the migration path before
+schema changes.
+
+*Smoke test:* `lamill new research "anything" --synthesis-only` still
+works (uses LLM, doesn't touch the archived caches).
+
+---
+
+### Phase 1 commits
+
+**Commit P1.A** — Add `SERPAPI_KEY` to `KNOWN_KEYS` + portfolio.env
+template + connectivity probe in `apikeys.py`. Update
+`lamill settings apikeys list` to report it.
+
+*Smoke test:* `lamill settings apikeys list` shows SERPAPI_KEY as
+"unset" or "set + connectivity ✓".
+
+**Commit P1.B** — `src/portfolio/serp_fetch.py` with `fetch_serp(query)`
+returning the normalized shape from P1.2. Includes retry logic,
+SerpAPI-error to ResearchError mapping. No CLI wiring yet.
+
+*Smoke test:* `python -c "from portfolio.serp_fetch import fetch_serp;
+import json; print(json.dumps(fetch_serp('ev charger installation cost'),
+indent=2)[:500])"` returns a real SERP. Required: SERPAPI_KEY set.
+
+**Commit P1.C** — Per-query caching to `data/serp/<YYYY-MM-DD>/<query-
+hash>.json` with `schema: serp-query-v1`. `load_cached_query(query,
+ttl_days=7)`, `save_cached_query(...)`. Tests against tmp_path.
+
+*Smoke test:* `pytest tests/test_serp_fetch.py -q` (~10 new tests).
+
+**Commit P1.D** — Refactor `serp.py:research()` to: (a) load the
+cluster query list from gpt-4o-mini (existing code), (b) for each
+query, call `fetch_serp()`, (c) cache + return a NEW cluster snapshot
+shape that's just the per-query results merged (no gates yet, no
+verdict — that's Phase 2). Synthesis-only path preserved behind
+flag, marked clearly.
+
+*Smoke test:* `lamill new research "ev charger installation cost"`
+runs end-to-end against SerpAPI, writes one cluster file + 5 per-query
+files, output shows raw SERP data (no gates).
+
+**Commit P1.E** — `--synthesis-only` flag wired with loud banner.
+`--no-cache` re-fetches both LLM cluster expansion AND per-query SERPs.
+Error paths (missing key, SerpAPI 5xx, rate limit) tested.
+
+*Smoke test:* `lamill new research "test" --synthesis-only` shows
+banner; `lamill new research "test" --no-cache` re-fetches; missing
+SERPAPI_KEY errors with the right pointer.
+
+**Commit P1.F** — Quota ledger at `data/serp/_quota.json` (per §8.G.2).
+Tracks queries used in the current UTC month; auto-resets on
+month-boundary. Soft-warns at 200/250; hard-refuses at 250/250 with
+auto-fallback to synthesis-only mode (loud banner per §8.G.3). New
+helper `lamill settings serpapi-quota` shows current usage.
+
+*Smoke test:* Mock a 251st-query call → fallback banner shown,
+synthesis-only output produced; ledger reset on simulated month
+change.
+
+### Phase 2 commits
+
+**Commit P2.A** — `src/portfolio/research_gates.py` skeleton:
+dataclasses (`GateResult`, `GateResults`), `evaluate_gate_1(cluster)`,
+`evaluate_gate_2(cluster)`, `evaluate_gate_3(cluster, moat_input)`.
+Pure logic, no CLI. Unit tests with synthetic cluster fixtures.
+
+*Smoke test:* `pytest tests/test_research_gates.py -q` (~25 tests).
+
+**Commit P2.B** — Gate 1 (Market) — volume estimate via the chosen
+proxy (§8.A), pollution detection, pollution-adjusted volume math.
+Unit tests for: clean cluster, polluted cluster, mixed cluster, edge
+cases (0 results, all polluted).
+
+*Smoke test:* `lamill new research "ev charger installation cost"
+--debug-gates` shows Gate 1 output but skips 2 and 3.
+
+**Commit P2.C** — Gate 2 (SERP) — classifiers in priority order.
+Static `media_publications.toml` (§8.D — assuming option 1 chosen)
+seeded with ~20 verticals. Programmatic-URL regex library. Tests
+cover each classifier individually + combinations.
+
+*Smoke test:* Cluster with known programmatic incumbent (e.g.,
+`notateslaapp.com`) → classifier fires; cluster without one → doesn't.
+
+**Commit P2.D** — Gate 3 (Moat) — interactive prompt, snapshot
+storage, `--non-interactive`/`--json` mode handling.
+
+*Smoke test:* Running interactively on a cluster that fails Gate 2
+prompts for moat; entering text → PASS; Enter → FAIL; `--json` skips.
+
+**Commit P2.E** — Verdict synthesis (§5 table) + suggested-reductions
+generator (LLM call with the gate findings as context). Renderer
+updated to show gates + verdict + reductions.
+
+*Smoke test:* `lamill new research "ev charger installation cost"`
+end-to-end produces the target output from §3.
+
+**Commit P2.F** — Snapshot schema migrated to v2 (`research-cluster-v2`).
+Old `data/serp/*.json` were already archived in P0. Cache invalidation
+on schema mismatch. Tests confirm v1 cache is treated as miss.
+
+*Smoke test:* `lamill new research "<previously-cached topic>"` does
+NOT serve from a v1 cache; re-fetches fresh.
+
+### Phase 3 commits
+
+**Commit P3.A** — `src/portfolio/operator_profile.py`:
+`OperatorProfile` dataclass, `load_profile()`, `default_profile()`,
+TOML-or-YAML reader (§8.C decided). Tests against tmp_path with
+synthetic profiles.
+
+*Smoke test:* `pytest tests/test_operator_profile.py -q` (~12 tests).
+
+**Commit P3.B** — `lamill settings operator show` + `edit` CLI
+commands.
+
+*Smoke test:* `lamill settings operator show` prints the profile (or
+"no profile configured"); `lamill settings operator edit` opens
+`$EDITOR`.
+
+**Commit P3.C** — Operator-fit constraints wired into
+`research_gates.py`:
+- Expertise check (auto-fail Gate 2)
+- Workflow check (warning + niche-down trigger)
+- Cadence check (warning)
+- Fleet adjacency (finding)
+
+Tests for each constraint individually + integration test on a known
+cluster + profile combination.
+
+*Smoke test:* `lamill new research "ev charger installation cost"`
+with `workflow_preference: builder` in operator.yaml emits the
+"Builder profile + niche rewards content" warning.
+
+### Final commits
+
+**Commit P4.A** — Documentation update:
+- `docs/CLAUDE.md`: brief on the new `new research` flow + operator
+  profile location
+- `AI_AGENTS.md`: note the v8.C → v2-research-module migration
+- `docs/Prompts.md`: dated H2 entry
+- `docs/prd.md`: mark v8.C in v8 tier table as ✅ (renamed from the
+  dropped one — see PRD note on the redefinition)
+
+*Smoke test:* `lamill project check sites/portfolio` passes the docs
+checks; full suite still passes.
+
+**Commit P4.B** — Update PRD (`docs/prd.md`) to reflect v8.C shipped.
+Update feature-table entries.
+
+*Smoke test:* manual review.
+
+---
+
+## 10. Effort estimate
+
+Honest reading, not padded, not shrunk:
+
+| Phase | Commits | Estimated hours | Key risks |
+|---|---|---|---|
+| Preamble | P0 | 1h | Archive migration script |
+| Phase 1 | P1.A–F | 9–11h | SerpAPI integration, quota ledger + auto-fallback, error paths, retry logic, test coverage |
+| Phase 2 | P2.A–F | 10–14h | Gate 2 classifier rules, programmatic-URL regex (hard to get right), verdict-synthesis LLM call wired correctly, schema migration |
+| Phase 3 | P3.A–C | 5–7h | Operator-fit heuristics, especially the expertise check |
+| Docs + cleanup | P4 | 1–2h | |
+| **Total** | **16 commits** | **26–35h** | (+1h vs original estimate for quota ledger work) |
+
+The wider range comes from Gate 2 — the classifier rules will need
+iteration once real-SERP data shows edge cases. Plan for ≥2 rounds
+of refinement after P2.E lands.
+
+Critique-suggested 12–15h was optimistic. It didn't account for the
+volume-data problem (§8.A), the operator-profile gates (Phase 3), or
+test work proper.
+
+---
+
+## 11. Future considerations (deferred, named only)
+
+For forward-reference, in case any of these become relevant later:
+
+- Real-time keyword volume via SerpAPI keyword add-on or DataForSEO
+- DR / domain-authority scoring (Ahrefs / Moz API)
+- Cross-niche comparison mode
+- SERP diff / snapshot tracking over time
+- Cost-ceiling / revenue projection math
+- Auto-generated moat sentences (would need a moat-validator LLM step)
+- Cluster generation from real keyword tools (Google autocomplete,
+  Ahrefs related terms, People Also Ask scraping)
+- Operator-profile inference from `data/portfolio.json` (auto-detect
+  existing fleet, infer expertise from `docs/CLAUDE.md` files across
+  the fleet)
+- A `lamill new research --watch <topic>` mode that re-runs weekly and
+  surfaces SERP changes
+
+These are explicitly NOT designed in v2.
+
+---
+
+## 12. Recommended preamble refactor (NOT part of v2)
+
+While reading the existing code I noticed a small refactor that would
+make v2 cleaner but is NOT required:
+
+- `src/portfolio/serp.py` is 673 LOC and mixes: prompt building, OpenAI
+  HTTP, cache I/O, response parsing, orchestrator. Could be split into
+  `serp_llm.py` (prompt + OpenAI), `serp_cache.py` (I/O), and
+  `research.py` (orchestrator + the new gates module). This would
+  parallel the existing pattern of `seo_runtime.py` + `seo_cache.py`.
+
+Not required for v2 to ship — the existing code is workable. But if
+the v2 work gets close to ~900 LOC in one file, the split becomes
+worth doing.
+
+---
+
+## 13. Approval
+
+This PRD is **draft, awaiting review**. Before any code lands:
+
+1. Resolve the 10 open questions in §8.
+2. Confirm the 3-phase scope is right (no expansion).
+3. Confirm the effort estimate is acceptable for the value delivered.
+4. Confirm the snapshot retention policy (§8.E).
+
+Sign off below when reviewed:
+
+- [ ] Open questions §8.A–J resolved
+- [ ] Effort estimate accepted
+- [ ] Preamble refactor (§12) — yes or no
+- [ ] Author signoff
+
+---
+
+---
+
+### 8.2 — v8.E · Research module Phase 4 (interpretive verdict + adversarial audit)
+
+
+## 1. Problem statement
+
+**Current state (after research-v2 ships).** The mechanical gates
+(Phase 1/2/3) produce a structured verdict — GO / NICHE-DOWN / NO-GO —
+based on classifier rules and the operator profile. The rules are
+deterministic, so the same SERP always produces the same verdict.
+
+**What's missing.** Classifier rules catch known patterns but blow on
+unknown ones. They can't reason qualitatively about edge cases:
+
+- A SERP where 3 of the top 10 are programmatic-template URLs that
+  *don't quite match* the v2 regex library — rules miss them, but a
+  human reading the SERP titles would catch it
+- Intent misclassification when the SERP looks informational on the
+  surface but the SERP features (Local Pack, transactional snippets)
+  show commercial intent
+- The "KD trap" — keyword difficulty looks low, the rules say PASS,
+  but the SERP is structurally owned by a programmatic competitor's
+  template
+- Moats that are unfalsifiable ("better content") passing the
+  human-input gate because the user typed something
+
+**What good looks like.** A primary LLM interpretive pass that reads
+the same data the rules read PLUS the raw SERP results and offers a
+qualitative verdict. A *different* LLM in adversarial mode that tries
+to steel-man the opposite conclusion. Reconciliation logic that
+**never hides disagreement** — when the models split, the operator
+sees both and decides.
+
+The empirical claim driving this: different model families have
+different blind spots. Catching the disagreement is the signal.
+
+---
+
+## 2. Goals and non-goals
+
+**Goals**
+
+- Add a **primary interpretive pass** (Claude Sonnet, default) that
+  consumes the mechanical gate output + raw SERP and produces a
+  qualitative verdict with confidence rating.
+- Add an **adversarial audit pass** using a *different* model
+  (GPT-4o default, Gemini fallback) that steel-mans the opposite
+  verdict.
+- **Reconciliation surfaces disagreement** rather than auto-picking a
+  winner. REVIEW_REQUIRED is a first-class verdict for the disagree
+  case.
+- **Opt-in cost.** Default is primary-only (Phase 4a). The audit
+  pass (Phase 4b + 4c) is gated behind `--verify`.
+- **Versioned prompts.** Both prompts live in `prompts/` (location
+  TBD per Open Question §10.A), versioned (`_v1.md`, `_v2.md`, …),
+  and snapshots record which version produced their verdict.
+- **Both verdicts always cached.** Even if `--verify` was off,
+  re-running on cached data with `--verify` produces an audit without
+  re-fetching SERP.
+
+**Non-goals**
+
+- **Three-model consensus / N-way voting.** Two perspectives + honest
+  disagreement is the point; adding a third dilutes the signal.
+- **Auto-resolution of disagreement.** The PRD intentionally avoids
+  any "if audit confidence > primary confidence, audit wins" rules —
+  those manufacture false certainty.
+- **Prompt-version A/B testing harness.** Versioning lets us track
+  which prompt produced what, but comparing prompt versions empirically
+  is a future feature.
+- **Audit-only mode** (no primary, only adversarial). Audit's
+  steel-man-the-opposite role doesn't make sense without a primary.
+
+---
+
+## 3. Where it sits in the pipeline
+
+```
+Phase 1: SerpAPI fetch
+   ↓ raw SERP per cluster query
+Phase 2: Gate classification
+   ↓ Gate 1 + Gate 2 + Gate 3-pending
+Phase 3: Operator profile filter
+   ↓ operator-fit findings, possibly auto-fail Gate 2
+─── new in Phase 4 ───────────────────────────
+Phase 4a: Primary interpretive pass (Claude Sonnet)
+   ↓ verdict + reasoning + confidence + moat-required + blind_spot_self_report
+[if --verify:]
+Phase 4b: Adversarial audit (GPT-4o)
+   ↓ agreement_level + concerns + counter_verdict (if disagree)
+Phase 4c: Reconciliation
+   ↓ final verdict + confidence + caveats (or REVIEW_REQUIRED)
+─────────────────────────────────────────────
+   ↓
+Output rendering
+```
+
+Both LLM passes consume:
+- The mechanical gate output (typed dict — exactly what Phase 1/2/3
+  emit)
+- The raw top-10 organic results per cluster query (so the model can
+  sanity-check classifications)
+- The operator profile snapshot
+
+Output from Phase 4a feeds Phase 4b (with one open question — whether
+the audit sees the primary's `blind_spot_self_report` or is blind to
+it; §10.C).
+
+---
+
+## 4. Functional requirements
+
+### Phase 4a — Primary interpretive pass
+
+**P4a.1** Standing prompt at `prompts/niche_evaluation_v1.md` (path
+finalized in §10.A). System message; substituted with operator profile
+fields at runtime.
+
+**P4a.2** Model: Claude Sonnet (default model TBD by API availability
+at build time — `claude-sonnet-4-7` or current). Override via `--model
+<id>` flag. Anthropic API integration is new — see §8 implementation
+risks.
+
+**P4a.3** User message contains a structured payload:
+```python
+{
+  "topic": str,
+  "cluster_queries": list[str],
+  "gates": {
+    "gate_1_market": GateResult,
+    "gate_2_serp": GateResult,
+    "gate_3_moat": GateResult,  # status only — not yet user-input
+  },
+  "operator_fit": OperatorFitResult,
+  "operator_profile_summary": str,  # rendered, not raw YAML/TOML
+  "raw_top_10_per_query": list[dict],  # title, URL, domain only
+  "serp_features_per_query": list[dict],
+}
+```
+
+**P4a.4** Response is **markdown with strict headers** (not JSON mode):
+
+```markdown
+### verdict
+GO | NICHE-DOWN | NO-GO
+
+### confidence
+HIGH | MEDIUM | LOW
+
+### reasoning
+[2-4 paragraphs]
+
+### moat_required
+true | false
+
+### moat_prompt
+[text shown to operator if moat needed]
+
+### reductions
+- [reduction 1]
+- [reduction 2]
+- [reduction 3]
+
+### operator_fit_warnings
+- [conflict 1 with operator profile]
+- [conflict 2]
+
+### blind_spot_self_report
+[what the primary thinks it might be missing — feeds Phase 4b]
+```
+
+**Rationale for markdown over JSON mode:** Easier to evolve the
+schema (add a section without breaking parse), more robust to model
+variation (Claude Sonnet's JSON mode at temp=0 sometimes truncates;
+markdown headers don't), and parseable with simple regex/section
+splits.
+
+**P4a.5** Parser splits the response on `### <header>` boundaries.
+Required sections: verdict, confidence, reasoning. Missing optional
+sections (e.g. `reductions` on a GO verdict) → empty.
+
+**P4a.6** Substitution validator runs before any LLM call: any
+`{{placeholder}}` left in the rendered prompt → raise (don't send a
+broken prompt to the model).
+
+**P4a.7** Snapshot captures both the rendered prompt AND the response
++ the prompt version + the model id. Reproducibility — old caches can
+be re-rendered with their original prompt for audit/comparison.
+
+### Phase 4b — Adversarial audit pass
+
+**P4b.1** Standing prompt at `prompts/adversarial_audit_v1.md` (drafted
+inline below in §6). System message.
+
+**P4b.2** Model: **must be different** from the Phase 4a model.
+Default: `gpt-4o`. Fallback: Gemini Pro. Override: `--audit-model <id>`.
+The "different model" constraint is enforced — if `--model
+claude-sonnet-4-7 --audit-model claude-sonnet-4-7` is passed, the tool
+rejects with an error pointing at the correlated-blind-spot rationale.
+
+**P4b.3** User message contains:
+- The structured payload from P4a.3 (same input)
+- The full Phase 4a markdown response (verbatim, not parsed)
+
+Open Question §10.C: should the audit see the primary's
+`blind_spot_self_report` section, or be hidden from it?
+
+**P4b.4** Response is markdown with strict headers (mirror P4a.4):
+
+```markdown
+### agreement_level
+full | partial | disagree
+
+### confidence
+HIGH | MEDIUM | LOW   (confidence in YOUR audit, not the primary's verdict)
+
+### specific_concerns
+- [concern 1: which failure mode + which data point supports it]
+- [concern 2]
+- ...
+
+### counter_verdict
+[only if agreement_level = disagree]
+[GO | NICHE-DOWN | NO-GO]: [1-2 sentences why]
+
+### audit_self_check
+[1-2 sentences on what YOU might be wrong about]
+```
+
+**P4b.5** Same parser shape as Phase 4a. Strict on the three required
+fields (`agreement_level`, `confidence`, `specific_concerns`),
+permissive on optional sections.
+
+### Phase 4c — Reconciliation (no LLM call)
+
+Pure logic from the parsed Phase 4a + Phase 4b outputs:
+
+```
+IF audit.agreement_level == "full":
+    final_verdict = primary.verdict
+    final_confidence = min(primary.confidence, audit.confidence)
+    note: "✓ Audit agrees ({audit_model}, {audit.confidence} confidence)"
+
+IF audit.agreement_level == "partial":
+    final_verdict = primary.verdict
+    final_confidence = downgrade(primary.confidence)
+        # HIGH → MEDIUM, MEDIUM → LOW, LOW → LOW
+    note: "⚠ Audit raises {len(audit.specific_concerns)} concerns"
+    caveats: audit.specific_concerns
+
+IF audit.agreement_level == "disagree":
+    final_verdict = "REVIEW_REQUIRED"
+    primary_verdict_with_reasoning: shown
+    counter_verdict_with_reasoning: shown
+    note: "Models disagree. High-signal — read both and decide manually."
+```
+
+`REVIEW_REQUIRED` is added to the verdict vocabulary (alongside GO /
+NICHE-DOWN / NO-GO). Snapshot includes both verdicts plus the
+reconciliation outcome.
+
+---
+
+## 5. CLI surface + cost defaults
+
+### Default (primary only)
+
+```
+lamill new research "ev charger installation cost"
+```
+- Runs Phase 1 (SerpAPI) → 2 (gates) → 3 (operator) → 4a (Sonnet primary)
+- Output shows: gates + Sonnet verdict + reasoning
+- Cost: ~$0.01-0.02 per run (one Sonnet call on ~3K-token payload)
+
+### Verify mode (primary + audit)
+
+```
+lamill new research "ev charger installation cost" --verify
+```
+- Runs everything above PLUS Phase 4b (GPT-4o audit) + Phase 4c
+- Output shows: gates + both verdicts + reconciliation outcome
+- Cost: ~$0.05-0.10 per run (Sonnet + GPT-4o)
+
+### Re-audit cached primary
+
+```
+lamill new research "ev charger installation cost" --verify --no-cache=audit
+```
+- Reads cached Phase 4a result, runs Phase 4b fresh, runs Phase 4c
+- Useful when you ran without --verify, then decided you want the audit
+
+### Other flags (inherited from v2)
+
+- `--synthesis-only` — disables real SERP fetch. Phase 4a still runs
+  but with explicit "[from LLM-only data]" tag in its reasoning.
+- `--non-interactive` / `--json` — Gate 3 moat prompt skipped; same
+  rules apply (verdict accounts for it as if FAIL).
+- `--model <id>` — overrides primary
+- `--audit-model <id>` — overrides audit; must differ from `--model`
+
+### Documentation recommendation
+
+A line in `lamill new research --help`:
+
+> Use `--verify` when you're about to commit real time/money to a
+> niche (week+ of work). Skip it for ideation rounds where 10 niches
+> get screened quickly.
+
+---
+
+## 6. Drafted adversarial_audit_v1.md prompt (inline for review)
+
+```markdown
+# adversarial_audit_v1.md
+
+You are an adversarial auditor of niche-evaluation verdicts. A primary
+model has analyzed a SERP cluster and produced a verdict (GO / NICHE-
+DOWN / NO-GO). Your job is to find errors and overlooked risks in that
+verdict by steel-manning the OPPOSITE conclusion.
+
+You are not a second opinion. You are a deliberate skeptic. Default
+to disagreement when uncertain — the operator can dismiss a wrong
+audit but cannot recover from a missed risk that ships.
+
+Specifically check for these six failure modes. Reference specific
+data points from the payload when raising any concern:
+
+1. **INCUMBENT UNDER-DETECTION.** Did the primary miss a programmatic
+   competitor? Scan the raw organic results for URL patterns
+   (`/year/`, `/v[N]/`, `/state/`, `/city/`, `/model/`) the primary
+   didn't classify as SPECIALTY_INCUMBENT. Are there domains ranking
+   for 3+ queries with templated URL structures that the primary
+   called POTENTIALLY_BEATABLE?
+
+2. **INTENT MISCLASSIFICATION.** Did the primary tag a SERP as
+   informational when it's actually commercial, or vice versa? Check
+   the SERP features: AI Overview + People Also Ask = informational;
+   Local Pack + multiple commercial-intent organic = transactional.
+
+3. **KD-TRAP REASONING.** Did the primary conflate keyword difficulty
+   (page-level metric) with SERP difficulty (incumbent-level metric)?
+   A low-KD keyword can have a top-3 entirely owned by entrenched
+   programmatic templates and still be unwinnable for a new site.
+
+4. **OPERATOR-FIT UNDER-WEIGHTING.** Did the primary surface operator-
+   profile conflicts as warnings but fail to weight them properly in
+   the final verdict? Example: "operator lacks expertise" surfaced as
+   a warning while the verdict remains GO — that's almost always a
+   miss.
+
+5. **TAM OVER-COUNTING.** Was pollution adjusted for? Are there
+   cluster queries returning unrelated-industry results that inflate
+   the topline volume? Recompute the pollution rate from the raw
+   organic data when it looks off.
+
+6. **MOAT UNFALSIFIABILITY.** If the primary says a moat exists, can
+   it be tested in 30 days? "Better content" is unfalsifiable.
+   "Faster data freshness than incumbent's static templates" is
+   testable. Reject claimed moats that can't be put to a measurable
+   test.
+
+Return your audit in this exact markdown shape:
+
+### agreement_level
+[full | partial | disagree]
+
+### confidence
+[HIGH | MEDIUM | LOW]   — confidence in YOUR audit, not the primary's verdict
+
+### specific_concerns
+- [concern: which failure mode + which data point supports the concern]
+- [concern: …]
+- [concern: …]
+
+### counter_verdict
+[only present if agreement_level = disagree]
+[GO | NICHE-DOWN | NO-GO]: [1-2 sentences why]
+
+### audit_self_check
+[1-2 sentences on what YOU might be wrong about]
+```
+
+That's ~310 words. Worth iterating on once we see a few real audits;
+the version suffix (`_v1.md`) lets us evolve without breaking
+reproducibility on old snapshots.
+
+**niche_evaluation_v1.md draft** — outlined here, full draft in a
+follow-up commit (P4.A.1). The skeleton:
+
+> You are evaluating a SERP cluster for a personal portfolio operator
+> deciding whether to ship a new site. Read the gate outputs (mechanical
+> classification) AND the raw SERP results, and produce a qualitative
+> verdict. The mechanical gates are usually right but miss edge cases —
+> use the raw SERP to spot what the rules missed. The operator profile
+> tells you who's reading: weight expertise + workflow + cadence
+> constraints when deciding GO vs NICHE-DOWN vs NO-GO. Return verdict +
+> reasoning + a self-reported list of what you might be wrong about
+> (`blind_spot_self_report`) so the audit pass has something to attack.
+
+Full draft in P4.A.1 alongside the audit prompt's review iteration.
+
+---
+
+## 7. Data model additions
+
+Extends `data/serp/<YYYY-MM-DD>/clusters/<cluster-hash>.json` (schema
+`research-cluster-v2` from v2 PRD) with new top-level fields:
+
+```json
+{
+  "schema": "research-cluster-v2.1",
+  ...existing v2 fields...
+
+  "interpretive_pass": {
+    "model": "claude-sonnet-4-7",
+    "prompt_version": "niche_evaluation_v1",
+    "rendered_prompt_hash": "<sha256-prefix>",
+    "raw_response": "<full markdown response, verbatim>",
+    "parsed": {
+      "verdict": "NICHE-DOWN",
+      "confidence": "MEDIUM",
+      "reasoning": "...",
+      "moat_required": true,
+      "moat_prompt": "...",
+      "reductions": ["...", "..."],
+      "operator_fit_warnings": ["..."],
+      "blind_spot_self_report": "..."
+    }
+  },
+
+  "audit_pass": {
+    "ran": true,                         // false if --verify was off
+    "model": "gpt-4o",
+    "prompt_version": "adversarial_audit_v1",
+    "rendered_prompt_hash": "<sha256-prefix>",
+    "raw_response": "<full markdown response, verbatim>",
+    "parsed": {
+      "agreement_level": "partial",
+      "confidence": "MEDIUM",
+      "specific_concerns": ["...", "..."],
+      "counter_verdict": null,
+      "audit_self_check": "..."
+    }
+  },
+
+  "reconciliation": {
+    "ran": true,
+    "final_verdict": "NICHE-DOWN",
+    "final_confidence": "LOW",           // downgraded from MEDIUM due to audit concerns
+    "disagreement_surfaced": false,
+    "review_required": false
+  }
+}
+```
+
+Schema bump v2 → v2.1 is additive (existing v2 readers ignore new
+fields gracefully). Caches written by v2-only research still load
+without re-fetch; they just don't have the interpretive_pass /
+audit_pass fields.
+
+---
+
+## 8. Implementation risks (surfaced now to design around)
+
+### 8.1 — Cross-provider API setup
+
+Codebase is OpenAI-only today. Anthropic API is new:
+- New env var `ANTHROPIC_API_KEY` in portfolio.env template
+- Add to `apikeys.KNOWN_KEYS` + new `_probe_anthropic()` connectivity check
+- Endpoint: `https://api.anthropic.com/v1/messages` (different shape
+  from OpenAI's `/v1/responses`)
+- Auth: `x-api-key` header + `anthropic-version` header (not Bearer
+  token)
+- Model availability: at build time, decide which Sonnet alias to
+  default to (`claude-sonnet-4-7` per system prompt's current model
+  knowledge, or whatever's current)
+
+**The existing `run_claude()` subprocess wrapper (v6.C.1)** uses the
+local Claude Code CLI, not the API. Not suitable for structured-output
+verdict calls — wrong I/O shape, wrong cost model, wrong
+reproducibility characteristics. Phase 4a needs a fresh
+`anthropic_call()` HTTP wrapper.
+
+### 8.2 — Rate-limit handling differs by provider
+
+- OpenAI: `429` with `Retry-After` header
+- Anthropic: `429` with `retry-after` (lowercase) + their own
+  rate-limit-tokens header
+- Gemini: yet another shape
+
+Each needs its own retry-with-backoff. Recommend a small abstraction:
+
+```python
+class LLMClient(Protocol):
+    def call(self, system: str, user: str) -> str: ...
+```
+
+with `AnthropicClient`, `OpenAIClient`, `GeminiClient`
+implementations. Each handles its provider's rate-limit dialect.
+
+### 8.3 — Cost surprise
+
+Operator runs `--verify` then forgets it's on. Defensive:
+- The `--verify` is **NOT** sticky — every invocation specifies it
+  explicitly. No `--remember` shortcut.
+- The output banner with `--verify` says "verify mode (Sonnet + GPT-4o,
+  ~$0.05/run)" — visible cost per call.
+- Optional but recommended: track cumulative spend in a small ledger
+  at `data/serp/_cost_ledger.json` so operator can `lamill settings
+  cost report` and see month-to-date.
+
+The ledger is **out of scope for v2 of this PRD** — flagging here as
+a future hardening pass.
+
+### 8.4 — Response parsing across model styles
+
+Different model families have different markdown habits:
+- Claude tends to use proper `### header` consistently
+- GPT-4o sometimes uses `**header:**` instead, or wraps in markdown
+  fences, or adds a leading "Here's the analysis:" preamble
+- Gemini's style is even less predictable
+
+Parser must be permissive about format variation:
+- Accept `### foo`, `**foo:**`, `# foo`, `## foo` as section headers
+- Strip leading model preamble before parsing
+- If a required section is missing, raise `AuditParseError` with the
+  raw response stored — surface to the operator as "audit returned
+  unparseable output; cached for inspection at <path>"
+
+Test fixtures should include real-world malformed responses from
+each model, captured during dev.
+
+### 8.5 — Audit failure modes
+
+- Audit API down → fail the audit pass, present primary-only with a
+  clear "audit pass failed: <reason>" warning. **Don't fail the
+  whole run.** The primary verdict is still valuable.
+- Audit response is unparseable → same: surface as warning, fall back
+  to primary-only.
+- Audit hits a content-filter refusal → very rare for niche evaluation
+  but possible (e.g., topic is a regulated industry). Surface
+  explicitly: "audit refused; reason: <model output>." Fall back to
+  primary.
+
+In all three cases, the snapshot records `audit_pass.ran = true` but
+sets `audit_pass.error = "..."` and `reconciliation.ran = false`.
+
+### 8.6 — Markdown vs JSON mode tradeoff
+
+Spec recommends markdown over JSON mode. Risks:
+- Slightly harder to extract typed values (vs schema-validated JSON)
+- More format flexibility = more parser code
+
+Benefits per spec:
+- Schema evolution is friendlier (add a section without breaking
+  old parsers)
+- Robust to model truncation (JSON truncation breaks everything;
+  markdown truncation loses tail content but earlier sections still
+  parse)
+
+Standing call: **markdown for both passes.** Worth a re-eval if parser
+maintenance becomes a burden — at which point introducing
+`responses.parse` JSON mode is a small refactor.
+
+### 8.7 — Prompt template substitution
+
+Spec mentions Jinja2 or simple `{{var}}` substitution. Codebase has
+neither. Options:
+
+| Approach | Pros | Cons |
+|---|---|---|
+| Jinja2 | Powerful, conditionals possible | New dep |
+| `str.format()` | Stdlib | Single `{` becomes a syntax error in code blocks; awkward for prompts with curly braces |
+| Custom `{{var}}` regex | Stdlib, no curly-brace gotcha | New code to maintain |
+
+Recommend **custom `{{var}}` substitution** — it's ~20 lines of
+regex-based substitution, doesn't conflict with curly braces in
+example code blocks within the prompt, and the validator (P4a.6) that
+checks for unfilled `{{...}}` post-substitution doubles as a sanity
+check.
+
+---
+
+## 9. Output rendering (target state)
+
+### Default mode (no `--verify`)
+
+```
+SERP research — "ev charger installation cost"
+  source: SerpAPI · 5 queries · primary: claude-sonnet-4-7
+
+  [gate output from v2]
+
+  Verdict: NICHE-DOWN (Sonnet, MEDIUM confidence)
+
+  Reasoning:
+    [2-4 paragraphs from primary]
+
+  Suggested reductions:
+    1. [from primary]
+    2. [from primary]
+    3. [from primary]
+
+  Source: SerpAPI · prompt niche_evaluation_v1 · cached at <path>
+  Run with --verify to add adversarial audit (~$0.05).
+```
+
+### Verify mode — audit fully agrees
+
+```
+  [gate output]
+
+  Verdict: NICHE-DOWN
+  ✓ Primary  (claude-sonnet-4-7, MEDIUM confidence)
+  ✓ Audit    (gpt-4o, agrees, HIGH confidence)
+  Final confidence: MEDIUM (lower of two)
+
+  Reasoning:
+    [from primary]
+
+  Suggested reductions:
+    [from primary]
+```
+
+### Verify mode — audit partially disagrees
+
+```
+  [gate output]
+
+  Verdict: NICHE-DOWN
+  ✓ Primary  (claude-sonnet-4-7, MEDIUM)
+  ⚠ Audit raises 2 concerns (gpt-4o, MEDIUM):
+     - "Primary missed Reddit presence in 2 cluster queries"
+     - "Pollution from muscle-car SERPs may be larger than counted"
+  Final confidence: LOW (downgraded from MEDIUM)
+
+  Reasoning:
+    [from primary]
+
+  Caveats from audit:
+    [each specific_concern]
+```
+
+### Verify mode — models disagree (high signal)
+
+```
+  [gate output]
+
+  ⚠⚠ REVIEW REQUIRED — models disagree
+
+  Primary (claude-sonnet-4-7, HIGH): NICHE-DOWN
+    [reasoning]
+
+  Audit (gpt-4o, HIGH): NO-GO
+    [counter_verdict reasoning]
+
+  This is a high-signal disagreement. Read both arguments and decide
+  manually. Snapshot at <path>.
+```
+
+---
+
+## 10. Open questions to resolve before implementation
+
+### 10.A — Where do `prompts/` live?
+
+Three options:
+1. **`src/portfolio/prompts/`** — sits next to the Python package.
+   Easy to ship via `pyproject.toml` package-data.
+2. **`prompts/` at the repo root** — cleaner for editing,
+   conceptually separate from "code."
+3. **`data/prompts/`** — fits the existing `data/` pattern for
+   non-code data.
+
+**My recommendation: option 2 (`prompts/` at repo root).** Prompts
+are data the user edits — having them top-level signals their
+first-class status. Same pattern as `tests/` and `docs/`.
+
+### 10.B — Audit model default
+
+GPT-4o or Gemini Pro or operator's choice?
+
+Per spec, GPT-4o is recommended default, Gemini fallback. Adding
+Gemini support is its own integration (third provider HTTP wrapper,
+third env var).
+
+**My recommendation: GPT-4o default, no Gemini integration in v1.**
+The "different model" constraint is met with two providers. Defer
+Gemini to v2 of this PRD if GPT-4o proves to have a problematic blind
+spot.
+
+### 10.C — Does the audit see the primary's `blind_spot_self_report`?
+
+The spec calls this out as a trade-off:
+- **Blind to it** = more adversarial (audit has no shortcuts)
+- **Sees it** = more efficient (audit doesn't waste time on issues
+  the primary already flagged)
+
+**My recommendation: blind to it.** The audit's value is uncovering
+what the primary missed. Seeing the primary's self-report risks the
+audit anchoring on the same concerns instead of finding new ones.
+
+Snapshot still stores `blind_spot_self_report` from the primary — the
+operator can read it separately. It just doesn't go into the audit's
+context window.
+
+### 10.D — `--verify` default-on in operator.yaml?
+
+Should the operator be able to set `verify_by_default: true` in their
+profile, so all research runs trigger audit unless `--no-verify` is
+passed?
+
+Pro: convenient for operators who always want the audit.
+Con: cost-surprise risk — `lamill new research <topic>` doesn't look
+like it costs $0.05.
+
+**My recommendation: yes, but ONLY via operator.yaml** (not a sticky
+state file). Operator-profile is configuration the user explicitly
+edited; they're aware of cost.
+
+Add `verify_by_default: false` (default) to `OperatorProfile` schema.
+CLI `--verify` flag overrides to `true`; new `--no-verify` flag
+overrides to `false`.
+
+### 10.E — Audit failure handling
+
+When the audit API call fails (network, rate limit, refusal,
+unparseable response), three options:
+
+1. **Fail the whole run.** Cleanest, no partial output.
+2. **Proceed with primary-only.** Surface "audit pass failed:
+   <reason>." Operator gets the primary verdict.
+3. **Block the verdict but surface the primary's reasoning.** "We
+   asked for verify, got primary-only data, but we won't render a
+   final verdict; you have to retry the audit or run without
+   --verify."
+
+**My recommendation: option 2.** The primary is still valid signal.
+Surface the audit failure as a prominent caveat, but don't waste the
+primary's verdict.
+
+### 10.F — Snapshot retention for audit pass
+
+Same as primary (kept forever, git-tracked per v2 PRD §8.E)?
+
+**My recommendation: yes.** No reason to treat audit differently.
+Audit responses are part of the verdict's provenance.
+
+### 10.G — Template-substitution engine
+
+Per implementation risks §8.7 — Jinja2, `str.format()`, or custom
+`{{var}}` regex?
+
+**My recommendation: custom `{{var}}` regex** (no new dep, no curly-
+brace gotcha in code-block examples).
+
+### 10.H — `--model` and `--audit-model` flag override behavior
+
+If operator passes `--model claude-sonnet-4-7 --audit-model
+claude-sonnet-4-7`, behavior:
+
+1. **Reject loudly** — error pointing at the correlated-blind-spot
+   rationale.
+2. **Reject and suggest** — error message includes a suggested
+   different model.
+3. **Allow with warning** — let the user override the
+   different-model invariant; print a banner that the audit may have
+   correlated blind spots.
+
+**My recommendation: option 1 with a helpful suggestion in the
+message.** The whole point of the audit is to use a different model.
+Allowing same-model is a footgun.
+
+### 10.I — Prompt versioning policy
+
+When iterating on `niche_evaluation_v1.md`, when does it become
+`_v2.md`?
+
+**My recommendation:** bump to `_v2.md` for any change that would
+*meaningfully alter the verdict on cached data*. Typo fixes, wording
+clarifications, formatting tweaks don't bump. New failure-mode checks
+or instruction-following changes DO bump.
+
+Operationally: when a snapshot's `prompt_version` doesn't match the
+current `_vN.md`, the snapshot's verdict is treated as "from old
+prompt" and the operator can re-render via `--no-cache=interpretive`
+to get a fresh verdict with the current prompt.
+
+### 10.J — Snapshot field for cumulative cost tracking
+
+Should each snapshot record the LLM call's estimated cost? Helpful
+for the future cost-ledger feature (§8.3) but premature if we're not
+building the ledger yet.
+
+**My recommendation: yes, record it now.** Each snapshot adds:
+
+```json
+"interpretive_pass.estimated_cost_usd": 0.012,
+"audit_pass.estimated_cost_usd": 0.043
+```
+
+Pulled from the provider's response headers when available; estimated
+from input/output token counts otherwise. Cheap to add; lets a
+future ledger feature aggregate without re-fetching.
+
+---
+
+## 11. Implementation plan (commits + smoke tests)
+
+This builds on top of research-module-v2 (Phases 1-3 shipped). All
+commits assume the v2 mechanical pipeline is in place.
+
+### Preamble
+
+**Commit Pre-1** — Create `prompts/` directory at repo root with a
+README pointing at the schema convention (`<purpose>_v<N>.md`).
+
+*Smoke:* `ls prompts/README.md` exists.
+
+### Phase 4 setup
+
+**Commit P4.A.1** — Draft `prompts/niche_evaluation_v1.md` (full
+text). Document the schema header conventions and the substitution
+syntax.
+
+*Smoke:* Manual review of prompt text.
+
+**Commit P4.A.2** — Draft `prompts/adversarial_audit_v1.md` (the
+inline text from §6 above, finalized after operator review).
+
+*Smoke:* Manual review.
+
+**Commit P4.A.3** — `src/portfolio/prompt_loader.py`:
+`load_prompt(name)`, `render_prompt(template, **vars)` with
+`{{var}}` substitution + validator that raises on unfilled
+placeholders. Unit tests.
+
+*Smoke:* `pytest tests/test_prompt_loader.py -q`.
+
+### Phase 4a — primary pass
+
+**Commit P4.B.1** — `src/portfolio/llm_clients.py`: `LLMClient`
+Protocol + `OpenAIClient` (extracts existing OpenAI HTTP from
+`serp.py`) + `AnthropicClient` (new). Both honor per-provider
+rate-limit dialects.
+
+*Smoke:* `pytest tests/test_llm_clients.py -q` with mocked HTTP for
+each provider's quirks.
+
+**Commit P4.B.2** — Add `ANTHROPIC_API_KEY` to `apikeys.KNOWN_KEYS` +
+portfolio.env template + `_probe_anthropic()` in `apikeys.py`.
+
+*Smoke:* `lamill settings apikeys list` shows ANTHROPIC_API_KEY.
+
+**Commit P4.B.3** — `src/portfolio/interpretive_pass.py`:
+`run_primary_pass(cluster, gates, operator_profile) -> ParsedVerdict`.
+Renders the prompt, calls Anthropic via the client, parses markdown
+response.
+
+*Smoke:* `pytest tests/test_interpretive_pass.py -q` with mocked
+Anthropic responses.
+
+**Commit P4.B.4** — Wire `interpretive_pass` into the research
+orchestrator. Default mode now ends at Phase 4a. Snapshot schema
+bumped to v2.1.
+
+*Smoke:* `lamill new research "ev charger installation cost"` runs
+end-to-end with primary verdict shown.
+
+### Phase 4b — audit pass
+
+**Commit P4.C.1** — `src/portfolio/audit_pass.py`:
+`run_audit_pass(cluster, gates, operator_profile, primary_response)`.
+Renders adversarial_audit_v1.md, calls OpenAI (different model from
+primary), parses markdown response.
+
+*Smoke:* `pytest tests/test_audit_pass.py -q`.
+
+**Commit P4.C.2** — `same-model` rejection. If `--model` and
+`--audit-model` resolve to the same model, error early.
+
+*Smoke:* `lamill new research "x" --verify --model X --audit-model X`
+errors with helpful message.
+
+**Commit P4.C.3** — `--verify` flag wired. Output rendering for
+agree / partial / disagree paths.
+
+*Smoke:* Run on a cluster where primary and audit agree (verify
+output shows "✓ Audit agrees"); run on a cluster known to provoke
+partial disagreement (verify output shows audit concerns).
+
+### Phase 4c — reconciliation
+
+**Commit P4.D.1** — `src/portfolio/reconciliation.py`: pure-logic
+reconciliation per §4 Phase 4c spec. No LLM calls. Unit tests for
+each of the three branches (full/partial/disagree).
+
+*Smoke:* `pytest tests/test_reconciliation.py -q`.
+
+**Commit P4.D.2** — Wire reconciliation into orchestrator. Output
+includes `final_verdict` field; REVIEW_REQUIRED renders correctly.
+
+*Smoke:* `lamill new research "<known-disagreement-topic>" --verify`
+emits REVIEW_REQUIRED banner.
+
+### Phase 4 polish
+
+**Commit P4.E.1** — Cost-estimate fields added to snapshot
+(P4.A.10.J). Pulled from provider headers when present.
+
+*Smoke:* Snapshot inspection shows non-zero `estimated_cost_usd`.
+
+**Commit P4.E.2** — `operator.yaml.verify_by_default` honored.
+`--no-verify` flag added for override.
+
+*Smoke:* With `verify_by_default: true` in operator.yaml,
+`lamill new research <x>` runs verify; `--no-verify` skips it.
+
+**Commit P4.E.3** — `--no-cache=interpretive` and
+`--no-cache=audit` granular flags for re-running individual passes
+on cached SERP data.
+
+*Smoke:* Run, modify cached snapshot's interpretive section, re-run
+with `--no-cache=interpretive` — interpretive re-runs, SERP doesn't.
+
+**Commit P4.F.1** — Documentation: update `docs/CLAUDE.md`,
+`AI_AGENTS.md`, `docs/Prompts.md`, `docs/prd.md` to reflect Phase 4
+shipped. Add "when to use --verify" guidance to `lamill new research
+--help`.
+
+*Smoke:* `lamill project check sites/portfolio` passes docs checks.
+
+---
+
+## 12. Effort estimate
+
+Honest reading. Assumes v2 (research-module-v2.md) is shipped first.
+
+| Phase | Commits | Hours | Key risk |
+|---|---|---|---|
+| Preamble | Pre-1, P4.A.1-3 | 2-3h | Prompt drafting iteration (the audit prompt especially needs review with real audit runs) |
+| LLM clients + Anthropic | P4.B.1-2 | 4-5h | Anthropic API integration is new; rate-limit handling differs |
+| Primary pass | P4.B.3-4 | 4-5h | Markdown parser robustness across model styles |
+| Audit pass | P4.C.1-3 | 4-5h | Same-model rejection logic, output rendering for all three reconciliation branches |
+| Reconciliation | P4.D.1-2 | 2-3h | Pure logic, but the rendering for REVIEW_REQUIRED needs to be right (it's the high-signal path) |
+| Polish | P4.E.1-3 | 3-4h | Cost ledger field, verify_by_default plumbing, granular cache flags |
+| Docs | P4.F.1 | 1h | |
+| **Total** | **14 commits** | **20-26h** | |
+
+That's on top of the **25-34h** for v2. Combined: **45-60h** for the
+full v2+Phase4 stack.
+
+Worth flagging: this estimate doesn't include the **iteration loop on
+the prompts themselves**. After the first few real audit runs ship,
+both prompts will likely need a v2 version informed by what worked /
+didn't. That's separate from this PRD.
+
+---
+
+## 13. Future considerations (deferred, named only)
+
+- Three-way audit (consensus from three different model families)
+- A/B harness for comparing prompt versions empirically
+- Audit-failure heuristics that auto-retry with a different audit model
+- Per-snapshot cost-ledger view (`lamill settings cost report`)
+- Operator-tunable confidence-downgrade rules (currently fixed:
+  partial → -1 notch; spec might want this configurable later)
+- Cache-aware `--verify` that runs only the audit if the primary is
+  cached + still fresh
+- Multilingual audit prompts (translated to operator's locale)
+
+---
+
+## 14. Approval
+
+This PRD is **draft, awaiting review**. Before any code lands:
+
+1. Resolve the 10 open questions in §10.
+2. Review and approve the drafted `adversarial_audit_v1.md` prompt
+   (§6 inline).
+3. Confirm the effort estimate (20-26h on top of v2's 25-34h).
+4. Confirm the prompt-versioning policy (§10.I).
+
+Sign off:
+
+- [ ] Open questions §10.A–J resolved
+- [ ] Drafted audit prompt reviewed
+- [ ] Effort estimate accepted
+- [ ] Author signoff
+
+---
+
+---
+
+### 8.3 — v11.A · lamill.toml per-site deploy declaration
+
+
+## 1. Problem statement
+
+**Current state.** Determining "what platform does this site deploy
+to?" requires triangulating three separate signals:
+
+1. **Repo config files** — `wrangler.jsonc` / `vercel.json` /
+   `netlify.toml`. Present for modern platforms, absent for
+   HostGator / WordPress / custom-VPS sites.
+2. **DNS lookup** — A records or CNAME targets. Tells you what's
+   *actually* serving at the edge, not what was intended.
+3. **HTTP probe** — `Server:` header, cert issuer, response shape.
+   Same — tells you actual, not intended.
+
+When these disagree (lamill.io: wrangler.jsonc said CF Workers, DNS
+said Vercel, Vercel was actually serving), the operator has to read
+the disagreement and decide which is the canonical declaration.
+
+**What's broken.**
+1. **No declaration mechanism for HostGator, WordPress, custom
+   VPS, or static FTP-deployed sites.** There's nothing in the repo
+   that says "this is deployed at cPanel account X" or "this is
+   a WordPress install at example.com." Without that, `lamill
+   project diagnose` can only guess via DNS heuristics.
+2. **Drift between intent and actual is invisible until probed.**
+   The repo's config file declares one platform; the DNS may have
+   moved. Today the tool has to do live network calls every time
+   to compare.
+3. **Cross-site queries can't answer "show me all sites on Vercel."**
+   `fleet repos` doesn't know which platform each site targets.
+
+**What good looks like.**
+- Every `sites/<domain>/` repo has a `lamill.toml` at root with a
+  `[deploy]` section declaring platform, account/team, custom
+  domains, and (for hosts without canonical configs) hosting
+  breadcrumbs.
+- `lamill new bootstrap` writes it as part of scaffolding.
+- `lamill project set-deploy` lets the operator manually create or
+  edit it on existing sites.
+- `lamill fleet repos --add-deploy-declarations` does a one-time
+  bulk migration for existing sites — infers from existing platform
+  configs where possible, surfaces manual-entry-required cases.
+- Downstream tools (`project diagnose`, `fleet repos`, conformance
+  checks, future HostGator integration) read from this one file.
+
+---
+
+## 2. Goals and non-goals
+
+**Goals**
+
+- Schema for `lamill.toml` covering the common platforms + an
+  extension slot for HostGator / custom hosts.
+- `lamill new bootstrap` writes the file as part of scaffolding —
+  inferred from `--stack` with a sensible default.
+- `lamill project set-deploy <name> <platform>` to manually create or
+  update on existing sites.
+- `lamill project show-deploy <name>` to inspect.
+- `lamill fleet repos --add-deploy-declarations` migration for
+  existing sites — safe-by-default (refuses ambiguous cases).
+- A `LamillToml` parser/writer module reused by future tools.
+
+**Non-goals** (deferred, named only)
+
+- **Drift detection** (declared vs DNS-actual) — v11.B
+- **Conformance checks** (`CHECK_xxx deploy-declared`,
+  `CHECK_xxx deploy-drift`) — v11.B
+- **HostGator API integration** (cPanel pull, inventory sync) —
+  v11.C
+- **Deploy abstraction** (`new deploy` writes to HostGator via SFTP)
+  — v11.D
+- **Multi-platform site declarations** (apex on platform A, www on
+  platform B) — could go in v11.A schema but defer the use case
+  until a real site needs it
+- **Validation against live state** (does the declared cPanel user
+  actually exist?) — out of scope for read-only declaration
+
+---
+
+## 3. User journey
+
+### Scenario A — bootstrapping a new site
+
+```
+$ lamill new bootstrap newdomain.com --stack astro
+
+Scaffolding sites/newdomain.com/...
+  ✓ git init
+  ✓ package.json (astro template)
+  ✓ AI_AGENTS.md, docs/{prd.md, CLAUDE.md, Prompts.md, growth.md}
+  ✓ Makefile (forwards to central builder)
+  ✓ public/{robots.txt, sitemap.xml}
+  ✓ lamill.toml — platform=cf-pages (inferred from --stack astro)
+    └─ edit `sites/newdomain.com/lamill.toml` to override platform
+
+Conformance: 38 pass / 4 fail / 11 skipped
+  ✗ CHECK_010 has-tests
+  ✗ CHECK_022 clean-working-tree (initial commit needed)
+  ✗ CHECK_024 has-ci-workflow
+  ✗ CHECK_036 astro-version-ok (skipped — Astro project, version check skipped)
+
+Next: lamill new deploy newdomain.com
+```
+
+The `lamill.toml` was written automatically; operator can edit it
+before `new deploy`.
+
+### Scenario B — manually setting deploy on an existing site
+
+```
+$ lamill project set-deploy hybridautopart.com hostgator
+
+Looking up sites/hybridautopart.com/...
+  No `lamill.toml` found — will create.
+
+Platform: hostgator. Hostgator requires the [hosting] block.
+Enter HostGator account context (or press Enter to skip):
+  cPanel user (e.g. vikt): vikt
+  cPanel URL (e.g. https://server.hostgator.com:2083): https://gator4045.hostgator.com:2083
+  FTP user (e.g. vikt@example.com): vikt@hybridautopart.com
+  public_html path (e.g. /home/vikt/public_html/example.com/):
+    /home/vikt/public_html/hybridautopart.com/
+
+Wrote sites/hybridautopart.com/lamill.toml:
+
+  [deploy]
+  platform = "hostgator"
+  production_branch = "main"
+  auto_deploy = false
+  custom_domains = ["hybridautopart.com"]
+
+  [hosting]
+  cpanel_user = "vikt"
+  cpanel_url = "https://gator4045.hostgator.com:2083"
+  ftp_user = "vikt@hybridautopart.com"
+  public_html_path = "/home/vikt/public_html/hybridautopart.com/"
+
+Note: file written to working tree. Commit + push to make it
+persistent in the repo.
+```
+
+### Scenario C — reading the declaration
+
+```
+$ lamill project show-deploy hybridautopart.com
+
+hybridautopart.com — declared deployment
+  source: sites/hybridautopart.com/lamill.toml (committed)
+  platform:    hostgator
+  account:     —
+  branch:      main
+  auto-deploy: no
+  domains:     hybridautopart.com
+  hosting:
+    cpanel:    vikt @ https://gator4045.hostgator.com:2083
+    ftp:       vikt@hybridautopart.com
+    path:      /home/vikt/public_html/hybridautopart.com/
+
+  Last edited: 2026-05-14 via `project set-deploy` (per git log)
+  Drift check: deferred (v11.B)
+```
+
+### Scenario D — bulk migration of existing sites
+
+```
+$ lamill fleet repos --add-deploy-declarations --dry-run
+
+Scanning sites/* for existing platform configs...
+
+  ✓ airsucks.com         wrangler.jsonc      → would write platform = "cf-workers"
+  ✓ lamill.io            (none — but vercel.json + dns=vercel) → platform = "vercel"
+  ✓ calcengine.site      netlify.toml        → would write platform = "netlify"
+                                                ⚠ but DNS resolves to Vercel — manual review needed
+  ✓ hybridautopart.com   (none — likely HostGator / WordPress)  → manual entry required
+  ✓ donready.xyz         wrangler.jsonc      → would write platform = "cf-workers"
+  ⚠ swiftly.co.in        archived (TOMBSTONE.md) — skipping
+  ...
+
+Summary: 14 unambiguous · 3 manual-review · 2 manual-entry · 3 skipped (archived)
+
+Re-run without --dry-run to write the 14 unambiguous lamill.toml files.
+Manual-review and manual-entry cases need `project set-deploy <name>`.
+```
+
+The migration is **safe by default** — only writes when the platform
+config is single + unambiguous. Anything else is surfaced for the
+operator to handle.
+
+---
+
+## 4. Functional requirements
+
+### 4.1 — Schema
+
+The full proposed schema:
+
+```toml
+# lamill.toml — declared deployment for sites/<domain>/.
+# Source of truth for "where does this site deploy?" Compared against
+# DNS + live HTTP to detect drift (v11.B).
+
+# Schema version. Bumped when the parser becomes incompatible with
+# older files. Old files invalidated, not migrated.
+schema = "lamill-toml-v1"
+
+[deploy]
+# REQUIRED — one of:
+#   cf-pages | vercel | netlify | cf-workers | hostgator
+#   github-pages | custom | none
+platform = "hostgator"
+
+# OPTIONAL — which account/team at the platform.
+# Used by future tools to disambiguate when an operator has multiple
+# accounts (e.g. personal Vercel + work Vercel).
+account = "vik@hostgator"
+
+# OPTIONAL — production branch. Default: "main".
+production_branch = "main"
+
+# OPTIONAL — does push-to-main trigger a build?
+# Default: true for platforms with native git integration (CF Pages,
+# Vercel, Netlify, GitHub Pages); false for hostgator / custom.
+auto_deploy = false
+
+# OPTIONAL — custom domains the deploy serves.
+# Free-form list; the operator declares what this deploy is responsible
+# for. Doesn't have to be exhaustive (Vercel internal preview domains
+# are noise).
+custom_domains = ["hybridautopart.com"]
+
+
+[hosting]
+# OPTIONAL — only used when platform doesn't have a canonical config
+# file (hostgator, custom, github-pages). Provides the breadcrumbs
+# needed to reach the actual deploy surface.
+
+# cPanel breadcrumbs (when platform = "hostgator" or "custom" with cPanel):
+cpanel_user = "vikt"
+cpanel_url = "https://gator4045.hostgator.com:2083"
+
+# FTP/SFTP breadcrumbs:
+ftp_host = "ftp.hybridautopart.com"
+ftp_user = "vikt@hybridautopart.com"
+ftp_port = 21
+
+# Where the public files live on the host:
+public_html_path = "/home/vikt/public_html/hybridautopart.com/"
+
+
+[notes]
+# OPTIONAL — free-form prose for special cases (transition states,
+# deploy quirks, manual-only deploy steps, etc.).
+text = """
+Currently in WordPress; planning React migration in v2.
+Backups via cPanel UI; no automated backup yet.
+"""
+```
+
+**Defaults applied if section absent:**
+- `[deploy]` is required; the file is invalid without it.
+- `[hosting]` is optional. Required if `platform ∈ {hostgator, custom}`.
+- `[notes]` is optional.
+
+### 4.2 — Platform enum
+
+| Value | Canonical config in repo | Notes |
+|---|---|---|
+| `cf-pages` | wrangler.toml or wrangler.jsonc | Cloudflare Pages (Pages mode) |
+| `cf-workers` | wrangler.jsonc | Cloudflare Workers (server mode) |
+| `vercel` | vercel.json (optional) | Vercel auto-deploy from Git |
+| `netlify` | netlify.toml | Netlify auto-deploy |
+| `github-pages` | (none — GH-side config) | Static via repo settings |
+| `hostgator` | (none) | Shared hosting; requires `[hosting]` |
+| `custom` | (none) | VPS / dedicated / unusual setup; requires `[hosting]` |
+| `none` | (none) | Site is not deployed (CLI, library, scratch project) |
+
+### 4.3 — Parser module (`src/portfolio/lamill_toml.py`)
+
+```python
+@dataclass
+class DeployBlock:
+    platform: str
+    account: str | None = None
+    production_branch: str = "main"
+    auto_deploy: bool | None = None         # default depends on platform
+    custom_domains: list[str] = field(default_factory=list)
+
+@dataclass
+class HostingBlock:
+    cpanel_user: str | None = None
+    cpanel_url: str | None = None
+    ftp_host: str | None = None
+    ftp_user: str | None = None
+    ftp_port: int | None = None
+    public_html_path: str | None = None
+
+@dataclass
+class LamillToml:
+    schema: str = "lamill-toml-v1"
+    deploy: DeployBlock
+    hosting: HostingBlock | None = None
+    notes: str | None = None
+
+def load(repo_path: Path) -> LamillToml | None:
+    """Returns LamillToml if sites/<repo_path>/lamill.toml exists,
+    else None. Raises ParseError on malformed file."""
+
+def write(repo_path: Path, payload: LamillToml) -> None:
+    """Atomic write of lamill.toml. Preserves the file's existing
+    comments/formatting if it already existed (uses tomlkit if
+    needed; otherwise plain tomllib + a clean re-render)."""
+
+def infer_from_existing_configs(repo_path: Path) -> DeployBlock | None:
+    """Used by the migration command. Reads wrangler.jsonc /
+    vercel.json / netlify.toml in repo and returns a best-guess
+    DeployBlock. None if no recognizable config found."""
+```
+
+**Format choice:** TOML, parsed via stdlib `tomllib` (Python 3.11+).
+Round-trip writing uses `tomli-w` (small new dep, ~15KB, no
+transitive deps) to preserve quoting. **No comments preserved on
+round-trip** — accepted limitation; the operator's edits via
+`$EDITOR` are direct file writes that don't go through this path.
+
+### 4.4 — CLI surface
+
+**New commands:**
+
+```
+lamill project set-deploy <name> <platform>
+  Manually create or update sites/<name>/lamill.toml.
+  Interactive prompts for required fields based on platform.
+  --non-interactive: refuse interactive prompts; fail if any
+                     required field is missing.
+  --account <X>      pre-fill account value
+  --branch <X>       pre-fill production_branch (default: main)
+
+lamill project show-deploy <name>
+  Render sites/<name>/lamill.toml in a human table.
+  --json: emit raw lamill.toml contents as JSON.
+
+lamill fleet repos --add-deploy-declarations
+  Migration: walk every sites/<domain>/ that doesn't have a
+  lamill.toml, infer platform from existing configs, write the
+  file. Safe-by-default — only writes for unambiguous cases.
+  --dry-run: show what would be written, don't write.
+  --include-ambiguous: also write for ambiguous cases (DNS
+                       conflicts with config — uses config's
+                       declaration; surfaces a warning).
+```
+
+**Modified commands:**
+
+```
+lamill new bootstrap <domain>
+  Now writes sites/<domain>/lamill.toml as part of scaffolding.
+  Platform inferred from --stack:
+    --stack astro  → platform = "cf-pages"   (current default deploy target)
+    --stack vite   → platform = "cf-pages"
+  --platform <X>: override the inferred default.
+```
+
+### 4.5 — Bootstrap defaults
+
+| `--stack` | Default `platform` in lamill.toml |
+|---|---|
+| `astro` | `cf-pages` |
+| `vite` | `cf-pages` |
+| (no stack — fresh genai-export) | `cf-pages` |
+
+The default reflects the current v3.C deploy convention. Operator can
+override via `--platform <X>` at bootstrap time, or via `project
+set-deploy` later.
+
+**Why `cf-pages` not `vercel`?** v3.C's deploy abstraction shipped
+with CF Pages as the canonical target. Most existing portfolio sites
+use it. Sites that use Vercel (lamill.io, lamillrentals.com,
+keralavotemap.site) are explicit migrations; the default stays at the
+shipped convention.
+
+### 4.6 — Migration command behavior
+
+`lamill fleet repos --add-deploy-declarations` walks every
+`sites/<dir>/` and classifies into:
+
+| Classification | Behavior |
+|---|---|
+| Has `lamill.toml` already | Skip; report "already declared" |
+| `wrangler.jsonc` present, no other platform config | Write `platform = "cf-workers"` (or `cf-pages` based on the wrangler.jsonc's `pages_build_output_dir` field) |
+| `vercel.json` present, no other platform config | Write `platform = "vercel"` |
+| `netlify.toml` present, no other platform config | Write `platform = "netlify"` |
+| Multiple platform configs (drift case) | **Refuse without `--include-ambiguous`**; surface for manual review |
+| No platform configs, archived (`TOMBSTONE.md` or category in `IGNORE_CATEGORIES`) | Skip; report "archived" |
+| No platform configs, not archived | Surface for manual entry via `project set-deploy` |
+
+In `--include-ambiguous` mode, the migration uses the
+filesystem-config-detection rules (vercel.json > wrangler.jsonc >
+netlify.toml priority) and writes with a `notes.text` warning about
+the conflict.
+
+---
+
+## 5. Data model
+
+### lamill.toml at `sites/<domain>/lamill.toml`
+
+Schema documented in §4.1.
+
+### Updates to existing data
+
+- **`data/portfolio.json`**: NO changes. The per-site declaration is
+  the source of truth. `portfolio.json` stays as the cross-site
+  inventory view.
+- **`fleet repos` output**: gains a new column showing the declared
+  platform (from `lamill.toml`). When no lamill.toml exists, column
+  shows `—`.
+- **`fleet repos --json` shape**: each site entry gains:
+  ```json
+  "deploy_declaration": {
+    "exists": true,
+    "platform": "vercel",
+    "account": null
+  }
+  ```
+
+### Conformance checks (deferred to v11.B)
+
+The natural follow-on checks are:
+
+- `CHECK_043 has-lamill-toml`: file exists at repo root. Severity:
+  info. Skipped on archived sites.
+- `CHECK_044 lamill-toml-valid`: file parses cleanly + has required
+  fields. Severity: error.
+- `CHECK_045 lamill-toml-platform-matches-config`: declared platform
+  agrees with any platform-config file present (e.g. if
+  `wrangler.jsonc` exists, declared platform should be `cf-pages` or
+  `cf-workers`). Severity: warn (drift signal).
+
+**Out of v11.A scope** — design listed here so the schema choice
+doesn't paint v11.B into a corner.
+
+---
+
+## 6. Open questions
+
+### 6.A — TOML writer library
+
+Three options:
+
+1. **`tomllib` (stdlib, read-only) + manual write via f-strings.**
+   No dep, but writing is fragile (manual quoting, no preserved
+   comments).
+2. **`tomli-w` (~15KB, no transitive deps).** Stdlib-equivalent for
+   writing. No comment preservation on roundtrip.
+3. **`tomlkit` (~80KB).** Full round-trip with comments + formatting
+   preserved. Bigger dep but matches "human-editable file" goal.
+
+**My recommendation: tomli-w.** Operator edits go through `$EDITOR`
+on the raw file — comments are preserved by hand. Tool-side writes
+(`set-deploy`, migration) only happen on fresh files or full
+re-renders, so comment preservation isn't load-bearing.
+
+Tomlkit is heavier than the value it provides at personal scale.
+
+### 6.B — Inference priority when multiple platform configs exist
+
+Site has `wrangler.jsonc` AND `vercel.json` (lamill.io case). Which
+wins in the migration?
+
+Three options:
+
+1. **Refuse — surface for manual review.** Safe but creates work.
+2. **Prefer the one that matches DNS.** Smart but requires a DNS
+   call per site during migration.
+3. **Priority order: vercel.json > wrangler.jsonc > netlify.toml.**
+   Arbitrary but deterministic.
+
+**My recommendation: option 1.** The migration is a one-time
+operation. The operator can handle ~5 ambiguous cases manually with
+better info than an automated guess.
+
+`--include-ambiguous` lets the operator skip the manual step at the
+cost of a possibly-wrong default.
+
+### 6.C — Bootstrap default platform
+
+Spec says `cf-pages` per current v3.C convention. But the recent
+move to Vercel for lamill.io / lamillrentals.com suggests Vercel may
+be the personal default going forward.
+
+**My recommendation: keep cf-pages as the default for now.**
+Current convention; existing bootstrap output is stable. If the next
+3-4 sites you bootstrap all end up on Vercel, that's the signal to
+switch the default. Don't pre-optimize.
+
+**Your call:** stay with cf-pages, switch to Vercel, or no default
+(require `--platform` at bootstrap time)?
+
+### 6.D — Should `set-deploy` commit + push automatically?
+
+Two options:
+
+1. **Just write the file.** Operator commits when they're ready.
+2. **Write + commit + push automatically.**
+
+**My recommendation: just write.** Same posture as `project
+set-launched` — it edits `portfolio.json` and doesn't commit. The
+operator decides when to commit + push.
+
+### 6.E — Schema version handling
+
+When the schema bumps (`lamill-toml-v1` → `v2`), what happens to
+existing files?
+
+1. **Auto-migrate.** Tool detects v1 file, writes v2 in place.
+2. **Reject loudly.** Tool refuses to load v1 files; operator must
+   migrate manually or via a `lamill project upgrade-lamill-toml`
+   command.
+3. **Read v1 with fallback defaults; never write v1.** Tolerant on
+   read; strict on write.
+
+**My recommendation: option 3.** Operator-friendly without
+introducing complex migration paths. Schema bumps should be rare
+for a personal tool; we can add migration commands when needed.
+
+### 6.F — What about WordPress sites that have no project directory under sites/?
+
+Some sites might be WordPress installs that don't live in
+`sites/<domain>/` at all — they're WordPress installs at HostGator
+that lamill knows about via `portfolio.json` but has no local
+checkout for.
+
+**My recommendation: skip them in v11.A.** Sites without a local
+repo can't have a `lamill.toml` in the repo. v11.C (HostGator
+integration) will surface them differently.
+
+### 6.G — Multi-deploy declarations
+
+Some sites might serve apex from one platform and `www.*` from
+another (rare; usually a transition state). Should `lamill.toml`
+support multi-platform decl?
+
+**My recommendation: not in v11.A.** Single platform per site for
+now. If a multi-deploy case appears in your portfolio, we add a
+follow-on PRD to extend the schema. YAGNI for now.
+
+### 6.H — Where does `account` come from for new bootstraps?
+
+If `--platform cf-pages`, what account/team is the default?
+
+Two options:
+
+1. **Read from operator profile** (the future v8.D Phase 3 `~/.lamill/operator.yaml`).
+2. **Leave blank, require manual fill via `set-deploy`.**
+
+**My recommendation: option 2 for v11.A.** Operator profile isn't
+shipped yet. When it is, `bootstrap` reads it and populates
+`account` from there. For now, blank with a `# TODO` comment in the
+generated file.
+
+---
+
+## 7. Implementation plan (commits + smoke tests)
+
+### Preamble
+
+**P0 (already-done equivalent):** No archiving needed; this is
+purely additive. New files in new locations.
+
+### Phase 1 — schema + parser
+
+**P1.A** — `src/portfolio/lamill_toml.py`: dataclasses for
+`DeployBlock`, `HostingBlock`, `LamillToml`. `load()` returns
+`LamillToml | None`. Pure parser, no CLI. New dep `tomli-w` added
+to `pyproject.toml`.
+
+*Smoke test:* `pytest tests/test_lamill_toml.py -q` (~15 tests:
+load valid file, load missing file, load malformed, schema
+validation, all platform enum values, hosting-required when
+platform=hostgator).
+
+**P1.B** — `write()` function with atomic tmpfile + rename. Tests
+for round-trip determinism (write → load → write → compare).
+
+*Smoke test:* `pytest tests/test_lamill_toml.py -q` extended.
+
+**P1.C** — `infer_from_existing_configs()`: reads wrangler.jsonc /
+vercel.json / netlify.toml and returns a `DeployBlock | None`.
+Tests cover each platform + the multiple-config "ambiguous" return.
+
+*Smoke test:* `pytest tests/test_lamill_toml.py -q` extended.
+
+### Phase 2 — CLI commands
+
+**P2.A** — `lamill project set-deploy <name> <platform>` command.
+Interactive prompts when stdin is a TTY; non-interactive failure
+when not.
+
+*Smoke test:* `lamill project set-deploy airsucks.com cf-workers
+--non-interactive` writes the file; with hostgator + no
+`--non-interactive`, runs interactive prompts.
+
+**P2.B** — `lamill project show-deploy <name>` command. Pretty
+table renderer + `--json`.
+
+*Smoke test:* `lamill project show-deploy airsucks.com` shows
+declared platform table; `--json` emits raw payload.
+
+### Phase 3 — Bootstrap integration
+
+**P3.A** — `lamill new bootstrap` writes lamill.toml as part of
+scaffolding. Platform inferred from `--stack` (cf-pages default).
+`--platform <X>` flag overrides.
+
+*Smoke test:* `lamill new bootstrap testsite.com` writes
+`lamill.toml` with `platform = "cf-pages"`. With `--platform vercel`
+overrides.
+
+### Phase 4 — Migration
+
+**P4.A** — `lamill fleet repos --add-deploy-declarations
+[--dry-run] [--include-ambiguous]`. Walks every `sites/<dir>/`,
+classifies, writes safe cases.
+
+*Smoke test:* `lamill fleet repos --add-deploy-declarations
+--dry-run` shows ~14 unambiguous + ~3 ambiguous + ~2 manual-entry
+breakdown on current fleet (matches the example output in §3).
+
+### Final commit
+
+**P5.A** — Documentation update:
+- `docs/CLAUDE.md`: brief on `lamill.toml`
+- `AI_AGENTS.md`: note the new file convention
+- `docs/Prompts.md`: dated H2 entry
+- `docs/prd.md`: mark v11.A ✅; add v11.B/C/D rows
+
+*Smoke test:* Manual review.
+
+---
+
+## 8. Effort estimate
+
+Honest reading.
+
+| Phase | Commits | Hours | Risk |
+|---|---|---|---|
+| Phase 1 (schema + parser) | P1.A–C | 4-5h | tomli-w roundtrip determinism; inference logic |
+| Phase 2 (CLI) | P2.A–B | 3-4h | Interactive prompt UX for hostgator |
+| Phase 3 (bootstrap) | P3.A | 1-2h | Wire into existing bootstrap flow |
+| Phase 4 (migration) | P4.A | 3-4h | Classification rules; ambiguous-case handling |
+| Final | P5.A | 1h | |
+| **Total** | **8 commits** | **12-16h** | |
+
+Wider range mostly comes from Phase 4 — the migration logic has to
+handle the messy real-world cases without auto-corrupting deploys.
+
+---
+
+## 9. Forward links
+
+After v11.A ships, the natural follow-ons:
+
+- **v11.B** — Drift detection. Conformance checks (`CHECK_043/044/045`)
+  that compare `lamill.toml` declarations against DNS + live HTTP
+  to surface drift. Builds on `project diagnose`'s existing
+  inference. ~6-8h.
+- **v11.C** — HostGator API integration. cPanel pull of domains /
+  WordPress installs / disk usage. Auto-writes `lamill.toml` for
+  HostGator-hosted sites discovered via cPanel. ~8-10h.
+- **v11.D** — SFTP deploy abstraction. `lamill new deploy <domain>`
+  reads `lamill.toml`, dispatches to the right deploy target
+  (existing CF Pages logic OR new SFTP-via-FileZilla-style logic).
+  Adds a write surface. ~10-12h.
+
+Each gets its own PRD when its time comes.
+
+---
+
+## 10. Approval
+
+This PRD is **draft, awaiting review**. Before any code lands:
+
+1. Resolve the 8 open questions in §6.
+2. Confirm the schema (§4.1) is right shape.
+3. Confirm the 12-16h effort estimate is acceptable.
+
+Sign off:
+
+- [ ] Open questions §6.A–H resolved
+- [ ] Schema reviewed
+- [ ] Effort estimate accepted
+- [ ] Author signoff
