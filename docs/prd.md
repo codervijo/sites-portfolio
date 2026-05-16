@@ -54,7 +54,7 @@ Sole user: Vijo. No multi-tenancy, no permissions, no public surface. CLI-only.
 | **v3** | bootstrap — ship-ready scaffold *(Power 2)* | `portfolio bootstrap <domain>` creates a sites/* project at full conformance: git init, Astro/Vite (or other) stack scaffold via the central builder, SEO baseline pack, deploy-target abstraction (CF Pages default), optional LLM content seed — the production line for the 17-site gap |
 | **v4** | validation pipeline + launcher *(Power 1 refined)* | Validation-mode `domain suggest` (vocab anchor + grid + decide), shortlist/finalists workflow, ask AI / widen / Brave→AI collision check, interactive top-level launcher menu — the "I have an idea, find me a domain to validate it" pipeline complete |
 | **v5** | universal check catalog + check flags | File-per-check registry under `src/portfolio/checks/`; ~85-check canonical catalog covering scaffold/git/stack/deploy/SEO/live; `check --git` and `check --seo` flags; `project status` refactored onto the registry; `bootstrap` post-summary uses it; content-pipeline (hybridautopart-pattern) checks. Absorbs the old v6 (GSC integration as auth/list/sync) and old v7 (stack detection + scaffold completeness). |
-| **v6** | drift + per-stack + remediation *(was v8 pre-2026-05-09)* | plan-drift signal, dir↔domain mapping, per-stack rules (pnpm-lockfile-only, etc.); v6.C's `portfolio project fix <name>` is the second project-dir write surface for retro-fixing pre-bootstrap projects |
+| **v6** | drift + per-stack + remediation *(was v8 pre-2026-05-09)* | plan-drift signal, dir↔domain mapping, per-stack rules (pnpm-lockfile-only, etc.); v6.D's `portfolio project fix <name>` is the second project-dir write surface for retro-fixing pre-bootstrap projects |
 | **v7** | fleet operations layer ✅ | Scope-first CLI restructure (`project` / `fleet` / `new` / `settings`); unified `fleet dashboard` (live + SEO + git); age tracking (launched + RDAP); fleet focus + SEO grading age-aware so young sites read green; `fleet repos` audit + naming-consistency cluster (CHECK_040/041/042); `project diagnose <domain>` auto-investigation; tool renamed `portfolio` → `lamill`. All seven sub-phases shipped 2026-05-10 → 2026-05-13. |
 | **v8** | SERP research for new projects ✅ *(new 2026-05-13)* | `lamill new research <topic>` — AI-only SERP synthesis (gpt-4o-mini), default cluster mode (LLM expands topic into 3-5 related queries with frequency-tagged rankers), `--strict` for literal-topic-only. Closes the gap between domain-availability (v2) and bootstrap (v3): is this topic viable, what's the angle, what's the keyword cluster worth chasing. Integration with `new suggest` was deliberately dropped (v8.C) — research and suggest stay as separate composable steps. |
 | **v9** | per-site deploy declarations *(renumbered 2026-05-16; was v11)* | `lamill.toml` at each `sites/<domain>/` root declaring deploy target; drift detection; HostGator cPanel integration; SFTP deploy abstraction. Foundation for multi-host fleet ops. |
@@ -66,7 +66,7 @@ Sole user: Vijo. No multi-tenancy, no permissions, no public surface. CLI-only.
 
 Strict sequence (option a). 52 phases total · **1 dropped** (v8.C deliberately dropped 2026-05-13). **Renumbered 2026-05-16** — v9 is now per-site deploy declarations (was v11), v10 is fleet hosting (was v12), v11 is analytical roll-ups (was v9), v12 is deploy verification (was v10; deprioritized to last). Working order = strict numerical: v8.E → v9.A–D → v10.A → v11.A–C → v12.A–D. **v8.D (research-module-v2) is the active queue, with P1+P2 shipped as of 2026-05-15; P3 (operator profile, stored at `sites/portfolio/lamill.toml [operator]`) up next.**
 
-Note on read/write surfaces: portfolio is **read-only** through v2 (domain suggest). **v3 (bootstrap) is the first write surface** — it creates new project dirs, runs `git init`, scaffolds files. **v4 is read-only** (validation-mode domain suggest only prints info and a manual-checkout URL — domain registration is gated behind a Y/n confirmation that calls Porkbun's `/domain/create`; no project-dir writes). **v5 is read-only** (universal check catalog + check flags; v5.D writes only to OAuth token + `data/gsc/` snapshots, not project dirs). **v6.C (remediation) is the second project-dir write surface** — it modifies existing project dirs to fix conformance gaps. **v8.D (domain-list refresh tooling)** writes to `data/domains/*.csv` + `data/portfolio.json` (already user-mutable), not project dirs. Everything else (v6.A–B, v7, v8.A–C) is read-only.
+Note on read/write surfaces: portfolio is **read-only** through v2 (domain suggest). **v3 (bootstrap) is the first write surface** — it creates new project dirs, runs `git init`, scaffolds files. **v4 is read-only** (validation-mode domain suggest only prints info and a manual-checkout URL — domain registration is gated behind a Y/n confirmation that calls Porkbun's `/domain/create`; no project-dir writes). **v5 is read-only** (universal check catalog + check flags; v5.D writes only to OAuth token + `data/gsc/` snapshots, not project dirs). **v6.D (remediation) is the second project-dir write surface** — it modifies existing project dirs to fix conformance gaps. **v8.D (domain-list refresh tooling)** writes to `data/domains/*.csv` + `data/portfolio.json` (already user-mutable), not project dirs. Everything else (v6.A–C, v6.E–G, v7, v8.A–C) is read-only.
 
 Note on the v2/v3/v6 reorder (2026-05-02):
 
@@ -187,17 +187,17 @@ Note on v8 insertion (2026-05-13 PM):
 | **v5.C** ✅ | Stack/deploy/SEO checks + cross-repo aggregate view (CHECK_025–CHECK_080) | Extended catalog with: docs-quality (CHECK_025–027: growth-md non-empty, CLAUDE.md min sections [`## Project` + `## Commands`], prd.md min sections [`## Problem` + `## Users` — accepts numbered prefixes]), git (CHECK_028: last-deploy-date — only when Makefile has `deploy:` target, scans 50 commits for deploy/release/publish/ship markers, fails if >60d), stack (CHECK_029 has-live-url + CHECK_030–039: pnpm-only lockfile discipline, Vite ≥6 / Astro ≥5, build+dev scripts, node_modules-in-gitignore, tsconfig), deploy (CHECK_050–056: deploy-target uniqueness wrangler XOR vercel XOR netlify, wrangler compatibility_date / assets.directory=./dist / no _redirects SPA fallback / name-matches-slug, vercel.json sanity, builder Makefile reference), SEO assets (CHECK_060–064), and SEO meta (CHECK_070–080: title 30–60, meta description 120–160, canonical, viewport [error severity], html lang, meta robots, Open Graph 5-tag set, Twitter Card, JSON-LD presence + Organization/WebSite type, analytics marker). Recategorized CHECK_005–008 from `scaffold` to new `docs` category and CHECK_024 from `git` to new `ci` category. Render order: Scaffold → Docs → Git → CI → Stack → Deploy → SEO. `check --git` adds aggregate "Most common failures across N repos" block (top check IDs by repo count, threshold ≥30%, grouped by category) so fleet-wide gaps surface visibly. Per-repo Fails/Warns columns sort by category for clustered reading. Config gains `[git] ignore_repos = ["portfolio"]` (default) so the CLI tool itself is excluded from cross-repo runs. Bootstrap post-summary refactored to call the registry directly (replaces the legacy `project.build_status` rule list). |
 | **v5.D** ✅ | `check --seo` command (live HTTP + GSC + CrUX) | New `--seo` flag on `check`. Per-domain runtime probe — separate runner from the per-repo registry (different input shape). Picks domains from latest `data/checks/*.json` whose classification is live-site/forwarder, dedupes bare/www. Live HTTP probes: HTTPS root status, HSTS header presence, `/robots.txt` (must be `text/plain` — parking pages serving `text/html` for robots are rejected), `/sitemap.xml`. GSC probe via existing `gsc.py` OAuth path: aggregates clicks/impressions/CTR/avg-position across multi-property domains (sc-domain: + url-prefix), with impression-weighted position averaging; counts submitted sitemaps. CrUX probe via `chromeuxreport.googleapis.com/v1/records:queryRecord` with `CRUX_API_KEY` (mobile form factor only): p75 LCP/INP/CLS. Each metric maps to 🟢/🟡/🟠/🔴 against Web Vitals thresholds (LCP 2.5s/4s/6s, INP 200ms/500ms/1s, CLS 0.1/0.25/0.5, position 10/30/50). Overall row status is the worst non-grey cell. Render: Rich table with one row per domain + Status / HTTP / HSTS / Robots / Sitemap / Imp / Clicks / CTR / Pos / LCP / INP / CLS columns, sorted by impressions desc by default. Flags: `--days N` (GSC lookback, default 28), `--domain <one>` (single-domain mode), `--sort impressions\|clicks\|position\|ctr`. Deferred to follow-ups: indexed-pages check (needs URL Inspection API which is per-URL not per-property), desktop CrUX (mobile is the SEO-relevant signal), `--deep` top-5-queries view. New `CRUX_API_KEY` slot in `portfolio.env` template. |
 | **v5.E** ✅ | Refactor `project status` onto the catalog | `portfolio project status <name>` now drives its conformance section from the registry. The 9 hand-rolled legacy rules (`own-git-repo`, `has-prompts-md`, `has-makefile`, etc.) are replaced by a `run_checks()` call across scaffold + docs + git + ci + stack + deploy + seo categories — every project gets ~50 catalog checks instead of 9. Output shape preserved (`conformance.passed/failed/skipped`); rule names migrated to CHECK_* IDs (e.g. `own-git-repo` → `CHECK_020`, `has-ai-agents-md` → `CHECK_002`, `has-growth-log` → `CHECK_008`). Two ad-hoc rules without catalog equivalents kept under their legacy names: `has-category` (data-side, reads portfolio.json) and `live-site` (runtime, derived from latest check snapshot). Failed entries now carry `name` + `severity` so the renderer shows `CHECK_006 has-docs-claude — docs/CLAUDE.md missing`. The post-bootstrap surface (already on the registry since v5.C) and `project status` now share the same conformance code path. Static-source SEO checks (CHECK_060–080) are surfaced through `project status` for the first time — favicon, sitemap-in-build-script, OG/Twitter/JSON-LD tags, etc. Removed legacy `has_makefile_with_targets` helper (replaced by CHECK_012). |
-| **v5.F** ✅ | Revamp CLI structure — four-group rename | Reorganized the CLI surface into four top-level groups: `focus` (queued v5.F.1), `check {--live,--git,--seo}`, `new {suggest,bootstrap,deploy}`, `info {summary,status,expiring,wip,list,category,cleanup}`. Old top-level names (`bootstrap`, `summary`, `project status`, `domain suggest`, …) keep working via deprecation aliases that print a one-line yellow nudge and forward to the new home. Top-level `status` was removed (deprecation alias points at `check --live` for live snapshot view, `info status <name>` for project status). `--live` added as the explicit form of the legacy default-no-flag mode on `check`. `--repo` kept as deprecated alias for `--domain` (with warning). Menu rebuilt to the 14-item structure. Templates updated (bootstrap.py output, post-bootstrap "Next steps", env-template comments, scaffold doc). Flag symmetry across `--live`/`--git`/`--seo` (`--detail`, `--refresh`, `--only`, `--sort`) deferred to v5.F.1 alongside the SEO cache infra those flags need. `--live --domain <one>` deferred to v5.F.1 (would need a one-shot probe path that doesn't pollute the snapshot file). `gsc` namespace and `check {catalog,describe,run}` debug subcommands kept where they are. |
-| **v5.F.2** ✅ | check live/git/seo as real subcommands | Pre-v5.F.2: `check --live` / `--git` / `--seo` were callback flags. Made `check` symmetric with `new` and `info` — `check live`, `check git`, `check seo` are now proper subcommands. Mode-specific options moved off the callback to the relevant subcommand. The flag form (`check --live` etc.) kept as deprecation alias with one-line nudge. Templates + tests updated; one test specifically exercises the deprecation alias path so we know the old form still works. |
-| **v5.F.1** ✅ | focus + SEO cache + menu-trim follow-ups | (1) `portfolio focus` shipped: ranks domains by 🔴 site-down (live snapshot) · ⚠️ expiring ≤30d (portfolio.json) · 🟠 indexed-zero-impressions (SEO cache) · 🟡 position >20 (SEO cache). Top 5 default; `--all` for full list. Reads caches only. (2) SEO cache layer: `check seo` now persists results to `data/seo/<date>.json` and reads from cache by default; `--refresh` forces re-probe; `--domain <one>` always probes fresh and skips the cache. New `src/portfolio/seo_cache.py` mirrors the `data/checks/` and `data/gsc/` patterns. (3) `check live --domain <one>` shipped: one-shot HTTP probe that does NOT overwrite the shared snapshot (so `focus` and `check seo` see the cross-portfolio view intact). (4) `info wip` removed (curated subset is now `info list --grouped` + visual pick). (5) `info category` merged into `info list` — same single command supports flat (default), `--grouped`, and `--category <substring>` (implies grouped + filter). Menu trimmed from 14 items to 12. Deprecation shims at both top-level and `info` group point users at the new home. **Deferred items** from the original v5.F.1 spec (no compelling need yet): `--detail` for `live`/`seo`, `--sort` columns for `live`/`git`, `--only=wip\|all` on `git`. Re-open if a use-case lands. |
-| **v5.G** ✅ | Content-pipeline checks (hybridautopart pattern) | CHECK_130–CHECK_137 (new `content` category): has-seo-dir, seo-pyproject, seo-uv-lock, seo-claude-md, seo-pipeline-prompt (accepts SEO_PIPELINE_PROMPT.md / SEO_PIPELINE.md / PIPELINE_PROMPT.md), content-plan-json (accepts topics.json / content-plan.json — also validates the JSON parses), seo-makefile-pipeline, seo-tests-dir. Auto-skip pattern: every check returns warn-skip when `seo/` is absent at project root, so non-content projects don't see false failures. CHECK_130 is the gate (skip on absence, pass on presence — info severity since it's a marker not a requirement). New `content` category added to `_GIT_FLAG_CATEGORIES`, `_CATEGORY_ORDER`, `_CATEGORY_LABEL`, and `applicable_categories` for `info status`. Live-verified: 8/8 pass on hybridautopart.com (the canonical content-pipeline project); 8/8 auto-skip on kwizicle (plain web project). 20 unit tests covering the gate + per-check pass/fail + auto-skip path. |
-| **v6.A** ✅ | Drift detection — `info drift` | New `portfolio info drift` subcommand cross-checks the four sources of truth (data/portfolio.json, registrar CSVs, sites/* dirs, GSC properties, latest check snapshot) and surfaces six signals: (1) registered-but-never-bootstrapped (in portfolio.json, no `sites/<domain>/`), (2) CSV-only domains (cleanup hasn't run), (3) expiry mismatch CSV vs portfolio.json, (4) GSC orphans (verified in Search Console but missing from portfolio.json), (5) deployed-but-flagged-for-deletion (live-site/forwarder classification on a domain in 'To be deleted immediately' category — caught the user shipping on domains slated for retirement), (6) duplicate across registrars (transfer didn't clean up source registrar). Domains in 'To be deleted immediately' are excluded from signal 1 (no point flagging absence on retired domains). New `src/portfolio/drift.py` module is pure data analysis (no CLI side effects); CLI subcommand renders. GSC + snapshot signals gracefully skip when the source isn't available. **Cut from original v6.A scope:** the dir↔domain override map was rejected by the user — unresolved dirs are signal that something needs cleanup, not a config problem to silence. CHECK_141 (no-git-submodules) and v6.B's three per-stack checks deferred to a follow-up. |
-| **v6.A.1** ✅ | Catalog↔bootstrap reconciliation | New CHECK_013 `ai-agents-references-versioning` (warn) — every project's AI_AGENTS.md should reference the `vN`/`vN.X` versioning convention, either via a `## Versioning` section or a link to the canonical statement at `sites/portfolio/AI_AGENTS.md`. Tier 1 fixer appends a versioning section to existing AI_AGENTS.md files via section_inject. **Bootstrap output reconciled with catalog:** previously, freshly-bootstrapped projects failed CHECK_006 (no docs/CLAUDE.md), CHECK_011 (no .env.example), CHECK_024 (no .github/workflows), CHECK_029 (no homepage in package.json), CHECK_003 (heading was "Build tooling" not "Building info"), CHECK_004 (heading was "Deployment" not "Deployment info"), and CHECK_079 (Astro JSON-LD used `set:html={JSON.stringify(...)}` template syntax that the static-source parser couldn't read). All seven gaps closed: bootstrap now writes docs/CLAUDE.md (from templates.docs_claude_md), .env.example, .github/workflows/ci.yml (runs `make test` on push), homepage field in package.json (vite + astro both), AI_AGENTS heading rename, and static-JSON-LD in Astro index template (still produces correct schema.org metadata, just statically parseable by both Astro and the catalog). New regression test `test_template_path_passes_day_zero_catalog` runs every applicable check against fresh bootstrap output and locks in zero day-zero failures. 745 tests pass. |
-| **v6.B** ✅ | Per-stack rules — submodules + gitignore-build-output | Two new checks closing real bootstrap-time gaps. **CHECK_141 `no-git-submodules`** (deploy/error): CF Pages doesn't clone submodules, so a repo with gitlinks silently produces broken deploys; detection via `git ls-files --stage` mode 160000. Skipped on non-git repos. **CHECK_142 `gitignore-covers-build-output`** (stack/warn): extends CHECK_038 (which only checks `node_modules`) — at minimum `dist/` must be in `.gitignore`. Tier 1 fixer appends `dist/`, `build/`, `.next/`, `.astro/` (idempotent — skips entries already present). Cut from original v6.B scope (no urgent trigger): CHECK_143 python-uses-uv, CHECK_144 pnpm-lock-required-for-vite-astro. |
-| **v6.D** ✅ | Fleetwide `project fix --all` | New `--all` flag on `project fix` iterates every fleetwide-eligible project (`repos_dir` minus `ignore_repos` config minus domains in 'To be deleted immediately' category). Default: dry-run plan with per-project compact summary + fleet totals (Tier 1 count + Tier 2 count + cost estimate when `--ai` is set). `--apply` writes; single confirm-once prompt unless `--yes`. Continue-on-error — per-project failures don't halt the sweep; fleet summary at end shows count of changed projects + count of errored projects. Lockfile deletions (CHECK_032/033/034) auto-skipped in fleetwide mode unless `--yes` (avoid N×3 per-file confirm prompts). Eligibility filter resolves dirs to portfolio.json domains for the deletion-category check; dirs that don't resolve (e.g. `harmonia`, `levents`) are STILL eligible — drift dirs need fixing too. Catalog runs directly against project_dir (no `build_status`/resolver dependency) so fleetwide works on dirs even when they don't match a portfolio.json entry. New `_run_project_fix_all` helper + 9 tests covering eligibility filter, dry-run rendering, --apply with --yes, mutually-exclusive name+--all, empty-fleet path, deletion-marked filter. |
-| **v6.C** ✅ | Remediation Tier 1 (templated; second project-dir write surface) | `portfolio project fix <name>` — 16 templated fixers covering the most-common fleet-wide gaps. Dry-run by default; `--apply` to write; `--rule CHECK_xxx` (repeatable) for surgical fixes; `--yes` skips lockfile-deletion confirmations. All fixers idempotent (file-existence: skip if present; section-injection: skip if heading already present; deletion: skip if absent). New `src/portfolio/templates.py` (public API around bootstrap.py's existing private template strings + new templates for docs/CLAUDE.md, .env.example, and section-emitters); new `src/portfolio/fixers.py` (registry, dry-run/apply runner). Fixable: CHECK_001 (README), CHECK_002 (AI_AGENTS), CHECK_003/004 (AI_AGENTS section appends), CHECK_005 (docs/prd), CHECK_006 (docs/CLAUDE), CHECK_007 (docs/Prompts), CHECK_008 (docs/growth), CHECK_009 (.gitignore), CHECK_011 (.env.example), CHECK_012 (Makefile if absent only — refuses to overwrite existing), CHECK_026/027 (CLAUDE/prd section appends), CHECK_032/033/034 (lockfile deletions, with per-file confirm unless --yes). Manual-only (printed in the plan as "needs human" with a one-line reason): has-tests, has-ci-workflow, clean-working-tree, has-live-url, content-pipeline checks, deploy/wrangler safety rules. Tier 2 (Claude subprocess for content-quality checks) is queued as v6.C.1; the `--ai` flag is accepted now but no-ops with a deferred note. Side effect: bootstrap's `_docs_prd_md` template renamed `## 1. Purpose` → `## 1. Problem` and `## 2. Audience` → `## 2. Users` to align with CHECK_027 (pre-existing inconsistency where bootstrap's own output failed CHECK_027). 51 new tests; 727 total. **`project` namespace revived** (it was retired in v5.F when its only command was the read-only `status`); now hosts `project fix`, with `project status` kept as the deprecation alias from v5.F. |
-| **v6.C.1** ✅ | Remediation Tier 2 — Claude subprocess for content-quality fixes + co-located fixer architecture | Two pieces shipped together. **(1) Architecture migration**: moved from centralized `fixers.py` / `ai_fixers.py` to per-check co-location — each check module declares `fix_tier_1` and/or `fix_tier_2` as module-level FixerSpec attributes, and a new `fix_registry.py` discovers them by walking the existing check registry. Same locality pattern as ESLint/Ruff. New `src/portfolio/fix_helpers.py` houses factories (`file_writer`, `section_inject`, `file_deleter`) and Claude-subprocess infra (`run_claude`, `claude_available`, `ai_fixer_factory`, `project_context`). Old `fixers.py` and `ai_fixers.py` deleted. **(2) Tier 2 wired live**: `--ai` flag now spawns `claude -p` non-interactively in the project dir with `--allowedTools "Read Edit Glob Grep"` (no Bash, no shell) and `--max-budget-usd` as a hard cost cap. Three Tier 2 fixers shipped: CHECK_025 (real growth experiments), CHECK_026 (real CLAUDE.md Project/Commands content), CHECK_027 (real prd.md Problem/Users content). Each has a project-specific prompt builder pulling from AI_AGENTS.md + package.json/pyproject.toml as context. Stop criterion: re-run the targeted CHECK; pass → fixed, else error with Claude's reason. CLI reports cost and duration per fixer. Tier 1 always runs before Tier 2 in the apply path. Deferred to v6.C.2: own-git-repo guided migration (CHECK_020). Deferred to v6.C.3: HTML meta-tag content fillers (CHECK_071/076/077 — need brand assets). |
-| **v6.C.2** | own-git-repo guided migration | `portfolio project fix --rule CHECK_020` carved out as its own phase since it touches the parent repo (parent `git rm --cached` + parent `.gitignore` entry + project `git init` + initial commit). Explicit confirmation each step touching parent repo. Riskier than templated writes; deserves its own slice. |
+| **v5.F** ✅ | Revamp CLI structure — four-group rename | Reorganized the CLI surface into four top-level groups: `focus` (queued v5.G), `check {--live,--git,--seo}`, `new {suggest,bootstrap,deploy}`, `info {summary,status,expiring,wip,list,category,cleanup}`. Old top-level names (`bootstrap`, `summary`, `project status`, `domain suggest`, …) keep working via deprecation aliases that print a one-line yellow nudge and forward to the new home. Top-level `status` was removed (deprecation alias points at `check --live` for live snapshot view, `info status <name>` for project status). `--live` added as the explicit form of the legacy default-no-flag mode on `check`. `--repo` kept as deprecated alias for `--domain` (with warning). Menu rebuilt to the 14-item structure. Templates updated (bootstrap.py output, post-bootstrap "Next steps", env-template comments, scaffold doc). Flag symmetry across `--live`/`--git`/`--seo` (`--detail`, `--refresh`, `--only`, `--sort`) deferred to v5.G alongside the SEO cache infra those flags need. `--live --domain <one>` deferred to v5.G (would need a one-shot probe path that doesn't pollute the snapshot file). `gsc` namespace and `check {catalog,describe,run}` debug subcommands kept where they are. |
+| **v5.G** ✅ *(renumbered 2026-05-16; was v5.F.1)* | focus + SEO cache + menu-trim follow-ups | (1) `portfolio focus` shipped: ranks domains by 🔴 site-down (live snapshot) · ⚠️ expiring ≤30d (portfolio.json) · 🟠 indexed-zero-impressions (SEO cache) · 🟡 position >20 (SEO cache). Top 5 default; `--all` for full list. Reads caches only. (2) SEO cache layer: `check seo` now persists results to `data/seo/<date>.json` and reads from cache by default; `--refresh` forces re-probe; `--domain <one>` always probes fresh and skips the cache. New `src/portfolio/seo_cache.py` mirrors the `data/checks/` and `data/gsc/` patterns. (3) `check live --domain <one>` shipped: one-shot HTTP probe that does NOT overwrite the shared snapshot (so `focus` and `check seo` see the cross-portfolio view intact). (4) `info wip` removed (curated subset is now `info list --grouped` + visual pick). (5) `info category` merged into `info list` — same single command supports flat (default), `--grouped`, and `--category <substring>` (implies grouped + filter). Menu trimmed from 14 items to 12. Deprecation shims at both top-level and `info` group point users at the new home. **Deferred items** from the original v5.G spec (no compelling need yet): `--detail` for `live`/`seo`, `--sort` columns for `live`/`git`, `--only=wip\|all` on `git`. Re-open if a use-case lands. |
+| **v5.H** ✅ *(renumbered 2026-05-16; was v5.F.2)* | check live/git/seo as real subcommands | Pre-v5.H: `check --live` / `--git` / `--seo` were callback flags. Made `check` symmetric with `new` and `info` — `check live`, `check git`, `check seo` are now proper subcommands. Mode-specific options moved off the callback to the relevant subcommand. The flag form (`check --live` etc.) kept as deprecation alias with one-line nudge. Templates + tests updated; one test specifically exercises the deprecation alias path so we know the old form still works. |
+| **v5.I** ✅ *(renumbered 2026-05-16; was v5.G)* | Content-pipeline checks (hybridautopart pattern) | CHECK_130–CHECK_137 (new `content` category): has-seo-dir, seo-pyproject, seo-uv-lock, seo-claude-md, seo-pipeline-prompt (accepts SEO_PIPELINE_PROMPT.md / SEO_PIPELINE.md / PIPELINE_PROMPT.md), content-plan-json (accepts topics.json / content-plan.json — also validates the JSON parses), seo-makefile-pipeline, seo-tests-dir. Auto-skip pattern: every check returns warn-skip when `seo/` is absent at project root, so non-content projects don't see false failures. CHECK_130 is the gate (skip on absence, pass on presence — info severity since it's a marker not a requirement). New `content` category added to `_GIT_FLAG_CATEGORIES`, `_CATEGORY_ORDER`, `_CATEGORY_LABEL`, and `applicable_categories` for `info status`. Live-verified: 8/8 pass on hybridautopart.com (the canonical content-pipeline project); 8/8 auto-skip on kwizicle (plain web project). 20 unit tests covering the gate + per-check pass/fail + auto-skip path. |
+| **v6.A** ✅ | Drift detection — `info drift` | New `portfolio info drift` subcommand cross-checks the four sources of truth (data/portfolio.json, registrar CSVs, sites/* dirs, GSC properties, latest check snapshot) and surfaces six signals: (1) registered-but-never-bootstrapped (in portfolio.json, no `sites/<domain>/`), (2) CSV-only domains (cleanup hasn't run), (3) expiry mismatch CSV vs portfolio.json, (4) GSC orphans (verified in Search Console but missing from portfolio.json), (5) deployed-but-flagged-for-deletion (live-site/forwarder classification on a domain in 'To be deleted immediately' category — caught the user shipping on domains slated for retirement), (6) duplicate across registrars (transfer didn't clean up source registrar). Domains in 'To be deleted immediately' are excluded from signal 1 (no point flagging absence on retired domains). New `src/portfolio/drift.py` module is pure data analysis (no CLI side effects); CLI subcommand renders. GSC + snapshot signals gracefully skip when the source isn't available. **Cut from original v6.A scope:** the dir↔domain override map was rejected by the user — unresolved dirs are signal that something needs cleanup, not a config problem to silence. CHECK_141 (no-git-submodules) and v6.C's three per-stack checks deferred to a follow-up. |
+| **v6.B** ✅ *(renumbered 2026-05-16; was v6.A.1)* | Catalog↔bootstrap reconciliation | New CHECK_013 `ai-agents-references-versioning` (warn) — every project's AI_AGENTS.md should reference the `vN`/`vN.X` versioning convention, either via a `## Versioning` section or a link to the canonical statement at `sites/portfolio/AI_AGENTS.md`. Tier 1 fixer appends a versioning section to existing AI_AGENTS.md files via section_inject. **Bootstrap output reconciled with catalog:** previously, freshly-bootstrapped projects failed CHECK_006 (no docs/CLAUDE.md), CHECK_011 (no .env.example), CHECK_024 (no .github/workflows), CHECK_029 (no homepage in package.json), CHECK_003 (heading was "Build tooling" not "Building info"), CHECK_004 (heading was "Deployment" not "Deployment info"), and CHECK_079 (Astro JSON-LD used `set:html={JSON.stringify(...)}` template syntax that the static-source parser couldn't read). All seven gaps closed: bootstrap now writes docs/CLAUDE.md (from templates.docs_claude_md), .env.example, .github/workflows/ci.yml (runs `make test` on push), homepage field in package.json (vite + astro both), AI_AGENTS heading rename, and static-JSON-LD in Astro index template (still produces correct schema.org metadata, just statically parseable by both Astro and the catalog). New regression test `test_template_path_passes_day_zero_catalog` runs every applicable check against fresh bootstrap output and locks in zero day-zero failures. 745 tests pass. |
+| **v6.C** ✅ *(renumbered 2026-05-16; was v6.B)* | Per-stack rules — submodules + gitignore-build-output | Two new checks closing real bootstrap-time gaps. **CHECK_141 `no-git-submodules`** (deploy/error): CF Pages doesn't clone submodules, so a repo with gitlinks silently produces broken deploys; detection via `git ls-files --stage` mode 160000. Skipped on non-git repos. **CHECK_142 `gitignore-covers-build-output`** (stack/warn): extends CHECK_038 (which only checks `node_modules`) — at minimum `dist/` must be in `.gitignore`. Tier 1 fixer appends `dist/`, `build/`, `.next/`, `.astro/` (idempotent — skips entries already present). Cut from original v6.C scope (no urgent trigger): CHECK_143 python-uses-uv, CHECK_144 pnpm-lock-required-for-vite-astro. |
+| **v6.D** ✅ *(renumbered 2026-05-16; was v6.C)* | Remediation Tier 1 (templated; second project-dir write surface) | `portfolio project fix <name>` — 16 templated fixers covering the most-common fleet-wide gaps. Dry-run by default; `--apply` to write; `--rule CHECK_xxx` (repeatable) for surgical fixes; `--yes` skips lockfile-deletion confirmations. All fixers idempotent (file-existence: skip if present; section-injection: skip if heading already present; deletion: skip if absent). New `src/portfolio/templates.py` (public API around bootstrap.py's existing private template strings + new templates for docs/CLAUDE.md, .env.example, and section-emitters); new `src/portfolio/fixers.py` (registry, dry-run/apply runner). Fixable: CHECK_001 (README), CHECK_002 (AI_AGENTS), CHECK_003/004 (AI_AGENTS section appends), CHECK_005 (docs/prd), CHECK_006 (docs/CLAUDE), CHECK_007 (docs/Prompts), CHECK_008 (docs/growth), CHECK_009 (.gitignore), CHECK_011 (.env.example), CHECK_012 (Makefile if absent only — refuses to overwrite existing), CHECK_026/027 (CLAUDE/prd section appends), CHECK_032/033/034 (lockfile deletions, with per-file confirm unless --yes). Manual-only (printed in the plan as "needs human" with a one-line reason): has-tests, has-ci-workflow, clean-working-tree, has-live-url, content-pipeline checks, deploy/wrangler safety rules. Tier 2 (Claude subprocess for content-quality checks) is queued as v6.E; the `--ai` flag is accepted now but no-ops with a deferred note. Side effect: bootstrap's `_docs_prd_md` template renamed `## 1. Purpose` → `## 1. Problem` and `## 2. Audience` → `## 2. Users` to align with CHECK_027 (pre-existing inconsistency where bootstrap's own output failed CHECK_027). 51 new tests; 727 total. **`project` namespace revived** (it was retired in v5.F when its only command was the read-only `status`); now hosts `project fix`, with `project status` kept as the deprecation alias from v5.F. |
+| **v6.E** ✅ *(renumbered 2026-05-16; was v6.C.1)* | Remediation Tier 2 — Claude subprocess for content-quality fixes + co-located fixer architecture | Two pieces shipped together. **(1) Architecture migration**: moved from centralized `fixers.py` / `ai_fixers.py` to per-check co-location — each check module declares `fix_tier_1` and/or `fix_tier_2` as module-level FixerSpec attributes, and a new `fix_registry.py` discovers them by walking the existing check registry. Same locality pattern as ESLint/Ruff. New `src/portfolio/fix_helpers.py` houses factories (`file_writer`, `section_inject`, `file_deleter`) and Claude-subprocess infra (`run_claude`, `claude_available`, `ai_fixer_factory`, `project_context`). Old `fixers.py` and `ai_fixers.py` deleted. **(2) Tier 2 wired live**: `--ai` flag now spawns `claude -p` non-interactively in the project dir with `--allowedTools "Read Edit Glob Grep"` (no Bash, no shell) and `--max-budget-usd` as a hard cost cap. Three Tier 2 fixers shipped: CHECK_025 (real growth experiments), CHECK_026 (real CLAUDE.md Project/Commands content), CHECK_027 (real prd.md Problem/Users content). Each has a project-specific prompt builder pulling from AI_AGENTS.md + package.json/pyproject.toml as context. Stop criterion: re-run the targeted CHECK; pass → fixed, else error with Claude's reason. CLI reports cost and duration per fixer. Tier 1 always runs before Tier 2 in the apply path. Deferred to v6.F: own-git-repo guided migration (CHECK_020). Deferred to future cleanup (no slot allocated): HTML meta-tag content fillers (CHECK_071/076/077 — need brand assets). |
+| **v6.F** *(renumbered 2026-05-16; was v6.C.2)* | own-git-repo guided migration | `portfolio project fix --rule CHECK_020` carved out as its own phase since it touches the parent repo (parent `git rm --cached` + parent `.gitignore` entry + project `git init` + initial commit). Explicit confirmation each step touching parent repo. Riskier than templated writes; deserves its own slice. |
+| **v6.G** ✅ *(renumbered 2026-05-16; was v6.D)* | Fleetwide `project fix --all` | New `--all` flag on `project fix` iterates every fleetwide-eligible project (`repos_dir` minus `ignore_repos` config minus domains in 'To be deleted immediately' category). Default: dry-run plan with per-project compact summary + fleet totals (Tier 1 count + Tier 2 count + cost estimate when `--ai` is set). `--apply` writes; single confirm-once prompt unless `--yes`. Continue-on-error — per-project failures don't halt the sweep; fleet summary at end shows count of changed projects + count of errored projects. Lockfile deletions (CHECK_032/033/034) auto-skipped in fleetwide mode unless `--yes` (avoid N×3 per-file confirm prompts). Eligibility filter resolves dirs to portfolio.json domains for the deletion-category check; dirs that don't resolve (e.g. `harmonia`, `levents`) are STILL eligible — drift dirs need fixing too. Catalog runs directly against project_dir (no `build_status`/resolver dependency) so fleetwide works on dirs even when they don't match a portfolio.json entry. New `_run_project_fix_all` helper + 9 tests covering eligibility filter, dry-run rendering, --apply with --yes, mutually-exclusive name+--all, empty-fleet path, deletion-marked filter. |
 | **v7.A** ✅ | CLI restructure — scope-first (`project` / `fleet` / `new` / `settings`) | Reorganized the CLI surface around scope-first namespaces. `project` for ops on one project, `fleet` for cross-portfolio, `new` for creation, `settings` for setup/debug. New commands: `project check` (replaces `info status`, with `--catalog-only` flag for the rules-only view from old `check git --domain`), `project fix` (unchanged), `project seo` (replaces `check seo --domain`), `fleet focus`/`live`/`seo`/`check`/`fix`/`drift` (each formerly top-level or under `check`), `fleet info {summary,expiring,cleanup}` (the inventory views formerly under `info` — `summary --verbose` replaces `info list`), `settings catalog {list,describe,run}` (formerly `check catalog/describe/run`), `settings gsc {auth,status}` (status with `--refresh` folds in old `sync`/`list`/`compare`), `settings apikeys {list,set,delete}` (NEW — replaces manual `portfolio.env` editing; `list` shows set/not-set + connectivity tick per provider via OpenAI/CrUX/Porkbun/Cloudflare API probes; `set` is strict on known keys with `--force` override; atomic write preserves comments). Old paths kept as additive aliases (no deprecation prints yet — that's v7.A.2). Menu rebuilt to 18-item structure across the four namespaces. Bootstrap templates + AI_AGENTS.md + docs/CLAUDE.md updated to reference new paths. Tests: 19 new for apikeys (env IO + probe shape), menu tests rewritten for new structure. 792 tests pass. v7.A.2 (deprecation prints) and v7.A.3 (final cleanup) deferred until user wants to push migration. |
 | **v7.B** ✅ | `fleet dashboard` — unified live + SEO + git view | Single per-domain row joining `data/checks/<date>.json` (live class + HTTP status) + `data/seo/<date>.json` (robots/sitemap/GSC totals) + local git state (own-repo, last-commit age, catalog pass%). Worst-of rollup dot leftmost so problem domains surface immediately. Read-only cache join by default; `--refresh` re-probes live + SEO upstream (≈ same cost as `fleet live` + `fleet seo --refresh`). Sort modes: attention (worst rollup first — default), name, imp, age. Dot thresholds: 🟢 live-site, 🟡 parked/forwarder, 🔴 dead/error/ssl-broken for the Live column; conformance + commit-age combined for the Git column; reuses `seo_runtime.overall_status` for the SEO column. 11 unit tests for the dot/rollup/sort helpers; integration paths covered by existing snapshot + project_status tests. |
 | **v7.C** ✅ | Age tracking — `launched` + `domain_created` | Two new fields on each row in `data/portfolio.json`: `launched` (when *this* site went live — manual via `lamill project set-launched <domain> <YYYY-MM-DD>`, falls back to first-commit-date inference) and `domain_created` (RDAP `registration` event date — when the domain was first registered globally). `cleanup()` preserves both across CSV rebuilds. RDAP refresh via `lamill fleet info cleanup --refresh-rdap` (~0.5s per domain). Both surface as columns in `fleet dashboard` (Site age + Domain age) with compact age formatting (d/w/mo/y). New `rdap_creation_date()` helper in `availability.py` reuses the existing IANA RDAP bootstrap. **Motivation:** SEO grading for sites <90d old looked red because position 60 / clicks 0 are normal for the freshness window — having the age columns visible lets the reader interpret red rows correctly. 12 new tests covering Domain age properties, JSON round-trip, cleanup preservation, atomic update_domain_field, RDAP event parsing (no network), age formatting, git inference. |
@@ -1724,7 +1724,7 @@ Codebase is OpenAI-only today. Anthropic API is new:
   default to (`claude-sonnet-4-7` per system prompt's current model
   knowledge, or whatever's current)
 
-**The existing `run_claude()` subprocess wrapper (v6.C.1)** uses the
+**The existing `run_claude()` subprocess wrapper (v6.E)** uses the
 local Claude Code CLI, not the API. Not suitable for structured-output
 verdict calls — wrong I/O shape, wrong cost model, wrong
 reproducibility characteristics. Phase 4a needs a fresh
@@ -2107,49 +2107,48 @@ future ledger feature aggregate without re-fetching.
 This builds on top of research-module-v2 (Phases 1-3 shipped). All
 commits assume the v2 mechanical pipeline is in place.
 
-### Preamble
+Naming convention: **`v8.E P4.<letter>`** — strict two-level pattern
+matching v8.D P1–P3 commits. The renumber on 2026-05-16 collapsed
+the earlier three-level draft (`Pre-1`, `P4.A.1`, `P4.B.1`, ...) to
+this flat scheme. Letters run forward across all wedges (preamble +
+4a + 4b + 4c + polish + docs).
 
-**Commit Pre-1** — Create `prompts/` directory at repo root with a
-README pointing at the schema convention (`<purpose>_v<N>.md`).
+### Preamble (✅ shipped 2026-05-16, P4.A–P4.D)
 
-*Smoke:* `ls prompts/README.md` exists.
+**P4.A ✅** — Create `prompts/` directory at repo root with a README
+pointing at the schema convention (`<purpose>_v<N>.md`). Shipped as
+`portfolio: v8.E Pre-1 — create prompts/ directory + README`.
 
-### Phase 4 setup
+**P4.B ✅** — Draft `prompts/niche_evaluation_v1.md` (full text).
+Shipped as `portfolio: v8.E P4.A.1 — draft niche_evaluation_v1.md`.
 
-**Commit P4.A.1** — Draft `prompts/niche_evaluation_v1.md` (full
-text). Document the schema header conventions and the substitution
-syntax.
+**P4.C ✅** — Draft `prompts/adversarial_audit_v1.md` (finalized
+from the §6 inline). Shipped as `portfolio: v8.E P4.A.2 — draft
+adversarial_audit_v1.md`.
 
-*Smoke:* Manual review of prompt text.
+**P4.D ✅** — `src/portfolio/prompt_loader.py`: `load_prompt(name)`,
+`render_prompt(template, **vars)` with `{{var}}` substitution +
+validator that raises on unfilled placeholders. Unit tests. Shipped
+as `portfolio: v8.E P4.A.3 — prompt loader + renderer`.
 
-**Commit P4.A.2** — Draft `prompts/adversarial_audit_v1.md` (the
-inline text from §6 above, finalized after operator review).
-
-*Smoke:* Manual review.
-
-**Commit P4.A.3** — `src/portfolio/prompt_loader.py`:
-`load_prompt(name)`, `render_prompt(template, **vars)` with
-`{{var}}` substitution + validator that raises on unfilled
-placeholders. Unit tests.
-
-*Smoke:* `pytest tests/test_prompt_loader.py -q`.
+(The shipped commits' subject lines pre-date this renumber and stay
+as-is in `git log`. Future v8.E commits start at P4.E.)
 
 ### Phase 4a — primary pass
 
-**Commit P4.B.1** — `src/portfolio/llm_clients.py`: `LLMClient`
-Protocol + `OpenAIClient` (extracts existing OpenAI HTTP from
-`serp.py`) + `AnthropicClient` (new). Both honor per-provider
-rate-limit dialects.
+**P4.E** — `src/portfolio/llm_clients.py`: `LLMClient` Protocol +
+`OpenAIClient` (extracts existing OpenAI HTTP from `serp.py`) +
+`AnthropicClient` (new). Both honor per-provider rate-limit dialects.
 
 *Smoke:* `pytest tests/test_llm_clients.py -q` with mocked HTTP for
 each provider's quirks.
 
-**Commit P4.B.2** — Add `ANTHROPIC_API_KEY` to `apikeys.KNOWN_KEYS` +
+**P4.F** — Add `ANTHROPIC_API_KEY` to `apikeys.KNOWN_KEYS` +
 portfolio.env template + `_probe_anthropic()` in `apikeys.py`.
 
 *Smoke:* `lamill settings apikeys list` shows ANTHROPIC_API_KEY.
 
-**Commit P4.B.3** — `src/portfolio/interpretive_pass.py`:
+**P4.G** — `src/portfolio/interpretive_pass.py`:
 `run_primary_pass(cluster, gates, operator_profile) -> ParsedVerdict`.
 Renders the prompt, calls Anthropic via the client, parses markdown
 response.
@@ -2157,30 +2156,29 @@ response.
 *Smoke:* `pytest tests/test_interpretive_pass.py -q` with mocked
 Anthropic responses.
 
-**Commit P4.B.4** — Wire `interpretive_pass` into the research
-orchestrator. Default mode now ends at Phase 4a. Snapshot schema
-bumped to v2.1.
+**P4.H** — Wire `interpretive_pass` into the research orchestrator.
+Default mode now ends at Phase 4a. Snapshot schema bumped to v2.1.
 
 *Smoke:* `lamill new research "ev charger installation cost"` runs
 end-to-end with primary verdict shown.
 
 ### Phase 4b — audit pass
 
-**Commit P4.C.1** — `src/portfolio/audit_pass.py`:
+**P4.I** — `src/portfolio/audit_pass.py`:
 `run_audit_pass(cluster, gates, operator_profile, primary_response)`.
 Renders adversarial_audit_v1.md, calls OpenAI (different model from
 primary), parses markdown response.
 
 *Smoke:* `pytest tests/test_audit_pass.py -q`.
 
-**Commit P4.C.2** — `same-model` rejection. If `--model` and
-`--audit-model` resolve to the same model, error early.
+**P4.J** — Same-model rejection. If `--model` and `--audit-model`
+resolve to the same model, error early.
 
 *Smoke:* `lamill new research "x" --verify --model X --audit-model X`
 errors with helpful message.
 
-**Commit P4.C.3** — `--verify` flag wired. Output rendering for
-agree / partial / disagree paths.
+**P4.K** — `--verify` flag wired. Output rendering for agree /
+partial / disagree paths.
 
 *Smoke:* Run on a cluster where primary and audit agree (verify
 output shows "✓ Audit agrees"); run on a cluster known to provoke
@@ -2188,42 +2186,43 @@ partial disagreement (verify output shows audit concerns).
 
 ### Phase 4c — reconciliation
 
-**Commit P4.D.1** — `src/portfolio/reconciliation.py`: pure-logic
+**P4.L** — `src/portfolio/reconciliation.py`: pure-logic
 reconciliation per §4 Phase 4c spec. No LLM calls. Unit tests for
 each of the three branches (full/partial/disagree).
 
 *Smoke:* `pytest tests/test_reconciliation.py -q`.
 
-**Commit P4.D.2** — Wire reconciliation into orchestrator. Output
-includes `final_verdict` field; REVIEW_REQUIRED renders correctly.
+**P4.M** — Wire reconciliation into orchestrator. Output includes
+`final_verdict` field; REVIEW_REQUIRED renders correctly.
 
 *Smoke:* `lamill new research "<known-disagreement-topic>" --verify`
 emits REVIEW_REQUIRED banner.
 
 ### Phase 4 polish
 
-**Commit P4.E.1** — Cost-estimate fields added to snapshot
-(P4.A.10.J). Pulled from provider headers when present.
+**P4.N** — Cost-estimate fields added to snapshot (resolved §10.J).
+Pulled from provider headers when present.
 
 *Smoke:* Snapshot inspection shows non-zero `estimated_cost_usd`.
 
-**Commit P4.E.2** — `operator.yaml.verify_by_default` honored.
-`--no-verify` flag added for override.
+**P4.O** — `verify_by_default` in operator profile honored (resolved
+§10.D — now read from `sites/portfolio/lamill.toml [operator]`, not
+the PRD's original yaml path). `--no-verify` flag added for override.
 
-*Smoke:* With `verify_by_default: true` in operator.yaml,
+*Smoke:* With `verify_by_default = true` in the operator profile,
 `lamill new research <x>` runs verify; `--no-verify` skips it.
 
-**Commit P4.E.3** — `--no-cache=interpretive` and
-`--no-cache=audit` granular flags for re-running individual passes
-on cached SERP data.
+**P4.P** — `--no-cache=interpretive` and `--no-cache=audit` granular
+flags for re-running individual passes on cached SERP data.
 
 *Smoke:* Run, modify cached snapshot's interpretive section, re-run
 with `--no-cache=interpretive` — interpretive re-runs, SERP doesn't.
 
-**Commit P4.F.1** — Documentation: update `docs/CLAUDE.md`,
-`AI_AGENTS.md`, `docs/Prompts.md`, `docs/prd.md` to reflect Phase 4
-shipped. Add "when to use --verify" guidance to `lamill new research
---help`.
+### Phase 4 docs
+
+**P4.Q** — Documentation: update `docs/CLAUDE.md`, `AI_AGENTS.md`,
+`docs/Prompts.md`, `docs/prd.md` to reflect Phase 4 shipped. Add
+"when to use --verify" guidance to `lamill new research --help`.
 
 *Smoke:* `lamill project check sites/portfolio` passes docs checks.
 
@@ -2235,14 +2234,14 @@ Honest reading. Assumes v2 (research-module-v2.md) is shipped first.
 
 | Phase | Commits | Hours | Key risk |
 |---|---|---|---|
-| Preamble | Pre-1, P4.A.1-3 | 2-3h | Prompt drafting iteration (the audit prompt especially needs review with real audit runs) |
-| LLM clients + Anthropic | P4.B.1-2 | 4-5h | Anthropic API integration is new; rate-limit handling differs |
-| Primary pass | P4.B.3-4 | 4-5h | Markdown parser robustness across model styles |
-| Audit pass | P4.C.1-3 | 4-5h | Same-model rejection logic, output rendering for all three reconciliation branches |
-| Reconciliation | P4.D.1-2 | 2-3h | Pure logic, but the rendering for REVIEW_REQUIRED needs to be right (it's the high-signal path) |
-| Polish | P4.E.1-3 | 3-4h | Cost ledger field, verify_by_default plumbing, granular cache flags |
-| Docs | P4.F.1 | 1h | |
-| **Total** | **14 commits** | **20-26h** | |
+| Preamble | P4.A–D ✅ | 2-3h | Shipped 2026-05-16 |
+| LLM clients + Anthropic | P4.E–F | 4-5h | Anthropic API integration is new; rate-limit handling differs |
+| Primary pass | P4.G–H | 4-5h | Markdown parser robustness across model styles |
+| Audit pass | P4.I–K | 4-5h | Same-model rejection logic, output rendering for all three reconciliation branches |
+| Reconciliation | P4.L–M | 2-3h | Pure logic, but the rendering for REVIEW_REQUIRED needs to be right (it's the high-signal path) |
+| Polish | P4.N–P | 3-4h | Cost ledger field, verify_by_default plumbing, granular cache flags |
+| Docs | P4.Q | 1h | |
+| **Total** | **17 commits** | **20-26h** | |
 
 That's on top of the **25-34h** for v2. Combined: **45-60h** for the
 full v2+Phase4 stack.

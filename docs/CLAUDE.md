@@ -71,9 +71,8 @@ uv run portfolio new bootstrap <domain>
     delegates to `~/work/projects/builder/`'s `Makefile` via
     `$(MAKE) -C ..` (CHECK_012). Don't duplicate build logic per-site.
   - **Two write surfaces only**: v3 bootstrap (creates new project dirs)
-    and v6.C remediation (modifies existing project dirs to fix
-    conformance gaps; planned, not yet shipped). Everything else is
-    read-only.
+    and v6.D remediation (modifies existing project dirs to fix
+    conformance gaps). Everything else is read-only.
   - **`portfolio` repo is excluded from `check --git`** by default
     (`[git] ignore_repos = ["portfolio"]`) — it's a Python CLI tool, not
     a website, so the SEO/stack checks would all skip and create noise.
