@@ -1,0 +1,91 @@
+{
+  "schema": "serp-query-v1",
+  "query": "AI vacuum troubleshooting tips",
+  "fetched_at": "2026-05-16T20:28:24.684413+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "ecovacs.com",
+      "url": "https://www.ecovacs.com/us/blog/why-does-my-robot-vacuum-keep-stopping-troubleshooting",
+      "title": "Why Your Robot Vacuum Keeps Stopping (And How to Fix It)",
+      "snippet": "Tips For Troubleshooting A Frequently Stopping Robot Vacuum \u00b7 Step 1: Check Battery Levels and Charging \u00b7 Step 2: Inspect And Clean Sensors \u00b7 Step ...",
+      "displayed_link": "https://www.ecovacs.com \u203a home \u203a blog"
+    },
+    {
+      "position": 2,
+      "domain": "ca.narwal.com",
+      "url": "https://ca.narwal.com/blogs/product/robot-vacuum-cleaner-problems-solutions?srsltid=AfmBOor_N5jwgbVB9png7wQD5WsrBr7TqDc5AECuKMtGCCyCHNxGjXNL",
+      "title": "Troubleshooting Common Robot Vacuum Cleaner ...",
+      "snippet": "Clean the Sensors: Dirty or obstructed sensors can make the vacuum miss certain spots. Wipe them clean using a soft cloth. \u00b7 Improve Lighting: ...",
+      "displayed_link": "https://ca.narwal.com \u203a blogs \u203a product \u203a robot-vacuum-..."
+    },
+    {
+      "position": 3,
+      "domain": "techsalesonline.com.au",
+      "url": "https://techsalesonline.com.au/blogs/articles/common-robot-vacuum-problems-and-how-to-fix-them-yourself?srsltid=AfmBOopg912wWEvSTwy8JN95wDXo5t2TAOkSZad-LGVpFUWEQo0OT5JJ",
+      "title": "Common Robot Vacuum Problems and How to Fix Them ...",
+      "snippet": "If your robovac isn't cleaning properly, the most common causes of this problem include obstructed sensors, full dustbins, and dirty brushes.",
+      "displayed_link": "https://techsalesonline.com.au \u203a blogs \u203a articles \u203a comm..."
+    },
+    {
+      "position": 4,
+      "domain": "support.sharkninja.com",
+      "url": "https://support.sharkninja.com/article/RV2500AE-Series-Shark-AI-Ultra-Robot-Vacuum-with-XL-HEPA-Self-Empty-Base-Troubleshooting-Guide",
+      "title": "RV2500AE Series Shark\u00ae AI Ultra Robot Vacuum with XL ...",
+      "snippet": "RV2500AE Series Shark\u00ae AI Ultra Robot Vacuum with XL HEPA Self-Empty Base - Troubleshooting Guide. This article supports the following models ...",
+      "displayed_link": "https://support.sharkninja.com \u203a article \u203a RV2500AE-S..."
+    },
+    {
+      "position": 5,
+      "domain": "robotspecialist.com.au",
+      "url": "https://www.robotspecialist.com.au/blogs/news/troubleshooting-common-robot-vacuum-issues?srsltid=AfmBOooYs4UAo584Y5ulViyJGy8SCVR_O-mdTqnw3k9BesO2Xy9Ep-ww",
+      "title": "Troubleshooting Common Robot Vacuum Issues",
+      "snippet": "We've compiled all the most common issues with robot vacuums and their solutions. If yours is looking under the weather, read on and play robot doctor at home.",
+      "displayed_link": "https://www.robotspecialist.com.au \u203a blogs \u203a news \u203a tro..."
+    },
+    {
+      "position": 6,
+      "domain": "mashable.com",
+      "url": "https://mashable.com/article/why-did-my-robot-vacuum-stop-working",
+      "title": "Why your robot vacuum stopped working",
+      "snippet": "Check the dust bins and dust pathways: A full dustbin is probably the most \"duh\" maintenance issue that might cause your robot vacuum to spit debris back out.",
+      "displayed_link": "https://mashable.com \u203a Life \u203a House & Home"
+    },
+    {
+      "position": 7,
+      "domain": "eufy.com",
+      "url": "https://www.eufy.com/blogs/robovac/robot-vacuum-troubleshooting",
+      "title": "Robot Vacuum Troubleshooting for Common Problems",
+      "snippet": "Discover expert tips and step-by-step solutions for robot vacuum troubleshooting. Fix charging, power, and connectivity issues today.",
+      "displayed_link": "https://www.eufy.com \u203a Blogs \u203a Robovac"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "How to reboot Shark AI vacuum?",
+      "What's wrong with my robot vacuum?",
+      "Where is the reset button on my robot vacuum?",
+      "What's the life expectancy of a robot vacuum?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

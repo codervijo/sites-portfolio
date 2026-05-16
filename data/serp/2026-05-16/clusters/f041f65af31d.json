@@ -1,0 +1,800 @@
+{
+  "schema": "research-cluster-v2",
+  "topic": "AI vacuum diagnostics",
+  "topic_normalized": "ai vacuum diagnostics",
+  "topic_hash": "f041f65af31d",
+  "fetched_at": "2026-05-16T20:28:31.748482+00:00",
+  "source": "serpapi",
+  "cluster_queries": [
+    "AI vacuum diagnostics",
+    "best AI vacuum cleaners",
+    "how AI improves vacuum performance",
+    "AI vacuum troubleshooting tips",
+    "AI vacuum maintenance guide"
+  ],
+  "per_query_files": [
+    "2026-05-16/f041f65af31d.json",
+    "2026-05-16/36e5e1c936bf.json",
+    "2026-05-16/fb435f392fbd.json",
+    "2026-05-16/f66e455d7870.json",
+    "2026-05-16/b641bf0009cd.json"
+  ],
+  "per_query_results": [
+    {
+      "schema": "serp-query-v1",
+      "query": "AI vacuum diagnostics",
+      "fetched_at": "2026-05-16T20:28:03.897082+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "us.narwal.com",
+          "url": "https://us.narwal.com/blogs/robot-vacuum/intelligent-dirt-detection?srsltid=AfmBOooZSFHJ2vRREhI8qnKiCaemjytD-BPEUHMOn1r0bHpaPWrmGrdU",
+          "title": "AI Dirt Detection in Robot Vacuums (2025)",
+          "snippet": "Robot vacuums equipped with AI-powered dirt detection use a combination of sensors and algorithms to understand where and how to clean. Through ...",
+          "displayed_link": "https://us.narwal.com \u203a blogs \u203a intelligent-dirt-detection"
+        },
+        {
+          "position": 2,
+          "domain": "mashable.com",
+          "url": "https://mashable.com/article/how-robot-vacuums-use-ai",
+          "title": "How robot vacuum AI features help to clean better and get ...",
+          "snippet": "AI dirt detection uses a mix of sensors and cameras to assess the mess at hand in real time and customize settings like suction power and scrubbing intensity or ...",
+          "displayed_link": "https://mashable.com \u203a Life \u203a House & Home"
+        },
+        {
+          "position": 3,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/RobotVacuums/comments/1meyf48/ai_navigation_obstacle_avoidance_are_the_most/",
+          "title": "AI Navigation & Obstacle Avoidance Are the Most Important ...",
+          "snippet": "AI Navigation & Obstacle Avoidance Are the Most Important Features in a Robot Vacuum. I fully expect a lot of you to disagree, but at this ...",
+          "displayed_link": "30+ comments \u00b7 9 months ago"
+        },
+        {
+          "position": 4,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=YSx_W-3MFIo",
+          "title": "Reality AI Vacuum Floor Type Detection Solution",
+          "snippet": "Demo of the vacuum cleaner floor type detection application example that detects different surface textures with a trained classifier to ...",
+          "displayed_link": "150+ views \u00b7 9 months ago"
+        },
+        {
+          "position": 5,
+          "domain": "fieldfix.ai",
+          "url": "https://fieldfix.ai/ai-diagnostics",
+          "title": "AI Diagnostics \u2014 Fix Problems Faster",
+          "snippet": "AI-powered diagnostics for heavy equipment. Describe symptoms or upload a photo to get instant diagnosis, repair steps, tools needed, and cost estimates.",
+          "displayed_link": "https://fieldfix.ai \u203a ai-diagnostics"
+        },
+        {
+          "position": 6,
+          "domain": "therobotreport.com",
+          "url": "https://www.therobotreport.com/sensor-breakdown-how-robot-vacuums-navigate-and-clean/",
+          "title": "Sensor breakdown: how robot vacuums navigate",
+          "snippet": "Beamforming is a type of radio frequency (RF) management technique that focuses the noise signal towards the microphone in combination with AI ...",
+          "displayed_link": "https://www.therobotreport.com \u203a sensor-breakdown-h..."
+        },
+        {
+          "position": 7,
+          "domain": "pcmag.com",
+          "url": "https://www.pcmag.com/about/how-we-test-robot-vacuums",
+          "title": "How We Test Robot Vacuums",
+          "snippet": "We test dozens of robot vacuums each year, in our actual homes, and evaluate them on criteria such as battery life, design, ease of setup and use, navigation, ...",
+          "displayed_link": "https://www.pcmag.com \u203a ... \u203a Robot Vacuums"
+        },
+        {
+          "position": 8,
+          "domain": "eufy.com",
+          "url": "https://www.eufy.com/blogs/robovac/ai-robot-vacuum",
+          "title": "AI Robot Vacuum Cleaner Explained: Find the Best Picks",
+          "snippet": "Discover how an AI robot vacuum cleaner works and the technology behind it. Compare the features to explore the best eufy picks for ...",
+          "displayed_link": "https://www.eufy.com \u203a Blogs \u203a Robovac"
+        },
+        {
+          "position": 9,
+          "domain": "tomshardware.com",
+          "url": "https://www.tomshardware.com/tech-industry/artificial-intelligence/stressed-out-llm-powered-robot-vacuum-cleaner-goes-into-meltdown-during-simple-butter-delivery-experiment-im-afraid-i-cant-do-that-dave",
+          "title": "Stressed-out AI-powered robot vacuum cleaner goes into ...",
+          "snippet": "Stressed-out AI-powered robot vacuum cleaner ... AI tool caught repurposing its training GPUs for unauthorized crypto mining during testing.",
+          "displayed_link": "https://www.tomshardware.com \u203a artificial-intelligence"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "Are AI vacuums worth it?",
+          "What is the best vacuum AI?",
+          "Can you use AI to diagnose?",
+          "Which type of AI is used in vacuum cleaners?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 3
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "best AI vacuum cleaners",
+      "fetched_at": "2026-05-16T20:28:14.160087+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "vacuumwars.com",
+          "url": "https://vacuumwars.com/vacuum-wars-best-robot-vacuums/",
+          "title": "Top 20 Best Robot Vacuums in 2026",
+          "snippet": "At the top of the list, the Dreame X60 Max Ultra Complete held onto the number one overall position, continuing to deliver one of the most consistent all-around ...",
+          "displayed_link": "https://vacuumwars.com \u203a ... \u203a Best Vacuum Cleaners"
+        },
+        {
+          "position": 2,
+          "domain": "nytimes.com",
+          "url": "https://www.nytimes.com/wirecutter/reviews/best-robot-vacuum/",
+          "title": "The Best Robot Vacuums of 2026 | Reviews by Wirecutter",
+          "snippet": "It's a quick, effective, and nimble cleaner. Equipped with lidar-assisted mapping and navigation, the RV30 Max Plus is able to quickly map ...",
+          "displayed_link": "https://www.nytimes.com \u203a ... \u203a Vacuum cleaners"
+        },
+        {
+          "position": 3,
+          "domain": "pcmag.com",
+          "url": "https://www.pcmag.com/picks/the-best-robot-vacuums",
+          "title": "The Best Robot Vacuums We've Tested (May 2026)",
+          "snippet": "Our Top Tested Picks \u00b7 Ecovacs Deebot X8 Pro Omni \u00b7 iRobot Roomba j9+ \u00b7 TP-Link Tapo RV30 Max Plus \u00b7 Ecovacs Deebot Ozmo N8 Pro+ \u00b7 Ecovacs Deebot X11 ...",
+          "displayed_link": "https://www.pcmag.com \u203a ... \u203a Robot Vacuums"
+        },
+        {
+          "position": 4,
+          "domain": "amazon.com",
+          "url": "https://www.amazon.com/Best-Sellers-Robotic-Vacuums/zgbs/home-garden/3743561",
+          "title": "Best Robotic Vacuums",
+          "snippet": "Discover the best Robotic Vacuums in Best Sellers. Find the top 100 most popular items in Amazon Home & Kitchen Best Sellers.",
+          "displayed_link": "https://www.amazon.com \u203a zgbs \u203a home-garden"
+        },
+        {
+          "position": 5,
+          "domain": "thesmarthomehookup.com",
+          "url": "https://www.thesmarthomehookup.com/the-best-300-600-robot-vacuums-they-beat-the-flagships/",
+          "title": "The Best $300\u2013$600 Robot Vacuums \u2013 They Beat ...",
+          "snippet": "Compared with my current top-of-the-line recommendation, the Roborock Saros 10R's 22,000 pascals, these mid-tier vacuums range from 7000-19,000 pascals. But in ...",
+          "displayed_link": "https://www.thesmarthomehookup.com \u203a the-best-300-..."
+        },
+        {
+          "position": 6,
+          "domain": "consumerreports.org",
+          "url": "https://www.consumerreports.org/appliances/vacuum-cleaners/best-robotic-vacuum-mop-combos-a7474187257/",
+          "title": "Best Robotic Vacuum-Mop Combos, Lab-Tested and ...",
+          "snippet": "For this review of the best robotic vacuum-mop combos, we tested models from Dreame, Ecovacs, iRobot, Roborock, and more to see which cleans ...",
+          "displayed_link": "https://www.consumerreports.org \u203a ... \u203a Vacuum Cleaners"
+        },
+        {
+          "position": 7,
+          "domain": "zdnet.com",
+          "url": "https://www.zdnet.com/home-and-office/kitchen-household/ive-tested-dozens-of-robot-vacuums-but-these-three-are-my-favorites/",
+          "title": "I've tested dozens of robot vacuums. These are the three I ...",
+          "snippet": "The Roborock Saros 10R is truly one of the best robot vacuums I've ever used -- it won our Editors' Choice award, after all. It has 22,000Pa of ...",
+          "displayed_link": "https://www.zdnet.com \u203a ... \u203a Robot vacuums"
+        },
+        {
+          "position": 8,
+          "domain": "target.com",
+          "url": "https://www.target.com/s/best+ai+robot+vacuum",
+          "title": "Best AI Robot Vacuums: Top Picks with Smart Navigation",
+          "snippet": "Discover the best AI robot vacuums with smart navigation, HEPA filters, and pet hair pickup. Top-rated models like Shark, Roborock, and Dyson offer powerful ...",
+          "displayed_link": "https://www.target.com \u203a Home & Decor"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "Are AI vacuums worth it?",
+          "What is the name of the famous AI powered vacuum cleaner?",
+          "What is one of the best robot vacuum cleaners?",
+          "Which brand is best for robot vacuums?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "how AI improves vacuum performance",
+      "fetched_at": "2026-05-16T20:28:17.927043+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "lxvacuum.com",
+          "url": "https://lxvacuum.com/article-details/Artificial_Intelligence_on_the_Efficiency_of_Vacuum_Cleaners.html",
+          "title": "AI Impact on Efficient Vacuum Cleaners | J11",
+          "snippet": "According to MIT Technology Review, AI-driven navigation has increased vacuuming efficiency by up to 40% in complex home environments. 2.",
+          "displayed_link": "https://lxvacuum.com \u203a article-details \u203a Artificial_Intellig..."
+        },
+        {
+          "position": 2,
+          "domain": "mashable.com",
+          "url": "https://mashable.com/article/how-robot-vacuums-use-ai",
+          "title": "How robot vacuum AI features help to clean better and get ...",
+          "snippet": "When a robot vacuum approaches a small or flat object, AI acts as a live set of eyes to detect the obstacle and clean around it in real time. These vacuums tell ...",
+          "displayed_link": "https://mashable.com \u203a Life \u203a House & Home"
+        },
+        {
+          "position": 3,
+          "domain": "einnosys.com",
+          "url": "https://www.einnosys.com/vacuum-pump-monitoring-systems-ensuring-performance-and-reliability-with-ai/",
+          "title": "Vacuum Pump Monitoring Systems with AI",
+          "snippet": "Discover how AI-powered vacuum pump monitoring systems optimize reliability, reduce downtime, and enable predictive maintenance in smart ...",
+          "displayed_link": "https://www.einnosys.com \u203a vacuum-pump-monitoring..."
+        },
+        {
+          "position": 4,
+          "domain": "avac.com",
+          "url": "https://avac.com/blog/ai-and-the-future-of-vacuum-pumps/?srsltid=AfmBOopeMZs9p15jYFViWOLfDkQlFuCNSx-HPXjjzDmNV7J6fy8O5KY9",
+          "title": "AI and the Future of Vacuum Pumps Explained",
+          "snippet": "Using AI-based simulations, companies can model their vacuum pumps' operations to optimize performance and test system configuration. This way, ...",
+          "displayed_link": "https://avac.com \u203a BLOG \u203a Blog"
+        },
+        {
+          "position": 5,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/RobotVacuums/comments/1meyf48/ai_navigation_obstacle_avoidance_are_the_most/",
+          "title": "AI Navigation & Obstacle Avoidance Are the Most Important ...",
+          "snippet": "Bottom line: If your robot vacuum doesn't have strong AI navigation and real-time obstacle avoidance, you're missing out. It's about having a ...",
+          "displayed_link": "30+ comments \u00b7 9 months ago"
+        },
+        {
+          "position": 6,
+          "domain": "umu.com",
+          "url": "https://www.umu.com/ask/q11122301573854381890",
+          "title": "How does AI technology enhance the performance of vacuum ...",
+          "snippet": "By employing AI learning, robot vacuums can analyze previous cleaning sessions and make adjustments to improve future performances. This results ...",
+          "displayed_link": "https://www.umu.com \u203a ask"
+        },
+        {
+          "position": 7,
+          "domain": "de.lefant.com",
+          "url": "https://de.lefant.com/blogs/reviews/how-ai-is-transforming",
+          "title": "How AI Is Transforming Robot Vacuum Cleaners and ... - Lefant",
+          "snippet": "AI helps your robot ... For most users, the added convenience, performance, and time-saving benefits make AI vacuums a worthy investment.",
+          "displayed_link": "https://de.lefant.com \u203a blogs \u203a reviews \u203a how-ai-is-transf..."
+        },
+        {
+          "position": 8,
+          "domain": "fluxmagazine.com",
+          "url": "https://www.fluxmagazine.com/robot-vacuums-use-ai-improve-capabilities/",
+          "title": "How robot vacuums use AI to improve their capabilities?",
+          "snippet": "AI also allows these vacuums to plan their cleaning routes intelligently. Instead of moving randomly, they follow systematic patterns to ensure thorough ...",
+          "displayed_link": "https://www.fluxmagazine.com \u203a robot-vacuums-use-ai..."
+        },
+        {
+          "position": 9,
+          "domain": "mdpi.com",
+          "url": "https://www.mdpi.com/2673-2688/4/3/29",
+          "title": "High-Performance and Lightweight AI Model for Robot ...",
+          "snippet": "The use of AI techniques helps to ensure that robot vacuum cleaners clean all room areas and avoid becoming stuck or damaging anything. To date, ...",
+          "displayed_link": "https://www.mdpi.com \u203a ..."
+        },
+        {
+          "position": 10,
+          "domain": "us.narwal.com",
+          "url": "https://us.narwal.com/blogs/robot-vacuum/intelligent-dirt-detection?srsltid=AfmBOoppw6o-6RFvy364XnI0hW-7JD0miTGmOL0UpcNSjE6bCyOLhJeB",
+          "title": "AI Dirt Detection in Robot Vacuums (2025)",
+          "snippet": "AI vacuums analyze your home's layout and identify high-dirt zones like kitchens or hallways. Over time, they learn to clean these areas first ...",
+          "displayed_link": "https://us.narwal.com \u203a blogs \u203a intelligent-dirt-detection"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "Which city is called AI City?",
+          "What did Stephen Hawking say about AI before he died?",
+          "How does artificial intelligence improve the performance of robotic vacuum cleaners?",
+          "Which 3 jobs will survive AI?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 5
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "AI vacuum troubleshooting tips",
+      "fetched_at": "2026-05-16T20:28:24.684413+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "ecovacs.com",
+          "url": "https://www.ecovacs.com/us/blog/why-does-my-robot-vacuum-keep-stopping-troubleshooting",
+          "title": "Why Your Robot Vacuum Keeps Stopping (And How to Fix It)",
+          "snippet": "Tips For Troubleshooting A Frequently Stopping Robot Vacuum \u00b7 Step 1: Check Battery Levels and Charging \u00b7 Step 2: Inspect And Clean Sensors \u00b7 Step ...",
+          "displayed_link": "https://www.ecovacs.com \u203a home \u203a blog"
+        },
+        {
+          "position": 2,
+          "domain": "ca.narwal.com",
+          "url": "https://ca.narwal.com/blogs/product/robot-vacuum-cleaner-problems-solutions?srsltid=AfmBOor_N5jwgbVB9png7wQD5WsrBr7TqDc5AECuKMtGCCyCHNxGjXNL",
+          "title": "Troubleshooting Common Robot Vacuum Cleaner ...",
+          "snippet": "Clean the Sensors: Dirty or obstructed sensors can make the vacuum miss certain spots. Wipe them clean using a soft cloth. \u00b7 Improve Lighting: ...",
+          "displayed_link": "https://ca.narwal.com \u203a blogs \u203a product \u203a robot-vacuum-..."
+        },
+        {
+          "position": 3,
+          "domain": "techsalesonline.com.au",
+          "url": "https://techsalesonline.com.au/blogs/articles/common-robot-vacuum-problems-and-how-to-fix-them-yourself?srsltid=AfmBOopg912wWEvSTwy8JN95wDXo5t2TAOkSZad-LGVpFUWEQo0OT5JJ",
+          "title": "Common Robot Vacuum Problems and How to Fix Them ...",
+          "snippet": "If your robovac isn't cleaning properly, the most common causes of this problem include obstructed sensors, full dustbins, and dirty brushes.",
+          "displayed_link": "https://techsalesonline.com.au \u203a blogs \u203a articles \u203a comm..."
+        },
+        {
+          "position": 4,
+          "domain": "support.sharkninja.com",
+          "url": "https://support.sharkninja.com/article/RV2500AE-Series-Shark-AI-Ultra-Robot-Vacuum-with-XL-HEPA-Self-Empty-Base-Troubleshooting-Guide",
+          "title": "RV2500AE Series Shark\u00ae AI Ultra Robot Vacuum with XL ...",
+          "snippet": "RV2500AE Series Shark\u00ae AI Ultra Robot Vacuum with XL HEPA Self-Empty Base - Troubleshooting Guide. This article supports the following models ...",
+          "displayed_link": "https://support.sharkninja.com \u203a article \u203a RV2500AE-S..."
+        },
+        {
+          "position": 5,
+          "domain": "robotspecialist.com.au",
+          "url": "https://www.robotspecialist.com.au/blogs/news/troubleshooting-common-robot-vacuum-issues?srsltid=AfmBOooYs4UAo584Y5ulViyJGy8SCVR_O-mdTqnw3k9BesO2Xy9Ep-ww",
+          "title": "Troubleshooting Common Robot Vacuum Issues",
+          "snippet": "We've compiled all the most common issues with robot vacuums and their solutions. If yours is looking under the weather, read on and play robot doctor at home.",
+          "displayed_link": "https://www.robotspecialist.com.au \u203a blogs \u203a news \u203a tro..."
+        },
+        {
+          "position": 6,
+          "domain": "mashable.com",
+          "url": "https://mashable.com/article/why-did-my-robot-vacuum-stop-working",
+          "title": "Why your robot vacuum stopped working",
+          "snippet": "Check the dust bins and dust pathways: A full dustbin is probably the most \"duh\" maintenance issue that might cause your robot vacuum to spit debris back out.",
+          "displayed_link": "https://mashable.com \u203a Life \u203a House & Home"
+        },
+        {
+          "position": 7,
+          "domain": "eufy.com",
+          "url": "https://www.eufy.com/blogs/robovac/robot-vacuum-troubleshooting",
+          "title": "Robot Vacuum Troubleshooting for Common Problems",
+          "snippet": "Discover expert tips and step-by-step solutions for robot vacuum troubleshooting. Fix charging, power, and connectivity issues today.",
+          "displayed_link": "https://www.eufy.com \u203a Blogs \u203a Robovac"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "How to reboot Shark AI vacuum?",
+          "What's wrong with my robot vacuum?",
+          "Where is the reset button on my robot vacuum?",
+          "What's the life expectancy of a robot vacuum?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "AI vacuum maintenance guide",
+      "fetched_at": "2026-05-16T20:28:31.748289+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "vacuumwars.com",
+          "url": "https://vacuumwars.com/robot-vacuum-maintenance/",
+          "title": "Robot Vacuum Maintenance Guide for Peak Performance",
+          "snippet": "Keep your robot running like new with simple robot vacuum maintenance tips. Learn how to care for parts to boost performance and lifespan.",
+          "displayed_link": "https://vacuumwars.com \u203a ... \u203a Robot Vacuum News"
+        },
+        {
+          "position": 2,
+          "domain": "us.narwal.com",
+          "url": "https://us.narwal.com/blogs/product/how-maintain-robot-vacuum?srsltid=AfmBOop9Co2ayjCLNFQPWyXUuyNGLxWf8yUqgkNjgB2ac9VKaOJ16LMr",
+          "title": "Robot Vacuum Maintenance Tips: Cleaning & Lifespan ...",
+          "snippet": "Keep your robot vacuum running smoothly with easy cleaning tips, care hacks, and lifespan advice to reduce repairs and boost performance.",
+          "displayed_link": "https://us.narwal.com \u203a how-maintain-robot-vacuum"
+        },
+        {
+          "position": 3,
+          "domain": "ecovacs.com",
+          "url": "https://www.ecovacs.com/us/blog/how-to-clean-robot-vacuum-cleaner",
+          "title": "How To Clean Robot Vacuums (With Maintenance Tips)",
+          "snippet": "Every 3-6 months: Replace worn-out parts like the antibacterial dust bag, filters and brushes. Step 1. Power Down the Robot Vacuum. Before ...",
+          "displayed_link": "https://www.ecovacs.com \u203a home \u203a blog"
+        },
+        {
+          "position": 4,
+          "domain": "dreametech.com",
+          "url": "https://www.dreametech.com/blogs/blog/the-lazy-persons-guide-to-keeping-your-robot-vacuum-in-top-shape-8-simple-tips",
+          "title": "Robot Vacuum Maintenance Tips: Keep Your ... - Dreame",
+          "snippet": "Want your robot vacuum to work flawlessly? Follow these 8 easy maintenance tips and enjoy hassle-free cleaning every day. Say goodbye to clogs and issues!",
+          "displayed_link": "https://www.dreametech.com \u203a Blogs | Dreame US"
+        },
+        {
+          "position": 5,
+          "domain": "cnet.com",
+          "url": "https://www.cnet.com/home/kitchen-and-household/how-to-clean-robot-vacuum/",
+          "title": "A Deep-Clean Is Essential to Keep Your Expensive Robot ...",
+          "snippet": "You don't need to splurge on special cleaning kits. Here's how you can deep-clean your robot vacuum in minutes using simple household items.",
+          "displayed_link": "https://www.cnet.com \u203a ... \u203a Vacuum Cleaners"
+        },
+        {
+          "position": 6,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=wCEHyGlm7mk",
+          "title": "How to Clean a Robotic Vacuum | Consumer Reports",
+          "snippet": "The experts at Consumer Reports show you weekly maintenance tasks to keep your robotic vacuum running smoothly. ... Robot Vacuum Buying Guide!",
+          "displayed_link": "48.8K+ views \u00b7 5 years ago"
+        },
+        {
+          "position": 7,
+          "domain": "honiture.com",
+          "url": "https://honiture.com/blogs/home-cleaning/daily-maintenance-guide-for-robotic-vacuums?srsltid=AfmBOoq07cyHaJoKrTl1Lft0MkFeCu0ZQ4W0x2QAFRGpHRRc2WWJwp2x",
+          "title": "Daily Maintenance Guide for Robotic Vacuums",
+          "snippet": "Common Maintenance Guide for Robotic Vacuum: \u00b7 1. Clean the Brushes \u00b7 2. Clean the Vacuum Filter \u00b7 3. Empty the Dustbin \u00b7 4. Clean the Wheels \u00b7 5.",
+          "displayed_link": "https://honiture.com \u203a blogs \u203a home-cleaning \u203a daily-ma..."
+        },
+        {
+          "position": 8,
+          "domain": "eurekaforbes.com",
+          "url": "https://www.eurekaforbes.com/blog/robotic-vacuum-cleaner-maintenance-tips.html?srsltid=AfmBOoqwQFdurhXZY835mUAldhWpgYerFncIFXTdFw4OgeOb-xCSNrJD",
+          "title": "Robotic Vacuum Cleaner Maintenance: Tips for a Smooth- ...",
+          "snippet": "In this guide, we'll cover essential maintenance tips, troubleshooting advice, and how to choose the right model for your needs.",
+          "displayed_link": "https://www.eurekaforbes.com \u203a blog \u203a robotic-vacuum-..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    }
+  ],
+  "fetch_errors": [],
+  "from_cache": false,
+  "gates": {
+    "gate_1_market": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "2,350 SV/month after pollution adjustment (LLM estimate, low-confidence)"
+      ],
+      "raw": {
+        "pollution_adjusted_volume": 2350,
+        "total_volume": 2350,
+        "polluted_queries": [],
+        "unpolluted_queries": [
+          "AI vacuum diagnostics",
+          "best AI vacuum cleaners",
+          "how AI improves vacuum performance",
+          "AI vacuum troubleshooting tips",
+          "AI vacuum maintenance guide"
+        ],
+        "per_query_volumes": {
+          "AI vacuum diagnostics": 300,
+          "best AI vacuum cleaners": 1200,
+          "how AI improves vacuum performance": 400,
+          "AI vacuum troubleshooting tips": 250,
+          "AI vacuum maintenance guide": 200
+        },
+        "topic_stems": [
+          "ai",
+          "diagnostic",
+          "vacuum"
+        ],
+        "threshold": 5000,
+        "synthesis_only": false
+      }
+    },
+    "gate_2_serp": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "programmatic at scale: us.narwal.com (3/5 queries)",
+        "programmatic at scale: mashable.com (3/5 queries)",
+        "AI Overview dominant: 5/5 queries",
+        "locked intent: Reddit (2 queries) + major media (2 queries)",
+        "26 potentially beatable results"
+      ],
+      "raw": {
+        "classifications": {
+          "specialty_incumbent": {
+            "present": false,
+            "incumbents": {}
+          },
+          "programmatic_at_scale": {
+            "present": true,
+            "incumbents": {
+              "us.narwal.com": [
+                "AI vacuum diagnostics",
+                "AI vacuum maintenance guide",
+                "how AI improves vacuum performance"
+              ],
+              "mashable.com": [
+                "AI vacuum diagnostics",
+                "AI vacuum troubleshooting tips",
+                "how AI improves vacuum performance"
+              ]
+            }
+          },
+          "ai_overview_dominant": {
+            "dominant": true,
+            "queries": [
+              "AI vacuum diagnostics",
+              "best AI vacuum cleaners",
+              "how AI improves vacuum performance",
+              "AI vacuum troubleshooting tips",
+              "AI vacuum maintenance guide"
+            ],
+            "count": 5
+          },
+          "media_locked": {
+            "locked": true,
+            "queries": {
+              "AI vacuum diagnostics": [
+                "tomshardware.com"
+              ],
+              "best AI vacuum cleaners": [
+                "nytimes.com",
+                "zdnet.com"
+              ]
+            },
+            "count": 2,
+            "verticals": [
+              "general_news",
+              "tech"
+            ]
+          },
+          "reddit_present": {
+            "present": true,
+            "queries": [
+              "AI vacuum diagnostics",
+              "how AI improves vacuum performance"
+            ]
+          },
+          "potentially_beatable": {
+            "count": 26,
+            "domains": [
+              {
+                "domain": "youtube.com",
+                "query": "AI vacuum diagnostics",
+                "title": "Reality AI Vacuum Floor Type Detection Solution"
+              },
+              {
+                "domain": "fieldfix.ai",
+                "query": "AI vacuum diagnostics",
+                "title": "AI Diagnostics \u2014 Fix Problems Faster"
+              },
+              {
+                "domain": "therobotreport.com",
+                "query": "AI vacuum diagnostics",
+                "title": "Sensor breakdown: how robot vacuums navigate"
+              },
+              {
+                "domain": "pcmag.com",
+                "query": "AI vacuum diagnostics",
+                "title": "How We Test Robot Vacuums"
+              },
+              {
+                "domain": "eufy.com",
+                "query": "AI vacuum diagnostics",
+                "title": "AI Robot Vacuum Cleaner Explained: Find the Best Picks"
+              },
+              {
+                "domain": "vacuumwars.com",
+                "query": "best AI vacuum cleaners",
+                "title": "Top 20 Best Robot Vacuums in 2026"
+              },
+              {
+                "domain": "amazon.com",
+                "query": "best AI vacuum cleaners",
+                "title": "Best Robotic Vacuums"
+              },
+              {
+                "domain": "thesmarthomehookup.com",
+                "query": "best AI vacuum cleaners",
+                "title": "The Best $300\u2013$600 Robot Vacuums \u2013 They Beat ..."
+              },
+              {
+                "domain": "consumerreports.org",
+                "query": "best AI vacuum cleaners",
+                "title": "Best Robotic Vacuum-Mop Combos, Lab-Tested and ..."
+              },
+              {
+                "domain": "target.com",
+                "query": "best AI vacuum cleaners",
+                "title": "Best AI Robot Vacuums: Top Picks with Smart Navigation"
+              },
+              {
+                "domain": "lxvacuum.com",
+                "query": "how AI improves vacuum performance",
+                "title": "AI Impact on Efficient Vacuum Cleaners | J11"
+              },
+              {
+                "domain": "einnosys.com",
+                "query": "how AI improves vacuum performance",
+                "title": "Vacuum Pump Monitoring Systems with AI"
+              },
+              {
+                "domain": "avac.com",
+                "query": "how AI improves vacuum performance",
+                "title": "AI and the Future of Vacuum Pumps Explained"
+              },
+              {
+                "domain": "umu.com",
+                "query": "how AI improves vacuum performance",
+                "title": "How does AI technology enhance the performance of vacuum ..."
+              },
+              {
+                "domain": "de.lefant.com",
+                "query": "how AI improves vacuum performance",
+                "title": "How AI Is Transforming Robot Vacuum Cleaners and ... - Lefant"
+              },
+              {
+                "domain": "fluxmagazine.com",
+                "query": "how AI improves vacuum performance",
+                "title": "How robot vacuums use AI to improve their capabilities?"
+              },
+              {
+                "domain": "mdpi.com",
+                "query": "how AI improves vacuum performance",
+                "title": "High-Performance and Lightweight AI Model for Robot ..."
+              },
+              {
+                "domain": "ecovacs.com",
+                "query": "AI vacuum troubleshooting tips",
+                "title": "Why Your Robot Vacuum Keeps Stopping (And How to Fix It)"
+              },
+              {
+                "domain": "ca.narwal.com",
+                "query": "AI vacuum troubleshooting tips",
+                "title": "Troubleshooting Common Robot Vacuum Cleaner ..."
+              },
+              {
+                "domain": "techsalesonline.com.au",
+                "query": "AI vacuum troubleshooting tips",
+                "title": "Common Robot Vacuum Problems and How to Fix Them ..."
+              },
+              {
+                "domain": "support.sharkninja.com",
+                "query": "AI vacuum troubleshooting tips",
+                "title": "RV2500AE Series Shark\u00ae AI Ultra Robot Vacuum with XL ..."
+              },
+              {
+                "domain": "robotspecialist.com.au",
+                "query": "AI vacuum troubleshooting tips",
+                "title": "Troubleshooting Common Robot Vacuum Issues"
+              },
+              {
+                "domain": "dreametech.com",
+                "query": "AI vacuum maintenance guide",
+                "title": "Robot Vacuum Maintenance Tips: Keep Your ... - Dreame"
+              },
+              {
+                "domain": "cnet.com",
+                "query": "AI vacuum maintenance guide",
+                "title": "A Deep-Clean Is Essential to Keep Your Expensive Robot ..."
+              },
+              {
+                "domain": "honiture.com",
+                "query": "AI vacuum maintenance guide",
+                "title": "Daily Maintenance Guide for Robotic Vacuums"
+              },
+              {
+                "domain": "eurekaforbes.com",
+                "query": "AI vacuum maintenance guide",
+                "title": "Robotic Vacuum Cleaner Maintenance: Tips for a Smooth- ..."
+              }
+            ]
+          }
+        },
+        "kill_tier_reasons": [
+          "programmatic_at_scale",
+          "reddit_and_media_locked"
+        ],
+        "synthesis_only": false
+      }
+    },
+    "gate_3_moat": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "no moat provided"
+      ],
+      "raw": {
+        "required": true,
+        "moat_sentence": null
+      }
+    }
+  },
+  "operator_fit": {
+    "warnings": [
+      "Operator lacks declared expertise; narrow to tool/data wedge.",
+      "Cadence: weekly. Niche metrics move monthly+. Watch motivation."
+    ],
+    "auto_fail_gate_2": true
+  },
+  "verdict": "NO-GO",
+  "suggested_reductions": [],
+  "moat_required": true,
+  "moat_provided": null
+}

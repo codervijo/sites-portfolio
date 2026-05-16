@@ -1,0 +1,108 @@
+{
+  "schema": "serp-query-v1",
+  "query": "AI vacuum diagnostics",
+  "fetched_at": "2026-05-16T20:28:03.897082+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "us.narwal.com",
+      "url": "https://us.narwal.com/blogs/robot-vacuum/intelligent-dirt-detection?srsltid=AfmBOooZSFHJ2vRREhI8qnKiCaemjytD-BPEUHMOn1r0bHpaPWrmGrdU",
+      "title": "AI Dirt Detection in Robot Vacuums (2025)",
+      "snippet": "Robot vacuums equipped with AI-powered dirt detection use a combination of sensors and algorithms to understand where and how to clean. Through ...",
+      "displayed_link": "https://us.narwal.com \u203a blogs \u203a intelligent-dirt-detection"
+    },
+    {
+      "position": 2,
+      "domain": "mashable.com",
+      "url": "https://mashable.com/article/how-robot-vacuums-use-ai",
+      "title": "How robot vacuum AI features help to clean better and get ...",
+      "snippet": "AI dirt detection uses a mix of sensors and cameras to assess the mess at hand in real time and customize settings like suction power and scrubbing intensity or ...",
+      "displayed_link": "https://mashable.com \u203a Life \u203a House & Home"
+    },
+    {
+      "position": 3,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/RobotVacuums/comments/1meyf48/ai_navigation_obstacle_avoidance_are_the_most/",
+      "title": "AI Navigation & Obstacle Avoidance Are the Most Important ...",
+      "snippet": "AI Navigation & Obstacle Avoidance Are the Most Important Features in a Robot Vacuum. I fully expect a lot of you to disagree, but at this ...",
+      "displayed_link": "30+ comments \u00b7 9 months ago"
+    },
+    {
+      "position": 4,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=YSx_W-3MFIo",
+      "title": "Reality AI Vacuum Floor Type Detection Solution",
+      "snippet": "Demo of the vacuum cleaner floor type detection application example that detects different surface textures with a trained classifier to ...",
+      "displayed_link": "150+ views \u00b7 9 months ago"
+    },
+    {
+      "position": 5,
+      "domain": "fieldfix.ai",
+      "url": "https://fieldfix.ai/ai-diagnostics",
+      "title": "AI Diagnostics \u2014 Fix Problems Faster",
+      "snippet": "AI-powered diagnostics for heavy equipment. Describe symptoms or upload a photo to get instant diagnosis, repair steps, tools needed, and cost estimates.",
+      "displayed_link": "https://fieldfix.ai \u203a ai-diagnostics"
+    },
+    {
+      "position": 6,
+      "domain": "therobotreport.com",
+      "url": "https://www.therobotreport.com/sensor-breakdown-how-robot-vacuums-navigate-and-clean/",
+      "title": "Sensor breakdown: how robot vacuums navigate",
+      "snippet": "Beamforming is a type of radio frequency (RF) management technique that focuses the noise signal towards the microphone in combination with AI ...",
+      "displayed_link": "https://www.therobotreport.com \u203a sensor-breakdown-h..."
+    },
+    {
+      "position": 7,
+      "domain": "pcmag.com",
+      "url": "https://www.pcmag.com/about/how-we-test-robot-vacuums",
+      "title": "How We Test Robot Vacuums",
+      "snippet": "We test dozens of robot vacuums each year, in our actual homes, and evaluate them on criteria such as battery life, design, ease of setup and use, navigation, ...",
+      "displayed_link": "https://www.pcmag.com \u203a ... \u203a Robot Vacuums"
+    },
+    {
+      "position": 8,
+      "domain": "eufy.com",
+      "url": "https://www.eufy.com/blogs/robovac/ai-robot-vacuum",
+      "title": "AI Robot Vacuum Cleaner Explained: Find the Best Picks",
+      "snippet": "Discover how an AI robot vacuum cleaner works and the technology behind it. Compare the features to explore the best eufy picks for ...",
+      "displayed_link": "https://www.eufy.com \u203a Blogs \u203a Robovac"
+    },
+    {
+      "position": 9,
+      "domain": "tomshardware.com",
+      "url": "https://www.tomshardware.com/tech-industry/artificial-intelligence/stressed-out-llm-powered-robot-vacuum-cleaner-goes-into-meltdown-during-simple-butter-delivery-experiment-im-afraid-i-cant-do-that-dave",
+      "title": "Stressed-out AI-powered robot vacuum cleaner goes into ...",
+      "snippet": "Stressed-out AI-powered robot vacuum cleaner ... AI tool caught repurposing its training GPUs for unauthorized crypto mining during testing.",
+      "displayed_link": "https://www.tomshardware.com \u203a artificial-intelligence"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Are AI vacuums worth it?",
+      "What is the best vacuum AI?",
+      "Can you use AI to diagnose?",
+      "Which type of AI is used in vacuum cleaners?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 3
+    }
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "topic": "Earnings intelligence + collective bargaining tools for 800K CA rideshare drivers",
+  "topic_normalized": "earnings intelligence + collective bargaining tools for 800k ca rideshare drivers",
+  "topic_hash": "fdb6ce9ba5af",
+  "mode": "cluster",
+  "fetched_at": "2026-05-16T22:08:21.113842+00:00",
+  "model": "gpt-4o-mini",
+  "knowledge_caveat": "AI synthesis from training data, not real-time SERP",
+  "analysis": {
+    "cluster_queries": [
+      "Earnings intelligence for 800K CA rideshare drivers",
+      "collective bargaining tools for rideshare drivers",
+      "how to negotiate rideshare driver earnings",
+      "impact of collective bargaining on rideshare drivers",
+      "best practices for rideshare driver earnings"
+    ],
+    "top_likely_rankers": [
+      {
+        "domain": "ridesharehub.com",
+        "type": "publisher-listicle",
+        "intent": "informational",
+        "frequency": 5
+      },
+      {
+        "domain": "forbes.com",
+        "type": "news",
+        "intent": "informational",
+        "frequency": 4
+      },
+      {
+        "domain": "laborrelations.org",
+        "type": "institutional",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "driversunion.org",
+        "type": "community",
+        "intent": "informational",
+        "frequency": 3
+      },
+      {
+        "domain": "marketwatch.com",
+        "type": "news",
+        "intent": "informational",
+        "frequency": 2
+      },
+      {
+        "domain": "uber.com",
+        "type": "vendor-published",
+        "intent": "navigational",
+        "frequency": 2
+      },
+      {
+        "domain": "lyft.com",
+        "type": "vendor-published",
+        "intent": "navigational",
+        "frequency": 2
+      },
+      {
+        "domain": "nolo.com",
+        "type": "documentation",
+        "intent": "informational",
+        "frequency": 1
+      },
+      {
+        "domain": "california.gov",
+        "type": "institutional",
+        "intent": "informational",
+        "frequency": 1
+      },
+      {
+        "domain": "theverge.com",
+        "type": "news",
+        "intent": "informational",
+        "frequency": 1
+      }
+    ],
+    "content_patterns": [
+      "Guides on collective bargaining for gig workers",
+      "Analysis of earnings trends in rideshare",
+      "Case studies on successful negotiations",
+      "Tools and resources for rideshare drivers",
+      "News articles on labor rights and gig economy"
+    ],
+    "competitive_signal": {
+      "saturation": "medium-high",
+      "ymyl_flag": false,
+      "barrier": "The presence of established news and community sites makes entry challenging."
+    },
+    "suggested_angles": [
+      "Highlight success stories of collective bargaining in rideshare",
+      "Provide tools for drivers to track and analyze their earnings",
+      "Discuss the legal implications of collective bargaining for gig workers"
+    ],
+    "per_query_summary": [
+      {
+        "query": "Earnings intelligence for 800K CA rideshare drivers",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "collective bargaining tools for rideshare drivers",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "how to negotiate rideshare driver earnings",
+        "decision_hint": "ship",
+        "ymyl": false
+      },
+      {
+        "query": "impact of collective bargaining on rideshare drivers",
+        "decision_hint": "mixed",
+        "ymyl": false
+      },
+      {
+        "query": "best practices for rideshare driver earnings",
+        "decision_hint": "ship",
+        "ymyl": false
+      }
+    ],
+    "decision": "mixed",
+    "reasoning": "While there is a clear interest in earnings intelligence and collective bargaining tools, the competitive landscape is saturated with established sources. A focused approach on unique angles may yield value, but the overall market presence suggests a cautious entry."
+  },
+  "from_cache": false
+}

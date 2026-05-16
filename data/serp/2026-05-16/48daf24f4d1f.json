@@ -1,0 +1,92 @@
+{
+  "schema": "serp-query-v1",
+  "query": "The AB 1043 compliance SDK every app developer needs before Jan 1, 2027",
+  "fetched_at": "2026-05-16T22:06:16.287780+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "loeb.com",
+      "url": "https://www.loeb.com/en/insights/publications/2025/12/app-store-age-verification-laws-trigger-new-federal-and-state-childrens-privacy-requirements",
+      "title": "App Store Age Verification Laws Trigger New Federal and ...",
+      "snippet": "Starting in January, three state app store age verification laws will take effect: Texas' App Store Accountability Act (effective Jan. 1), Utah's App Store ...",
+      "displayed_link": "https://www.loeb.com \u203a insights \u203a publications \u203a 2025/12"
+    },
+    {
+      "position": 2,
+      "domain": "legiscan.com",
+      "url": "https://legiscan.com/CA/text/AB1043/id/3269704",
+      "title": "Bill Text: CA AB1043 | 2025-2026 | Regular Session",
+      "snippet": "(a) With respect to a device for which account setup was completed before January 1, 2027, an operating system provider shall, before July 1, 2027, provide an ...",
+      "displayed_link": "https://legiscan.com \u203a text \u203a AB1043"
+    },
+    {
+      "position": 3,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/cybersecurity/comments/1rgh26h/a_new_california_law_says_all_operating_systems/",
+      "title": "A new California law says all operating systems, including ...",
+      "snippet": "... AB 1043 also requires OS providers to pipe a real-time age checker to every app developer who requests it. r/privacy - California introduces ...",
+      "displayed_link": "640+ comments \u00b7 2 months ago"
+    },
+    {
+      "position": 4,
+      "domain": "leginfo.legislature.ca.gov",
+      "url": "https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202520260AB1043",
+      "title": "Assembly Bill (AB) 1043 - California Legislative Information",
+      "snippet": "No information is available for this page.",
+      "displayed_link": "https://leginfo.legislature.ca.gov \u203a faces \u203a billTextClient"
+    },
+    {
+      "position": 5,
+      "domain": "alstonprivacy.com",
+      "url": "https://www.alstonprivacy.com/california-enacts-digital-age-verification-law/",
+      "title": "California Enacts Digital Age Verification Law",
+      "snippet": "Effective January 1, 2027, the Act introduces a device-based age verification system designed to create safer digital environments for children ...",
+      "displayed_link": "https://www.alstonprivacy.com \u203a california-enacts-digit..."
+    },
+    {
+      "position": 6,
+      "domain": "kairos.com",
+      "url": "https://www.kairos.com/post/ab-1043-is-coming-turn-californias-new-age-signal-into-safer-higher-converting-experiences",
+      "title": "AB 1043 Is Coming: Turn California's New Age Signal into ...",
+      "snippet": "The law's requirements kick in beginning January 1, 2027. For product leaders, this means you'll have a reliable, privacy-first way to know ...",
+      "displayed_link": "https://www.kairos.com \u203a post \u203a ab-1043-is-coming-tur..."
+    },
+    {
+      "position": 7,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/groups/poposlinux/posts/26113557134996628/",
+      "title": "California's age verification law impact on Linux",
+      "snippet": "Hey Pop community. I wrote something this week I think is worth your time, especially with the 24.04 upgrade coming and a lot of new people finding their ...",
+      "displayed_link": "10+ comments \u00b7 2 months ago"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "What is the CA assembly bill AB 1043?",
+      "Is California law to require Linux Windows implement age verification by Jan 1 2027?",
+      "What is the new age verification law in California?",
+      "Does the kids online safety act require age verification?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 3
+    }
+  }
+}

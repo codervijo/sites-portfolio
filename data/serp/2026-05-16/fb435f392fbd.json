@@ -1,0 +1,116 @@
+{
+  "schema": "serp-query-v1",
+  "query": "how AI improves vacuum performance",
+  "fetched_at": "2026-05-16T20:28:17.927043+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "lxvacuum.com",
+      "url": "https://lxvacuum.com/article-details/Artificial_Intelligence_on_the_Efficiency_of_Vacuum_Cleaners.html",
+      "title": "AI Impact on Efficient Vacuum Cleaners | J11",
+      "snippet": "According to MIT Technology Review, AI-driven navigation has increased vacuuming efficiency by up to 40% in complex home environments. 2.",
+      "displayed_link": "https://lxvacuum.com \u203a article-details \u203a Artificial_Intellig..."
+    },
+    {
+      "position": 2,
+      "domain": "mashable.com",
+      "url": "https://mashable.com/article/how-robot-vacuums-use-ai",
+      "title": "How robot vacuum AI features help to clean better and get ...",
+      "snippet": "When a robot vacuum approaches a small or flat object, AI acts as a live set of eyes to detect the obstacle and clean around it in real time. These vacuums tell ...",
+      "displayed_link": "https://mashable.com \u203a Life \u203a House & Home"
+    },
+    {
+      "position": 3,
+      "domain": "einnosys.com",
+      "url": "https://www.einnosys.com/vacuum-pump-monitoring-systems-ensuring-performance-and-reliability-with-ai/",
+      "title": "Vacuum Pump Monitoring Systems with AI",
+      "snippet": "Discover how AI-powered vacuum pump monitoring systems optimize reliability, reduce downtime, and enable predictive maintenance in smart ...",
+      "displayed_link": "https://www.einnosys.com \u203a vacuum-pump-monitoring..."
+    },
+    {
+      "position": 4,
+      "domain": "avac.com",
+      "url": "https://avac.com/blog/ai-and-the-future-of-vacuum-pumps/?srsltid=AfmBOopeMZs9p15jYFViWOLfDkQlFuCNSx-HPXjjzDmNV7J6fy8O5KY9",
+      "title": "AI and the Future of Vacuum Pumps Explained",
+      "snippet": "Using AI-based simulations, companies can model their vacuum pumps' operations to optimize performance and test system configuration. This way, ...",
+      "displayed_link": "https://avac.com \u203a BLOG \u203a Blog"
+    },
+    {
+      "position": 5,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/RobotVacuums/comments/1meyf48/ai_navigation_obstacle_avoidance_are_the_most/",
+      "title": "AI Navigation & Obstacle Avoidance Are the Most Important ...",
+      "snippet": "Bottom line: If your robot vacuum doesn't have strong AI navigation and real-time obstacle avoidance, you're missing out. It's about having a ...",
+      "displayed_link": "30+ comments \u00b7 9 months ago"
+    },
+    {
+      "position": 6,
+      "domain": "umu.com",
+      "url": "https://www.umu.com/ask/q11122301573854381890",
+      "title": "How does AI technology enhance the performance of vacuum ...",
+      "snippet": "By employing AI learning, robot vacuums can analyze previous cleaning sessions and make adjustments to improve future performances. This results ...",
+      "displayed_link": "https://www.umu.com \u203a ask"
+    },
+    {
+      "position": 7,
+      "domain": "de.lefant.com",
+      "url": "https://de.lefant.com/blogs/reviews/how-ai-is-transforming",
+      "title": "How AI Is Transforming Robot Vacuum Cleaners and ... - Lefant",
+      "snippet": "AI helps your robot ... For most users, the added convenience, performance, and time-saving benefits make AI vacuums a worthy investment.",
+      "displayed_link": "https://de.lefant.com \u203a blogs \u203a reviews \u203a how-ai-is-transf..."
+    },
+    {
+      "position": 8,
+      "domain": "fluxmagazine.com",
+      "url": "https://www.fluxmagazine.com/robot-vacuums-use-ai-improve-capabilities/",
+      "title": "How robot vacuums use AI to improve their capabilities?",
+      "snippet": "AI also allows these vacuums to plan their cleaning routes intelligently. Instead of moving randomly, they follow systematic patterns to ensure thorough ...",
+      "displayed_link": "https://www.fluxmagazine.com \u203a robot-vacuums-use-ai..."
+    },
+    {
+      "position": 9,
+      "domain": "mdpi.com",
+      "url": "https://www.mdpi.com/2673-2688/4/3/29",
+      "title": "High-Performance and Lightweight AI Model for Robot ...",
+      "snippet": "The use of AI techniques helps to ensure that robot vacuum cleaners clean all room areas and avoid becoming stuck or damaging anything. To date, ...",
+      "displayed_link": "https://www.mdpi.com \u203a ..."
+    },
+    {
+      "position": 10,
+      "domain": "us.narwal.com",
+      "url": "https://us.narwal.com/blogs/robot-vacuum/intelligent-dirt-detection?srsltid=AfmBOoppw6o-6RFvy364XnI0hW-7JD0miTGmOL0UpcNSjE6bCyOLhJeB",
+      "title": "AI Dirt Detection in Robot Vacuums (2025)",
+      "snippet": "AI vacuums analyze your home's layout and identify high-dirt zones like kitchens or hallways. Over time, they learn to clean these areas first ...",
+      "displayed_link": "https://us.narwal.com \u203a blogs \u203a intelligent-dirt-detection"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Which city is called AI City?",
+      "What did Stephen Hawking say about AI before he died?",
+      "How does artificial intelligence improve the performance of robotic vacuum cleaners?",
+      "Which 3 jobs will survive AI?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 5
+    }
+  }
+}

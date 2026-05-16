@@ -1,0 +1,99 @@
+{
+  "schema": "serp-query-v1",
+  "query": "best AI vacuum cleaners",
+  "fetched_at": "2026-05-16T20:28:14.160087+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "vacuumwars.com",
+      "url": "https://vacuumwars.com/vacuum-wars-best-robot-vacuums/",
+      "title": "Top 20 Best Robot Vacuums in 2026",
+      "snippet": "At the top of the list, the Dreame X60 Max Ultra Complete held onto the number one overall position, continuing to deliver one of the most consistent all-around ...",
+      "displayed_link": "https://vacuumwars.com \u203a ... \u203a Best Vacuum Cleaners"
+    },
+    {
+      "position": 2,
+      "domain": "nytimes.com",
+      "url": "https://www.nytimes.com/wirecutter/reviews/best-robot-vacuum/",
+      "title": "The Best Robot Vacuums of 2026 | Reviews by Wirecutter",
+      "snippet": "It's a quick, effective, and nimble cleaner. Equipped with lidar-assisted mapping and navigation, the RV30 Max Plus is able to quickly map ...",
+      "displayed_link": "https://www.nytimes.com \u203a ... \u203a Vacuum cleaners"
+    },
+    {
+      "position": 3,
+      "domain": "pcmag.com",
+      "url": "https://www.pcmag.com/picks/the-best-robot-vacuums",
+      "title": "The Best Robot Vacuums We've Tested (May 2026)",
+      "snippet": "Our Top Tested Picks \u00b7 Ecovacs Deebot X8 Pro Omni \u00b7 iRobot Roomba j9+ \u00b7 TP-Link Tapo RV30 Max Plus \u00b7 Ecovacs Deebot Ozmo N8 Pro+ \u00b7 Ecovacs Deebot X11 ...",
+      "displayed_link": "https://www.pcmag.com \u203a ... \u203a Robot Vacuums"
+    },
+    {
+      "position": 4,
+      "domain": "amazon.com",
+      "url": "https://www.amazon.com/Best-Sellers-Robotic-Vacuums/zgbs/home-garden/3743561",
+      "title": "Best Robotic Vacuums",
+      "snippet": "Discover the best Robotic Vacuums in Best Sellers. Find the top 100 most popular items in Amazon Home & Kitchen Best Sellers.",
+      "displayed_link": "https://www.amazon.com \u203a zgbs \u203a home-garden"
+    },
+    {
+      "position": 5,
+      "domain": "thesmarthomehookup.com",
+      "url": "https://www.thesmarthomehookup.com/the-best-300-600-robot-vacuums-they-beat-the-flagships/",
+      "title": "The Best $300\u2013$600 Robot Vacuums \u2013 They Beat ...",
+      "snippet": "Compared with my current top-of-the-line recommendation, the Roborock Saros 10R's 22,000 pascals, these mid-tier vacuums range from 7000-19,000 pascals. But in ...",
+      "displayed_link": "https://www.thesmarthomehookup.com \u203a the-best-300-..."
+    },
+    {
+      "position": 6,
+      "domain": "consumerreports.org",
+      "url": "https://www.consumerreports.org/appliances/vacuum-cleaners/best-robotic-vacuum-mop-combos-a7474187257/",
+      "title": "Best Robotic Vacuum-Mop Combos, Lab-Tested and ...",
+      "snippet": "For this review of the best robotic vacuum-mop combos, we tested models from Dreame, Ecovacs, iRobot, Roborock, and more to see which cleans ...",
+      "displayed_link": "https://www.consumerreports.org \u203a ... \u203a Vacuum Cleaners"
+    },
+    {
+      "position": 7,
+      "domain": "zdnet.com",
+      "url": "https://www.zdnet.com/home-and-office/kitchen-household/ive-tested-dozens-of-robot-vacuums-but-these-three-are-my-favorites/",
+      "title": "I've tested dozens of robot vacuums. These are the three I ...",
+      "snippet": "The Roborock Saros 10R is truly one of the best robot vacuums I've ever used -- it won our Editors' Choice award, after all. It has 22,000Pa of ...",
+      "displayed_link": "https://www.zdnet.com \u203a ... \u203a Robot vacuums"
+    },
+    {
+      "position": 8,
+      "domain": "target.com",
+      "url": "https://www.target.com/s/best+ai+robot+vacuum",
+      "title": "Best AI Robot Vacuums: Top Picks with Smart Navigation",
+      "snippet": "Discover the best AI robot vacuums with smart navigation, HEPA filters, and pet hair pickup. Top-rated models like Shark, Roborock, and Dyson offer powerful ...",
+      "displayed_link": "https://www.target.com \u203a Home & Decor"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Are AI vacuums worth it?",
+      "What is the name of the famous AI powered vacuum cleaner?",
+      "What is one of the best robot vacuum cleaners?",
+      "Which brand is best for robot vacuums?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

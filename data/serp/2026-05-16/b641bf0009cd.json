@@ -1,0 +1,94 @@
+{
+  "schema": "serp-query-v1",
+  "query": "AI vacuum maintenance guide",
+  "fetched_at": "2026-05-16T20:28:31.748289+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "vacuumwars.com",
+      "url": "https://vacuumwars.com/robot-vacuum-maintenance/",
+      "title": "Robot Vacuum Maintenance Guide for Peak Performance",
+      "snippet": "Keep your robot running like new with simple robot vacuum maintenance tips. Learn how to care for parts to boost performance and lifespan.",
+      "displayed_link": "https://vacuumwars.com \u203a ... \u203a Robot Vacuum News"
+    },
+    {
+      "position": 2,
+      "domain": "us.narwal.com",
+      "url": "https://us.narwal.com/blogs/product/how-maintain-robot-vacuum?srsltid=AfmBOop9Co2ayjCLNFQPWyXUuyNGLxWf8yUqgkNjgB2ac9VKaOJ16LMr",
+      "title": "Robot Vacuum Maintenance Tips: Cleaning & Lifespan ...",
+      "snippet": "Keep your robot vacuum running smoothly with easy cleaning tips, care hacks, and lifespan advice to reduce repairs and boost performance.",
+      "displayed_link": "https://us.narwal.com \u203a how-maintain-robot-vacuum"
+    },
+    {
+      "position": 3,
+      "domain": "ecovacs.com",
+      "url": "https://www.ecovacs.com/us/blog/how-to-clean-robot-vacuum-cleaner",
+      "title": "How To Clean Robot Vacuums (With Maintenance Tips)",
+      "snippet": "Every 3-6 months: Replace worn-out parts like the antibacterial dust bag, filters and brushes. Step 1. Power Down the Robot Vacuum. Before ...",
+      "displayed_link": "https://www.ecovacs.com \u203a home \u203a blog"
+    },
+    {
+      "position": 4,
+      "domain": "dreametech.com",
+      "url": "https://www.dreametech.com/blogs/blog/the-lazy-persons-guide-to-keeping-your-robot-vacuum-in-top-shape-8-simple-tips",
+      "title": "Robot Vacuum Maintenance Tips: Keep Your ... - Dreame",
+      "snippet": "Want your robot vacuum to work flawlessly? Follow these 8 easy maintenance tips and enjoy hassle-free cleaning every day. Say goodbye to clogs and issues!",
+      "displayed_link": "https://www.dreametech.com \u203a Blogs | Dreame US"
+    },
+    {
+      "position": 5,
+      "domain": "cnet.com",
+      "url": "https://www.cnet.com/home/kitchen-and-household/how-to-clean-robot-vacuum/",
+      "title": "A Deep-Clean Is Essential to Keep Your Expensive Robot ...",
+      "snippet": "You don't need to splurge on special cleaning kits. Here's how you can deep-clean your robot vacuum in minutes using simple household items.",
+      "displayed_link": "https://www.cnet.com \u203a ... \u203a Vacuum Cleaners"
+    },
+    {
+      "position": 6,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=wCEHyGlm7mk",
+      "title": "How to Clean a Robotic Vacuum | Consumer Reports",
+      "snippet": "The experts at Consumer Reports show you weekly maintenance tasks to keep your robotic vacuum running smoothly. ... Robot Vacuum Buying Guide!",
+      "displayed_link": "48.8K+ views \u00b7 5 years ago"
+    },
+    {
+      "position": 7,
+      "domain": "honiture.com",
+      "url": "https://honiture.com/blogs/home-cleaning/daily-maintenance-guide-for-robotic-vacuums?srsltid=AfmBOoq07cyHaJoKrTl1Lft0MkFeCu0ZQ4W0x2QAFRGpHRRc2WWJwp2x",
+      "title": "Daily Maintenance Guide for Robotic Vacuums",
+      "snippet": "Common Maintenance Guide for Robotic Vacuum: \u00b7 1. Clean the Brushes \u00b7 2. Clean the Vacuum Filter \u00b7 3. Empty the Dustbin \u00b7 4. Clean the Wheels \u00b7 5.",
+      "displayed_link": "https://honiture.com \u203a blogs \u203a home-cleaning \u203a daily-ma..."
+    },
+    {
+      "position": 8,
+      "domain": "eurekaforbes.com",
+      "url": "https://www.eurekaforbes.com/blog/robotic-vacuum-cleaner-maintenance-tips.html?srsltid=AfmBOoqwQFdurhXZY835mUAldhWpgYerFncIFXTdFw4OgeOb-xCSNrJD",
+      "title": "Robotic Vacuum Cleaner Maintenance: Tips for a Smooth- ...",
+      "snippet": "In this guide, we'll cover essential maintenance tips, troubleshooting advice, and how to choose the right model for your needs.",
+      "displayed_link": "https://www.eurekaforbes.com \u203a blog \u203a robotic-vacuum-..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}
