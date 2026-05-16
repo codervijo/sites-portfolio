@@ -66,6 +66,15 @@ class SEORow:
     gsc_position: float | None = None
     gsc_sitemap_count: int | None = None   # number of sitemaps submitted
 
+    # Per-sitemap processing status from GSC's `sitemaps().list()` response.
+    # Distinct from `gsc_sitemap_count` (presence only): these are what
+    # surface "Sitemap could not be read" in Search Console. None means
+    # the data wasn't collected (auth-skipped / not-in-gsc / API error).
+    gsc_sitemap_errors: int | None = None      # summed across submitted sitemaps
+    gsc_sitemap_warnings: int | None = None    # summed across submitted sitemaps
+    gsc_sitemap_pending: int | None = None     # how many GSC hasn't fetched yet
+    gsc_sitemap_details: list | None = None    # raw per-sitemap dicts (path, errors, warnings, lastDownloaded, isPending)
+
     # CrUX (None means no API key, no CrUX data, or error).
     crux_status: str = "unknown"           # "ok", "no-data", "no-key", "error"
     crux_lcp_p75: float | None = None      # ms
@@ -77,6 +86,15 @@ class SEORow:
     # no sitemap was found OR the probe was skipped.
     sitemap_url: str | None = None
 
+    # Crawler intent declared in robots.txt. "dark" means the site is
+    # deliberately blocked from crawlers (members-only, staging, etc.) —
+    # detected from `User-agent: *` or `User-agent: Googlebot` having
+    # `Disallow: /` with no overriding `Allow: /` in the same block.
+    # Dark rows short-circuit the SEO overall to 🔒 and suppress focus
+    # signals tied to public-web discovery (no-sitemap, sitemap-errors,
+    # zero-impressions, bad-position). None when robots.txt wasn't served.
+    robots_intent: str | None = None       # "dark", "open", or None
+
     notes: list[str] = field(default_factory=list)
 
 
@@ -87,6 +105,69 @@ class SEORow:
 # Order matters: `/sitemap.xml` is by far the most common; `-index` and
 # `_index` cover the two index conventions seen in the wild.
 _SITEMAP_FALLBACK_PATHS = ("/sitemap.xml", "/sitemap-index.xml", "/sitemap_index.xml")
+
+
+def _robots_intent_from_body(body: str) -> str:
+    """Detect dark-site intent in a robots.txt body.
+
+    Returns "dark" when the file deliberately blocks all crawlers or
+    Googlebot at the site root; "open" otherwise.
+
+    Dark rule: a `User-agent: *` or `User-agent: Googlebot` block (case-
+    insensitive, exact match on the agent name) carries `Disallow: /`
+    with no overriding `Allow: /` in the same block. Partial-tree
+    blocks (e.g. `Disallow: /admin`) are NOT dark — only root-level
+    universal blocks qualify. We intentionally over-conservative here:
+    flagging a normal site as dark hides real signals; missing one is
+    just a transient cosmetic gap.
+
+    Consecutive `User-agent:` lines combine into a single rule group —
+    standard robots.txt grammar (RFC 9309 / Google's spec). Blank lines
+    or a non-agent directive close the group.
+    """
+    if not body:
+        return "open"
+
+    DARK_AGENTS = {"*", "googlebot"}
+    # Per agent we've seen, the list of (directive, path) pairs.
+    rules: dict[str, list[tuple[str, str]]] = {}
+
+    current_agents: set[str] = set()
+    expecting_more_agents = True
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            # Blank line / comment → close the current rule group.
+            current_agents = set()
+            expecting_more_agents = True
+            continue
+        if ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip().lower()
+        val = val.strip()
+        if key == "user-agent":
+            if not expecting_more_agents:
+                # New group starts here — drop the prior agent set.
+                current_agents = set()
+                expecting_more_agents = True
+            current_agents.add(val.lower())
+        elif key in ("disallow", "allow"):
+            expecting_more_agents = False
+            for agent in current_agents:
+                rules.setdefault(agent, []).append((key, val))
+        # All other directives (Sitemap, Crawl-delay, Host, …) don't
+        # affect dark detection and don't close the agent group.
+
+    for agent in DARK_AGENTS:
+        agent_rules = rules.get(agent, [])
+        if not agent_rules:
+            continue
+        has_root_disallow = any(d == "disallow" and v == "/" for d, v in agent_rules)
+        has_root_allow = any(d == "allow" and v == "/" for d, v in agent_rules)
+        if has_root_disallow and not has_root_allow:
+            return "dark"
+    return "open"
 
 
 def _parse_robots_sitemaps(body: str) -> list[str]:
@@ -127,7 +208,7 @@ def probe_http(domain: str, *, timeout: float = HTTP_TIMEOUT,
     out: dict[str, Any] = {
         "status": None, "error": None, "hsts": None,
         "robots_served": None, "sitemap_served": None,
-        "sitemap_url": None,
+        "sitemap_url": None, "robots_intent": None,
     }
     own_client = client is None
     if client is None:
@@ -158,6 +239,7 @@ def probe_http(domain: str, *, timeout: float = HTTP_TIMEOUT,
             out["robots_served"] = ok
             if ok:
                 robots_body = r.text
+                out["robots_intent"] = _robots_intent_from_body(robots_body)
         except httpx.HTTPError:
             out["robots_served"] = False
 
@@ -203,6 +285,8 @@ def probe_gsc(domain: str, *, days: int,
     out: dict[str, Any] = {
         "status": "unknown", "clicks": None, "impressions": None,
         "ctr": None, "position": None, "sitemap_count": None,
+        "sitemap_errors": None, "sitemap_warnings": None,
+        "sitemap_pending": None, "sitemap_details": None,
     }
     if auth_skipped:
         out["status"] = "auth-skipped"
@@ -221,6 +305,10 @@ def probe_gsc(domain: str, *, days: int,
     total_imp = 0
     weighted_pos: list[tuple[float, int]] = []
     sitemap_count = 0
+    sitemap_errors = 0
+    sitemap_warnings = 0
+    sitemap_pending = 0
+    sitemap_details: list[dict] = []
     try:
         for p in properties:
             t = query_totals(gsc_service, p["siteUrl"], start, end)
@@ -228,10 +316,30 @@ def probe_gsc(domain: str, *, days: int,
             total_imp += int(t.get("impressions", 0))
             if t.get("position") is not None and t.get("impressions"):
                 weighted_pos.append((float(t["position"]), int(t["impressions"])))
-            # Sitemaps API is one call per property.
+            # Sitemaps API is one call per property. We keep per-sitemap
+            # `errors` / `warnings` / `isPending` — that's where "Sitemap
+            # could not be read" surfaces. Counts alone hide that signal.
             try:
                 sm = gsc_service.sitemaps().list(siteUrl=p["siteUrl"]).execute()
-                sitemap_count += len(sm.get("sitemap", []) or [])
+                entries = sm.get("sitemap", []) or []
+                sitemap_count += len(entries)
+                for entry in entries:
+                    err = _coerce_int(entry.get("errors"))
+                    warn = _coerce_int(entry.get("warnings"))
+                    pending = bool(entry.get("isPending"))
+                    sitemap_errors += err
+                    sitemap_warnings += warn
+                    if pending:
+                        sitemap_pending += 1
+                    sitemap_details.append({
+                        "path": entry.get("path"),
+                        "errors": err,
+                        "warnings": warn,
+                        "is_pending": pending,
+                        "last_downloaded": entry.get("lastDownloaded"),
+                        "last_submitted": entry.get("lastSubmitted"),
+                        "property": p["siteUrl"],
+                    })
             except Exception:
                 pass
     except Exception as e:
@@ -248,7 +356,23 @@ def probe_gsc(domain: str, *, days: int,
     else:
         out["position"] = None
     out["sitemap_count"] = sitemap_count
+    out["sitemap_errors"] = sitemap_errors
+    out["sitemap_warnings"] = sitemap_warnings
+    out["sitemap_pending"] = sitemap_pending
+    out["sitemap_details"] = sitemap_details
     return out
+
+
+def _coerce_int(value: Any) -> int:
+    """GSC's Sitemaps API returns errors/warnings as numeric strings.
+    Coerce safely — anything we can't parse is treated as 0 so a
+    malformed field doesn't poison the aggregate."""
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 # ---------- CrUX ----------
@@ -333,6 +457,12 @@ _GREY = "⚪"   # unknown / skipped
 # shape entirely, not just a different color). Reads instantly as a
 # fixable ops gap when scanning the table.
 _NO_SITEMAP_SUBMITTED = "❌"
+
+# Dark site indicator — robots.txt deliberately blocks crawlers. Distinct
+# shape (lock) for at-a-glance "this row is intentionally not crawled,
+# don't grade it on GSC/imp/pos." Rolls up into the SEO overall and the
+# GSC-sitemap cell, suppresses focus signals tied to public-web discovery.
+_DARK = "🔒"
 
 
 def _status_for_higher(value: float | None, thresholds: tuple[float, float, float]) -> str:
@@ -419,16 +549,61 @@ def _gsc_sitemap_submitted_status(gsc_status: str,
     return _NO_SITEMAP_SUBMITTED
 
 
+def _gsc_sitemap_health_status(gsc_status: str,
+                               sitemap_count: int | None,
+                               sitemap_errors: int | None,
+                               sitemap_warnings: int | None) -> str:
+    """Whether GSC could actually READ the submitted sitemap(s).
+
+    Distinct from `_gsc_sitemap_submitted_status` (presence only): this
+    is the per-sitemap processing status from GSC's `sitemaps().list()`
+    response. A sitemap can be submitted and still have GSC report
+    "Sitemap could not be read" — that's `errors > 0`.
+
+    Returns:
+      🔴 — at least one submitted sitemap has errors (GSC can't read it)
+      🟡 — at least one submitted sitemap has warnings (read but flagged)
+      🟢 — submitted and clean
+      ⚪ — nothing to grade (no submission, no GSC, no data)
+    """
+    if gsc_status != "ok":
+        return _GREY
+    if sitemap_count is None or sitemap_errors is None:
+        return _GREY
+    if sitemap_count == 0:
+        # No sitemap → presence handles this case; nothing to grade here.
+        return _GREY
+    if sitemap_errors > 0:
+        return _RED
+    if (sitemap_warnings or 0) > 0:
+        return _YELLOW
+    return _GREEN
+
+
+def _robots_cell_status(robots_served: bool | None,
+                        robots_intent: str | None) -> str:
+    """Robots column status. 🔒 when intent is dark (operator declared
+    or detected the site is intentionally off-limits to crawlers);
+    otherwise the plain served/not-served bool status."""
+    if robots_intent == "dark":
+        return _DARK
+    return _bool_status(robots_served)
+
+
 def row_statuses(row: SEORow) -> dict[str, str]:
     """Per-column emoji status for a row. Used by the renderer."""
     return {
         "http": _http_status(row.http_status),
         "hsts": _bool_status(row.hsts),
-        "robots": _bool_status(row.robots_served),
+        "robots": _robots_cell_status(row.robots_served, row.robots_intent),
         "sitemap": _bool_status(row.sitemap_served),
         "gsc": _gsc_presence_status(row.gsc_status),
         "gsc_sitemap": _gsc_sitemap_submitted_status(
             row.gsc_status, row.gsc_sitemap_count,
+        ),
+        "gsc_sitemap_health": _gsc_sitemap_health_status(
+            row.gsc_status, row.gsc_sitemap_count,
+            row.gsc_sitemap_errors, row.gsc_sitemap_warnings,
         ),
         "imp": _impressions_status(row.gsc_impressions),
         "pos": _position_status(row.gsc_position),
@@ -436,6 +611,36 @@ def row_statuses(row: SEORow) -> dict[str, str]:
         "inp": _status_for_higher(row.crux_inp_p75, _INP_MS),
         "cls": _status_for_higher(row.crux_cls_p75, _CLS),
     }
+
+
+def gsc_sitemap_cell(row: SEORow) -> str:
+    """Single-cell merge of presence + health for the dashboard table.
+
+    Operators scan this column for one signal: "is my sitemap situation
+    OK from Google's perspective." Presence alone (`gsc_sitemap`) misses
+    "submitted but GSC errored on it" (the donready incident). Health
+    alone misses "never submitted." This combines them, ranked so the
+    worse status wins.
+
+    Dark sites short-circuit to 🔒 — they shouldn't be in GSC at all,
+    so "no sitemap submitted" is correct, not a gap to fix.
+    """
+    if row.robots_intent == "dark":
+        return _DARK
+    s = row_statuses(row)
+    health = s["gsc_sitemap_health"]
+    presence = s["gsc_sitemap"]
+    # Error on a submitted sitemap is the worst case — GSC has the file
+    # and can't use it. Rank it above "never submitted" (a fixable gap).
+    if health == _RED:
+        return _RED
+    if presence == _NO_SITEMAP_SUBMITTED:
+        return _NO_SITEMAP_SUBMITTED
+    if health == _YELLOW:
+        return _YELLOW
+    if health == _GREEN:
+        return _GREEN
+    return presence  # _GREY when no GSC data; _GREEN when count >= 1 but no health data
 
 
 _OVERALL_RANK = {_GREEN: 0, _YELLOW: 1, _ORANGE: 2, _RED: 3, _GREY: -1}
@@ -446,7 +651,7 @@ _OVERALL_RANK = {_GREEN: 0, _YELLOW: 1, _ORANGE: 2, _RED: 3, _GREY: -1}
 # reds; CrUX field-data tiering is a separate dimension shown beside but not
 # folded into the SEO overall. `gsc` (in-GSC vs not-in-GSC) IS a real SEO
 # signal — a site missing from Search Console is invisible to Google.
-_OVERALL_KEYS = ("imp", "pos", "robots", "sitemap", "gsc")
+_OVERALL_KEYS = ("imp", "pos", "robots", "sitemap", "gsc", "gsc_sitemap_health")
 
 # P4 — age-aware grading. Sites inside the Google freshness window get
 # their imp + pos cells masked out of the overall grade because zero
@@ -469,7 +674,13 @@ def overall_status(row: SEORow, *, site_age_days: int | None = None,
 
     `site_age_days=None` → no masking (backward compatible with callers
     that don't have age data; better to over-flag than silently hide).
+
+    Dark sites short-circuit to 🔒: SEO-discovery signals are by design
+    inapplicable (members-only / blocked from search), so rolling up
+    "zero impressions" or "not in GSC" as 🔴 would be misleading.
     """
+    if row.robots_intent == "dark":
+        return _DARK
     statuses = row_statuses(row)
     if (site_age_days is not None
             and site_age_days < young_threshold_days):
@@ -546,6 +757,7 @@ def run_seo(
         row.robots_served = http["robots_served"]
         row.sitemap_served = http["sitemap_served"]
         row.sitemap_url = http.get("sitemap_url")
+        row.robots_intent = http.get("robots_intent")
 
         local_service = None
         if not auth_skipped and creds is not None:
@@ -562,6 +774,10 @@ def run_seo(
         row.gsc_ctr = gsc_data.get("ctr")
         row.gsc_position = gsc_data.get("position")
         row.gsc_sitemap_count = gsc_data.get("sitemap_count")
+        row.gsc_sitemap_errors = gsc_data.get("sitemap_errors")
+        row.gsc_sitemap_warnings = gsc_data.get("sitemap_warnings")
+        row.gsc_sitemap_pending = gsc_data.get("sitemap_pending")
+        row.gsc_sitemap_details = gsc_data.get("sitemap_details")
 
         crux = probe_crux(domain, crux_api_key)
         row.crux_status = crux["status"]

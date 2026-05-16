@@ -607,3 +607,261 @@ def test_no_gsc_sitemap_coexists_with_other_signals():
     assert "❌" in glyphs
     # Worst rank wins (orange > yellow).
     assert items[0].rank == _RANK_ORANGE
+
+
+# ---------- GSC sitemap errors / warnings (post-donready fix) ----------
+
+
+def test_gsc_sitemap_errors_drives_red_focus():
+    """A submitted sitemap with GSC parse errors must surface as 🔴 in
+    focus — the donready gap. Submitted sitemap + non-zero errors is the
+    "Sitemap could not be read" signal."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "broken-sm.com", "gsc_status": "ok",
+             "gsc_impressions": 50, "gsc_position": 8.0,
+             "gsc_sitemap_count": 1,
+             "gsc_sitemap_errors": 1, "gsc_sitemap_warnings": 0},
+        ),
+        domains_with_expiry=[],
+    )
+    assert len(items) == 1
+    assert items[0].rank == _RANK_RED
+    glyphs = [s[0] for s in items[0].signals]
+    assert "🔴" in glyphs
+    headlines = " ".join(s[1] for s in items[0].signals).lower()
+    assert "parse errors" in headlines or "sitemap" in headlines
+
+
+def test_gsc_sitemap_warnings_only_drives_yellow_focus():
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "warned-sm.com", "gsc_status": "ok",
+             "gsc_impressions": 50, "gsc_position": 8.0,
+             "gsc_sitemap_count": 1,
+             "gsc_sitemap_errors": 0, "gsc_sitemap_warnings": 3},
+        ),
+        domains_with_expiry=[],
+    )
+    assert len(items) == 1
+    assert items[0].rank == _RANK_YELLOW
+    glyphs = [s[0] for s in items[0].signals]
+    assert "🟡" in glyphs
+
+
+def test_gsc_sitemap_errors_suppress_warnings_signal():
+    """When both errors and warnings exist, only the red error signal
+    fires — duplicating the same underlying issue at two severities is
+    noise. The warning is implicit in 'go look at GSC sitemaps' anyway."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "mixed-sm.com", "gsc_status": "ok",
+             "gsc_impressions": 50, "gsc_position": 8.0,
+             "gsc_sitemap_count": 2,
+             "gsc_sitemap_errors": 1, "gsc_sitemap_warnings": 4},
+        ),
+        domains_with_expiry=[],
+    )
+    glyphs = [s[0] for s in items[0].signals]
+    # Red sitemap-error must fire. The yellow sitemap-warning must not
+    # — that would be redundant with the red signal above it.
+    assert glyphs.count("🔴") >= 1
+    sm_warning_headlines = [s[1] for s in items[0].signals
+                            if "warnings" in s[1].lower()]
+    assert sm_warning_headlines == []
+
+
+def test_gsc_sitemap_errors_fire_for_young_sites_too():
+    """Structural — broken sitemap on a young site is still broken."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "fresh-broken.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": None,
+             "gsc_sitemap_count": 1,
+             "gsc_sitemap_errors": 2, "gsc_sitemap_warnings": 0},
+        ),
+        domains_with_expiry=[],
+        domain_site_age_days={"fresh-broken.com": 5},
+        include_young=False,
+    )
+    glyphs = [s[0] for item in items for s in item.signals]
+    assert "🔴" in glyphs
+
+
+def test_gsc_sitemap_errors_skipped_when_not_in_gsc():
+    """Can't have parse errors on a sitemap we never confirmed GSC has."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "no-gsc.com", "gsc_status": "not-in-gsc",
+             "gsc_sitemap_count": None,
+             "gsc_sitemap_errors": None, "gsc_sitemap_warnings": None},
+        ),
+        domains_with_expiry=[],
+    )
+    glyphs = [s[0] for item in items for s in item.signals]
+    assert "🔴" not in glyphs
+
+
+def test_dark_site_suppresses_all_seo_focus_signals():
+    """Dark sites (robots.txt blocks crawlers) shouldn't surface in
+    focus for any SEO-discovery reason — no-sitemap, sitemap-errors,
+    zero-imp, bad-pos. By design those signals don't apply."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "members.test", "gsc_status": "not-in-gsc",
+             "gsc_impressions": 0, "gsc_position": None,
+             "gsc_sitemap_count": 0,
+             "gsc_sitemap_errors": 5, "gsc_sitemap_warnings": 2,
+             "robots_intent": "dark"},
+        ),
+        domains_with_expiry=[],
+    )
+    assert items == []
+
+
+def test_dark_site_still_flagged_for_non_seo_problems():
+    """A dark site can still go down. SEO signals are suppressed; live
+    + expiry signals are NOT — broken hosting is broken regardless of
+    crawler policy."""
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "members.test", "variant": "bare", "classification": "dead"},
+        ),
+        seo_snapshot=_seo_snap(
+            {"domain": "members.test", "gsc_status": "not-in-gsc",
+             "robots_intent": "dark"},
+        ),
+        domains_with_expiry=[("members.test", 5)],
+    )
+    glyphs = [s[0] for item in items for s in item.signals]
+    # Site-down (🔴) + expiry (⚠️) must still fire.
+    assert "🔴" in glyphs
+    assert "⚠️" in glyphs
+
+
+# ---------- Stale Cloudflare edge cache (CHECK_057 → focus signal) ----------
+
+
+def test_check_142_failure_drives_red_focus():
+    """When CHECK_057 fails for a domain, focus surfaces it 🔴 with the
+    purge command in the action text."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=None,
+        domains_with_expiry=[],
+        domain_check_failures={
+            "donready.xyz": {
+                "CHECK_057": "stale at edge: /sitemap.xml (cache=HIT)",
+            },
+        },
+    )
+    assert len(items) == 1
+    assert items[0].domain == "donready.xyz"
+    assert items[0].rank == _RANK_RED
+    headlines = [s[1] for s in items[0].signals]
+    actions = [s[2] for s in items[0].signals]
+    assert any("Stale CF edge cache" in h for h in headlines)
+    assert any("portfolio project fix donready.xyz" in a for a in actions)
+
+
+def test_check_142_failure_includes_check_message_in_headline():
+    """The CheckResult.message names the offending paths — surface that
+    in the focus headline so operators see WHICH path is stale at a glance."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=None,
+        domains_with_expiry=[],
+        domain_check_failures={
+            "x.com": {"CHECK_057": "/robots.txt (cache=HIT)"},
+        },
+    )
+    headlines = " ".join(s[1] for s in items[0].signals)
+    assert "/robots.txt" in headlines
+
+
+def test_no_check_142_failure_yields_no_focus_item():
+    """Domains absent from the check-failures map don't fire this signal."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=None,
+        domains_with_expiry=[],
+        domain_check_failures={},
+    )
+    assert items == []
+
+
+def test_other_check_failures_do_not_trigger_cache_signal():
+    """Only CHECK_057 should fire the cache signal — failing some other
+    check on the same domain doesn't conflate into this one."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=None,
+        domains_with_expiry=[],
+        domain_check_failures={
+            "x.com": {"CHECK_061": "robots.txt missing"},
+        },
+    )
+    assert items == []
+
+
+def test_check_142_does_not_fire_on_dark_sites_only_when_explicitly_excluded():
+    """Cache hygiene is a deploy signal, not a discovery signal — even
+    a dark site can have stale edge content from a prior deploy. The
+    operator may still want to clean up. This test pins that behavior
+    so a future change doesn't silently start suppressing it."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "members.test", "gsc_status": "not-in-gsc",
+             "robots_intent": "dark"},
+        ),
+        domains_with_expiry=[],
+        domain_check_failures={
+            "members.test": {"CHECK_057": "/sitemap.xml (cache=HIT)"},
+        },
+    )
+    glyphs = [s[0] for item in items for s in item.signals]
+    assert "🔴" in glyphs
+
+
+def test_check_142_failure_coexists_with_other_signals():
+    """A stale-cache failure + a site-down classification both surface."""
+    items = build_focus_list(
+        live_snapshot=_live_snap(
+            {"domain": "broken.com", "variant": "bare", "classification": "dead"},
+        ),
+        seo_snapshot=None,
+        domains_with_expiry=[],
+        domain_check_failures={
+            "broken.com": {"CHECK_057": "/sitemap.xml (cache=HIT)"},
+        },
+    )
+    assert len(items) == 1
+    glyphs = [s[0] for s in items[0].signals]
+    # Both 🔴s — site-down AND stale-cache.
+    assert glyphs.count("🔴") >= 2
+
+
+def test_gsc_sitemap_errors_skipped_when_field_absent():
+    """Older SEO snapshots predate the errors/warnings fields. Reading
+    them shouldn't synthesize a false-positive signal."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "legacy.com", "gsc_status": "ok",
+             "gsc_impressions": 100, "gsc_position": 5.0,
+             "gsc_sitemap_count": 2},   # no errors/warnings keys at all
+        ),
+        domains_with_expiry=[],
+    )
+    glyphs = [s[0] for item in items for s in item.signals]
+    assert "🔴" not in glyphs
+    sitemap_warnings = [s for item in items for s in item.signals
+                        if "sitemap" in s[1].lower() and "warning" in s[1].lower()]
+    assert sitemap_warnings == []

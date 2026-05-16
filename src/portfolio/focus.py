@@ -64,6 +64,7 @@ def build_focus_list(
     domains_with_expiry: list[tuple[str, int]],
     domain_categories: dict[str, str] | None = None,
     domain_site_age_days: dict[str, int | None] | None = None,
+    domain_check_failures: dict[str, dict] | None = None,
     include_young: bool = False,
     young_threshold_days: int = YOUNG_SITE_THRESHOLD_DAYS,
     suppressed_young_out: list[str] | None = None,
@@ -86,7 +87,14 @@ def build_focus_list(
     sorted list of young-site domains whose SEO signals were filtered
     out. Lets callers render a transparency note ("3 young sites
     suppressed from focus") without changing the return shape.
+
+    `domain_check_failures` maps domain → {check_id: failure_message}.
+    Used to surface specific deploy/ops checks (currently CHECK_057 —
+    stale Cloudflare edge cache) as focus signals without requiring
+    the focus path to re-run network probes itself. None / empty means
+    "skip the check-driven signals."
     """
+    domain_check_failures = domain_check_failures or {}
     domain_categories = domain_categories or {}
     domain_site_age_days = domain_site_age_days or {}
     items: dict[str, FocusItem] = {}
@@ -191,10 +199,20 @@ def build_focus_list(
             d = (r.get("domain") or "").lower()
             if not d:
                 continue
+            # Dark sites (robots.txt blocks crawlers, or lamill.toml marks
+            # the row dark) are intentionally invisible to Google — none
+            # of the SEO-discovery signals below apply. Skip the whole
+            # row so we don't list "no sitemap submitted" / "zero
+            # impressions" / "sitemap parse errors" against a site that
+            # by design isn't in GSC.
+            if r.get("robots_intent") == "dark":
+                continue
             gsc_status = r.get("gsc_status")
             imp = r.get("gsc_impressions")
             pos = r.get("gsc_position")
             sitemap_count = r.get("gsc_sitemap_count")
+            sitemap_errors = r.get("gsc_sitemap_errors")
+            sitemap_warnings = r.get("gsc_sitemap_warnings")
             young = (not include_young) and _is_young(d)
 
             # ❌ Site is in GSC but has zero sitemaps submitted. Structural
@@ -204,6 +222,32 @@ def build_focus_list(
                 _add_signal(d, "❌", _RANK_YELLOW,
                             "GSC: no sitemap submitted",
                             "→ submit at search.google.com/search-console → Sitemaps")
+
+            # 🔴 GSC reported parse errors on a submitted sitemap — "Sitemap
+            # could not be read." This is the broken-state signal the dashboard
+            # was silently green on before the gsc_sitemap_health wire-up. Ranks
+            # red because GSC has the file and is rejecting it — discovery is
+            # blocked until it's fixed. Age-independent: a freshly launched
+            # site with a broken sitemap is still broken.
+            if gsc_status == "ok" and isinstance(sitemap_errors, int) and sitemap_errors > 0:
+                _add_signal(
+                    d, "🔴", _RANK_RED,
+                    f"GSC: sitemap parse errors ({sitemap_errors})",
+                    "→ open Search Console → Sitemaps; common causes: stale "
+                    "edge cache serving old XML, sitemap URL not in current "
+                    "build, malformed XML",
+                )
+            # 🟡 Warnings on a submitted sitemap — readable but flagged
+            # (e.g., URLs outside the property, slow-fetch). Only surface
+            # when there are NO errors (the red signal above already covers
+            # the louder case).
+            elif (gsc_status == "ok"
+                  and isinstance(sitemap_warnings, int) and sitemap_warnings > 0):
+                _add_signal(
+                    d, "🟡", _RANK_YELLOW,
+                    f"GSC: sitemap warnings ({sitemap_warnings})",
+                    "→ check Search Console → Sitemaps for the specific warning",
+                )
 
             # Indexed but zero impressions — content not surfacing.
             zero_imp_trigger = (gsc_status == "ok" and imp == 0)
@@ -219,6 +263,24 @@ def build_focus_list(
                 _add_signal(d, "🟡", _RANK_YELLOW,
                             f"Ranking but buried (pos {pos:.1f})",
                             "→ improve content for the queries you're showing on")
+
+    # 🔴 Stale Cloudflare edge cache on critical paths. Surfaces failing
+    # CHECK_057 — the donready failure mode where /sitemap.xml lingers
+    # at the edge after a build that no longer produces the file. Fix
+    # is tier-1 automated: `portfolio project fix <domain> --apply` purges the stale
+    # paths via the CF API. Age-independent: stale critical files block
+    # discovery the same way on a 3-day-old site as on a 3-year-old one.
+    # Not suppressed on dark sites — cache is a deploy hygiene signal,
+    # not a discovery signal.
+    for d, failures in domain_check_failures.items():
+        if "CHECK_057" not in failures:
+            continue
+        message = failures.get("CHECK_057") or "stale edge cache on critical path(s)"
+        _add_signal(
+            d.lower(), "🔴", _RANK_RED,
+            f"Stale CF edge cache: {message}",
+            f"→ run 'portfolio project fix {d} --apply' (purges via CF API)",
+        )
 
     # Sort by rank desc, then alphabetical.
     out = list(items.values())

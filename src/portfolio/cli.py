@@ -48,6 +48,10 @@ settings_operator_app = typer.Typer(
     help="Operator profile (used by `new research` fit-checks).",
     no_args_is_help=True,
 )
+settings_cloudflare_app = typer.Typer(
+    help="Cloudflare API token (used by CHECK_057 cache-purge fix).",
+    no_args_is_help=True,
+)
 app.add_typer(fleet_app, name="fleet")
 fleet_app.add_typer(fleet_info_app, name="info")
 app.add_typer(settings_app, name="settings")
@@ -55,6 +59,7 @@ settings_app.add_typer(settings_catalog_app, name="catalog")
 settings_app.add_typer(settings_gsc_app, name="gsc")
 settings_app.add_typer(settings_apikeys_app, name="apikeys")
 settings_app.add_typer(settings_operator_app, name="operator")
+settings_app.add_typer(settings_cloudflare_app, name="cloudflare")
 
 
 @app.callback(invoke_without_command=True)
@@ -133,6 +138,39 @@ def focus(
         for d in all_domains
     }
 
+    # CHECK_057 (stale CF edge cache) — run directly per CF Pages site
+    # rather than waiting for a full `build_status` pass per domain.
+    # Bounded cost: 5 HTTP probes × N CF sites, parallelized. Skips
+    # non-CF projects cheaply via filesystem stat.
+    from concurrent.futures import ThreadPoolExecutor
+    from .project import SITES_ROOT
+    from .checks.deploy.check_057_cf_edge_cache_fresh import (
+        run as _run_cf_cache_check,
+    )
+
+    def _cf_failure_for(name: str) -> tuple[str, str] | None:
+        project_dir = SITES_ROOT / name
+        if not project_dir.is_dir():
+            return None
+        if not (project_dir / "wrangler.jsonc").is_file() and \
+           not (project_dir / "wrangler.toml").is_file():
+            return None
+        try:
+            result = _run_cf_cache_check(str(project_dir))
+        except Exception:
+            return None
+        if result.status != "fail":
+            return None
+        return (name.lower(), result.message)
+
+    domain_check_failures: dict[str, dict[str, str]] = {}
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for r in ex.map(_cf_failure_for, [d.name for d in all_domains]):
+            if r is None:
+                continue
+            dom, msg = r
+            domain_check_failures[dom] = {"CHECK_057": msg}
+
     suppressed_young: list[str] = []
     items = build_focus_list(
         live_snapshot=live_data,
@@ -140,6 +178,7 @@ def focus(
         domains_with_expiry=domains_expiry,
         domain_categories=domain_categories,
         domain_site_age_days=domain_site_age,
+        domain_check_failures=domain_check_failures,
         include_young=include_young,
         suppressed_young_out=suppressed_young,
     )
@@ -1193,7 +1232,7 @@ def _fmt_cls(v: float | None) -> str:
 def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
     from .dashboard import _site_age_days
     from .data import load_domains
-    from .seo_runtime import overall_status, row_statuses
+    from .seo_runtime import gsc_sitemap_cell, overall_status, row_statuses
 
     # P4 — build domain → site_age_days map for age-aware grading.
     # `overall_status` masks imp + pos cells for sites <90d old so the
@@ -1224,8 +1263,10 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
     t.add_column("Robots", justify="center")
     t.add_column("Sitemap", justify="center")
     t.add_column("GSC", justify="center")
-    # GSC-submitted sitemap status: 🟢 = submitted, 🗺 = none submitted
-    # (distinct callout for a fixable ops gap), ⚪ = unknown.
+    # GSC sitemap cell — merges presence (submitted or not) with per-sitemap
+    # processing health (errors / warnings from GSC's Sitemaps API). 🔴 = GSC
+    # reported errors on a submitted sitemap ("Sitemap could not be read"),
+    # 🟡 = warnings, 🟢 = submitted and clean, ❌ = none submitted, ⚪ = no data.
     t.add_column("GSC sm", justify="center")
     t.add_column("Imp", justify="right")
     t.add_column("Clicks", justify="right")
@@ -1247,7 +1288,7 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
             s["robots"],
             s["sitemap"],
             s["gsc"],
-            s["gsc_sitemap"],
+            gsc_sitemap_cell(row),
             _color_value(s["imp"], _fmt_int(row.gsc_impressions)),
             _fmt_int(row.gsc_clicks),
             _fmt_pct(row.gsc_ctr, impressions=row.gsc_impressions),
@@ -1288,6 +1329,22 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
             f"[dim]❌ {len(missing_sm)} site(s) in GSC with no sitemap submitted "
             f"({sample}{more}) — submit at search.google.com/search-console "
             f"→ Sitemaps.[/]"
+        )
+
+    # Call out sites where GSC reported errors on a SUBMITTED sitemap —
+    # "Sitemap could not be read" lives here. Different fix from missing
+    # submission: the sitemap exists in GSC but Google can't process it.
+    broken_sm = [r for r in rows
+                 if r.gsc_status == "ok"
+                 and (r.gsc_sitemap_errors or 0) > 0]
+    if broken_sm:
+        sample = ", ".join(r.domain for r in broken_sm[:3])
+        more = f" + {len(broken_sm) - 3} more" if len(broken_sm) > 3 else ""
+        console.print(
+            f"[dim]🔴 {len(broken_sm)} site(s) with sitemap errors in GSC "
+            f"({sample}{more}) — open Search Console → Sitemaps and "
+            f"inspect the failing entry; common causes: stale edge cache, "
+            f"sitemap URL not in current build, malformed XML.[/]"
         )
 
     # P4 — note when young sites had imp/pos masked so the reader knows
@@ -5042,6 +5099,109 @@ def settings_operator_show() -> None:
         console.print("  expertise: [dim](none)[/]")
     console.print(f"  workflow_preference: {profile.workflow_preference}")
     console.print(f"  motivation_cadence:  {profile.motivation_cadence}")
+
+
+# settings cloudflare — set + inspect the CF API token used by CHECK_057's
+# tier-1 purge fix. Parallel to `settings gsc {auth,status}`.
+
+
+@settings_cloudflare_app.command("token")
+def settings_cloudflare_token(
+    no_verify: bool = typer.Option(
+        False, "--no-verify",
+        help="Save without hitting CF to verify the token works.",
+    ),
+) -> None:
+    """Save a Cloudflare API token to ~/.config/portfolio/cloudflare/token.
+
+    Prompts for the token (hidden input), writes it to the standard path
+    at mode 0600, then verifies it by calling CF's
+    `GET /user/tokens/verify` endpoint — catches paste errors / wrong
+    permissions before the next `project fix --apply` discovers them.
+
+    Create the token at https://dash.cloudflare.com/profile/api-tokens →
+    Create Custom Token → Permissions: Zone | Cache Purge | Purge →
+    Zone Resources: Include | All zones.
+    """
+    from . import cloudflare
+
+    token = typer.prompt("Cloudflare API token", hide_input=True).strip()
+    if not token:
+        console.print("[red]Empty token — nothing saved.[/]")
+        raise typer.Exit(2)
+
+    try:
+        cloudflare.save_token(token)
+    except (OSError, ValueError) as e:
+        console.print(f"[red]Failed to save token:[/] {e}")
+        raise typer.Exit(2)
+    console.print(f"[green]✓ Saved token to {cloudflare.TOKEN_PATH} (mode 0600)[/]")
+
+    if no_verify:
+        console.print("[dim](skipped verification — run "
+                      "`settings cloudflare status --verify` later)[/]")
+        return
+
+    console.print("[cyan]Verifying token with Cloudflare...[/]")
+    try:
+        info = cloudflare.verify_token()
+    except cloudflare.CloudflareAPIError as e:
+        console.print(f"[red]Token saved but verification failed:[/] {e}")
+        console.print("[yellow]Double-check the token has Zone:Cache Purge "
+                      "permission and didn't get truncated when pasted.[/]")
+        raise typer.Exit(2)
+    status = info.get("status", "unknown")
+    expires = info.get("expires_on") or "never"
+    console.print(f"[green]✓ Verified — status={status}, expires={expires}[/]")
+
+
+@settings_cloudflare_app.command("status")
+def settings_cloudflare_status(
+    verify: bool = typer.Option(
+        False, "--verify",
+        help="Also hit CF to confirm the saved token is still valid.",
+    ),
+) -> None:
+    """Show Cloudflare config state — is a token saved, is the parent
+    directory locked down, and how many zone IDs are cached locally.
+
+    Doesn't print the token itself. `--verify` makes one network call
+    against `GET /user/tokens/verify` to confirm CF still accepts it.
+    """
+    from . import cloudflare
+
+    state = cloudflare.token_status()
+    console.print("[bold]Cloudflare configuration[/]")
+    console.print(f"  Token path:      {state['token_path']}")
+    if state["token_present"]:
+        console.print(f"  Token present:   [green]yes[/] (mode {state['token_mode']})")
+    else:
+        console.print("  Token present:   [red]no[/]")
+        console.print(
+            "  [dim]Configure with: `settings cloudflare token`[/]"
+        )
+    console.print(f"  Parent dir mode: {state['parent_mode'] or '[dim](missing)[/]'}")
+    console.print(f"  Zone-id cache:   {state['zones_cache_path']} "
+                  f"({state['zones_cached']} domain(s) cached)")
+
+    if not verify:
+        return
+    if not state["token_present"]:
+        console.print("[yellow]Skipping --verify — no token saved.[/]")
+        raise typer.Exit(1)
+    console.print("\n[cyan]Verifying with Cloudflare...[/]")
+    try:
+        info = cloudflare.verify_token()
+    except cloudflare.MissingCredentialsError as e:
+        console.print(f"[red]No token:[/] {e}")
+        raise typer.Exit(1)
+    except cloudflare.CloudflareAPIError as e:
+        console.print(f"[red]Token rejected:[/] {e}")
+        raise typer.Exit(1)
+    console.print(
+        f"[green]✓ Token OK[/] — status={info.get('status', '?')}, "
+        f"id={info.get('id', '?')}, expires={info.get('expires_on') or 'never'}"
+    )
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from portfolio.seo_runtime import (
     SEORow,
     _live_domains_from_snapshot,
     _parse_robots_sitemaps,
+    _robots_intent_from_body,
     overall_status,
     probe_crux,
     probe_gsc,
@@ -188,6 +189,170 @@ def test_parse_robots_sitemaps_empty():
     assert _parse_robots_sitemaps("User-agent: *\nDisallow:\n") == []
 
 
+# ---------- Dark-site detection from robots.txt ----------
+
+
+def test_robots_intent_open_on_empty_body():
+    assert _robots_intent_from_body("") == "open"
+
+
+def test_robots_intent_open_on_standard_allow_all():
+    body = "User-agent: *\nAllow: /\nSitemap: https://x.com/sitemap.xml\n"
+    assert _robots_intent_from_body(body) == "open"
+
+
+def test_robots_intent_dark_on_universal_root_disallow():
+    """Classic dark pattern: block everything."""
+    body = "User-agent: *\nDisallow: /\n"
+    assert _robots_intent_from_body(body) == "dark"
+
+
+def test_robots_intent_dark_when_googlebot_blocked_even_if_others_open():
+    """Site that's open to everyone except Google is dark from a GSC
+    perspective — no discovery signal will ever fire."""
+    body = (
+        "User-agent: Googlebot\n"
+        "Disallow: /\n"
+        "\n"
+        "User-agent: *\n"
+        "Allow: /\n"
+    )
+    assert _robots_intent_from_body(body) == "dark"
+
+
+def test_robots_intent_dark_is_case_insensitive_on_agent():
+    body = "user-agent: googlebot\ndisallow: /\n"
+    assert _robots_intent_from_body(body) == "dark"
+
+
+def test_robots_intent_dark_with_multi_agent_block():
+    """Consecutive User-agent lines combine — both agents inherit the rules."""
+    body = (
+        "User-agent: Googlebot\n"
+        "User-agent: Bingbot\n"
+        "Disallow: /\n"
+    )
+    assert _robots_intent_from_body(body) == "dark"
+
+
+def test_robots_intent_open_when_root_allow_overrides_root_disallow():
+    """If the same block carries both `Disallow: /` and `Allow: /`,
+    Google's spec lets Allow override at the same specificity. Don't
+    misread that as dark."""
+    body = (
+        "User-agent: *\n"
+        "Disallow: /\n"
+        "Allow: /\n"
+    )
+    assert _robots_intent_from_body(body) == "open"
+
+
+def test_robots_intent_open_on_partial_disallow():
+    """Disallow: /admin is operationally normal — NOT dark."""
+    body = (
+        "User-agent: *\n"
+        "Disallow: /admin\n"
+        "Disallow: /staging\n"
+    )
+    assert _robots_intent_from_body(body) == "open"
+
+
+def test_robots_intent_open_when_only_ai_bots_disallowed():
+    """The Cloudflare-managed AI-bot block (ClaudeBot, GPTBot, etc.)
+    isn't dark — those aren't the agents we treat as 'crawls all of
+    Google'. The user-agent-* block being open is what matters."""
+    body = (
+        "User-agent: ClaudeBot\nDisallow: /\n\n"
+        "User-agent: GPTBot\nDisallow: /\n\n"
+        "User-agent: *\nAllow: /\nSitemap: https://x.com/sitemap.xml\n"
+    )
+    assert _robots_intent_from_body(body) == "open"
+
+
+def test_robots_intent_blank_line_closes_block():
+    """A blank line between disallow and the next agent line must close
+    the rule group — otherwise we'd attribute the disallow to the next
+    agent (broken parser)."""
+    body = (
+        "User-agent: ClaudeBot\nDisallow: /\n"
+        "\n"
+        "User-agent: *\nAllow: /\n"
+    )
+    assert _robots_intent_from_body(body) == "open"
+
+
+def test_robots_intent_ignores_comments():
+    body = (
+        "# User-agent: *\n"
+        "# Disallow: /\n"
+        "User-agent: *\nAllow: /\n"
+    )
+    assert _robots_intent_from_body(body) == "open"
+
+
+def test_probe_http_captures_dark_intent():
+    """End-to-end: probe_http surfaces robots_intent='dark' so
+    downstream code (run_seo / overall_status / focus) can act on it."""
+    transport = _mock_transport({
+        "/": httpx.Response(200),
+        "/robots.txt": httpx.Response(200,
+                                      headers={"content-type": "text/plain"},
+                                      text="User-agent: *\nDisallow: /\n"),
+        "/sitemap.xml": httpx.Response(404),
+    })
+    with httpx.Client(transport=transport, follow_redirects=True) as client:
+        r = probe_http("members-only.test", client=client)
+    assert r["robots_intent"] == "dark"
+
+
+def test_probe_http_intent_none_when_robots_missing():
+    transport = _mock_transport({
+        "/": httpx.Response(200),
+        # No /robots.txt handler → 404.
+    })
+    with httpx.Client(transport=transport, follow_redirects=True) as client:
+        r = probe_http("example.com", client=client)
+    assert r["robots_intent"] is None
+
+
+def test_row_statuses_robots_lock_glyph_when_dark():
+    r = SEORow(domain="x", robots_served=True, robots_intent="dark")
+    assert row_statuses(r)["robots"] == "🔒"
+
+
+def test_row_statuses_robots_unchanged_when_open():
+    r = SEORow(domain="x", robots_served=True, robots_intent="open")
+    assert row_statuses(r)["robots"] == "🟢"
+
+
+def test_overall_status_lock_short_circuit_when_dark():
+    """Dark site with red-by-absence signals (zero imp, not in GSC)
+    must still grade 🔒, not 🔴 — the SEO signals don't apply."""
+    r = SEORow(
+        domain="x",
+        http_status=200,
+        robots_served=True, robots_intent="dark",
+        sitemap_served=False,
+        gsc_status="not-in-gsc",
+        gsc_impressions=0,
+        gsc_position=None,
+    )
+    assert overall_status(r) == "🔒"
+
+
+def test_gsc_sitemap_cell_lock_when_dark():
+    """No sitemap submitted is correct for dark sites — don't surface
+    it as ❌ ('fixable ops gap'); it isn't fixable, it's by design."""
+    from portfolio.seo_runtime import gsc_sitemap_cell
+    r = SEORow(
+        domain="x",
+        robots_intent="dark",
+        gsc_status="ok",
+        gsc_sitemap_count=0,
+    )
+    assert gsc_sitemap_cell(r) == "🔒"
+
+
 # ---------- GSC probe ----------
 
 
@@ -247,6 +412,74 @@ def test_probe_gsc_merges_multiple_properties(monkeypatch):
     assert r["impressions"] == 500
     # weighted: (5*100 + 15*400) / 500 = 13
     assert r["position"] == pytest.approx(13.0)
+
+
+def test_probe_gsc_captures_per_sitemap_errors_and_warnings(monkeypatch):
+    """GSC's `sitemaps().list()` returns errors/warnings per submitted
+    sitemap. Probe must aggregate them — without this, "Sitemap could
+    not be read" stays invisible to the dashboard (the donready gap)."""
+    monkeypatch.setattr("portfolio.gsc.query_totals",
+                        lambda *a, **k: {"clicks": 0, "impressions": 0,
+                                         "ctr": 0.0, "position": None})
+    service = MagicMock()
+    # GSC returns numeric values as STRINGS in the JSON — make sure the
+    # probe coerces them. One sitemap erroring, one with a warning, one clean.
+    service.sitemaps.return_value.list.return_value.execute.return_value = {
+        "sitemap": [
+            {"path": "https://example.com/sitemap.xml",
+             "errors": "2", "warnings": "0", "isPending": False,
+             "lastDownloaded": "2026-05-01T12:00:00Z"},
+            {"path": "https://example.com/sitemap-index.xml",
+             "errors": "0", "warnings": "3", "isPending": False},
+            {"path": "https://example.com/sitemap-news.xml",
+             "errors": "0", "warnings": "0", "isPending": True},
+        ]
+    }
+    coverage = {"example.com": [{"siteUrl": "sc-domain:example.com"}]}
+    r = probe_gsc("example.com", days=28, gsc_service=service, coverage=coverage)
+
+    assert r["sitemap_count"] == 3
+    assert r["sitemap_errors"] == 2
+    assert r["sitemap_warnings"] == 3
+    assert r["sitemap_pending"] == 1
+    assert len(r["sitemap_details"]) == 3
+    bad = next(d for d in r["sitemap_details"] if d["errors"] > 0)
+    assert bad["path"] == "https://example.com/sitemap.xml"
+    assert bad["last_downloaded"] == "2026-05-01T12:00:00Z"
+
+
+def test_probe_gsc_sitemap_aggregates_zero_when_no_submissions(monkeypatch):
+    """In-GSC but zero submitted → aggregates are 0 (not None). None
+    means 'data not collected'; 0 means 'collected, nothing found'."""
+    monkeypatch.setattr("portfolio.gsc.query_totals",
+                        lambda *a, **k: {"clicks": 0, "impressions": 0,
+                                         "ctr": 0.0, "position": None})
+    service = MagicMock()
+    service.sitemaps.return_value.list.return_value.execute.return_value = {"sitemap": []}
+    coverage = {"example.com": [{"siteUrl": "sc-domain:example.com"}]}
+    r = probe_gsc("example.com", days=28, gsc_service=service, coverage=coverage)
+    assert r["sitemap_count"] == 0
+    assert r["sitemap_errors"] == 0
+    assert r["sitemap_warnings"] == 0
+    assert r["sitemap_details"] == []
+
+
+def test_probe_gsc_sitemaps_api_failure_does_not_poison_totals(monkeypatch):
+    """If `sitemaps().list()` throws, the rest of the GSC totals must
+    still come through — sitemap aggregates remain at their initial 0.
+    Matches the existing tolerant pattern around the Sitemaps call."""
+    monkeypatch.setattr("portfolio.gsc.query_totals",
+                        lambda *a, **k: {"clicks": 5, "impressions": 50,
+                                         "ctr": 0.1, "position": 10.0})
+    service = MagicMock()
+    service.sitemaps.return_value.list.return_value.execute.side_effect = \
+        RuntimeError("boom")
+    coverage = {"example.com": [{"siteUrl": "sc-domain:example.com"}]}
+    r = probe_gsc("example.com", days=28, gsc_service=service, coverage=coverage)
+    assert r["status"] == "ok"
+    assert r["clicks"] == 5
+    assert r["sitemap_count"] == 0
+    assert r["sitemap_errors"] == 0
 
 
 # ---------- CrUX probe ----------
@@ -501,11 +734,136 @@ def test_row_statuses_dict_contains_gsc_sitemap_key():
 
 
 def test_gsc_sitemap_status_not_in_overall_keys():
-    """The new sitemap-submitted signal is a sidecar — don't pull the
-    overall SEO grade because a site doesn't have a submitted sitemap.
-    Operators can decide if that's worth fixing on a per-site basis."""
+    """`gsc_sitemap` (presence-only) stays a sidecar — "no sitemap submitted"
+    on its own shouldn't auto-red the overall grade; operators decide. The
+    new `gsc_sitemap_health` signal is what carries broken-state into the
+    overall (see test below)."""
     from portfolio.seo_runtime import _OVERALL_KEYS
     assert "gsc_sitemap" not in _OVERALL_KEYS
+
+
+# ---------- GSC sitemap-health (parse errors / warnings) ----------
+
+
+def test_row_statuses_gsc_sitemap_health_red_on_errors():
+    """`errors > 0` on a submitted sitemap → 🔴. This is the signal that
+    "Sitemap could not be read" in GSC actually emits."""
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=1,
+               gsc_sitemap_errors=2, gsc_sitemap_warnings=0)
+    assert row_statuses(r)["gsc_sitemap_health"] == "🔴"
+
+
+def test_row_statuses_gsc_sitemap_health_yellow_on_warnings_only():
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=1,
+               gsc_sitemap_errors=0, gsc_sitemap_warnings=4)
+    assert row_statuses(r)["gsc_sitemap_health"] == "🟡"
+
+
+def test_row_statuses_gsc_sitemap_health_green_when_clean():
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=1,
+               gsc_sitemap_errors=0, gsc_sitemap_warnings=0)
+    assert row_statuses(r)["gsc_sitemap_health"] == "🟢"
+
+
+def test_row_statuses_gsc_sitemap_health_grey_when_no_submission():
+    """No sitemap submitted → nothing to grade; defer to `gsc_sitemap`
+    presence signal. Health stays grey rather than 'green by absence'."""
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=0,
+               gsc_sitemap_errors=0, gsc_sitemap_warnings=0)
+    assert row_statuses(r)["gsc_sitemap_health"] == "⚪"
+
+
+def test_row_statuses_gsc_sitemap_health_grey_when_not_in_gsc():
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="not-in-gsc")
+    assert row_statuses(r)["gsc_sitemap_health"] == "⚪"
+
+
+def test_row_statuses_gsc_sitemap_health_grey_when_errors_none():
+    """Older snapshots predate the errors/warnings fields → grey."""
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=1,
+               gsc_sitemap_errors=None, gsc_sitemap_warnings=None)
+    assert row_statuses(r)["gsc_sitemap_health"] == "⚪"
+
+
+def test_gsc_sitemap_health_in_overall_keys():
+    """The donready-style gap fix: GSC reporting parse errors on a
+    submitted sitemap IS a real SEO regression and must pull the row's
+    overall grade. Without this, the dashboard stays green while GSC
+    says "Sitemap could not be read"."""
+    from portfolio.seo_runtime import _OVERALL_KEYS
+    assert "gsc_sitemap_health" in _OVERALL_KEYS
+
+
+def test_overall_status_drops_to_red_on_gsc_sitemap_errors():
+    """End-to-end: a row that's otherwise green/grey grades 🔴 when GSC
+    has parse errors on the submitted sitemap. Exercises the wire-up
+    from probe → SEORow → row_statuses → overall_status."""
+    r = SEORow(
+        domain="x",
+        http_status=200,
+        robots_served=True, sitemap_served=True,
+        gsc_status="ok", gsc_impressions=100, gsc_position=5.0,
+        gsc_sitemap_count=1,
+        gsc_sitemap_errors=1, gsc_sitemap_warnings=0,
+    )
+    assert overall_status(r) == "🔴"
+
+
+def test_overall_status_drops_to_yellow_on_gsc_sitemap_warnings():
+    r = SEORow(
+        domain="x",
+        http_status=200,
+        robots_served=True, sitemap_served=True,
+        gsc_status="ok", gsc_impressions=100, gsc_position=5.0,
+        gsc_sitemap_count=1,
+        gsc_sitemap_errors=0, gsc_sitemap_warnings=2,
+    )
+    assert overall_status(r) == "🟡"
+
+
+# ---------- Merged GSC-sitemap cell (presence + health) ----------
+
+
+def test_gsc_sitemap_cell_prefers_red_over_missing():
+    """A submitted-but-erroring sitemap is worse than a missing one —
+    GSC has the file and can't use it. Single-cell rendering must
+    surface that."""
+    from portfolio.seo_runtime import gsc_sitemap_cell
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=1,
+               gsc_sitemap_errors=3, gsc_sitemap_warnings=0)
+    assert gsc_sitemap_cell(r) == "🔴"
+
+
+def test_gsc_sitemap_cell_shows_missing_when_none_submitted():
+    from portfolio.seo_runtime import gsc_sitemap_cell
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=0)
+    assert gsc_sitemap_cell(r) == "❌"
+
+
+def test_gsc_sitemap_cell_shows_yellow_on_warnings():
+    from portfolio.seo_runtime import gsc_sitemap_cell
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=1,
+               gsc_sitemap_errors=0, gsc_sitemap_warnings=1)
+    assert gsc_sitemap_cell(r) == "🟡"
+
+
+def test_gsc_sitemap_cell_green_when_submitted_and_clean():
+    from portfolio.seo_runtime import gsc_sitemap_cell
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=2,
+               gsc_sitemap_errors=0, gsc_sitemap_warnings=0)
+    assert gsc_sitemap_cell(r) == "🟢"
+
+
+def test_gsc_sitemap_cell_grey_when_no_gsc_data():
+    from portfolio.seo_runtime import gsc_sitemap_cell
+    r = SEORow(domain="x", gsc_status="auth-skipped")
+    assert gsc_sitemap_cell(r) == "⚪"
 
 
 def test_row_statuses_lcp_thresholds():

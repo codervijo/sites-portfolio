@@ -42,6 +42,8 @@ Thumbs.db
 
 # Caches written by portfolio
 data/cache/
+# Operator-specific CF zone-id cache (see portfolio/cloudflare.py)
+data/cloudflare/
 
 # OAuth / GSC artifacts (defensive — these belong in ~/.config/portfolio/gsc/)
 credentials.json
