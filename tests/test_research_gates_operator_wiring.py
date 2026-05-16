@@ -1,4 +1,4 @@
-"""Tests for v8.D P3.D — operator-fit wired into `_run_gates_with_prompt`.
+"""Tests for v8.D — operator-fit wired into `_run_gates_with_prompt`.
 
 The CLI orchestrator (`portfolio.cli._run_gates_with_prompt`) reads
 the operator profile from sites/portfolio/lamill.toml and feeds it

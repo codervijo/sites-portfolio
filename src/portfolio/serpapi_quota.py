@@ -1,4 +1,4 @@
-"""v8.D P1.F — SerpAPI quota ledger + auto-fallback.
+"""v8.D — SerpAPI quota ledger + auto-fallback.
 
 Tracks how many SerpAPI queries we've used this UTC month against the
 free-tier cap (250/month default). Resets automatically on the first

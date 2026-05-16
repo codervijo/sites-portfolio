@@ -1,4 +1,4 @@
-"""Tests for v8.D P1.D — research_v2 orchestrator.
+"""Tests for v8.D — research_v2 orchestrator (`portfolio.research_v2`).
 
 Mocks both the LLM cluster expansion and the SerpAPI fetches so tests
 run offline / deterministically.
@@ -247,7 +247,7 @@ def test_cluster_capped_at_5_queries(_stub_dir, monkeypatch):
     assert len(payload["cluster_queries"]) == 5
 
 
-# ---------- P2.F — schema gate on cluster cache ----------
+# ---------- schema gate on cluster cache ----------
 
 
 def test_cluster_schema_mismatch_is_cache_miss(_stub_dir, monkeypatch):

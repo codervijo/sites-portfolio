@@ -1,4 +1,4 @@
-"""v8.D P1.C — per-query SerpAPI cache.
+"""v8.D — per-query SerpAPI cache.
 
 Stores one normalized SerpAPI response per (query, date) tuple at
 `data/serp/<YYYY-MM-DD>/<query-hash>.json`. Layout chosen so a day's

@@ -1,4 +1,4 @@
-"""Tests for v8.D P1.F — SerpAPI quota ledger."""
+"""Tests for v8.D — SerpAPI quota ledger (`portfolio.serpapi_quota`)."""
 from __future__ import annotations
 
 import json

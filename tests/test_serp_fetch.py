@@ -1,4 +1,4 @@
-"""Tests for v8.D P1.B — SerpAPI fetcher.
+"""Tests for v8.D — SerpAPI fetcher (`portfolio.serp_fetch`).
 
 Mocks SerpAPI HTTP responses so tests run offline.
 """
@@ -201,7 +201,7 @@ def test_401_unauthorized_raises_clear_message(monkeypatch):
 
 
 def test_429_quota_exhausted_raises_for_fallback(monkeypatch):
-    """The P1.F quota fallback path keys on this error message."""
+    """The quota-fallback path (in `serpapi_quota`) keys on this error message."""
     _stub_serpapi(monkeypatch, status_code=429)
     with pytest.raises(serp_fetch.SerpFetchError, match="429"):
         serp_fetch.fetch_serp("test", api_key="fake")

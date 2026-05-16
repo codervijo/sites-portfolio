@@ -116,7 +116,7 @@ class GateResults:
         }
 
 
-# ---------- Gate 1 (Market) — P2.B ----------
+# ---------- Gate 1 (Market) ----------
 
 # Short stopword list — keeps the stem-match honest without dragging in
 # nltk. These are the words that appear in cluster queries and would
@@ -333,7 +333,7 @@ def evaluate_gate_1(cluster: dict, *,
     )
 
 
-# ---------- Gate 2 (SERP) — P2.C ----------
+# ---------- Gate 2 (SERP) ----------
 
 # Programmatic-URL patterns (PRD §P2.3 SPECIALTY_INCUMBENT classifier).
 # A URL matching any of these is a signal that the page belongs to a
@@ -647,7 +647,7 @@ def evaluate_gate_2(cluster: dict, *,
     )
 
 
-# ---------- Gate 3 (Moat) — P2.D ----------
+# ---------- Gate 3 (Moat) ----------
 
 # Reason strings — surfaced both in findings text and in raw for the
 # renderer. Keep these as constants so callers and tests can pattern-match.
@@ -704,7 +704,7 @@ def evaluate_gate_3(gate_2: GateResult, moat_sentence: str | None,
     )
 
 
-# ---------- verdict synthesis (filled in by P2.E) ----------
+# ---------- verdict synthesis ----------
 
 
 def synthesize_verdict(g1: GateResult, g2: GateResult, g3: GateResult,
@@ -848,7 +848,7 @@ def is_moat_required(gate_2: GateResult) -> bool:
     Used by callers to decide whether to prompt the user before
     invoking `evaluate_gate_3`. Tolerant of two shapes for
     `classifications.<name>`:
-      - dict with `"present": bool` (real P2.C output)
+      - dict with `"present": bool` (real Gate 2 output)
       - truthy list/value (legacy test fixtures)
     """
     cls = gate_2.raw.get("classifications", {}) if gate_2.raw else {}
@@ -872,7 +872,7 @@ def evaluate_cluster(cluster: dict, *, moat_sentence: str | None = None,
     """Run all three gates against a cluster snapshot and return the
     composed `GateResults`. The orchestrator entry point used by the CLI.
 
-    `volume_estimator` is forwarded to Gate 1 (P2.B). `reductions_llm_call`
+    `volume_estimator` is forwarded to Gate 1. `reductions_llm_call`
     is forwarded to `suggest_reductions()` when verdict is NICHE-DOWN.
     `skip_reductions=True` short-circuits the LLM call (used by tests
     and by callers who'll render reductions separately).

@@ -1,4 +1,4 @@
-"""Tests for v8.E P4.A.3 — prompt loader + renderer."""
+"""Tests for v8.E — prompt loader + renderer (`portfolio.prompt_loader`)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -185,9 +185,9 @@ def test_niche_evaluation_v1_renders_with_operator_vars():
 
 def test_niche_evaluation_v1_lists_only_known_placeholders():
     """The primary prompt references exactly the three operator vars
-    declared in P4.A.1's commit message — guards against accidental
-    new placeholders sneaking into the prompt without the orchestrator
-    knowing to fill them."""
+    declared when the niche_evaluation_v1 prompt was drafted — guards
+    against accidental new placeholders sneaking into the prompt
+    without the orchestrator knowing to fill them."""
     template = load_prompt("niche_evaluation_v1")
     placeholders = set(find_placeholders(template))
     assert placeholders == {

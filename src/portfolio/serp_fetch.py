@@ -1,11 +1,12 @@
-"""v8.D P1.B — SerpAPI fetcher with normalized response shape.
+"""v8.D — SerpAPI fetcher with normalized response shape.
 
 Hits SerpAPI's `/search` endpoint for one query and normalizes the
-result into the schema documented in research-module-v2.md §P1.2.
+result into the schema documented in research-module-v2.md.
 
-This module owns the HTTP + parsing layer ONLY. Caching, quota
-tracking, and synthesis-only fallback live in their own modules
-(P1.C / P1.F / P1.E respectively) so this one stays a pure adapter.
+This module owns the HTTP + parsing layer ONLY. Caching
+(`serp_query_cache`), quota tracking (`serpapi_quota`), and
+synthesis-only fallback (in `research_v2`) live in their own
+modules so this one stays a pure adapter.
 
 SerpAPI's response shape is rich but varies by query — different
 SERPs have different feature combinations, optional fields appear
@@ -28,7 +29,7 @@ RETRY_BACKOFF_S = 2.0      # one retry on transient failures
 
 class SerpFetchError(RuntimeError):
     """Raised on non-recoverable SerpAPI failures. Caller maps to
-    fallback behavior (synthesis-only mode per P1.E)."""
+    fallback behavior (synthesis-only mode in `research_v2`)."""
 
 
 def fetch_serp(query: str, *, api_key: str,
@@ -94,7 +95,7 @@ def _call_with_retry(params: dict) -> dict:
             )
         if r.status_code == 429:
             # 429 = rate limit. SerpAPI returns this when the quota's
-            # exhausted; caller handles fallback per P1.F.
+            # exhausted; caller handles fallback via `serpapi_quota`.
             raise SerpFetchError("SerpAPI 429 — quota exhausted or rate limited")
 
         if 500 <= r.status_code < 600 and attempt == 0:

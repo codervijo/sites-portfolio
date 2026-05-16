@@ -1,9 +1,10 @@
-"""Tests for v8.D P2.A — three-gate skeleton.
+"""Tests for v8.D — three-gate skeleton (`portfolio.research_gates`).
 
-P2.A is the dataclass / orchestrator scaffold. The actual gate logic
-(volume math, classifiers, moat handling, verdict synthesis) lands in
-P2.B / P2.C / P2.D / P2.E. These tests fix the *shape* so subsequent
-commits can't accidentally break the contract.
+The original three-gate skeleton commit added the dataclass /
+orchestrator scaffold. Subsequent commits filled in the gate logic
+(volume math, classifiers, moat handling, verdict synthesis). These
+tests fix the *shape* so any of those follow-ups can't accidentally
+break the contract.
 """
 from __future__ import annotations
 
@@ -1042,7 +1043,7 @@ def test_evaluate_cluster_skip_reductions_flag():
 
 def test_evaluate_cluster_returns_full_gate_results():
     """The orchestrator returns a GateResults with all four slots
-    populated. All three gates are real (P2.B/C/D). An empty cluster:
+    populated. All three gates are real. An empty cluster:
       - Gate 1 FAIL (zero pollution-adjusted volume)
       - Gate 2 WEAK-PASS (no kill-tier, no beatable)
       - Gate 3 PASS (no specialty/programmatic incumbent → not required)

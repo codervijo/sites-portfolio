@@ -214,7 +214,7 @@ Note on v7.H addition (2026-05-16):
 | **v7.H** ✅ | GSC sitemap health + dark-site detection + CF edge-cache check (`CHECK_057`) | Three threads landed together while triaging donready.xyz's "Sitemap could not be read" GSC report (commit `357a29f`). **(1) GSC sitemap health:** `probe_gsc` keeps per-sitemap `errors`/`warnings`/`isPending`/`lastDownloaded` from `sitemaps().list()` instead of only counting submissions; new `gsc_sitemap_health` signal in `_OVERALL_KEYS` correctly grades a row 🔴 when GSC reports parse errors on a submitted sitemap (previously the dashboard stayed green by absence). New `gsc_sitemap_cell()` merges presence + health for the `check --seo` "GSC sm" column; footer callout lists "sites with sitemap errors in GSC" with one-line diagnostic hints. Fleet focus gains 🔴 sitemap-parse-errors + 🟡 sitemap-warnings signals (errors suppress warnings to avoid duplication). **(2) Dark-site detection from robots.txt:** new `_robots_intent_from_body` classifies robots.txt as `dark` when `User-agent: *` or `User-agent: Googlebot` carries `Disallow: /` with no overriding `Allow: /` in the same block (multi-agent groups + blank-line block boundaries handled correctly; AI-bot disallow blocks ignored). `SEORow.robots_intent` feeds new 🔒 glyph in the robots column; `overall_status` + `gsc_sitemap_cell` short-circuit to 🔒 on dark rows; fleet focus suppresses public-web-discovery signals (no-sitemap-submitted, sitemap-errors, zero-imp, bad-pos). Site-down + expiry signals still fire — broken hosting is broken regardless of crawler policy. Wires up cleanly to a future `lamill.toml [dark]` flag (same downstream behavior, two possible inputs). **(3) `CHECK_057 cf-edge-cache-fresh` + tier-1 fix + `settings cloudflare`:** new deploy check probes `/`, `/robots.txt`, `/sitemap*.xml` against the live origin with `follow_redirects=False` (load-bearing — a legitimate 301 isn't stale; commented as such after a self-inflicted regression caught by `test_run_does_not_flag_legitimate_301_as_stale`); fails when a critical path returns 200 but is absent from `dist/`. New `portfolio/cloudflare.py` module: token read/save, zone-id resolution with persistent `data/cloudflare/zones.json` cache (gitignored — operator-specific), `purge_files` (caps at 30 URLs per CF policy — raises rather than silently truncates), `verify_token` via `GET /user/tokens/verify`, `token_status` snapshot for the settings command. Tier-1 fix on the check module re-probes, purges via the API, re-probes once more to verify HIT→MISS; verify-still-HIT downgrades to error so silent partial-purges surface. New `settings cloudflare {token,status}` CLI surface: `token` prompts hidden, saves at mode 0600, verifies against CF in one step (`--no-verify` skips); `status` reports config state without leaking the token value, `--verify` hits CF on demand. `MissingCredentialsError` and `CloudflareAPIError` paths in the fix point at `settings cloudflare token` / `--verify` for one-line diagnostic paths. Fleet focus surfaces failing `CHECK_057` as 🔴 "Stale CF edge cache" with the purge command in the action text; CF probes parallelized via `ThreadPoolExecutor` (max 8) and only run against CF Pages projects (filesystem filter on `wrangler.jsonc`). +86 tests across `test_seo_runtime`, `test_focus`, `test_cloudflare`, `test_settings_cloudflare_cli`, and `tests/checks/test_check_057_*`. 1421 tests pass. |
 | **v8.A** ✅ | `new research <topic>` core command *(absorbed by v8.D 2026-05-14)* | Originally planned: gpt-4o-mini synthesizing SERP analysis from training data (top rankers, content patterns, gap analysis, ship/skip recommendation). 2026-05-14 brainstorm replaced the AI-only approach with real SerpAPI primary + synthesis fallback before any code was written. v8.D's `lamill new research <topic>` command fulfills this row's intent — see §8.1. |
 | **v8.B** ✅ | Multi-keyword cluster mode *(absorbed by v8.D 2026-05-14)* | Originally planned: LLM-generated cluster (3-5 related queries) from a single topic, merged SERP across the cluster, deduped + scored by frequency, with `--strict` to fall back to literal-topic-only. Shipped as part of v8.D — cluster expansion is the default behavior; `--strict` flag preserved. See §8.1. |
-| **v8.D** ✅ | Research module v2 — real SERP + three-gate framework + operator profile *(full PRD inlined in §8.1)* | Rebuild of v8.A/B from AI-only synthesis to SerpAPI primary with synthesis fallback. Three phases all shipped: P1 SerpAPI fetch + per-query dated snapshots (commit `9cd3993`+ series), P2 three-gate logic — Market / SERP-with-7-classifiers / Moat-interactive-prompt, P3 operator profile read from `sites/portfolio/lamill.toml [operator]` (4 sub-commits: P3.A `c095ad8` loader + dataclass · P3.B `1480caa` operator-fit logic · P3.C `9ac1866` `settings operator show` CLI · P3.D `df86195` wire into research gates). Verdict vocabulary: GO / NICHE-DOWN / NO-GO. Schema bumped; old caches archived. |
+| **v8.D** ✅ | Research module v2 — real SERP + three-gate framework + operator profile *(full PRD inlined in §8.1)* | Rebuild of v8.A/B from AI-only synthesis to SerpAPI primary with synthesis fallback. All three phases shipped: Phase 1 (SerpAPI fetch + per-query dated snapshots, commit `9cd3993`+ series); Phase 2 (three-gate logic — Market / SERP-with-7-classifiers / Moat-interactive-prompt); Phase 3 (operator profile read from `sites/portfolio/lamill.toml [operator]` — 4 commits: `c095ad8` loader + dataclass · `1480caa` operator-fit logic · `9ac1866` `settings operator show` CLI · `df86195` wire into research gates). Verdict vocabulary: GO / NICHE-DOWN / NO-GO. Schema bumped; old caches archived. |
 | **v8.E** | Research module Phase 4 — interpretive verdict + adversarial audit *(planned 2026-05-14, full PRD inlined in §8.2)* | Interpretive layer on top of v8.D's mechanical gates. Phase 4a: primary verdict via Claude Sonnet (new Anthropic API). Phase 4b: adversarial audit by GPT-4o (steel-mans opposite verdict; six failure modes). Phase 4c: reconciliation surfacing disagreement (REVIEW_REQUIRED first-class verdict). Opt-in via `--verify`. Versioned prompts at `prompts/`. ~20-26h on top of v8.D. 10 open questions + audit prompt awaiting review. |
 | **v9.A** | `lamill.toml` per-site deploy declaration *(planned 2026-05-14, full PRD inlined in §8.3)* | Visible TOML file at each `sites/<domain>/` repo root declaring where the site deploys. Closes the gap for hosts without canonical configs (HostGator, WordPress, custom VPS). Schema: `[deploy]` (platform, account, branch, custom_domains) + `[hosting]` (cPanel/FTP breadcrumbs when applicable) + `[notes]`. CLI: `project set-deploy`, `project show-deploy`, `fleet repos --add-deploy-declarations` migration. `new bootstrap` writes it automatically. ~12-16h. 8 open questions in PRD. |
 | **v9.B** | Drift detection + lamill.toml conformance checks *(deferred from v9.A; full PRD TBD)* | CHECK_xxx series comparing `lamill.toml` declaration vs DNS-resolved actual + live HTTP probe (extends `project diagnose`'s existing inference). `has-lamill-toml` + `lamill-toml-valid` + `deploy-drift` checks. ~6-8h. |
@@ -1027,14 +1027,14 @@ works (uses LLM, doesn't touch the archived caches).
 
 ### Phase 1 commits
 
-**Commit P1.A** — Add `SERPAPI_KEY` to `KNOWN_KEYS` + portfolio.env
+**Add `SERPAPI_KEY` to `KNOWN_KEYS` + portfolio.env
 template + connectivity probe in `apikeys.py`. Update
 `lamill settings apikeys list` to report it.
 
 *Smoke test:* `lamill settings apikeys list` shows SERPAPI_KEY as
 "unset" or "set + connectivity ✓".
 
-**Commit P1.B** — `src/portfolio/serp_fetch.py` with `fetch_serp(query)`
+**`src/portfolio/serp_fetch.py` with `fetch_serp(query)`
 returning the normalized shape from P1.2. Includes retry logic,
 SerpAPI-error to ResearchError mapping. No CLI wiring yet.
 
@@ -1042,13 +1042,13 @@ SerpAPI-error to ResearchError mapping. No CLI wiring yet.
 import json; print(json.dumps(fetch_serp('ev charger installation cost'),
 indent=2)[:500])"` returns a real SERP. Required: SERPAPI_KEY set.
 
-**Commit P1.C** — Per-query caching to `data/serp/<YYYY-MM-DD>/<query-
+**Per-query caching to `data/serp/<YYYY-MM-DD>/<query-
 hash>.json` with `schema: serp-query-v1`. `load_cached_query(query,
 ttl_days=7)`, `save_cached_query(...)`. Tests against tmp_path.
 
 *Smoke test:* `pytest tests/test_serp_fetch.py -q` (~10 new tests).
 
-**Commit P1.D** — Refactor `serp.py:research()` to: (a) load the
+**Refactor `serp.py:research()` to: (a) load the
 cluster query list from gpt-4o-mini (existing code), (b) for each
 query, call `fetch_serp()`, (c) cache + return a NEW cluster snapshot
 shape that's just the per-query results merged (no gates yet, no
@@ -1059,7 +1059,7 @@ flag, marked clearly.
 runs end-to-end against SerpAPI, writes one cluster file + 5 per-query
 files, output shows raw SERP data (no gates).
 
-**Commit P1.E** — `--synthesis-only` flag wired with loud banner.
+**`--synthesis-only` flag wired with loud banner.
 `--no-cache` re-fetches both LLM cluster expansion AND per-query SERPs.
 Error paths (missing key, SerpAPI 5xx, rate limit) tested.
 
@@ -1067,7 +1067,7 @@ Error paths (missing key, SerpAPI 5xx, rate limit) tested.
 banner; `lamill new research "test" --no-cache` re-fetches; missing
 SERPAPI_KEY errors with the right pointer.
 
-**Commit P1.F** — Quota ledger at `data/serp/_quota.json` (per §8.G.2).
+**Quota ledger at `data/serp/_quota.json` (per §8.G.2).
 Tracks queries used in the current UTC month; auto-resets on
 month-boundary. Soft-warns at 200/250; hard-refuses at 250/250 with
 auto-fallback to synthesis-only mode (loud banner per §8.G.3). New
@@ -1079,14 +1079,14 @@ change.
 
 ### Phase 2 commits
 
-**Commit P2.A** — `src/portfolio/research_gates.py` skeleton:
+**`src/portfolio/research_gates.py` skeleton:
 dataclasses (`GateResult`, `GateResults`), `evaluate_gate_1(cluster)`,
 `evaluate_gate_2(cluster)`, `evaluate_gate_3(cluster, moat_input)`.
 Pure logic, no CLI. Unit tests with synthetic cluster fixtures.
 
 *Smoke test:* `pytest tests/test_research_gates.py -q` (~25 tests).
 
-**Commit P2.B** — Gate 1 (Market) — volume estimate via the chosen
+**Gate 1 (Market) — volume estimate via the chosen
 proxy (§8.A), pollution detection, pollution-adjusted volume math.
 Unit tests for: clean cluster, polluted cluster, mixed cluster, edge
 cases (0 results, all polluted).
@@ -1094,7 +1094,7 @@ cases (0 results, all polluted).
 *Smoke test:* `lamill new research "ev charger installation cost"
 --debug-gates` shows Gate 1 output but skips 2 and 3.
 
-**Commit P2.C** — Gate 2 (SERP) — classifiers in priority order.
+**Gate 2 (SERP) — classifiers in priority order.
 Static `media_publications.toml` (§8.D — assuming option 1 chosen)
 seeded with ~20 verticals. Programmatic-URL regex library. Tests
 cover each classifier individually + combinations.
@@ -1102,20 +1102,20 @@ cover each classifier individually + combinations.
 *Smoke test:* Cluster with known programmatic incumbent (e.g.,
 `notateslaapp.com`) → classifier fires; cluster without one → doesn't.
 
-**Commit P2.D** — Gate 3 (Moat) — interactive prompt, snapshot
+**Gate 3 (Moat) — interactive prompt, snapshot
 storage, `--non-interactive`/`--json` mode handling.
 
 *Smoke test:* Running interactively on a cluster that fails Gate 2
 prompts for moat; entering text → PASS; Enter → FAIL; `--json` skips.
 
-**Commit P2.E** — Verdict synthesis (§5 table) + suggested-reductions
+**Verdict synthesis (§5 table) + suggested-reductions
 generator (LLM call with the gate findings as context). Renderer
 updated to show gates + verdict + reductions.
 
 *Smoke test:* `lamill new research "ev charger installation cost"`
 end-to-end produces the target output from §3.
 
-**Commit P2.F** — Snapshot schema migrated to v2 (`research-cluster-v2`).
+**Snapshot schema migrated to v2 (`research-cluster-v2`).
 Old `data/serp/*.json` were already archived in P0. Cache invalidation
 on schema mismatch. Tests confirm v1 cache is treated as miss.
 
@@ -1124,21 +1124,21 @@ NOT serve from a v1 cache; re-fetches fresh.
 
 ### Phase 3 commits
 
-**Commit P3.A** — `src/portfolio/operator_profile.py`:
+**`src/portfolio/operator_profile.py`:
 `OperatorProfile` dataclass, `load_profile()`, `default_profile()`,
 TOML-or-YAML reader (§8.C decided). Tests against tmp_path with
 synthetic profiles.
 
 *Smoke test:* `pytest tests/test_operator_profile.py -q` (~12 tests).
 
-**Commit P3.B** — `lamill settings operator show` + `edit` CLI
+**`lamill settings operator show` + `edit` CLI
 commands.
 
 *Smoke test:* `lamill settings operator show` prints the profile (or
 "no profile configured"); `lamill settings operator edit` opens
 `$EDITOR`.
 
-**Commit P3.C** — Operator-fit constraints wired into
+**Operator-fit constraints wired into
 `research_gates.py`:
 - Expertise check (auto-fail Gate 2)
 - Workflow check (warning + niche-down trigger)
@@ -1179,15 +1179,15 @@ Honest reading, not padded, not shrunk:
 | Phase | Commits | Estimated hours | Key risks |
 |---|---|---|---|
 | Preamble | P0 | 1h | Archive migration script |
-| Phase 1 | P1.A–F | 9–11h | SerpAPI integration, quota ledger + auto-fallback, error paths, retry logic, test coverage |
-| Phase 2 | P2.A–F | 10–14h | Gate 2 classifier rules, programmatic-URL regex (hard to get right), verdict-synthesis LLM call wired correctly, schema migration |
-| Phase 3 | P3.A–C | 5–7h | Operator-fit heuristics, especially the expertise check |
+| Phase 1 |  9–11h | SerpAPI integration, quota ledger + auto-fallback, error paths, retry logic, test coverage |
+| Phase 2 |  10–14h | Gate 2 classifier rules, programmatic-URL regex (hard to get right), verdict-synthesis LLM call wired correctly, schema migration |
+| Phase 3 |  5–7h | Operator-fit heuristics, especially the expertise check |
 | Docs + cleanup | P4 | 1–2h | |
 | **Total** | **16 commits** | **26–35h** | (+1h vs original estimate for quota ledger work) |
 
 The wider range comes from Gate 2 — the classifier rules will need
 iteration once real-SERP data shows edge cases. Plan for ≥2 rounds
-of refinement after P2.E lands.
+of refinement after the verdict-synthesis commit lands.
 
 Critique-suggested 12–15h was optimistic. It didn't account for the
 volume-data problem (§8.A), the operator-profile gates (Phase 3), or
@@ -2888,7 +2888,7 @@ purely additive. New files in new locations.
 
 ### Phase 1 — schema + parser
 
-**P1.A** — `src/portfolio/lamill_toml.py`: dataclasses for
+- `src/portfolio/lamill_toml.py`: dataclasses for
 `DeployBlock`, `HostingBlock`, `LamillToml`. `load()` returns
 `LamillToml | None`. Pure parser, no CLI. New dep `tomli-w` added
 to `pyproject.toml`.
@@ -2898,12 +2898,12 @@ load valid file, load missing file, load malformed, schema
 validation, all platform enum values, hosting-required when
 platform=hostgator).
 
-**P1.B** — `write()` function with atomic tmpfile + rename. Tests
+- `write()` function with atomic tmpfile + rename. Tests
 for round-trip determinism (write → load → write → compare).
 
 *Smoke test:* `pytest tests/test_lamill_toml.py -q` extended.
 
-**P1.C** — `infer_from_existing_configs()`: reads wrangler.jsonc /
+- `infer_from_existing_configs()`: reads wrangler.jsonc /
 vercel.json / netlify.toml and returns a `DeployBlock | None`.
 Tests cover each platform + the multiple-config "ambiguous" return.
 
@@ -2911,7 +2911,7 @@ Tests cover each platform + the multiple-config "ambiguous" return.
 
 ### Phase 2 — CLI commands
 
-**P2.A** — `lamill project set-deploy <name> <platform>` command.
+- `lamill project set-deploy <name> <platform>` command.
 Interactive prompts when stdin is a TTY; non-interactive failure
 when not.
 
@@ -2919,7 +2919,7 @@ when not.
 --non-interactive` writes the file; with hostgator + no
 `--non-interactive`, runs interactive prompts.
 
-**P2.B** — `lamill project show-deploy <name>` command. Pretty
+- `lamill project show-deploy <name>` command. Pretty
 table renderer + `--json`.
 
 *Smoke test:* `lamill project show-deploy airsucks.com` shows
@@ -2927,7 +2927,7 @@ declared platform table; `--json` emits raw payload.
 
 ### Phase 3 — Bootstrap integration
 
-**P3.A** — `lamill new bootstrap` writes lamill.toml as part of
+- `lamill new bootstrap` writes lamill.toml as part of
 scaffolding. Platform inferred from `--stack` (cf-pages default).
 `--platform <X>` flag overrides.
 
@@ -2937,7 +2937,7 @@ overrides.
 
 ### Phase 4 — Migration
 
-**P4.A** — `lamill fleet repos --add-deploy-declarations
+- `lamill fleet repos --add-deploy-declarations
 [--dry-run] [--include-ambiguous]`. Walks every `sites/<dir>/`,
 classifies, writes safe cases.
 
@@ -2947,7 +2947,7 @@ breakdown on current fleet (matches the example output in §3).
 
 ### Final commit
 
-**P5.A** — Documentation update:
+- Documentation update:
 - `docs/CLAUDE.md`: brief on `lamill.toml`
 - `AI_AGENTS.md`: note the new file convention
 - `docs/Prompts.md`: dated H2 entry
@@ -2963,11 +2963,11 @@ Honest reading.
 
 | Phase | Commits | Hours | Risk |
 |---|---|---|---|
-| Phase 1 (schema + parser) | P1.A–C | 4-5h | tomli-w roundtrip determinism; inference logic |
-| Phase 2 (CLI) | P2.A–B | 3-4h | Interactive prompt UX for hostgator |
-| Phase 3 (bootstrap) | P3.A | 1-2h | Wire into existing bootstrap flow |
-| Phase 4 (migration) | P4.A | 3-4h | Classification rules; ambiguous-case handling |
-| Final | P5.A | 1h | |
+| Phase 1 (schema + parser) |  4-5h | tomli-w roundtrip determinism; inference logic |
+| Phase 2 (CLI) |  3-4h | Interactive prompt UX for hostgator |
+| Phase 3 (bootstrap) |  1-2h | Wire into existing bootstrap flow |
+| Phase 4 (migration) |  3-4h | Classification rules; ambiguous-case handling |
+| Final |  1h | |
 | **Total** | **8 commits** | **12-16h** | |
 
 Wider range mostly comes from Phase 4 — the migration logic has to
@@ -3458,45 +3458,45 @@ or Cloudflare APIs.
 
 ### Phase 1 commits
 
-**P1.A** `apikeys.py`: add `VERCEL_TOKEN` to `KNOWN_KEYS` +
+- `apikeys.py`: add `VERCEL_TOKEN` to `KNOWN_KEYS` +
 `_probe_vercel()` (`GET /v2/user`, 5s timeout). One new test in
 `test_apikeys.py`.
 
-**P1.B** `src/portfolio/hosting.py`: dataclasses (`HostingRow`),
+- `src/portfolio/hosting.py`: dataclasses (`HostingRow`),
 constants (`RECENT_DAYS`, `STALE_DAYS`, `MAX_DEPLOY_LOOKBACK`).
 
-**P1.C** `walk_vercel()` — paginated projects list + per-project
+- `walk_vercel()` — paginated projects list + per-project
 deployments. Mocked unit tests.
 
-**P1.D** `walk_cf_pages()` — same shape against the CF API.
+- `walk_cf_pages()` — same shape against the CF API.
 
-**P1.E** `run_hosting()` orchestrator + domain-match logic +
+- `run_hosting()` orchestrator + domain-match logic +
 provider-conflict detection.
 
-**P1.F** `hosting_cache.py` mirroring `seo_cache.py`. Save / load
+- `hosting_cache.py` mirroring `seo_cache.py`. Save / load
 / is_stale / rows_from_snapshot. Atomic write.
 
 ### Phase 2 commits
 
-**P2.A** `fleet hosting` CLI shell + cache-eligibility logic +
+- `fleet hosting` CLI shell + cache-eligibility logic +
 `--refresh` / `--only` / `--json` flags. No render yet (prints
-"render coming in P2.B" or similar to keep the shell testable).
+"render coming in the next commit" or similar to keep the shell testable).
 
-**P2.B** `_render_hosting_table()` + status-emoji helper. Five
+- `_render_hosting_table()` + status-emoji helper. Five
 columns; footer with rollup counts.
 
-**P2.C** Token-missing surface (P2.5) + walker-error rendering
+- Token-missing surface (P2.5) + walker-error rendering
 (per §6.H). Tests for partial-coverage flows.
 
 ### Phase 3 commits
 
-**P3.A** `dashboard.py`: new `Hosting` column joining the latest
+- `dashboard.py`: new `Hosting` column joining the latest
 `data/hosting/` snapshot.
 
-**P3.B** `diagnose.py`: optional "Hosting:" section when a hosting
+- `diagnose.py`: optional "Hosting:" section when a hosting
 snapshot covers the diagnosed domain.
 
-**P3.C** Docs (docs/CLAUDE.md, AI_AGENTS.md, docs/Prompts.md dated
+- Docs (docs/CLAUDE.md, AI_AGENTS.md, docs/Prompts.md dated
 entry).
 
 ---
@@ -3505,9 +3505,9 @@ entry).
 
 | Phase | Commits | Hours | Risk |
 |---|---|---|---|
-| P1 walkers + cache | P1.A–F | 6–8 | Vercel + CF API pagination, deploy-history shape variability |
-| P2 renderer + CLI | P2.A–C | 4–6 | Edge cases in domain↔project matching (subdomains, `www.`, provider conflicts) |
-| P3 dashboard + diagnose | P3.A–C | 2–3 | Minimal — both surfaces already do joins from snapshot files |
+| P1 walkers + cache |  6–8 | Vercel + CF API pagination, deploy-history shape variability |
+| P2 renderer + CLI |  4–6 | Edge cases in domain↔project matching (subdomains, `www.`, provider conflicts) |
+| P3 dashboard + diagnose |  2–3 | Minimal — both surfaces already do joins from snapshot files |
 | **Total** | **12 commits** | **12–17h** | Real API quirks surface only on first run against the user's fleet |
 
 ---

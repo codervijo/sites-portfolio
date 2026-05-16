@@ -1,4 +1,4 @@
-"""Tests for v8.D P3.C — `lamill settings operator show` CLI surface."""
+"""Tests for v8.D — `lamill settings operator show` CLI surface."""
 from __future__ import annotations
 
 import textwrap

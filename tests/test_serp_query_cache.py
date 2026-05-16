@@ -1,4 +1,4 @@
-"""Tests for v8.D P1.C — per-query SerpAPI cache."""
+"""Tests for v8.D — per-query SerpAPI cache (`portfolio.serp_query_cache`)."""
 from __future__ import annotations
 
 import json

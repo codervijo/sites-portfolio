@@ -1,4 +1,4 @@
-"""Tests for v8.D P3.B — operator-fit logic.
+"""Tests for v8.D — operator-fit logic (`portfolio.operator_profile`).
 
 `evaluate_operator_fit()` runs three checks (expertise / workflow /
 cadence) on a cluster snapshot and returns an `OperatorFitResult`

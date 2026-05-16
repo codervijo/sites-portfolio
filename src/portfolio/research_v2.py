@@ -1,4 +1,4 @@
-"""v8.D P1.D — research orchestrator with real SERP data.
+"""v8.D — research orchestrator with real SERP data.
 
 The Phase 1 endpoint. `run_research_v2(topic)`:
   1. LLM expands topic into a 5-query cluster (reuses v8.B's cluster
@@ -11,11 +11,11 @@ What this does NOT do:
   - Three-gate decision logic (Phase 2)
   - Operator-profile filtering (Phase 3)
   - LLM interpretation (Phase 4)
-  - Quota tracking + auto-fallback (P1.F)
-  - Synthesis-only fallback wiring (P1.E)
+  - Quota tracking + auto-fallback (handled by `serpapi_quota`)
+  - Synthesis-only fallback wiring (handled by the CLI command)
 
-Those land in subsequent commits. P1.D's job is "real SERP data
-flows end-to-end into a cached, well-shaped snapshot."
+This module's job is "real SERP data flows end-to-end into a cached,
+well-shaped snapshot."
 
 The cluster snapshot shape returned here is intentionally
 forward-compatible: gates / operator_fit / verdict / etc. live in
@@ -69,7 +69,7 @@ def cluster_cache_path(topic: str, date: str | None = None) -> Path:
 
 def run_research_v2(topic: str, *, api_key: str, no_cache: bool = False,
                     depth: int = DEFAULT_DEPTH) -> dict:
-    """Run the full P1.D pipeline. Returns a `research-cluster-v2`
+    """Run the full v8.D Phase 1 pipeline. Returns a `research-cluster-v2`
     snapshot. Hits cluster cache first (if not `no_cache`); otherwise
     generates cluster queries via LLM, fetches each via SerpAPI
     (with per-query caching), assembles and stores the snapshot.

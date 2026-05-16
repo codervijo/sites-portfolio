@@ -1,4 +1,4 @@
-"""Tests for v8.E P4.A.4 — `run_claude_text` Claude-CLI text-capture helper.
+"""Tests for v8.E — `run_claude_text` Claude-CLI text-capture helper.
 
 Mirrors the subprocess-mocking pattern Tier-2 fixers will use indirectly.
 All tests monkeypatch `subprocess.run` so no real `claude` invocation
