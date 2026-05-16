@@ -158,3 +158,88 @@ def _next_month_first(month: str) -> str:
     if mi == 12:
         return f"{yi + 1}-01-01"
     return f"{yi}-{mi + 1:02d}-01"
+
+
+# ---------- Sync with SerpAPI's authoritative /account endpoint ----------
+
+
+SERPAPI_ACCOUNT_URL = "https://serpapi.com/account"
+SYNC_TIMEOUT = 10.0
+
+
+class QuotaSyncError(RuntimeError):
+    """Raised when the sync call to SerpAPI's /account endpoint fails.
+    Caller decides whether to fall back to the local ledger."""
+
+
+def sync_with_serpapi(api_key: str, *, client=None) -> dict:
+    """Pull authoritative usage from SerpAPI's `/account` endpoint and
+    overwrite the local ledger. Returns the updated quota dict.
+
+    Why this exists: the local `consume_quota()` counter is a write-only
+    side effect of fetches happening through `serp_fetch.fetch_serp`.
+    If the counter ever drifts from SerpAPI's records (manual API
+    calls outside this tool, a counted-but-not-actually-charged probe,
+    an old counter persisted across tool versions, etc.) the local
+    ledger refuses calls that would have worked.
+
+    SerpAPI's `/account` returns:
+      - `this_month_usage`: int — authoritative count for current month
+      - `searches_per_month`: int — plan cap (replaces our local limit
+        if it's different, since SerpAPI knows the operator's plan)
+      - `plan_searches_left`: int — sanity-check field
+
+    Raises `QuotaSyncError` on HTTP error, malformed response, or
+    auth failure. Caller can fall back to the existing ledger.
+    """
+    if not api_key:
+        raise QuotaSyncError("SERPAPI_KEY not provided")
+
+    own_client = client is None
+    if client is None:
+        import httpx
+        client = httpx.Client(timeout=SYNC_TIMEOUT)
+    try:
+        try:
+            resp = client.get(SERPAPI_ACCOUNT_URL,
+                              params={"api_key": api_key})
+        except Exception as e:
+            raise QuotaSyncError(f"network error: {type(e).__name__}: {e}") from e
+    finally:
+        if own_client:
+            client.close()
+
+    if resp.status_code == 401:
+        raise QuotaSyncError(
+            "SerpAPI 401 — check SERPAPI_KEY in portfolio.env"
+        )
+    if resp.status_code != 200:
+        raise QuotaSyncError(
+            f"SerpAPI /account → HTTP {resp.status_code}: {resp.text[:200]}"
+        )
+    try:
+        body = resp.json()
+    except ValueError as e:
+        raise QuotaSyncError(f"non-JSON response: {e}") from e
+
+    this_month = body.get("this_month_usage")
+    plan_limit = body.get("searches_per_month")
+    if not isinstance(this_month, int) or not isinstance(plan_limit, int):
+        raise QuotaSyncError(
+            f"missing/malformed fields in /account response: {body}"
+        )
+
+    # Overwrite local ledger with the authoritative numbers. Keep the
+    # ledger's month tag at today's UTC month so a stale-month reset
+    # doesn't immediately undo the sync.
+    today = _current_month()
+    fresh = {
+        "schema": SCHEMA,
+        "month": today,
+        "queries_used": this_month,
+        "limit": plan_limit,
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "synced_with_serpapi_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save(fresh)
+    return fresh

@@ -52,6 +52,10 @@ settings_cloudflare_app = typer.Typer(
     help="Cloudflare API token (used by CHECK_057 cache-purge fix).",
     no_args_is_help=True,
 )
+settings_serpapi_app = typer.Typer(
+    help="SerpAPI quota ledger — show local state + sync with SerpAPI's records.",
+    no_args_is_help=True,
+)
 app.add_typer(fleet_app, name="fleet")
 fleet_app.add_typer(fleet_info_app, name="info")
 app.add_typer(settings_app, name="settings")
@@ -60,6 +64,7 @@ settings_app.add_typer(settings_gsc_app, name="gsc")
 settings_app.add_typer(settings_apikeys_app, name="apikeys")
 settings_app.add_typer(settings_operator_app, name="operator")
 settings_app.add_typer(settings_cloudflare_app, name="cloudflare")
+settings_app.add_typer(settings_serpapi_app, name="serpapi-quota")
 
 
 @app.callback(invoke_without_command=True)
@@ -3582,9 +3587,30 @@ def new_research(
         raise typer.Exit(2)
 
     # Pre-flight: soft-warn at 80% quota usage; strong-warn at 95%.
+    # If the local ledger says we're exhausted but SerpAPI might have
+    # headroom (the ledger can drift — it's a write-only side-effect
+    # counter, not authoritative), attempt a one-shot sync against
+    # SerpAPI's /account endpoint before refusing.
     from .serpapi_quota import (
-        quota_pct_used, read_quota, should_warn, should_warn_strongly,
+        is_quota_available, quota_pct_used, read_quota,
+        should_warn, should_warn_strongly,
+        sync_with_serpapi, QuotaSyncError,
     )
+    if not is_quota_available():
+        console.print(
+            "[yellow]⚠  Local SerpAPI quota ledger reports exhausted. "
+            "Syncing with SerpAPI for ground truth...[/]"
+        )
+        try:
+            synced = sync_with_serpapi(serpapi_key)
+            console.print(
+                f"[green]  ✓ Synced: {synced['queries_used']}/{synced['limit']} "
+                f"this UTC month (local ledger had drifted).[/]"
+            )
+        except QuotaSyncError as e:
+            console.print(f"[red]  ✗ Sync failed: {e}[/]")
+            # Don't refuse the run here — the existing QuotaExhausted
+            # in fetch_serp will still fire if real-and-local agree.
     if should_warn():
         q = read_quota()
         console.print(
@@ -5227,6 +5253,93 @@ def settings_cloudflare_status(
         f"[green]✓ Token OK[/] — status={info.get('status', '?')}, "
         f"id={info.get('id', '?')}, expires={info.get('expires_on') or 'never'}"
     )
+
+
+# settings serpapi-quota — show local ledger + sync against SerpAPI's
+# authoritative /account endpoint when the two have drifted.
+
+
+@settings_serpapi_app.command("show")
+def settings_serpapi_quota_show() -> None:
+    """Print the local SerpAPI quota ledger state.
+
+    Local-only — no network call. If the local number looks wrong
+    (e.g., reports exhausted but SerpAPI's dashboard says otherwise),
+    use `settings serpapi-quota sync` to overwrite with the
+    authoritative numbers from SerpAPI's /account endpoint.
+    """
+    from .serpapi_quota import quota_pct_used, read_quota
+
+    q = read_quota()
+    pct = int(quota_pct_used() * 100)
+    color = "red" if pct >= 95 else "yellow" if pct >= 80 else "green"
+    console.print("[bold]SerpAPI quota (local ledger)[/]")
+    console.print(f"  Month:        {q['month']}")
+    console.print(
+        f"  Used:         [{color}]{q['queries_used']}/{q['limit']} "
+        f"({pct}%)[/]"
+    )
+    console.print(f"  Last update:  {q.get('last_updated') or '—'}")
+    synced = q.get("synced_with_serpapi_at")
+    if synced:
+        console.print(f"  Last sync:    {synced}")
+    else:
+        console.print(
+            "  [dim]Ledger has never been synced with SerpAPI. "
+            "Run `lamill settings serpapi-quota sync` to verify.[/]"
+        )
+
+
+@settings_serpapi_app.command("sync")
+def settings_serpapi_quota_sync() -> None:
+    """Sync the local ledger with SerpAPI's authoritative /account record.
+
+    Pulls `this_month_usage` + `searches_per_month` from SerpAPI and
+    overwrites the local file. Useful when the counter has drifted
+    (e.g., shows exhausted but the SerpAPI dashboard shows headroom).
+    """
+    from .apikeys import get_key
+    from .serpapi_quota import (
+        QuotaSyncError, quota_pct_used, read_quota, sync_with_serpapi,
+    )
+
+    api_key = get_key("SERPAPI_KEY") or ""
+    if not api_key:
+        console.print(
+            "[red]SERPAPI_KEY not set.[/] Set it with "
+            "`lamill settings apikeys set SERPAPI_KEY <your-key>` first."
+        )
+        raise typer.Exit(2)
+
+    before = read_quota()
+    console.print(
+        f"[dim]Before sync: {before['queries_used']}/{before['limit']} "
+        f"({int(quota_pct_used()*100)}%)[/]"
+    )
+    console.print("[cyan]Syncing with SerpAPI /account...[/]")
+    try:
+        after = sync_with_serpapi(api_key)
+    except QuotaSyncError as e:
+        console.print(f"[red]Sync failed:[/] {e}")
+        raise typer.Exit(2)
+    drift = before["queries_used"] - after["queries_used"]
+    drift_note = ""
+    if drift > 0:
+        drift_note = (
+            f"  [yellow]Local ledger was over-counting by {drift} call(s); "
+            f"overwritten with SerpAPI's records.[/]"
+        )
+    elif drift < 0:
+        drift_note = (
+            f"  [yellow]Local ledger was under-counting by {-drift} call(s); "
+            f"overwritten with SerpAPI's records.[/]"
+        )
+    console.print(
+        f"[green]✓ Synced:[/] {after['queries_used']}/{after['limit']} "
+        f"this UTC month ({int(after['queries_used']/after['limit']*100)}%)"
+    )
+    if drift_note:
+        console.print(drift_note)
 
 
 if __name__ == "__main__":

@@ -174,6 +174,122 @@ def test_warn_thresholds_are_well_ordered():
     assert quota_mod.WARN_STRONGLY_THRESHOLD >= quota_mod.WARN_THRESHOLD
 
 
+# ---------- sync_with_serpapi ----------
+
+
+class _FakeResp:
+    """Minimal httpx-like response object — just enough for the sync
+    helper's `.status_code`, `.text`, and `.json()` access patterns."""
+
+    def __init__(self, status_code: int, body: dict | None = None,
+                 text: str = ""):
+        self.status_code = status_code
+        self._body = body
+        self.text = text or (json.dumps(body) if body else "")
+
+    def json(self):
+        if self._body is None:
+            raise ValueError("no json")
+        return self._body
+
+
+class _FakeClient:
+    """Capture the URL + params from one .get() call and return canned
+    response. Mirrors httpx.Client's get() signature enough for the
+    sync helper."""
+
+    def __init__(self, resp: _FakeResp):
+        self.resp = resp
+        self.calls: list[dict] = []
+
+    def get(self, url, params=None):
+        self.calls.append({"url": url, "params": dict(params or {})})
+        return self.resp
+
+    def close(self):
+        pass
+
+
+def test_sync_with_serpapi_overwrites_local_ledger(_stub_path):
+    """A drifted local ledger gets overwritten with SerpAPI's records.
+    This is the donready-style drift scenario: local says 250/250,
+    SerpAPI says 16/250 — sync brings local back to ground truth."""
+    quota_mod._save({"schema": quota_mod.SCHEMA, "month": _current_month(),
+                     "queries_used": 250, "limit": 250, "last_updated": ""})
+    fake_client = _FakeClient(_FakeResp(200, {
+        "this_month_usage": 16,
+        "searches_per_month": 250,
+        "plan_searches_left": 234,
+    }))
+    result = quota_mod.sync_with_serpapi("fake-key", client=fake_client)
+    assert result["queries_used"] == 16
+    assert result["limit"] == 250
+    # And persisted.
+    persisted = quota_mod.read_quota()
+    assert persisted["queries_used"] == 16
+    # Sync timestamp is recorded so `settings serpapi-quota show` can
+    # surface "last synced with SerpAPI".
+    assert "synced_with_serpapi_at" in result
+
+
+def test_sync_with_serpapi_passes_api_key_as_query_param(_stub_path):
+    fake_client = _FakeClient(_FakeResp(200, {
+        "this_month_usage": 5, "searches_per_month": 250,
+        "plan_searches_left": 245,
+    }))
+    quota_mod.sync_with_serpapi("k-7", client=fake_client)
+    assert fake_client.calls[0]["params"] == {"api_key": "k-7"}
+    assert fake_client.calls[0]["url"] == quota_mod.SERPAPI_ACCOUNT_URL
+
+
+def test_sync_with_serpapi_raises_on_empty_key():
+    with pytest.raises(quota_mod.QuotaSyncError):
+        quota_mod.sync_with_serpapi("")
+
+
+def test_sync_with_serpapi_raises_on_401(_stub_path):
+    fake_client = _FakeClient(_FakeResp(401, text="unauthorized"))
+    with pytest.raises(quota_mod.QuotaSyncError) as exc:
+        quota_mod.sync_with_serpapi("bad-key", client=fake_client)
+    # Operator-actionable hint, not just "401".
+    assert "SERPAPI_KEY" in str(exc.value)
+
+
+def test_sync_with_serpapi_raises_on_non_200(_stub_path):
+    fake_client = _FakeClient(_FakeResp(500, text="server error"))
+    with pytest.raises(quota_mod.QuotaSyncError) as exc:
+        quota_mod.sync_with_serpapi("k", client=fake_client)
+    assert "HTTP 500" in str(exc.value)
+
+
+def test_sync_with_serpapi_raises_on_missing_fields(_stub_path):
+    """A 200 response without the expected fields is a schema surprise.
+    Better to surface it than silently zero out the counter."""
+    fake_client = _FakeClient(_FakeResp(200, {
+        "account_id": "abc",
+        # missing this_month_usage / searches_per_month
+    }))
+    with pytest.raises(quota_mod.QuotaSyncError) as exc:
+        quota_mod.sync_with_serpapi("k", client=fake_client)
+    assert "missing" in str(exc.value).lower() or "malformed" in str(exc.value).lower()
+
+
+def test_sync_uses_serpapi_plan_limit_not_local_default(_stub_path):
+    """SerpAPI's `searches_per_month` overrides the local default.
+    Operators on paid plans have higher limits than 250 — sync should
+    pick those up rather than clamping to the local default."""
+    quota_mod._save({"schema": quota_mod.SCHEMA, "month": _current_month(),
+                     "queries_used": 0, "limit": 250, "last_updated": ""})
+    fake_client = _FakeClient(_FakeResp(200, {
+        "this_month_usage": 1200,
+        "searches_per_month": 5000,    # paid plan
+        "plan_searches_left": 3800,
+    }))
+    result = quota_mod.sync_with_serpapi("k", client=fake_client)
+    assert result["limit"] == 5000
+    assert result["queries_used"] == 1200
+
+
 def test_next_month_first_handles_december():
     assert quota_mod._next_month_first("2026-12") == "2027-01-01"
 
