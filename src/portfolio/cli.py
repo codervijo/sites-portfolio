@@ -3798,6 +3798,12 @@ def _render_research_v2_full(payload: dict, console) -> None:
     console.print(f"\n[bold]SERP research — \"{topic}\"[/]")
     console.print(f"  [dim]{src_line}[/]\n")
 
+    # Topic on its own line just above the cluster grid — easy
+    # reference while scanning the LLM's cluster expansion without
+    # having to scroll back to the header.
+    console.print(f"  [bold]Topic:[/] [cyan]{topic}[/]")
+    console.print()
+
     # Cluster
     console.print(f"  [cyan]Topic cluster:[/]")
     for i, q in enumerate(cluster_queries, 1):
@@ -3950,6 +3956,13 @@ def _render_serp_full(payload: dict, console) -> None:
     console.print(_VERDICT_BLOCKED_BLOCK)
 
     # ---------- Kept (ideation-safe) ----------
+
+    # Topic on its own line just above the cluster grid — easy
+    # reference while scanning the LLM's cluster expansion without
+    # having to scroll back to the header (and past the verdict-
+    # blocked block).
+    console.print(f"  [bold]Topic:[/] [cyan]{topic}[/]")
+    console.print()
 
     # Cluster queries — list of search strings. No domains, no scores,
     # no verdicts; just records what was queried.

@@ -166,6 +166,65 @@ def test_render_serp_full_keeps_cluster_queries():
     assert "Topic cluster" in out
 
 
+def test_render_serp_full_shows_topic_line_above_cluster():
+    """Topic line in its own one-liner just above the cluster grid —
+    operator-facing affordance so the topic is right there while
+    scanning the cluster expansion (rather than scrolling back to
+    the header)."""
+    console = _capturing_console()
+    cli_mod._render_serp_full(_synthesis_payload(), console)
+    out = console.file.getvalue()
+    # The literal "Topic:" prefix label appears once for this
+    # affordance (the header above renders "SERP research — \"...\""
+    # without a "Topic:" prefix).
+    assert "Topic:" in out
+    # Topic appears BEFORE "Topic cluster" in the output stream.
+    topic_idx = out.index("Topic:")
+    cluster_idx = out.index("Topic cluster")
+    assert topic_idx < cluster_idx
+
+
+# ---------- _render_research_v2_full (real-SerpAPI path) ----------
+
+
+def _v2_payload() -> dict:
+    """Minimal `research-cluster-v2` shape — what `run_research_v2`
+    emits when SerpAPI is reachable. Used to exercise the renderer's
+    structure without standing up a real SerpAPI mock."""
+    return {
+        "schema": "research-cluster-v2",
+        "topic": "ev charger installation cost",
+        "cluster_queries": [
+            "ev charger installation cost",
+            "level 2 charger price",
+            "tesla wall connector installation",
+        ],
+        "per_query_results": [
+            {"query": "ev charger installation cost", "organic_results": [],
+             "features": {}},
+        ],
+        "from_cache": False,
+        "fetch_errors": [],
+    }
+
+
+def test_render_research_v2_full_shows_topic_line_above_cluster():
+    """v8.D real-SerpAPI renderer gets the same affordance — Topic
+    on its own line just above the cluster grid."""
+    console = _capturing_console()
+    cli_mod._render_research_v2_full(_v2_payload(), console)
+    out = console.file.getvalue()
+    assert "Topic:" in out
+    topic_idx = out.index("Topic:")
+    cluster_idx = out.index("Topic cluster:")
+    assert topic_idx < cluster_idx
+    # And the actual topic string appears on that line.
+    line_with_topic = next(
+        line for line in out.split("\n") if "Topic:" in line and "cluster" not in line
+    )
+    assert "ev charger installation cost" in line_with_topic
+
+
 def test_render_serp_full_keeps_content_patterns():
     console = _capturing_console()
     cli_mod._render_serp_full(_synthesis_payload(), console)
