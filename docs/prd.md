@@ -1911,7 +1911,10 @@ SERP research — "ev charger installation cost"
 
 ## 10. Open questions to resolve before implementation
 
-### 10.A — Where do `prompts/` live?
+### 10.A — Where do `prompts/` live?  *(RESOLVED 2026-05-16)*
+
+**Decision:** option 2 — `prompts/` at the repo root. First-class
+status alongside `tests/` and `docs/`; operator edits prompts directly.
 
 Three options:
 1. **`src/portfolio/prompts/`** — sits next to the Python package.
@@ -1925,7 +1928,11 @@ Three options:
 are data the user edits — having them top-level signals their
 first-class status. Same pattern as `tests/` and `docs/`.
 
-### 10.B — Audit model default
+### 10.B — Audit model default  *(RESOLVED 2026-05-16)*
+
+**Decision:** GPT-4o default. No Gemini integration in v1 — defer the
+third-provider HTTP wrapper + third env var. Different-model invariant
+is already met with Anthropic + OpenAI.
 
 GPT-4o or Gemini Pro or operator's choice?
 
@@ -1938,7 +1945,12 @@ The "different model" constraint is met with two providers. Defer
 Gemini to v2 of this PRD if GPT-4o proves to have a problematic blind
 spot.
 
-### 10.C — Does the audit see the primary's `blind_spot_self_report`?
+### 10.C — Does the audit see the primary's `blind_spot_self_report`?  *(RESOLVED 2026-05-16)*
+
+**Decision:** blind to it. The audit's value is uncovering what the
+primary missed; visibility into the self-report risks anchoring on the
+same concerns. The field is still stored on the snapshot — operator can
+read it separately.
 
 The spec calls this out as a trade-off:
 - **Blind to it** = more adversarial (audit has no shortcuts)
@@ -1953,7 +1965,14 @@ Snapshot still stores `blind_spot_self_report` from the primary — the
 operator can read it separately. It just doesn't go into the audit's
 context window.
 
-### 10.D — `--verify` default-on in operator.yaml?
+### 10.D — `--verify` default-on in operator profile?  *(RESOLVED 2026-05-16)*
+
+**Decision:** yes, via the operator profile only (not a sticky state
+file). Add `verify_by_default: bool` (default false) to
+`[operator]` in `sites/portfolio/lamill.toml`. CLI `--verify`
+overrides to true; new `--no-verify` overrides to false. The PRD's
+original yaml reference predates v8.D P3 — the profile now lives at
+the TOML path; loader picks up the new field on next P3 schema bump.
 
 Should the operator be able to set `verify_by_default: true` in their
 profile, so all research runs trigger audit unless `--no-verify` is
@@ -1971,7 +1990,12 @@ Add `verify_by_default: false` (default) to `OperatorProfile` schema.
 CLI `--verify` flag overrides to `true`; new `--no-verify` flag
 overrides to `false`.
 
-### 10.E — Audit failure handling
+### 10.E — Audit failure handling  *(RESOLVED 2026-05-16)*
+
+**Decision:** option 2 — proceed with primary-only on audit failure.
+Surface the failure prominently in output; record `audit_pass.error`
+in the snapshot. Don't waste the primary's verdict because the audit
+hit a transient API issue.
 
 When the audit API call fails (network, rate limit, refusal,
 unparseable response), three options:
@@ -1988,14 +2012,21 @@ unparseable response), three options:
 Surface the audit failure as a prominent caveat, but don't waste the
 primary's verdict.
 
-### 10.F — Snapshot retention for audit pass
+### 10.F — Snapshot retention for audit pass  *(RESOLVED 2026-05-16)*
+
+**Decision:** same as primary — kept forever, git-tracked per v8.D
+PRD §8.E. Audit responses are part of the verdict's provenance.
 
 Same as primary (kept forever, git-tracked per v2 PRD §8.E)?
 
 **My recommendation: yes.** No reason to treat audit differently.
 Audit responses are part of the verdict's provenance.
 
-### 10.G — Template-substitution engine
+### 10.G — Template-substitution engine  *(RESOLVED 2026-05-16)*
+
+**Decision:** custom `{{var}}` regex. No new dep; no curly-brace
+collision with code-block examples in prompts; substitution validator
+(P4a.6) is the natural place to enforce no-unfilled-placeholders.
 
 Per implementation risks §8.7 — Jinja2, `str.format()`, or custom
 `{{var}}` regex?
@@ -2003,7 +2034,11 @@ Per implementation risks §8.7 — Jinja2, `str.format()`, or custom
 **My recommendation: custom `{{var}}` regex** (no new dep, no curly-
 brace gotcha in code-block examples).
 
-### 10.H — `--model` and `--audit-model` flag override behavior
+### 10.H — `--model` and `--audit-model` flag override behavior  *(RESOLVED 2026-05-16)*
+
+**Decision:** option 1 — reject loudly with a suggested different
+model in the error message. Allowing same-model defeats the
+correlated-blind-spot rationale that justifies the audit pass.
 
 If operator passes `--model claude-sonnet-4-7 --audit-model
 claude-sonnet-4-7`, behavior:
@@ -2020,7 +2055,14 @@ claude-sonnet-4-7`, behavior:
 message.** The whole point of the audit is to use a different model.
 Allowing same-model is a footgun.
 
-### 10.I — Prompt versioning policy
+### 10.I — Prompt versioning policy  *(RESOLVED 2026-05-16)*
+
+**Decision:** bump to `_v2.md` only when the change would meaningfully
+alter the verdict on cached data. Typo / wording / formatting tweaks
+stay at `_v1.md`. New failure-mode checks, structural instruction
+changes, or output-shape edits bump the version. Snapshots store
+`prompt_version`; mismatch with the current `_vN.md` is treated as
+"stale verdict — re-render via `--no-cache=interpretive`."
 
 When iterating on `niche_evaluation_v1.md`, when does it become
 `_v2.md`?
@@ -2035,7 +2077,13 @@ current `_vN.md`, the snapshot's verdict is treated as "from old
 prompt" and the operator can re-render via `--no-cache=interpretive`
 to get a fresh verdict with the current prompt.
 
-### 10.J — Snapshot field for cumulative cost tracking
+### 10.J — Snapshot field for cumulative cost tracking  *(RESOLVED 2026-05-16)*
+
+**Decision:** yes — record `estimated_cost_usd` on each pass
+(`interpretive_pass.estimated_cost_usd` and
+`audit_pass.estimated_cost_usd`). Pulled from provider response headers
+when available, estimated from token counts otherwise. Cheap to add;
+unblocks a future cost-ledger aggregation without re-fetching.
 
 Should each snapshot record the LLM call's estimated cost? Helpful
 for the future cost-ledger feature (§8.3) but premature if we're not
@@ -2220,22 +2268,18 @@ didn't. That's separate from this PRD.
 
 ---
 
-## 14. Approval
+## 14. Approval  *(approved 2026-05-16)*
 
-This PRD is **draft, awaiting review**. Before any code lands:
+- [x] Open questions §10.A–J resolved (2026-05-16 — author's
+      recommendations accepted across the board)
+- [x] Drafted audit prompt reviewed (§6 inline accepted as
+      `prompts/adversarial_audit_v1.md`; will be revised after first
+      real audit runs ship)
+- [x] Effort estimate accepted (20–26h, 14 commits)
+- [x] Author signoff
 
-1. Resolve the 10 open questions in §10.
-2. Review and approve the drafted `adversarial_audit_v1.md` prompt
-   (§6 inline).
-3. Confirm the effort estimate (20-26h on top of v2's 25-34h).
-4. Confirm the prompt-versioning policy (§10.I).
-
-Sign off:
-
-- [ ] Open questions §10.A–J resolved
-- [ ] Drafted audit prompt reviewed
-- [ ] Effort estimate accepted
-- [ ] Author signoff
+Implementation may proceed. v8.D shipped 2026-05-16; v8.E starts
+with Pre-1 (prompts directory) + P4.A.1–3 (drafts + loader).
 
 ---
 
