@@ -44,12 +44,17 @@ settings_gsc_app = typer.Typer(help="Google Search Console integration.",
                                no_args_is_help=True)
 settings_apikeys_app = typer.Typer(help="Manage credentials in portfolio.env.",
                                    no_args_is_help=True)
+settings_operator_app = typer.Typer(
+    help="Operator profile (used by `new research` fit-checks).",
+    no_args_is_help=True,
+)
 app.add_typer(fleet_app, name="fleet")
 fleet_app.add_typer(fleet_info_app, name="info")
 app.add_typer(settings_app, name="settings")
 settings_app.add_typer(settings_catalog_app, name="catalog")
 settings_app.add_typer(settings_gsc_app, name="gsc")
 settings_app.add_typer(settings_apikeys_app, name="apikeys")
+settings_app.add_typer(settings_operator_app, name="operator")
 
 
 @app.callback(invoke_without_command=True)
@@ -5002,6 +5007,38 @@ def settings_apikeys_delete(
         console.print(f"[green]✓[/] removed [bold]{key}[/]")
     else:
         console.print(f"[dim]{key} was not present.[/]")
+
+
+@settings_operator_app.command("show")
+def settings_operator_show() -> None:
+    """Print the loaded operator profile from sites/portfolio/lamill.toml.
+
+    Shows "no profile configured" if the file or [operator] section is
+    absent. When configured, prints each field on its own line. Used by
+    `new research` to apply expertise / workflow / cadence fit-checks
+    on top of the three gates.
+    """
+    from .operator_profile import LAMILL_TOML, load_operator_profile
+
+    profile = load_operator_profile()
+
+    if not profile.configured:
+        console.print("[dim]No operator profile configured.[/]")
+        console.print(
+            f"[dim]Add an \\[operator] section to {LAMILL_TOML} — "
+            f"see docs/prd.md §8.3 §4.1.[/]"
+        )
+        return
+
+    console.print(f"[bold]Operator profile[/] [dim]({LAMILL_TOML})[/]")
+    if profile.expertise:
+        console.print("  expertise:")
+        for item in profile.expertise:
+            console.print(f"    · {item}")
+    else:
+        console.print("  expertise: [dim](none)[/]")
+    console.print(f"  workflow_preference: {profile.workflow_preference}")
+    console.print(f"  motivation_cadence:  {profile.motivation_cadence}")
 
 
 if __name__ == "__main__":
