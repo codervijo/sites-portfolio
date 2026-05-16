@@ -257,3 +257,81 @@ def test_check_027_warn_no_file(tmp_path):
 
 def test_check_012_fail_no_makefile(tmp_path):
     assert run_check("CHECK_012", str(tmp_path)).status == "fail"
+
+
+# CHECK_013 — ai-agents-references-versioning
+
+
+def test_check_013_pass_explicit_versioning_section(tmp_path):
+    (tmp_path / "AI_AGENTS.md").write_text(
+        "# repo\n\n## Versioning\n\nvN.X convention. Two levels only.\n"
+    )
+    r = run_check("CHECK_013", str(tmp_path))
+    assert r.status == "pass"
+    assert "Versioning" in r.message
+
+
+def test_check_013_pass_marker_plus_canonical_link(tmp_path):
+    (tmp_path / "AI_AGENTS.md").write_text(
+        "# repo\n\nShipped v1.A; see sites/portfolio/AI_AGENTS.md for the convention.\n"
+    )
+    r = run_check("CHECK_013", str(tmp_path))
+    assert r.status == "pass"
+
+
+def test_check_013_fail_missing_file(tmp_path):
+    r = run_check("CHECK_013", str(tmp_path))
+    assert r.status == "fail"
+    assert "missing" in r.message.lower()
+
+
+def test_check_013_fail_no_reference(tmp_path):
+    (tmp_path / "AI_AGENTS.md").write_text("# repo\n\nno versioning info here.\n")
+    r = run_check("CHECK_013", str(tmp_path))
+    assert r.status == "fail"
+    assert "doesn't reference" in r.message or "convention" in r.message
+
+
+def test_check_013_fail_three_level_drift(tmp_path):
+    """A project using `vN.X.Y` anywhere in AI_AGENTS.md fails fast,
+    with the offending identifier(s) named in the message."""
+    (tmp_path / "AI_AGENTS.md").write_text(
+        "# repo\n\n## Versioning\n\nShipped v5.F.1 and v6.C.2.\n"
+    )
+    r = run_check("CHECK_013", str(tmp_path))
+    assert r.status == "fail"
+    assert "three-level" in r.message.lower()
+    assert "v5.F.1" in r.message
+    assert "v6.C.2" in r.message
+
+
+def test_check_013_drift_takes_priority_over_reference(tmp_path):
+    """Three-level drift fails even when a `## Versioning` section exists —
+    using the wrong convention is more broken than not referencing it."""
+    (tmp_path / "AI_AGENTS.md").write_text(
+        "# repo\n\n## Versioning\n\nWe use vN.X.Y for sub-phases. Shipped v3.A.1.\n"
+    )
+    r = run_check("CHECK_013", str(tmp_path))
+    assert r.status == "fail"
+    assert "three-level" in r.message.lower()
+    assert "v3.A.1" in r.message
+
+
+def test_check_013_drift_dedups_repeated_identifiers(tmp_path):
+    """The same drift identifier appearing multiple times is reported once."""
+    (tmp_path / "AI_AGENTS.md").write_text(
+        "## Versioning\n\nv5.F.1 ships first. v5.F.1 ships second.\n"
+    )
+    r = run_check("CHECK_013", str(tmp_path))
+    assert r.status == "fail"
+    # Only one occurrence of v5.F.1 in the message
+    assert r.message.count("v5.F.1") == 1
+
+
+def test_check_013_passes_with_two_level_only(tmp_path):
+    """A clean two-level AI_AGENTS.md passes even when it lists many phases."""
+    (tmp_path / "AI_AGENTS.md").write_text(
+        "## Versioning\n\nShipped v1.A, v1.B, v1.C, v2.A, v3.A, v3.B, v3.C.\n"
+    )
+    r = run_check("CHECK_013", str(tmp_path))
+    assert r.status == "pass"

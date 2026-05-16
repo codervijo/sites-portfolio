@@ -39,7 +39,7 @@ External snapshot for planning / orientation. Operational detail follows in late
 | v4 | ✅ | validation pipeline + finalists workflow |
 | v5 | ✅ | universal check catalog + check flags + GSC integration |
 | v6 | ✅ | drift detection + per-stack rules + remediation (`fix`) + fleetwide `fleet fix` |
-| v6.C.2 | ⏳ | guided own-git-repo migration |
+| v6.F | ⏳ | guided own-git-repo migration |
 | v7.A | ✅ | CLI restructure to scope-first |
 | v7.B | ⏳ | GSC trend correlation over persisted snapshots |
 | v7.C | ⏳ | roll-up aggregate view |
@@ -51,6 +51,33 @@ External snapshot for planning / orientation. Operational detail follows in late
 **Stack.** Python ≥3.11 / uv / typer / rich / httpx / tldextract / google-api-python-client. Self-contained build (does **not** use the central builder).
 
 **Canonical docs.** `docs/prd.md` (spec, roadmap, conformance rules), `docs/CLAUDE.md` (decisions + locked target shapes), `AI_AGENTS.md` (agent orientation — this file).
+
+## Versioning
+
+This project uses a **two-level `vN.X` convention** for tracking work.
+The convention is enforced across all `sites/*` projects (see CHECK_013).
+
+- **`vN`** — major capability tier (SemVer-MAJOR semantics).
+- **`vN.X`** — phase letter within a tier (A, B, C, ...). Each phase
+  is a shippable slice.
+
+**Two levels only. Never `vN.X.Y`.** When follow-up work emerges inside
+an existing tier, push subsequent phase letters down to make room.
+Renumbered rows carry a lineage marker formatted as
+`*(renumbered YYYY-MM-DD; was vN.X.Y)*`, so the history is preserved
+in the row that replaced them. (Lineage markers belong only on rows
+inside this repo's `docs/prd.md`; sibling projects don't introduce
+them.)
+
+This standard applies to:
+- The `## 5. Phases` table in `docs/prd.md`.
+- The roadmap-status table in `AI_AGENTS.md` (this file).
+- Phase references in `docs/Prompts.md` and commit subjects.
+- The `feature-table` skill (renders rows in this exact convention).
+
+Don't introduce parallel schemes (no `0.1.0`, no `Sprint 3`, no
+`Phase 1.A`). Don't introduce three-level identifiers under any
+circumstance. The canonical statement is this section.
 
 ## Raison d'être
 
