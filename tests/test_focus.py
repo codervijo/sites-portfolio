@@ -513,3 +513,97 @@ def test_idle_signal_yields_to_site_down_red():
     assert items[0].rank == _RANK_RED
     # Only one signal — the red site-down, not a duplicate idle yellow.
     assert len(items[0].signals) == 1
+
+
+# ---------- ❌ GSC sitemap-not-submitted signal ----------
+
+
+def test_no_gsc_sitemap_submitted_yields_yellow_focus():
+    """In GSC with zero submitted sitemaps → ❌ focus item at yellow rank."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "no-sm.com", "gsc_status": "ok",
+             "gsc_impressions": 100, "gsc_position": 5.0,
+             "gsc_sitemap_count": 0},
+        ),
+        domains_with_expiry=[],
+    )
+    assert len(items) == 1
+    assert items[0].domain == "no-sm.com"
+    assert items[0].rank == _RANK_YELLOW
+    glyphs = [s[0] for s in items[0].signals]
+    assert "❌" in glyphs
+    headlines = " ".join(s[1] for s in items[0].signals)
+    assert "no sitemap submitted" in headlines.lower()
+
+
+def test_no_gsc_sitemap_signal_skipped_when_submitted():
+    """At least one submitted sitemap → no ❌ signal."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "good.com", "gsc_status": "ok",
+             "gsc_impressions": 100, "gsc_position": 5.0,
+             "gsc_sitemap_count": 2},
+        ),
+        domains_with_expiry=[],
+    )
+    glyphs = [s[0] for item in items for s in item.signals]
+    assert "❌" not in glyphs
+
+
+def test_no_gsc_sitemap_signal_skipped_when_not_in_gsc():
+    """Not-in-GSC → we can't say "no submission"; don't flag."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "no-gsc.com", "gsc_status": "not-in-gsc",
+             "gsc_sitemap_count": None},
+        ),
+        domains_with_expiry=[],
+    )
+    glyphs = [s[0] for item in items for s in item.signals]
+    assert "❌" not in glyphs
+
+
+def test_no_gsc_sitemap_signal_fires_for_young_sites_too():
+    """Unlike zero-imp / bad-pos, missing-sitemap is structural and
+    should fire regardless of site age."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "fresh.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": None,
+             "gsc_sitemap_count": 0},
+        ),
+        domains_with_expiry=[],
+        domain_site_age_days={"fresh.com": 5},   # very young
+        include_young=False,
+    )
+    glyphs = [s[0] for item in items for s in item.signals]
+    assert "❌" in glyphs
+    # Zero-imp should still be young-suppressed.
+    assert "🟠" not in glyphs
+
+
+def test_no_gsc_sitemap_coexists_with_other_signals():
+    """A site can have both zero impressions AND no sitemap. Both
+    signals appear on the same FocusItem."""
+    items = build_focus_list(
+        live_snapshot=None,
+        seo_snapshot=_seo_snap(
+            {"domain": "both.com", "gsc_status": "ok",
+             "gsc_impressions": 0, "gsc_position": None,
+             "gsc_sitemap_count": 0},
+        ),
+        domains_with_expiry=[],
+        # Old enough to not suppress zero-imp.
+        domain_site_age_days={"both.com": 365},
+    )
+    assert len(items) == 1
+    glyphs = [s[0] for s in items[0].signals]
+    assert "🟠" in glyphs
+    assert "❌" in glyphs
+    # Worst rank wins (orange > yellow).
+    assert items[0].rank == _RANK_ORANGE

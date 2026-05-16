@@ -328,12 +328,11 @@ _ORANGE = "🟠"
 _RED = "🔴"
 _GREY = "⚪"   # unknown / skipped
 
-# Distinct callout for "GSC site exists but no sitemap submitted." Using
-# a non-traffic-light glyph here is deliberate — this is a fixable ops
-# gap, not a generic failure. The map icon makes it visually obvious in
-# the table without competing with the green/red palette used for the
-# real ranking-signal columns.
-_NO_SITEMAP_SUBMITTED = "🗺"
+# Distinct callout for "GSC site exists but no sitemap submitted." Big
+# red X — visually distinct from the 🟢/🟡/🔴/⚪ dot palette (different
+# shape entirely, not just a different color). Reads instantly as a
+# fixable ops gap when scanning the table.
+_NO_SITEMAP_SUBMITTED = "❌"
 
 
 def _status_for_higher(value: float | None, thresholds: tuple[float, float, float]) -> str:

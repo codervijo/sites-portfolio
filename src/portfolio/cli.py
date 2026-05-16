@@ -1280,7 +1280,7 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
         sample = ", ".join(missing_sm[:3])
         more = f" + {len(missing_sm) - 3} more" if len(missing_sm) > 3 else ""
         console.print(
-            f"[dim]🗺 {len(missing_sm)} site(s) in GSC with no sitemap submitted "
+            f"[dim]❌ {len(missing_sm)} site(s) in GSC with no sitemap submitted "
             f"({sample}{more}) — submit at search.google.com/search-console "
             f"→ Sitemaps.[/]"
         )

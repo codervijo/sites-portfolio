@@ -185,7 +185,7 @@ def build_focus_list(
                         f"Expiring in {days} days",
                         "→ renew at registrar before lapse")
 
-    # 🟠 / 🟡 SEO signals.
+    # 🟠 / 🟡 / ❌ SEO signals.
     if seo_snapshot:
         for r in seo_snapshot.get("rows", []):
             d = (r.get("domain") or "").lower()
@@ -194,7 +194,17 @@ def build_focus_list(
             gsc_status = r.get("gsc_status")
             imp = r.get("gsc_impressions")
             pos = r.get("gsc_position")
+            sitemap_count = r.get("gsc_sitemap_count")
             young = (not include_young) and _is_young(d)
+
+            # ❌ Site is in GSC but has zero sitemaps submitted. Structural
+            # ops gap — applies regardless of site age (no young-suppress).
+            # Fires before the young-suppress short-circuit below.
+            if gsc_status == "ok" and sitemap_count == 0:
+                _add_signal(d, "❌", _RANK_YELLOW,
+                            "GSC: no sitemap submitted",
+                            "→ submit at search.google.com/search-console → Sitemaps")
+
             # Indexed but zero impressions — content not surfacing.
             zero_imp_trigger = (gsc_status == "ok" and imp == 0)
             bad_pos_trigger = isinstance(pos, (int, float)) and pos > 20

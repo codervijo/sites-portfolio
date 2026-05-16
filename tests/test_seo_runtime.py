@@ -459,7 +459,7 @@ def test_row_statuses_gsc_sitemap_submitted_map_glyph_when_count_zero():
     """The distinct callout: in GSC but no sitemap submitted."""
     from portfolio.seo_runtime import row_statuses
     r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=0)
-    assert row_statuses(r)["gsc_sitemap"] == "🗺"
+    assert row_statuses(r)["gsc_sitemap"] == "❌"
 
 
 def test_row_statuses_gsc_sitemap_submitted_grey_when_not_in_gsc():
@@ -491,7 +491,7 @@ def test_row_statuses_gsc_sitemap_independent_of_sitemap_served():
                sitemap_served=True, gsc_sitemap_count=0)
     s = row_statuses(r)
     assert s["sitemap"] == "🟢"     # the live URL serves one
-    assert s["gsc_sitemap"] == "🗺"  # but nothing submitted to GSC
+    assert s["gsc_sitemap"] == "❌"  # but nothing submitted to GSC
 
 
 def test_row_statuses_dict_contains_gsc_sitemap_key():
