@@ -209,6 +209,94 @@ def run_claude(prompt: str, *, cwd: Path,
                         error=None, raw_output="")
 
 
+@dataclass
+class ClaudeTextResult:
+    """Outcome of one `claude -p` call invoked for a TEXT response (no
+    tool use). `text` is the assistant's final message body; the rest
+    mirrors `ClaudeResult`'s metadata for budget / observability."""
+    ok: bool
+    text: str
+    cost_usd: float
+    duration_s: float
+    error: str | None
+    raw_output: str   # stderr/stdout fragment on failure, "" on success
+
+
+def run_claude_text(prompt: str, *, cwd: Path,
+                    budget_usd: float = _DEFAULT_BUDGET_USD,
+                    timeout_s: int = _DEFAULT_TIMEOUT_S) -> ClaudeTextResult:
+    """Run `claude -p <prompt>` with NO tools allowed and capture the
+    assistant's final text response.
+
+    Different contract from `run_claude`:
+      - `run_claude` is for Tier-2 fixers — Claude edits files in
+        place via the Read/Edit/Glob/Grep toolset, and we only care
+        whether it succeeded + how much it cost.
+      - `run_claude_text` is for callers that want the model's text
+        output back (v8.E interpretive verdict, future research /
+        audit / classification passes). No tools allowed; the response
+        is a single assistant message.
+
+    Returns `ClaudeTextResult` with `text` populated on success. On
+    failure (claude-not-found, timeout, bad-json, is_error from the
+    CLI), `text == ""` and `error` carries the cause.
+    """
+    if not claude_available():
+        return ClaudeTextResult(ok=False, text="", cost_usd=0.0,
+                                duration_s=0.0, error="claude-not-found",
+                                raw_output="")
+    cmd = [
+        "claude", "-p", prompt,
+        "--output-format", "json",
+        "--allowedTools", "",         # no tool use — pure text response
+        "--max-budget-usd", str(budget_usd),
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(cwd),
+            capture_output=True, text=True,
+            timeout=timeout_s, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return ClaudeTextResult(ok=False, text="", cost_usd=0.0,
+                                duration_s=float(timeout_s),
+                                error="timeout", raw_output="")
+    except OSError as e:
+        return ClaudeTextResult(ok=False, text="", cost_usd=0.0,
+                                duration_s=0.0, error=f"oserror: {e}",
+                                raw_output="")
+    # Same JSON-on-stdout convention as run_claude — even non-zero
+    # exits often carry a parseable error envelope on stdout, so try
+    # to parse before treating as a process-level failure.
+    if proc.returncode != 0 and not proc.stdout.strip().startswith("{"):
+        return ClaudeTextResult(ok=False, text="", cost_usd=0.0,
+                                duration_s=0.0,
+                                error=f"exit-{proc.returncode}",
+                                raw_output=proc.stderr or proc.stdout)
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return ClaudeTextResult(ok=False, text="", cost_usd=0.0,
+                                duration_s=0.0, error="bad-json",
+                                raw_output=proc.stdout[:500])
+    cost = float(data.get("total_cost_usd") or 0.0)
+    duration = float(data.get("duration_ms") or 0.0) / 1000.0
+    if bool(data.get("is_error")):
+        return ClaudeTextResult(ok=False, text="", cost_usd=cost,
+                                duration_s=duration,
+                                error=str(data.get("subtype") or "is_error"),
+                                raw_output=proc.stdout[:500])
+    text = str(data.get("result") or "")
+    if not text:
+        # `result` field empty / missing on a non-error response is a
+        # surprise — surface it rather than silently returning "".
+        return ClaudeTextResult(ok=False, text="", cost_usd=cost,
+                                duration_s=duration, error="empty-result",
+                                raw_output=proc.stdout[:500])
+    return ClaudeTextResult(ok=True, text=text, cost_usd=cost,
+                            duration_s=duration, error=None, raw_output="")
+
+
 def read_file_for_context(path: Path, max_chars: int = 4000) -> str:
     """Best-effort file read for prompt context. Returns "" on error and
     truncates long files to keep prompt cost modest."""
