@@ -440,6 +440,74 @@ def test_row_statuses_gsc_column():
     assert row_statuses(SEORow(domain="x", gsc_status="error"))["gsc"] == "⚪"
 
 
+# ---------- GSC sitemap-submitted status ----------
+
+
+def test_row_statuses_gsc_sitemap_submitted_green_when_count_ge_1():
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=1)
+    assert row_statuses(r)["gsc_sitemap"] == "🟢"
+
+
+def test_row_statuses_gsc_sitemap_submitted_green_when_count_multiple():
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=3)
+    assert row_statuses(r)["gsc_sitemap"] == "🟢"
+
+
+def test_row_statuses_gsc_sitemap_submitted_map_glyph_when_count_zero():
+    """The distinct callout: in GSC but no sitemap submitted."""
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=0)
+    assert row_statuses(r)["gsc_sitemap"] == "🗺"
+
+
+def test_row_statuses_gsc_sitemap_submitted_grey_when_not_in_gsc():
+    """Not-in-GSC → we can't distinguish 'no submission' from 'no GSC entry'."""
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="not-in-gsc", gsc_sitemap_count=None)
+    assert row_statuses(r)["gsc_sitemap"] == "⚪"
+
+
+def test_row_statuses_gsc_sitemap_submitted_grey_when_auth_skipped():
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="auth-skipped", gsc_sitemap_count=None)
+    assert row_statuses(r)["gsc_sitemap"] == "⚪"
+
+
+def test_row_statuses_gsc_sitemap_submitted_grey_when_count_is_none():
+    """Even with status=ok, a None count means we didn't get the data."""
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok", gsc_sitemap_count=None)
+    assert row_statuses(r)["gsc_sitemap"] == "⚪"
+
+
+def test_row_statuses_gsc_sitemap_independent_of_sitemap_served():
+    """A site can SERVE a sitemap (sitemap_served=True) and still have
+    ZERO submitted to GSC (gsc_sitemap_count=0). The two columns are
+    independent."""
+    from portfolio.seo_runtime import row_statuses
+    r = SEORow(domain="x", gsc_status="ok",
+               sitemap_served=True, gsc_sitemap_count=0)
+    s = row_statuses(r)
+    assert s["sitemap"] == "🟢"     # the live URL serves one
+    assert s["gsc_sitemap"] == "🗺"  # but nothing submitted to GSC
+
+
+def test_row_statuses_dict_contains_gsc_sitemap_key():
+    """The new key is always present in the output (renderer relies on it)."""
+    from portfolio.seo_runtime import row_statuses
+    assert "gsc_sitemap" in row_statuses(SEORow(domain="x"))
+
+
+def test_gsc_sitemap_status_not_in_overall_keys():
+    """The new sitemap-submitted signal is a sidecar — don't pull the
+    overall SEO grade because a site doesn't have a submitted sitemap.
+    Operators can decide if that's worth fixing on a per-site basis."""
+    from portfolio.seo_runtime import _OVERALL_KEYS
+    assert "gsc_sitemap" not in _OVERALL_KEYS
+
+
 def test_row_statuses_lcp_thresholds():
     # 2500ms = green, 4000ms = yellow, 6000ms = orange, beyond = red
     assert row_statuses(SEORow(domain="x", crux_lcp_p75=2000))["lcp"] == "🟢"

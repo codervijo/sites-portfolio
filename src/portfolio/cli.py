@@ -1219,6 +1219,9 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
     t.add_column("Robots", justify="center")
     t.add_column("Sitemap", justify="center")
     t.add_column("GSC", justify="center")
+    # GSC-submitted sitemap status: 🟢 = submitted, 🗺 = none submitted
+    # (distinct callout for a fixable ops gap), ⚪ = unknown.
+    t.add_column("GSC sm", justify="center")
     t.add_column("Imp", justify="right")
     t.add_column("Clicks", justify="right")
     t.add_column("CTR", justify="right")
@@ -1239,6 +1242,7 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
             s["robots"],
             s["sitemap"],
             s["gsc"],
+            s["gsc_sitemap"],
             _color_value(s["imp"], _fmt_int(row.gsc_impressions)),
             _fmt_int(row.gsc_clicks),
             _fmt_pct(row.gsc_ctr, impressions=row.gsc_impressions),
@@ -1266,6 +1270,20 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
             summary_parts.append(f"{emoji} {counts[emoji]} {label}")
     if summary_parts:
         console.print("\n[dim]" + " · ".join(summary_parts) + "[/]")
+
+    # Call out sites that are in GSC but have no sitemap submitted —
+    # easy fix, but invisible without this surface.
+    missing_sm = [r.domain for r in rows
+                  if r.gsc_status == "ok"
+                  and r.gsc_sitemap_count == 0]
+    if missing_sm:
+        sample = ", ".join(missing_sm[:3])
+        more = f" + {len(missing_sm) - 3} more" if len(missing_sm) > 3 else ""
+        console.print(
+            f"[dim]🗺 {len(missing_sm)} site(s) in GSC with no sitemap submitted "
+            f"({sample}{more}) — submit at search.google.com/search-console "
+            f"→ Sitemaps.[/]"
+        )
 
     # P4 — note when young sites had imp/pos masked so the reader knows
     # the grade is age-aware (otherwise a 🟡 row with imp=0 looks wrong).

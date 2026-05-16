@@ -328,6 +328,13 @@ _ORANGE = "🟠"
 _RED = "🔴"
 _GREY = "⚪"   # unknown / skipped
 
+# Distinct callout for "GSC site exists but no sitemap submitted." Using
+# a non-traffic-light glyph here is deliberate — this is a fixable ops
+# gap, not a generic failure. The map icon makes it visually obvious in
+# the table without competing with the green/red palette used for the
+# real ranking-signal columns.
+_NO_SITEMAP_SUBMITTED = "🗺"
+
 
 def _status_for_higher(value: float | None, thresholds: tuple[float, float, float]) -> str:
     """Lower value → better health. green/yellow/orange thresholds, then red."""
@@ -390,6 +397,29 @@ def _gsc_presence_status(gsc_status: str) -> str:
     return _GREY
 
 
+def _gsc_sitemap_submitted_status(gsc_status: str,
+                                  sitemap_count: int | None) -> str:
+    """Whether a sitemap is submitted to GSC for this domain.
+
+    Distinct from `_bool_status(row.sitemap_served)` which checks the
+    LIVE URL. A site can serve a valid sitemap and still have zero
+    submitted to Search Console — that's a real, fixable ops gap.
+
+    Returns:
+      🟢 — submitted (count ≥ 1)
+      🗺 — in GSC but zero sitemaps submitted (the distinct callout)
+      ⚪ — not in GSC / auth-skipped / unknown (can't tell)
+    """
+    if gsc_status != "ok":
+        # Can't distinguish "no submission" from "no auth"; render grey.
+        return _GREY
+    if sitemap_count is None:
+        return _GREY
+    if sitemap_count >= 1:
+        return _GREEN
+    return _NO_SITEMAP_SUBMITTED
+
+
 def row_statuses(row: SEORow) -> dict[str, str]:
     """Per-column emoji status for a row. Used by the renderer."""
     return {
@@ -398,6 +428,9 @@ def row_statuses(row: SEORow) -> dict[str, str]:
         "robots": _bool_status(row.robots_served),
         "sitemap": _bool_status(row.sitemap_served),
         "gsc": _gsc_presence_status(row.gsc_status),
+        "gsc_sitemap": _gsc_sitemap_submitted_status(
+            row.gsc_status, row.gsc_sitemap_count,
+        ),
         "imp": _impressions_status(row.gsc_impressions),
         "pos": _position_status(row.gsc_position),
         "lcp": _status_for_higher(row.crux_lcp_p75, _LCP_MS),
