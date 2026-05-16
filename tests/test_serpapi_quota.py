@@ -148,6 +148,32 @@ def test_should_warn_at_80_percent(_stub_path):
     assert quota_mod.should_warn() is False
 
 
+def test_should_warn_strongly_at_95_percent(_stub_path):
+    """The strong-warn threshold (95%) pairs with the soft-warn message
+    to push the 'consider waiting' guidance. At this usage level a single
+    research run can blow through the rest of the quota and silently
+    force the synthesis-fallback path."""
+    # Just shy of 95% (237/250 = 94.8%) — strong-warn off.
+    quota_mod._save({"schema": quota_mod.SCHEMA, "month": _current_month(),
+                     "queries_used": 237, "limit": 250, "last_updated": ""})
+    assert quota_mod.should_warn_strongly() is False
+    # The soft-warn should still fire at this level — strong-warn is
+    # additive, not a replacement.
+    assert quota_mod.should_warn() is True
+
+    # 238/250 = 95.2% — strong-warn fires.
+    quota_mod._save({"schema": quota_mod.SCHEMA, "month": _current_month(),
+                     "queries_used": 238, "limit": 250, "last_updated": ""})
+    assert quota_mod.should_warn_strongly() is True
+
+
+def test_warn_thresholds_are_well_ordered():
+    """Strong-warn must be at or above soft-warn — otherwise the strong
+    message would fire BEFORE the soft one, which contradicts the
+    'soft, then strong' tier."""
+    assert quota_mod.WARN_STRONGLY_THRESHOLD >= quota_mod.WARN_THRESHOLD
+
+
 def test_next_month_first_handles_december():
     assert quota_mod._next_month_first("2026-12") == "2027-01-01"
 

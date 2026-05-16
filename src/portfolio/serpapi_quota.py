@@ -36,7 +36,8 @@ from .data import ROOT
 QUOTA_PATH = ROOT / "data" / "serp" / "_quota.json"
 SCHEMA = "serpapi-quota-v1"
 DEFAULT_LIMIT = 250
-WARN_THRESHOLD = 0.8
+WARN_THRESHOLD = 0.8         # 80% — soft warn
+WARN_STRONGLY_THRESHOLD = 0.95   # 95% — strong "consider waiting" warn
 
 
 class QuotaExhausted(RuntimeError):
@@ -137,6 +138,16 @@ def should_warn() -> bool:
     """True when usage crosses the soft-warn threshold (default 80%).
     Caller decides what to do with this (typically: print a banner)."""
     return quota_pct_used() >= WARN_THRESHOLD
+
+
+def should_warn_strongly() -> bool:
+    """True when usage crosses the strong-warn threshold (default 95%).
+    Caller pairs this with the soft-warn message to add an explicit
+    "consider waiting for quota reset before running competitive
+    research" recommendation — at 95%+ a single research run can
+    burn the remaining quota and force the synthesis-fallback path,
+    which is dangerous for verdict outputs."""
+    return quota_pct_used() >= WARN_STRONGLY_THRESHOLD
 
 
 def _next_month_first(month: str) -> str:

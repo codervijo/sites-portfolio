@@ -3581,8 +3581,10 @@ def new_research(
         )
         raise typer.Exit(2)
 
-    # Pre-flight: soft-warn at 80% quota usage.
-    from .serpapi_quota import quota_pct_used, read_quota, should_warn
+    # Pre-flight: soft-warn at 80% quota usage; strong-warn at 95%.
+    from .serpapi_quota import (
+        quota_pct_used, read_quota, should_warn, should_warn_strongly,
+    )
     if should_warn():
         q = read_quota()
         console.print(
@@ -3590,6 +3592,16 @@ def new_research(
             f"({int(quota_pct_used()*100)}%). Consider `--synthesis-only` for "
             f"ideation runs to stretch the cap.[/]"
         )
+        if should_warn_strongly():
+            # At 95%+ a single research run can blow through the
+            # remaining quota and silently fall back to synthesis,
+            # which is dangerous for competitive verdicts.
+            console.print(
+                "[red]⚠  Consider waiting for quota reset before running "
+                "competitive research — at this usage level a single run "
+                "can exhaust the quota and force the synthesis fallback "
+                "(verdicts will be blocked).[/]"
+            )
 
     # Real SerpAPI path.
     from .research_v2 import (
@@ -3860,12 +3872,38 @@ def _render_gates_block(payload: dict, console) -> None:
     console.print()
 
 
-def _render_serp_full(payload: dict, console) -> None:
-    """Default rendering — full analysis block + decision aid.
+_SYNTHESIS_PREFIX = "[red][SYNTHESIS ONLY — not real SERP data][/]"
 
-    Cluster-mode payloads (mode="cluster") get extra rendering for the
-    cluster queries + frequency column + per-query summary. Strict-mode
-    payloads (mode="strict") render the same shape minus those extras.
+_VERDICT_BLOCKED_BLOCK = (
+    "\n  [red bold]⛔ VERDICT BLOCKED — source is AI synthesis, not real SERP data.[/]\n"
+    "  [dim]Competitive verdicts (rankers, saturation, ship/mixed/wait) are\n"
+    "  blocked because synthesis output hallucinates domain names and\n"
+    "  invents competitive signals that look real but aren't.\n\n"
+    "  Run again when SerpAPI quota resets, or keep using --synthesis-only\n"
+    "  for ideation only (angles + content patterns + cluster queries are OK).[/]\n"
+)
+
+
+def _render_serp_full(payload: dict, console) -> None:
+    """Default rendering for AI-synthesized SERP analysis.
+
+    Synthesis outputs hallucinate domain names and invent competitive
+    signals (saturation, rankers, ship/mixed/wait decisions) that read
+    as real but aren't grounded in any SERP data. To prevent the
+    operator from acting on those false signals, this renderer:
+
+      - Hard-blocks the competitive verdict surface with a loud banner
+      - Strips top_likely_rankers, competitive_signal (saturation/
+        barrier/YMYL), per_query_summary (decision hints), final
+        decision + decision-reasoning from the rendered output
+      - Keeps only ideation-safe surfaces: cluster_queries,
+        content_patterns, suggested_angles
+      - Prefixes every kept section header with the
+        "[SYNTHESIS ONLY — not real SERP data]" marker so a reader
+        scanning the output can't mistake it for research data
+
+    Real-SerpAPI payloads (v8.D `research-cluster-v2`) render via
+    `_render_research_v2_full`, which is unaffected by this gate.
     """
     topic = payload.get("topic", "?")
     analysis = payload.get("analysis", {})
@@ -3878,144 +3916,131 @@ def _render_serp_full(payload: dict, console) -> None:
     if from_cache:
         src_line += f" · cached {payload.get('cache_age_days', '?')}d ago"
     console.print(f"\n[bold]SERP research — \"{topic}\"[/]")
-    console.print(f"  [dim]{src_line} · {caveat}[/]\n")
+    console.print(f"  [dim]{src_line} · {caveat}[/]")
 
-    # Cluster queries (v8.B)
+    # Verdict block — front-and-center so the reader sees it before any
+    # ideation content. The block exits with a blank line so the
+    # ideation sections render visibly separate.
+    console.print(_VERDICT_BLOCKED_BLOCK)
+
+    # ---------- Kept (ideation-safe) ----------
+
+    # Cluster queries — list of search strings. No domains, no scores,
+    # no verdicts; just records what was queried.
     if mode == "cluster":
         cluster_queries = analysis.get("cluster_queries", [])
         if cluster_queries:
-            console.print(f"  [cyan]Topic cluster[/] [dim]({len(cluster_queries)} queries):[/]")
+            console.print(
+                f"  {_SYNTHESIS_PREFIX} [cyan]Topic cluster[/] "
+                f"[dim]({len(cluster_queries)} queries):[/]"
+            )
             for i, q in enumerate(cluster_queries, 1):
                 marker = "[bold]→[/]" if q.lower() == topic.lower() else " "
                 console.print(f"    {marker} {i}. {q}")
             console.print()
 
-    # Top rankers — with frequency column in cluster mode
-    rankers = analysis.get("top_likely_rankers", [])
-    n_queries = len(analysis.get("cluster_queries", [])) if mode == "cluster" else 1
-    if rankers:
-        if mode == "cluster":
-            console.print(
-                f"  [cyan]Cluster-level rankers[/] [dim](frequency / {n_queries} queries):[/]"
-            )
-        else:
-            console.print("  [cyan]Likely top rankers[/] [dim](from training data, not live SERP):[/]")
-        for i, r in enumerate(rankers, 1):
-            domain = r.get("domain", "?")
-            type_ = r.get("type", "?")
-            intent = r.get("intent", "?")
-            if mode == "cluster":
-                freq = r.get("frequency", 1)
-                # Color the frequency: 5/5 = red (dominates), 1/5 = green (niche)
-                freq_color = ("red" if freq >= max(1, n_queries * 0.8)
-                              else "yellow" if freq >= max(1, n_queries * 0.4)
-                              else "green")
-                freq_cell = f"[{freq_color}]{freq}/{n_queries}[/]"
-                console.print(
-                    f"    {i:>2}. [bold]{domain:<28}[/] {freq_cell}  "
-                    f"[dim]{type_} · {intent}[/]"
-                )
-            else:
-                console.print(f"    {i:>2}. [bold]{domain:<28}[/] [dim]{type_} · {intent}[/]")
-
-    # Content patterns
+    # Content patterns — general patterns the LLM extracted (e.g.
+    # "comparison tables dominate", "video-heavy"). General prose, not
+    # domain claims.
     patterns = analysis.get("content_patterns", [])
     if patterns:
-        console.print("\n  [cyan]Content patterns:[/]")
+        console.print(f"  {_SYNTHESIS_PREFIX} [cyan]Content patterns:[/]")
         for p in patterns:
             console.print(f"    · {p}")
 
-    # Competitive signal
-    comp = analysis.get("competitive_signal", {})
-    sat = comp.get("saturation", "?")
-    sat_color = {"low": "green", "medium": "yellow",
-                 "medium-high": "orange3", "high": "red"}.get(sat, "white")
-    ymyl = comp.get("ymyl_flag", False)
-    barrier = comp.get("barrier", "")
-    console.print("\n  [cyan]Competitive signal:[/]")
-    console.print(f"    Saturation: [{sat_color}]{sat}[/]")
-    if ymyl:
-        console.print(f"    [red]⚠ YMYL[/] — portfolio policy excludes (medical/legal/financial)")
-    if barrier:
-        console.print(f"    Barrier: {barrier}")
-
-    # Suggested angles
+    # Suggested angles — ideation prompts. Not claims about competition.
     angles = analysis.get("suggested_angles", [])
     if angles:
-        console.print("\n  [cyan]Suggested angles:[/]")
+        console.print(f"\n  {_SYNTHESIS_PREFIX} [cyan]Suggested angles:[/]")
         for i, a in enumerate(angles, 1):
             console.print(f"    {i}. {a}")
 
-    # Per-query summary (cluster mode only)
-    per_query = analysis.get("per_query_summary", [])
-    if per_query and mode == "cluster":
-        console.print("\n  [cyan]Per-query breakdown:[/]")
-        for entry in per_query:
-            q = entry.get("query", "?")
-            hint = entry.get("decision_hint", "unclear")
-            ymyl = entry.get("ymyl", False)
-            hint_color = {"ship": "green", "mixed": "yellow",
-                          "skip": "red", "unclear": "dim"}.get(hint, "white")
-            ymyl_tag = " [red]YMYL[/]" if ymyl else ""
-            console.print(
-                f"    · {q:<40} [{hint_color}]{hint}[/]{ymyl_tag}"
-            )
+    # ---------- Intentionally NOT rendered (would be unsafe) ----------
+    #
+    #   analysis["top_likely_rankers"]      — hallucinated domain names
+    #   analysis["competitive_signal"]      — saturation / barrier / YMYL
+    #   analysis["per_query_summary"]       — ship/mixed/skip hints
+    #   analysis["decision"] / reasoning    — final verdict
+    #
+    # See the verdict-blocked banner above for the operator-facing
+    # explanation; see `_strip_unsafe_synthesis_fields` for the JSON
+    # rendering's equivalent.
 
-    # Decision
-    decision = analysis.get("decision", "unclear")
-    decision_emoji = {"ship": "✓", "mixed": "⚠", "skip": "✗", "unclear": "?"}.get(decision, "?")
-    decision_color = {"ship": "green", "mixed": "yellow",
-                      "skip": "red", "unclear": "dim"}.get(decision, "white")
-    reasoning = analysis.get("reasoning", "")
-    console.print(
-        f"\n  [bold]Decision:[/] [{decision_color}]{decision_emoji} {decision.upper()}[/]"
-    )
-    if reasoning:
-        # Wrap reasoning to 70 cols for readability
-        from textwrap import fill
-        wrapped = fill(reasoning, width=68, initial_indent="    ",
-                       subsequent_indent="    ")
-        console.print(f"[dim]{wrapped}[/]")
-
-    console.print(
-        "\n  [dim]Caveat: AI-only synthesis from training data. For real-time "
-        "SERP, see roadmap v8.A.1.[/]\n"
-    )
-
-
-def _render_serp_brief(payload: dict, console) -> None:
-    """Compact one-screen rendering — decision + top-3 bullets."""
-    topic = payload.get("topic", "?")
-    analysis = payload.get("analysis", {})
-    decision = analysis.get("decision", "unclear")
-    decision_emoji = {"ship": "✓", "mixed": "⚠", "skip": "✗", "unclear": "?"}.get(decision, "?")
-    decision_color = {"ship": "green", "mixed": "yellow",
-                      "skip": "red", "unclear": "dim"}.get(decision, "white")
-    sat = analysis.get("competitive_signal", {}).get("saturation", "?")
-    ymyl = analysis.get("competitive_signal", {}).get("ymyl_flag", False)
-
-    console.print(f"\n[bold]{topic}[/]  "
-                  f"[{decision_color}]{decision_emoji} {decision.upper()}[/]  "
-                  f"[dim]({sat} saturation)[/]")
-    if ymyl:
-        console.print("  [red]⚠ YMYL — portfolio policy excludes[/]")
-
-    angles = analysis.get("suggested_angles", [])[:3]
-    if angles:
-        for a in angles:
-            console.print(f"  · {a}")
-
-    reasoning = analysis.get("reasoning", "")
-    if reasoning:
-        from textwrap import shorten
-        console.print(f"  [dim]{shorten(reasoning, width=200)}[/]")
     console.print()
 
 
+def _render_serp_brief(payload: dict, console) -> None:
+    """Compact one-screen rendering for synthesis output.
+
+    Same guardrails as `_render_serp_full`: no decision, no saturation,
+    no rankers. Just the topic + the top-3 angles + the verdict-
+    blocked marker so brief mode can't be (mis)used as a "quick
+    decision aid" on synthesis data.
+    """
+    topic = payload.get("topic", "?")
+    analysis = payload.get("analysis", {})
+
+    console.print(
+        f"\n[bold]{topic}[/]  [red]⛔ VERDICT BLOCKED — AI synthesis[/]"
+    )
+    angles = analysis.get("suggested_angles", [])[:3]
+    if angles:
+        console.print(f"  {_SYNTHESIS_PREFIX} [cyan]Suggested angles:[/]")
+        for a in angles:
+            console.print(f"    · {a}")
+    console.print(
+        "  [dim]Run again with real SerpAPI for a competitive verdict.[/]"
+    )
+    console.print()
+
+
+# Fields stripped from JSON payloads before emit when source is AI synthesis.
+# Mirrors what the rich renderer hides — keeps `--json` output from carrying
+# the same hallucinated competitive signals as the human-facing render.
+_UNSAFE_SYNTHESIS_FIELDS: tuple[str, ...] = (
+    "top_likely_rankers",
+    "competitive_signal",
+    "per_query_summary",
+    "decision",
+    "reasoning",
+)
+
+
+def _strip_unsafe_synthesis_fields(payload: dict) -> dict:
+    """Return a copy of `payload` with verdict-related fields stripped
+    from `payload["analysis"]`. Annotates with `verdict_blocked: true`
+    plus a `verdict_blocked_reason` so downstream JSON consumers can
+    detect the blocked state programmatically.
+
+    Pure function — caller passes the original payload through, used
+    by `_render_serp_json` before emit.
+    """
+    out = dict(payload)
+    out["verdict_blocked"] = True
+    out["verdict_blocked_reason"] = (
+        "AI synthesis — competitive verdict suppressed to prevent acting "
+        "on hallucinated domains / fabricated saturation signals. Use "
+        "real SerpAPI data for verdicts."
+    )
+    analysis = dict(payload.get("analysis") or {})
+    for f in _UNSAFE_SYNTHESIS_FIELDS:
+        analysis.pop(f, None)
+    out["analysis"] = analysis
+    return out
+
+
 def _render_serp_json(payload: dict) -> None:
-    """Emit raw analysis JSON (suitable for piping / scripting)."""
+    """Emit raw analysis JSON (suitable for piping / scripting).
+
+    Synthesis payloads are sanitized first — `top_likely_rankers`,
+    `competitive_signal`, `per_query_summary`, `decision`, and the
+    decision-reasoning are stripped from `analysis`, and
+    `verdict_blocked` + `verdict_blocked_reason` are added at the
+    top level so downstream scripts can detect the blocked state.
+    """
     import json as _json
-    print(_json.dumps(payload, indent=2))
+    safe = _strip_unsafe_synthesis_fields(payload)
+    print(_json.dumps(safe, indent=2))
 
 
 @new_app.command("deploy")
