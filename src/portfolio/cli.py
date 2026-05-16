@@ -3605,8 +3605,11 @@ def _run_gates_with_prompt(cluster: dict, *, console,
     directly) lets the prompt land between Gate 2 and Gate 3 without
     re-running Gate 1's LLM volume call.
     """
+    from .operator_profile import (
+        evaluate_operator_fit, load_operator_profile,
+    )
     from .research_gates import (
-        OperatorFitResult, VERDICT_NICHE_DOWN, GateResults,
+        VERDICT_NICHE_DOWN, GateResults,
         evaluate_gate_1, evaluate_gate_2, evaluate_gate_3,
         is_moat_required, suggest_reductions, synthesize_verdict,
     )
@@ -3616,7 +3619,7 @@ def _run_gates_with_prompt(cluster: dict, *, console,
     if not non_interactive and is_moat_required(g2):
         moat_sentence = _prompt_for_moat(g2, console)
     g3 = evaluate_gate_3(g2, moat_sentence, non_interactive=non_interactive)
-    op_fit = OperatorFitResult()
+    op_fit = evaluate_operator_fit(cluster, load_operator_profile())
     verdict = synthesize_verdict(g1, g2, g3, op_fit=op_fit)
     reductions: list[str] = []
     if verdict == VERDICT_NICHE_DOWN:

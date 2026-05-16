@@ -1,0 +1,37 @@
+# lamill.toml — sites/portfolio/
+#
+# Per-site declaration file. The full schema (with [deploy], [hosting],
+# [notes]) lands in v9.A. For now this only carries the [operator]
+# section, which v8.D Phase 3 reads to apply expertise/workflow/cadence
+# fit-checks on top of the research gates.
+#
+# Only the portfolio repo's lamill.toml fills [operator]. Every other
+# sites/<domain>/ repo will omit it.
+
+
+[operator]
+# OPERATOR PROFILE — used by `lamill new research` to apply fit-checks
+# on top of the three mechanical gates (Market / SERP / Moat).
+#
+# `lamill settings operator show` reads this. Edit the file directly
+# to change values.
+#
+# expertise[]               — free-form strings; topics where the operator
+#                             has demonstrable expertise. Used by the
+#                             expertise check to auto-fail Gate 2 when an
+#                             informational + E-E-A-T-rewarded SERP has
+#                             no overlap with declared areas.
+# workflow_preference       — builder | writer | mixed
+#                             "builder" + listicle-dominant SERP → warns
+#                             that the niche rewards content.
+# motivation_cadence        — weekly | monthly | quarterly
+#                             "weekly" + evergreen-reference cluster
+#                             (informational + AI-Overview-heavy) → warns
+#                             that metrics on this niche move slower.
+expertise = [
+    "SEO and programmatic content",
+    "Python CLI tooling",
+    "Domain portfolio management",
+]
+workflow_preference = "builder"
+motivation_cadence = "weekly"
