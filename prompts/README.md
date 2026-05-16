@@ -44,5 +44,5 @@ without triggering a template-parser conflict (`docs/prd.md` §10.G).
 
 | File | Purpose | First shipped |
 |---|---|---|
-| `niche_evaluation_v1.md` | Primary interpretive pass (Phase 4a) | v8.E P4.A.1 |
-| `adversarial_audit_v1.md` | Adversarial audit pass (Phase 4b) | v8.E P4.A.2 |
+| `niche_evaluation_v1.md` | Primary interpretive pass (Phase 4a) | v8.E |
+| `adversarial_audit_v1.md` | Adversarial audit pass (Phase 4b) | v8.E |

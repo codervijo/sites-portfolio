@@ -64,7 +64,7 @@ Sole user: Vijo. No multi-tenancy, no permissions, no public surface. CLI-only.
 
 ## 5. Phases
 
-Strict sequence (option a). 52 phases total. **Renumbered 2026-05-16** — v9 is now per-site deploy declarations (was v11), v10 is fleet hosting (was v12), v11 is analytical roll-ups (was v9), v12 is deploy verification (was v10; deprioritized to last). Working order = strict numerical: v8.E → v9.A–D → v10.A → v11.A–C → v12.A–D. **v8.D shipped in full as of 2026-05-15 (P1 + P2 + P3 all live). v8.E (research Phase 4 — interpretive verdict + adversarial audit) is the active queue: prompts drafted + loader landed (Pre-1 / P4.A.1 / P4.A.2 / P4.A.3); Claude API integration onward is the remaining work.** v8.A and v8.B were absorbed by v8.D before any code was written; v8.C was originally a `--research` flag on `new suggest`, dismissed as not needed (research and suggest stay as separate composable steps).
+Strict sequence (option a). 52 phases total. **Renumbered 2026-05-16** — v9 is now per-site deploy declarations (was v11), v10 is fleet hosting (was v12), v11 is analytical roll-ups (was v9), v12 is deploy verification (was v10; deprioritized to last). Working order = strict numerical: v8.E → v9.A–D → v10.A → v11.A–C → v12.A–D. **v8.D shipped in full as of 2026-05-15. v8.E (research Phase 4 — interpretive verdict + adversarial audit) is the active queue: prompts + loader scaffolding shipped; LLM-call substrate landed via `run_claude_text` helper; primary-pass orchestration onward is the remaining work.** v8.A and v8.B were absorbed by v8.D before any code was written; v8.C was originally a `--research` flag on `new suggest`, dismissed as not needed (research and suggest stay as separate composable steps).
 
 Note on read/write surfaces: portfolio is **read-only** through v2 (domain suggest). **v3 (bootstrap) is the first write surface** — it creates new project dirs, runs `git init`, scaffolds files. **v4 is read-only** (validation-mode domain suggest only prints info and a manual-checkout URL — domain registration is gated behind a Y/n confirmation that calls Porkbun's `/domain/create`; no project-dir writes). **v5 is read-only** (universal check catalog + check flags; v5.D writes only to OAuth token + `data/gsc/` snapshots, not project dirs). **v6.D (remediation) is the second project-dir write surface** — it modifies existing project dirs to fix conformance gaps. **v8.D (domain-list refresh tooling)** writes to `data/domains/*.csv` + `data/portfolio.json` (already user-mutable), not project dirs. Everything else (v6.A–C, v6.E–G, v7, v8.A–C) is read-only.
 
@@ -1154,7 +1154,7 @@ with `workflow_preference: builder` in operator.yaml emits the
 
 ### Final commits
 
-**Commit P4.A** — Documentation update:
+**Documentation update:**
 - `docs/CLAUDE.md`: brief on the new `new research` flow + operator
   profile location
 - `AI_AGENTS.md`: note the v8.C → v2-research-module migration
@@ -1165,8 +1165,8 @@ with `workflow_preference: builder` in operator.yaml emits the
 *Smoke test:* `lamill project check sites/portfolio` passes the docs
 checks; full suite still passes.
 
-**Commit P4.B** — Update PRD (`docs/prd.md`) to reflect v8.C shipped.
-Update feature-table entries.
+**PRD update** — `docs/prd.md` reflects v8.C shipped, feature-table
+entries refreshed.
 
 *Smoke test:* manual review.
 
@@ -1367,16 +1367,18 @@ it; §10.C).
 
 ### Phase 4a — Primary interpretive pass
 
-**P4a.1** Standing prompt at `prompts/niche_evaluation_v1.md` (path
-finalized in §10.A). System message; substituted with operator profile
-fields at runtime.
+- Standing prompt at `prompts/niche_evaluation_v1.md` (path
+  finalized in §10.A). System message; substituted with operator profile
+  fields at runtime.
 
-**P4a.2** Model: Claude Sonnet (default model TBD by API availability
-at build time — `claude-sonnet-4-7` or current). Override via `--model
-<id>` flag. Anthropic API integration is new — see §8 implementation
-risks.
+- Model: Claude Sonnet (default model TBD by API availability
+  at build time — `claude-sonnet-4-7` or current). Override via `--model
+  <id>` flag. Per the 2026-05-16 decision the implementation runs via the
+  Claude CLI subprocess (reuses `run_claude_text` from `fix_helpers.py`)
+  rather than the Anthropic SDK — avoids a second API-key surface and
+  rides the operator's existing Claude subscription quota.
 
-**P4a.3** User message contains a structured payload:
+- User message contains a structured payload:
 ```python
 {
   "topic": str,
@@ -1393,7 +1395,7 @@ risks.
 }
 ```
 
-**P4a.4** Response is **markdown with strict headers** (not JSON mode):
+- Response is **markdown with strict headers** (not JSON mode):
 
 ```markdown
 ### verdict
@@ -1430,37 +1432,38 @@ variation (Claude Sonnet's JSON mode at temp=0 sometimes truncates;
 markdown headers don't), and parseable with simple regex/section
 splits.
 
-**P4a.5** Parser splits the response on `### <header>` boundaries.
-Required sections: verdict, confidence, reasoning. Missing optional
-sections (e.g. `reductions` on a GO verdict) → empty.
+- Parser splits the response on `### <header>` boundaries.
+  Required sections: verdict, confidence, reasoning. Missing optional
+  sections (e.g. `reductions` on a GO verdict) → empty.
 
-**P4a.6** Substitution validator runs before any LLM call: any
-`{{placeholder}}` left in the rendered prompt → raise (don't send a
-broken prompt to the model).
+- Substitution validator runs before any LLM call: any
+  `{{placeholder}}` left in the rendered prompt → raise (don't send a
+  broken prompt to the model).
 
-**P4a.7** Snapshot captures both the rendered prompt AND the response
-+ the prompt version + the model id. Reproducibility — old caches can
-be re-rendered with their original prompt for audit/comparison.
+- Snapshot captures both the rendered prompt AND the response
+  + the prompt version + the model id. Reproducibility — old caches can
+  be re-rendered with their original prompt for audit/comparison.
 
 ### Phase 4b — Adversarial audit pass
 
-**P4b.1** Standing prompt at `prompts/adversarial_audit_v1.md` (drafted
-inline below in §6). System message.
+- Standing prompt at `prompts/adversarial_audit_v1.md` (drafted
+  inline below in §6). System message.
 
-**P4b.2** Model: **must be different** from the Phase 4a model.
-Default: `gpt-4o`. Fallback: Gemini Pro. Override: `--audit-model <id>`.
-The "different model" constraint is enforced — if `--model
-claude-sonnet-4-7 --audit-model claude-sonnet-4-7` is passed, the tool
-rejects with an error pointing at the correlated-blind-spot rationale.
+- Model: **must be different** from the Phase 4a model.
+  Default: `gpt-4o` via OpenAI SDK (`OPENAI_API_KEY` already in
+  `portfolio.env`). Fallback: Gemini Pro. Override: `--audit-model <id>`.
+  The "different model" constraint is enforced — if `--model
+  claude-sonnet-4-7 --audit-model claude-sonnet-4-7` is passed, the tool
+  rejects with an error pointing at the correlated-blind-spot rationale.
 
-**P4b.3** User message contains:
-- The structured payload from P4a.3 (same input)
-- The full Phase 4a markdown response (verbatim, not parsed)
+- User message contains:
+  - The structured payload from Phase 4a (same input)
+  - The full Phase 4a markdown response (verbatim, not parsed)
 
-Open Question §10.C: should the audit see the primary's
-`blind_spot_self_report` section, or be hidden from it?
+  Open Question §10.C: should the audit see the primary's
+  `blind_spot_self_report` section, or be hidden from it?
 
-**P4b.4** Response is markdown with strict headers (mirror P4a.4):
+- Response is markdown with strict headers (mirror Phase 4a):
 
 ```markdown
 ### agreement_level
@@ -1482,9 +1485,9 @@ HIGH | MEDIUM | LOW   (confidence in YOUR audit, not the primary's verdict)
 [1-2 sentences on what YOU might be wrong about]
 ```
 
-**P4b.5** Same parser shape as Phase 4a. Strict on the three required
-fields (`agreement_level`, `confidence`, `specific_concerns`),
-permissive on optional sections.
+- Same parser shape as Phase 4a. Strict on the three required
+  fields (`agreement_level`, `confidence`, `specific_concerns`),
+  permissive on optional sections.
 
 ### Phase 4c — Reconciliation (no LLM call)
 
@@ -1640,7 +1643,7 @@ the version suffix (`_v1.md`) lets us evolve without breaking
 reproducibility on old snapshots.
 
 **niche_evaluation_v1.md draft** — outlined here, full draft in a
-follow-up commit (P4.A.1). The skeleton:
+follow-up commit. The skeleton:
 
 > You are evaluating a SERP cluster for a personal portfolio operator
 > deciding whether to ship a new site. Read the gate outputs (mechanical
@@ -1652,7 +1655,7 @@ follow-up commit (P4.A.1). The skeleton:
 > reasoning + a self-reported list of what you might be wrong about
 > (`blind_spot_self_report`) so the audit pass has something to attack.
 
-Full draft in P4.A.1 alongside the audit prompt's review iteration.
+Full draft to be committed alongside the audit prompt's review iteration.
 
 ---
 
@@ -1830,9 +1833,9 @@ neither. Options:
 
 Recommend **custom `{{var}}` substitution** — it's ~20 lines of
 regex-based substitution, doesn't conflict with curly braces in
-example code blocks within the prompt, and the validator (P4a.6) that
-checks for unfilled `{{...}}` post-substitution doubles as a sanity
-check.
+example code blocks within the prompt, and the substitution validator
+(see Phase 4a above) that checks for unfilled `{{...}}` post-
+substitution doubles as a sanity check.
 
 ---
 
@@ -2032,7 +2035,8 @@ Audit responses are part of the verdict's provenance.
 
 **Decision:** custom `{{var}}` regex. No new dep; no curly-brace
 collision with code-block examples in prompts; substitution validator
-(P4a.6) is the natural place to enforce no-unfilled-placeholders.
+(the substitution validator in Phase 4a) is the natural place to
+enforce no-unfilled-placeholders.
 
 Per implementation risks §8.7 — Jinja2, `str.format()`, or custom
 `{{var}}` regex?
@@ -2113,124 +2117,131 @@ future ledger feature aggregate without re-fetching.
 This builds on top of research-module-v2 (Phases 1-3 shipped). All
 commits assume the v2 mechanical pipeline is in place.
 
-Naming convention: **`v8.E P4.<letter>`** — strict two-level pattern
-matching v8.D P1–P3 commits. The renumber on 2026-05-16 collapsed
-the earlier three-level draft (`Pre-1`, `P4.A.1`, `P4.B.1`, ...) to
-this flat scheme. Letters run forward across all wedges (preamble +
-4a + 4b + 4c + polish + docs).
+**Commit-message convention:** every v8.E commit subject is
+`portfolio: v8.E — <what landed>`. No sub-phase identifiers in
+the subject — the description names the wedge (preamble, primary
+pass, audit, reconciliation, polish, docs) and git history orders
+them. The strict two-level versioning rule (`AI_AGENTS.md` §
+Versioning) forbids `vN.X.Y` prefixes in commit subjects.
 
-### Preamble (✅ shipped 2026-05-16, P4.A–P4.D)
+### Preamble (✅ shipped 2026-05-16)
 
-**P4.A ✅** — Create `prompts/` directory at repo root with a README
-pointing at the schema convention (`<purpose>_v<N>.md`). Shipped as
-`portfolio: v8.E Pre-1 — create prompts/ directory + README`.
+- Created `prompts/` directory at repo root with a README
+  pointing at the schema convention (`<purpose>_v<N>.md`).
+- Drafted `prompts/niche_evaluation_v1.md` (full text).
+- Drafted `prompts/adversarial_audit_v1.md` (finalized from the §6 inline).
+- `src/portfolio/prompt_loader.py`: `load_prompt(name)`,
+  `render_prompt(template, **vars)` with `{{var}}` substitution +
+  validator that raises on unfilled placeholders. Unit tests.
+- `src/portfolio/fix_helpers.py:run_claude_text()` — Claude CLI
+  text-capture helper. LLM-call substrate for the primary pass; no
+  Anthropic SDK / no new env var (runs via the operator's existing
+  Claude subscription via subprocess).
 
-**P4.B ✅** — Draft `prompts/niche_evaluation_v1.md` (full text).
-Shipped as `portfolio: v8.E P4.A.1 — draft niche_evaluation_v1.md`.
+(The shipped commits' subject lines pre-date the 2026-05-16
+two-level enforcement and stay as-is in `git log`; future v8.E
+commits use the convention above.)
 
-**P4.C ✅** — Draft `prompts/adversarial_audit_v1.md` (finalized
-from the §6 inline). Shipped as `portfolio: v8.E P4.A.2 — draft
-adversarial_audit_v1.md`.
+### Phase 4a — primary pass (next up)
 
-**P4.D ✅** — `src/portfolio/prompt_loader.py`: `load_prompt(name)`,
-`render_prompt(template, **vars)` with `{{var}}` substitution +
-validator that raises on unfilled placeholders. Unit tests. Shipped
-as `portfolio: v8.E P4.A.3 — prompt loader + renderer`.
+- **Payload assembly** — `src/portfolio/interpretive_pass.py`:
+  `build_payload(cluster, gates, operator_profile, operator_fit) -> dict`
+  shaped per Phase 4a spec. Unit tests on a synthesized gate result.
 
-(The shipped commits' subject lines pre-date this renumber and stay
-as-is in `git log`. Future v8.E commits start at P4.E.)
+- **Response parser** — same module: `parse_verdict(markdown_text)
+  -> ParsedVerdict` (dataclass with `verdict`, `confidence`,
+  `reasoning`, `moat_required`, `moat_prompt`, `reductions`,
+  `operator_fit_warnings`, `blind_spot_self_report`). Strict on the
+  three required sections; permissive on the optional ones.
 
-### Phase 4a — primary pass
+- **Primary-pass runner** — same module:
+  `run_primary_pass(cluster, gates, operator_profile, operator_fit)
+  -> ParsedVerdict`. Renders the prompt, calls `run_claude_text`,
+  parses the response, returns the dataclass. Failure modes: render
+  error (raises), CLI error (raises with the underlying
+  `ClaudeTextResult.error`), parse error (raises with the offending
+  section name).
 
-**P4.E** — `src/portfolio/llm_clients.py`: `LLMClient` Protocol +
-`OpenAIClient` (extracts existing OpenAI HTTP from `serp.py`) +
-`AnthropicClient` (new). Both honor per-provider rate-limit dialects.
+  *Smoke:* `pytest tests/test_interpretive_pass.py -q` with mocked
+  `run_claude_text` returning canned markdown responses.
 
-*Smoke:* `pytest tests/test_llm_clients.py -q` with mocked HTTP for
-each provider's quirks.
+- **Orchestrator wiring** — call `run_primary_pass` from the
+  `new research` command after the mechanical gates land. Snapshot
+  schema bumped to carry `primary_verdict`, `rendered_prompt`,
+  `prompt_version`, `model_id`. Default mode now ends at Phase 4a.
 
-**P4.F** — Add `ANTHROPIC_API_KEY` to `apikeys.KNOWN_KEYS` +
-portfolio.env template + `_probe_anthropic()` in `apikeys.py`.
-
-*Smoke:* `lamill settings apikeys list` shows ANTHROPIC_API_KEY.
-
-**P4.G** — `src/portfolio/interpretive_pass.py`:
-`run_primary_pass(cluster, gates, operator_profile) -> ParsedVerdict`.
-Renders the prompt, calls Anthropic via the client, parses markdown
-response.
-
-*Smoke:* `pytest tests/test_interpretive_pass.py -q` with mocked
-Anthropic responses.
-
-**P4.H** — Wire `interpretive_pass` into the research orchestrator.
-Default mode now ends at Phase 4a. Snapshot schema bumped to v2.1.
-
-*Smoke:* `lamill new research "ev charger installation cost"` runs
-end-to-end with primary verdict shown.
+  *Smoke:* `lamill new research "ev charger installation cost"`
+  runs end-to-end with primary verdict shown.
 
 ### Phase 4b — audit pass
 
-**P4.I** — `src/portfolio/audit_pass.py`:
-`run_audit_pass(cluster, gates, operator_profile, primary_response)`.
-Renders adversarial_audit_v1.md, calls OpenAI (different model from
-primary), parses markdown response.
+- **OpenAI audit-pass runner** — `src/portfolio/audit_pass.py`:
+  `run_audit_pass(cluster, gates, operator_profile, operator_fit,
+  primary_response) -> ParsedAudit`. Renders
+  `adversarial_audit_v1.md`, calls the existing OpenAI client (the
+  one already in use for `new suggest` brainstorm), parses the
+  markdown response.
 
-*Smoke:* `pytest tests/test_audit_pass.py -q`.
+  *Smoke:* `pytest tests/test_audit_pass.py -q`.
 
-**P4.J** — Same-model rejection. If `--model` and `--audit-model`
-resolve to the same model, error early.
+- **Same-model rejection** — if `--model` and `--audit-model`
+  resolve to the same model, error early with the
+  correlated-blind-spot rationale.
 
-*Smoke:* `lamill new research "x" --verify --model X --audit-model X`
-errors with helpful message.
+  *Smoke:* `lamill new research "x" --verify --model X --audit-model X`
+  errors with helpful message.
 
-**P4.K** — `--verify` flag wired. Output rendering for agree /
-partial / disagree paths.
+- **`--verify` flag wired** — output rendering for agree / partial /
+  disagree paths.
 
-*Smoke:* Run on a cluster where primary and audit agree (verify
-output shows "✓ Audit agrees"); run on a cluster known to provoke
-partial disagreement (verify output shows audit concerns).
+  *Smoke:* Run on a cluster where primary and audit agree (verify
+  output shows "✓ Audit agrees"); run on a cluster known to provoke
+  partial disagreement (verify output shows audit concerns).
 
 ### Phase 4c — reconciliation
 
-**P4.L** — `src/portfolio/reconciliation.py`: pure-logic
-reconciliation per §4 Phase 4c spec. No LLM calls. Unit tests for
-each of the three branches (full/partial/disagree).
+- **Reconciliation logic** — `src/portfolio/reconciliation.py`:
+  pure-logic reconciliation per §4 Phase 4c spec. No LLM calls. Unit
+  tests for each of the three branches (full / partial / disagree).
 
-*Smoke:* `pytest tests/test_reconciliation.py -q`.
+  *Smoke:* `pytest tests/test_reconciliation.py -q`.
 
-**P4.M** — Wire reconciliation into orchestrator. Output includes
-`final_verdict` field; REVIEW_REQUIRED renders correctly.
+- **Reconciliation wiring** — into orchestrator. Output includes
+  `final_verdict` field; REVIEW_REQUIRED renders correctly.
 
-*Smoke:* `lamill new research "<known-disagreement-topic>" --verify`
-emits REVIEW_REQUIRED banner.
+  *Smoke:* `lamill new research "<known-disagreement-topic>" --verify`
+  emits REVIEW_REQUIRED banner.
 
 ### Phase 4 polish
 
-**P4.N** — Cost-estimate fields added to snapshot (resolved §10.J).
-Pulled from provider headers when present.
+- **Cost-estimate fields** — added to snapshot (resolved §10.J).
+  `run_claude_text` already returns `cost_usd`; OpenAI cost pulled
+  from provider response headers when present.
 
-*Smoke:* Snapshot inspection shows non-zero `estimated_cost_usd`.
+  *Smoke:* Snapshot inspection shows non-zero `estimated_cost_usd`.
 
-**P4.O** — `verify_by_default` in operator profile honored (resolved
-§10.D — now read from `sites/portfolio/lamill.toml [operator]`, not
-the PRD's original yaml path). `--no-verify` flag added for override.
+- **`verify_by_default` honoring** — read from
+  `sites/portfolio/lamill.toml [operator]` (resolved §10.D).
+  `--no-verify` flag added for override.
 
-*Smoke:* With `verify_by_default = true` in the operator profile,
-`lamill new research <x>` runs verify; `--no-verify` skips it.
+  *Smoke:* With `verify_by_default = true` in the operator profile,
+  `lamill new research <x>` runs verify; `--no-verify` skips it.
 
-**P4.P** — `--no-cache=interpretive` and `--no-cache=audit` granular
-flags for re-running individual passes on cached SERP data.
+- **Granular cache invalidation** — `--no-cache=interpretive` and
+  `--no-cache=audit` for re-running individual passes on cached
+  SERP data.
 
-*Smoke:* Run, modify cached snapshot's interpretive section, re-run
-with `--no-cache=interpretive` — interpretive re-runs, SERP doesn't.
+  *Smoke:* Run, modify cached snapshot's interpretive section,
+  re-run with `--no-cache=interpretive` — interpretive re-runs,
+  SERP doesn't.
 
 ### Phase 4 docs
 
-**P4.Q** — Documentation: update `docs/CLAUDE.md`, `AI_AGENTS.md`,
-`docs/Prompts.md`, `docs/prd.md` to reflect Phase 4 shipped. Add
-"when to use --verify" guidance to `lamill new research --help`.
+- **Docs update** — `docs/CLAUDE.md`, `AI_AGENTS.md`,
+  `docs/Prompts.md`, `docs/prd.md` reflect Phase 4 shipped. Add
+  "when to use --verify" guidance to `lamill new research --help`.
 
-*Smoke:* `lamill project check sites/portfolio` passes docs checks.
+  *Smoke:* `lamill project check sites/portfolio` passes docs checks.
 
 ---
 
@@ -2238,16 +2249,15 @@ with `--no-cache=interpretive` — interpretive re-runs, SERP doesn't.
 
 Honest reading. Assumes v2 (research-module-v2.md) is shipped first.
 
-| Phase | Commits | Hours | Key risk |
-|---|---|---|---|
-| Preamble | P4.A–D ✅ | 2-3h | Shipped 2026-05-16 |
-| LLM clients + Anthropic | P4.E–F | 4-5h | Anthropic API integration is new; rate-limit handling differs |
-| Primary pass | P4.G–H | 4-5h | Markdown parser robustness across model styles |
-| Audit pass | P4.I–K | 4-5h | Same-model rejection logic, output rendering for all three reconciliation branches |
-| Reconciliation | P4.L–M | 2-3h | Pure logic, but the rendering for REVIEW_REQUIRED needs to be right (it's the high-signal path) |
-| Polish | P4.N–P | 3-4h | Cost ledger field, verify_by_default plumbing, granular cache flags |
-| Docs | P4.Q | 1h | |
-| **Total** | **17 commits** | **20-26h** | |
+| Wedge | Hours | Key risk |
+|---|---|---|
+| Preamble ✅ | 2-3h | Shipped 2026-05-16 |
+| Primary pass (payload + parser + runner + wiring) | 4-5h | Markdown parser robustness across CLI sessions / model styles |
+| Audit pass (OpenAI runner + same-model reject + --verify) | 4-5h | Output rendering for all three reconciliation branches |
+| Reconciliation (logic + wiring) | 2-3h | Pure logic, but the rendering for REVIEW_REQUIRED needs to be right (it's the high-signal path) |
+| Polish (cost ledger + verify_by_default + granular cache) | 3-4h | Cost ledger field, verify_by_default plumbing, granular cache flags |
+| Docs | 1h | |
+| **Total** | **16-21h remaining** | (down from 20-26h after CLI-subprocess decision removed the LLM-clients/Anthropic-SDK wedge) |
 
 That's on top of the **25-34h** for v2. Combined: **45-60h** for the
 full v2+Phase4 stack.
@@ -2283,8 +2293,10 @@ didn't. That's separate from this PRD.
 - [x] Effort estimate accepted (20–26h, 14 commits)
 - [x] Author signoff
 
-Implementation may proceed. v8.D shipped 2026-05-16; v8.E starts
-with Pre-1 (prompts directory) + P4.A.1–3 (drafts + loader).
+Implementation may proceed. v8.D shipped 2026-05-16; v8.E preamble
+shipped 2026-05-16 (prompts directory, niche-evaluation prompt,
+adversarial-audit prompt, prompt loader / renderer). Primary-pass
+orchestration is the next wedge — see §11.
 
 ---
 

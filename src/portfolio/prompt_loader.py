@@ -2,8 +2,8 @@
 
 Loads standing prompts from `prompts/<name>.md` at the repo root,
 substitutes `{{var}}` placeholders, and validates that nothing was
-left unfilled. Used by `interpretive_pass` (P4.B.3) and `audit_pass`
-(P4.C.1) to construct LLM system messages.
+left unfilled. Used by the primary-pass and audit-pass runners to
+construct LLM system messages.
 
 Per PRD §10.G: custom regex substitution rather than Jinja or
 `str.format()`. No new dep; no collision with curly braces in code-
@@ -72,7 +72,7 @@ def render_prompt(template: str, **substitutions: object) -> str:
 
     Raises `UnfilledPlaceholderError` if any `{{name}}` remains after
     substitution — caller-side prevention of half-rendered prompts
-    being sent to the model (PRD §4 P4a.6).
+    being sent to the model (PRD §4 Phase 4a, substitution validator).
 
     Values are coerced to `str` via `str(v)`; the caller is responsible
     for rendering complex types (lists, dataclasses) into the text shape
