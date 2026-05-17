@@ -57,14 +57,15 @@ Sole user: Vijo. No multi-tenancy, no permissions, no public surface. CLI-only.
 | **v6** | drift + per-stack + remediation *(was v8 pre-2026-05-09)* | plan-drift signal, dir↔domain mapping, per-stack rules (pnpm-lockfile-only, etc.); v6.D's `portfolio project fix <name>` is the second project-dir write surface for retro-fixing pre-bootstrap projects |
 | **v7** | fleet operations layer ✅ | Scope-first CLI restructure (`project` / `fleet` / `new` / `settings`); unified `fleet dashboard` (live + SEO + git); age tracking (launched + RDAP); fleet focus + SEO grading age-aware so young sites read green; `fleet repos` audit + naming-consistency cluster (CHECK_040/041/042); `project diagnose <domain>` auto-investigation; tool renamed `portfolio` → `lamill`. All seven sub-phases shipped 2026-05-10 → 2026-05-13. |
 | **v8** | SERP research for new projects ✅ *(new 2026-05-13)* | `lamill new research <topic>` — AI-only SERP synthesis (gpt-4o-mini), default cluster mode (LLM expands topic into 3-5 related queries with frequency-tagged rankers), `--strict` for literal-topic-only. Closes the gap between domain-availability (v2) and bootstrap (v3): is this topic viable, what's the angle, what's the keyword cluster worth chasing. Integration with `new suggest` was deliberately dropped (v8.C) — research and suggest stay as separate composable steps. |
-| **v9** | per-site deploy declarations *(renumbered 2026-05-16; was v11)* | `lamill.toml` at each `sites/<domain>/` root declaring deploy target; drift detection; HostGator cPanel integration; SFTP deploy abstraction. Foundation for multi-host fleet ops. |
-| **v10** | fleet hosting view *(renumbered 2026-05-16; was v12.A)* | `lamill fleet hosting` — fleet-wide Vercel/CF deploy state. Walks both APIs; matches projects to fleet domains by configured custom domain. Per-site deploy status + last-success-at + consecutive-failures, cached snapshot. |
-| **v11** | analytical roll-ups *(renumbered 2026-05-16; was v9)* | GSC trend correlation over PERSISTED snapshots (week-over-week deltas); `project list` aggregate verdict-counts view; optional LLM content seeding (still postponed indefinitely). All read-only / informational. |
-| **v12** | deploy verification *(renumbered 2026-05-16, deprioritized; was v10)* | build-time stamping convention + HEAD vs deployed SHA + Pages/Vercel API integration. Heavy overlap with v10's `fleet hosting`; revisit scope when this tier's slot comes up. |
+| **v9** | bootstrap UX — canonical AI_AGENTS + interactive prompts *(new 2026-05-17, highest-priority tier)* | Standardize AI_AGENTS.md on 10 canonical sections (4 operator-input — Summary / Audience / ICP / Goals / Content strategy — and 6 template-driven); interactive `new bootstrap` prompts for the operator sections; domain-registration prompt that auto-updates `portfolio.json` (closes the agesdk.dev gap); growth-hypothesis prompt seeding `docs/growth.md`. New conformance check enforces the 10-section canonical schema with a tier-1 fix that injects missing sections. |
+| **v10** | per-site deploy declarations *(renumbered 2026-05-17; was v9; pre-2026-05-16 was v11)* | `lamill.toml` at each `sites/<domain>/` root declaring deploy target; drift detection; HostGator cPanel integration; SFTP deploy abstraction. Foundation for multi-host fleet ops. **Scope expanded 2026-05-17** to include a `[backend]` section for non-JS-rendering server stacks (DB + server framework + backend hosting target). |
+| **v11** | fleet hosting view *(renumbered 2026-05-17; was v10; pre-2026-05-16 was v12.A)* | `lamill fleet hosting` — fleet-wide Vercel/CF deploy state. Walks both APIs; matches projects to fleet domains by configured custom domain. Per-site deploy status + last-success-at + consecutive-failures, cached snapshot. |
+| **v12** | analytical roll-ups *(renumbered 2026-05-17; was v11; pre-2026-05-16 was v9)* | GSC trend correlation over PERSISTED snapshots (week-over-week deltas); `project list` aggregate verdict-counts view; optional LLM content seeding (still postponed indefinitely). All read-only / informational. |
+| **v13** | deploy verification *(renumbered 2026-05-17, deprioritized; was v12; pre-2026-05-16 was v10)* | build-time stamping convention + HEAD vs deployed SHA + Pages/Vercel API integration. Heavy overlap with v11's `fleet hosting`; revisit scope when this tier's slot comes up. |
 
 ## 5. Phases
 
-Strict sequence (option a). **Renumbered 2026-05-16** — v9 is now per-site deploy declarations (was v11), v10 is fleet hosting (was v12), v11 is analytical roll-ups (was v9), v12 is deploy verification (was v10; deprioritized to last). **v8.E split 2026-05-17** into v8.E–v8.M (see note below). Working order = strict numerical: v8.I → v8.J → v8.K → v8.L → v8.M → v9.A–D → v10.A → v11.A–C → v12.A–D. **v8.D shipped in full as of 2026-05-15. v8.E–v8.H shipped 2026-05-16/17 (payload builder, prompt renderer, response parser, primary-pass runner — all the data-path primitives for the interpretive verdict). v8.I is the active queue: wire the primary pass into `new research`'s orchestrator + persist the verdict in the cluster snapshot — first user-visible v8.E-series output.** v8.A and v8.B were absorbed by v8.D before any code was written; v8.C was originally a `--research` flag on `new suggest`, dismissed as not needed (research and suggest stay as separate composable steps).
+Strict sequence (option a). **Renumbered 2026-05-16** — v9 was per-site deploy declarations, v10 fleet hosting, v11 analytical roll-ups, v12 deploy verification. **v8.E split 2026-05-17** into v8.E–v8.M (see note below). **Shifted right 2026-05-17** — a new highest-priority **v9** holds bootstrap UX work (canonical AI_AGENTS sections + interactive prompts + auto-update of portfolio.json on bootstrap). Everything from old v9 onward shifts right by one major tier: old v9 → v10, old v10 → v11, old v11 → v12, old v12 → v13. Working order = strict numerical: **v8.I → v8.J → v8.K → v8.L → v8.M → v9.A → v9.B → v9.C → v9.D → v10.A–D → v11.A → v12.A–C → v13.A–D**. **v8.D shipped in full as of 2026-05-15. v8.E–v8.H shipped 2026-05-16/17 (payload builder, prompt renderer, response parser, primary-pass runner — all the data-path primitives for the interpretive verdict). v8.I is the active queue: wire the primary pass into `new research`'s orchestrator + persist the verdict in the cluster snapshot — first user-visible v8.E-series output.** v8.A and v8.B were absorbed by v8.D before any code was written; v8.C was originally a `--research` flag on `new suggest`, dismissed as not needed (research and suggest stay as separate composable steps).
 
 Note on read/write surfaces: portfolio is **read-only** through v2 (domain suggest). **v3 (bootstrap) is the first write surface** — it creates new project dirs, runs `git init`, scaffolds files. **v4 is read-only** (validation-mode domain suggest only prints info and a manual-checkout URL — domain registration is gated behind a Y/n confirmation that calls Porkbun's `/domain/create`; no project-dir writes). **v5 is read-only** (universal check catalog + check flags; v5.D writes only to OAuth token + `data/gsc/` snapshots, not project dirs). **v6.D (remediation) is the second project-dir write surface** — it modifies existing project dirs to fix conformance gaps. **v8.D (domain-list refresh tooling)** writes to `data/domains/*.csv` + `data/portfolio.json` (already user-mutable), not project dirs. Everything else (v6.A–C, v6.E–G, v7, v8.A–C) is read-only.
 
@@ -163,6 +164,34 @@ Note on v8 insertion (2026-05-13 PM):
 - Phase total 40 → 41 (+1 net — SERP research adds 3 sub-phases, deploy verification reduces from 4 to 4 unchanged; v9 absorbs 3 unchanged).
 - Rationale: v8 SERP closes the gap between "pick a domain" (v2) and "ship a site" (v3) — without SERP intel, the bootstrap decision is half-blind. Promoting it ahead of analytical-layer work matches the user's daily-priority order (acquisition > analytics).
 
+Note on v9 insertion + tier shift (2026-05-17 PM):
+
+- Operator-direction: bootstrap UX gaps surfaced when `agesdk.dev`'s
+  scaffold ran — `new bootstrap` writes template-only content for
+  `AI_AGENTS.md` / `docs/growth.md` (no operator input prompted), and
+  doesn't register the new domain in `portfolio.json` (had to be
+  manually appended). These improvements are highest-priority and
+  pre-empt the v9 deploy-declarations tier.
+- New **v9** tier added: bootstrap UX — canonical AI_AGENTS sections
+  + interactive prompts + portfolio.json auto-update + growth.md
+  seed. Four shippable letters (v9.A–v9.D); see rows above.
+- Everything from old v9 onward shifts right by one major tier:
+  - **v9 → v10** (per-site deploy declarations / lamill.toml). Scope
+    expanded to include a `[backend]` section for non-JS-rendering
+    server stacks (DB + server framework + backend-hosting target).
+  - **v10 → v11** (fleet hosting view).
+  - **v11 → v12** (analytical roll-ups).
+  - **v12 → v13** (deploy verification).
+- AI_AGENTS canonical schema is 10 sections (not 9): added **ICP**
+  per operator direction — Audience is the broad demo, ICP is the
+  specific ideal customer (more detail; supports niche-down decisions
+  the operator-fit logic depends on).
+- Working order preserved: v8.I–v8.M (the interpretive verdict /
+  audit / reconciliation queue) still ship before the new v9.A–D.
+- Phase identifier lineage markers preserved on every shifted row
+  (`*(renumbered 2026-05-17 — was vN.X)*`) so commit-message archeology
+  still resolves.
+
 Note on v8.E split (2026-05-17):
 
 - The original **v8.E** row covered an umbrella "Phase 4" feature: primary interpretive pass (Claude) + adversarial audit pass (GPT-4o) + reconciliation + polish + docs. As implementation got underway, each shippable slice landed as its own commit — and the umbrella row hid that structure. Worse, the in-flight commits started carrying internal "sub-phase" labels ("wedge 4 of 5", colloquial sub-numbering) which is exactly the `vN.X.Y` violation the canonical rule forbids. **Operator-direction 2026-05-17**: if a phase needs multiple steps, each step gets its own letter — no umbrella + sub-step framing.
@@ -231,18 +260,22 @@ Note on v7.H addition (2026-05-16):
 | **v8.K** | Reconciliation logic + REVIEW_REQUIRED first-class verdict | New `reconciliation.py`: pure logic per PRD §4 reconciliation spec. Full-agree → confident final verdict; partial → caveats; disagree → REVIEW_REQUIRED banner that the operator must look at (intentionally NO auto-resolution — manufacturing false certainty defeats the audit purpose). No LLM calls. Wire into orchestrator; output `final_verdict` field. ~2-3h. |
 | **v8.L** | Polish — cost ledger + `verify_by_default` + granular cache | (a) Cost-estimate fields aggregated in the snapshot (primary + audit totals + cumulative). (b) `verify_by_default` operator flag honored from `sites/portfolio/lamill.toml [operator]` (resolved §10.D); `--no-verify` overrides. (c) `--no-cache=interpretive` / `--no-cache=audit` granular flags to re-run individual passes against cached SERP data without re-fetching. ~3-4h. |
 | **v8.M** | Docs — `docs/CLAUDE.md`, `AI_AGENTS.md`, `Prompts.md`, `--help` | Update operator-facing docs to reflect v8.E–v8.K capabilities. Add "when to use `--verify`" guidance to `lamill new research --help`. Dated H2 entry in `docs/Prompts.md`. ~1h. |
-| **v9.A** | `lamill.toml` per-site deploy declaration *(planned 2026-05-14, full PRD inlined in §8.3)* | Visible TOML file at each `sites/<domain>/` repo root declaring where the site deploys. Closes the gap for hosts without canonical configs (HostGator, WordPress, custom VPS). Schema: `[deploy]` (platform, account, branch, custom_domains) + `[hosting]` (cPanel/FTP breadcrumbs when applicable) + `[notes]`. CLI: `project set-deploy`, `project show-deploy`, `fleet repos --add-deploy-declarations` migration. `new bootstrap` writes it automatically. ~12-16h. 8 open questions in PRD. |
-| **v9.B** | Drift detection + lamill.toml conformance checks *(deferred from v9.A; full PRD TBD)* | CHECK_xxx series comparing `lamill.toml` declaration vs DNS-resolved actual + live HTTP probe (extends `project diagnose`'s existing inference). `has-lamill-toml` + `lamill-toml-valid` + `deploy-drift` checks. ~6-8h. |
-| **v9.C** | HostGator cPanel integration *(deferred; full PRD TBD)* | API pull of domains / WordPress installs / disk usage via cPanel API. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
-| **v9.D** | SFTP deploy abstraction *(deferred; full PRD TBD)* | `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
-| **v10.A** | `fleet hosting` — fleet-wide Vercel/CF deploy state *(planned 2026-05-15, full PRD inlined in §8.4)* | Read-only fleet view: walks Vercel + Cloudflare Pages APIs, matches each fleet domain to a project by configured custom domain, reports `latest_deploy_status` / `last_successful_deploy_at` / `consecutive_failures`. Cached snapshot at `data/hosting/<date>.json` mirroring `data/seo/` shape; `--refresh` re-walks. Status emoji table (✓ / ⚠ / ✗ / 💤 / —). Three phases: P1 walkers + cache, P2 renderer + CLI, P3 dashboard + diagnose integration. ~12-17h. 10 open questions. |
-| **v11.A** | GSC trend correlation *(was v7.B pre-2026-05-13; was v7.H pre-2026-05-13-pm)* | GSC trend per project (28d clicks/imp/pos, w/w delta) over PERSISTED `data/gsc/` snapshots. **Distinct from v5.D** — v5.D is the runtime live check (one query, current state); v11.A is the longitudinal analytical layer (week-over-week deltas, trend lines). |
-| **v11.B** | Roll-up *(was v7.C pre-2026-05-13; was v7.I pre-2026-05-13-pm)* | `portfolio project list` · `--stale N` filter · `--json` · aggregate verdict counts |
-| **v11.C** | Optional LLM content seeding *(was v3.D pre-2026-05-07; was v9.A pre-2026-05-09; was v7.A pre-2026-05-10; was v7.D pre-2026-05-13; was v7.J pre-2026-05-13-pm; postponed indefinitely)* | `--seed-content` flag on `portfolio new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1–2 supporting pages from the topic (similar prompt pipeline to v2.A's brainstorm) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style (no narrative content) · *postponed indefinitely (2026-05-04 user call); v3.D built first* |
-| **v12.A** | Build-time stamping *(was v10.A pre-2026-05-09; was v8.A pre-2026-05-13-pm)* | convention: every sites/* project writes `version.json` at build (commit + built_at) · new conformance check: has-version-stamp |
-| **v12.B** | HEAD vs deployed *(was v10.B pre-2026-05-09; was v8.B pre-2026-05-13-pm)* | deploy-freshness signal · deploy-fresh conformance check · reads `version.json` from live URL |
-| **v12.C** | Build status + deploy lag *(was v10.C pre-2026-05-09; was v8.C pre-2026-05-13-pm)* | deploy lag (push → live) · last build status via Cloudflare/Vercel API · last-build-success conformance · *requires platform tokens — major new infra* |
-| **v12.D** | Domain-list refresh tooling *(new 2026-05-09; last-priority; was v8.D pre-2026-05-13-pm)* | Flag-only enhancements to existing `cleanup` (no new commands per user direction): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct $EDITOR on `data/portfolio.json` is documented in AI_AGENTS.md as the no-tooling path. |
+| **v9.A** | Canonical AI_AGENTS.md section schema + conformance check + tier-1 fix *(new 2026-05-17, full PRD TBD)* | Lock the 10-section AI_AGENTS canonical schema: `## Summary` / `## Audience` / `## ICP` / `## Goals` / `## Tech stack` / `## Building info` / `## Deployment info` / `## Content strategy` / `## Versioning` / `## Conventions` (4 operator-input — Summary/Audience/ICP/Goals/Content strategy — and 5 template-driven — Tech stack/Building info/Deployment info/Versioning/Conventions). New conformance check `ai-agents-md-has-canonical-sections` verifies all 10 H2 headings exist; tier-1 fix injects missing sections with `(to be filled in)` placeholders so `project check <domain>` lights red until populated. Foundation for v9.B — interactive prompts have a concrete write target. ~3-4h. |
+| **v9.B** | `new bootstrap` interactive prompts for operator-input AI_AGENTS sections *(new 2026-05-17, full PRD TBD)* | After the v9.A schema lands, `lamill new bootstrap <domain>` prompts the operator for the 5 operator-input sections (Summary / Audience / ICP / Goals / Content strategy). Defaults to `(to be filled in)` placeholder when blank; `--non-interactive` skips all prompts; per-section flags (`--summary "X"`, `--audience "Y"`, `--icp "Z"`, `--goal "W"`, `--content-strategy "V"`) let scripts pre-populate. Operator-input is merged with the template-driven sections at scaffold time. ~3-4h. |
+| **v9.C** | `new bootstrap` domain-registration prompt + portfolio.json auto-update *(new 2026-05-17, full PRD TBD)* | Bootstrap asks "Is `<domain>` registered? [Y/n]" + registrar (`porkbun` / `godaddy` / `namecheap` / `other`) and auto-appends the row to `data/portfolio.json` with conservative placeholders (matches the manual edit done for agesdk.dev on 2026-05-17 — `category=Under build`, `status=Active`, dates = today / +1y, renewal_price/nameservers null for the next refresh to fill). When `[n]`, status = `Pending` and the inventory row reminds the operator to come back. Closes the "new domain on disk but not in portfolio.json" gap that bit agesdk.dev. ~2-3h. |
+| **v9.D** | `new bootstrap` growth-hypothesis prompt → seeded `docs/growth.md` *(new 2026-05-17, full PRD TBD)* | Bootstrap prompts for the initial growth hypothesis (one paragraph: "what's your bet for how this site reaches its audience?") and writes it as the first dated H2 entry in `docs/growth.md`. Replaces the empty `docs/growth.md` stub that today's bootstrap creates — operator now has a real first entry to react to rather than a blank doc. `--non-interactive` / `--growth-hypothesis "X"` flags for scripted use. ~1-2h. |
+| **v10.A** | `lamill.toml` per-site deploy declaration *(planned 2026-05-14, full PRD inlined in §8.3; renumbered 2026-05-17 — was v9.A; scope expanded 2026-05-17 to include `[backend]` section)* | Visible TOML file at each `sites/<domain>/` repo root declaring where the site deploys. Closes the gap for hosts without canonical configs (HostGator, WordPress, custom VPS). Schema: `[deploy]` (platform, account, branch, custom_domains) + `[hosting]` (cPanel/FTP breadcrumbs when applicable) + `[backend]` (DB + server framework + backend-hosting target for non-JS-rendering server stacks — postgres/sqlite/duckdb/redis/none × go-fiber/fastapi/express/node-bare/rust-axum/none × fly.io/managed-provider/none) + `[notes]`. CLI: `project set-deploy`, `project show-deploy`, `fleet repos --add-deploy-declarations` migration. `new bootstrap` writes it automatically. ~12-16h. 8 open questions in PRD. |
+| **v10.B** | Drift detection + lamill.toml conformance checks *(deferred from v10.A; full PRD TBD; renumbered 2026-05-17 — was v9.B)* | CHECK_xxx series comparing `lamill.toml` declaration vs DNS-resolved actual + live HTTP probe (extends `project diagnose`'s existing inference). `has-lamill-toml` + `lamill-toml-valid` + `deploy-drift` checks. ~6-8h. |
+| **v10.C** | HostGator cPanel integration *(deferred; full PRD TBD; renumbered 2026-05-17 — was v9.C)* | API pull of domains / WordPress installs / disk usage via cPanel API. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
+| **v10.D** | SFTP deploy abstraction *(deferred; full PRD TBD; renumbered 2026-05-17 — was v9.D)* | `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
+| **v11.A** | `fleet hosting` — fleet-wide Vercel/CF deploy state *(planned 2026-05-15, full PRD inlined in §8.4; renumbered 2026-05-17 — was v10.A)* | Read-only fleet view: walks Vercel + Cloudflare Pages APIs, matches each fleet domain to a project by configured custom domain, reports `latest_deploy_status` / `last_successful_deploy_at` / `consecutive_failures`. Cached snapshot at `data/hosting/<date>.json` mirroring `data/seo/` shape; `--refresh` re-walks. Status emoji table (✓ / ⚠ / ✗ / 💤 / —). Three phases: P1 walkers + cache, P2 renderer + CLI, P3 dashboard + diagnose integration. ~12-17h. 10 open questions. |
+| **v12.A** | GSC trend correlation *(renumbered 2026-05-17 — was v11.A; was v7.B pre-2026-05-13; was v7.H pre-2026-05-13-pm)* | GSC trend per project (28d clicks/imp/pos, w/w delta) over PERSISTED `data/gsc/` snapshots. **Distinct from v5.D** — v5.D is the runtime live check (one query, current state); v12.A is the longitudinal analytical layer (week-over-week deltas, trend lines). |
+| **v12.B** | Roll-up *(renumbered 2026-05-17 — was v11.B; was v7.C pre-2026-05-13; was v7.I pre-2026-05-13-pm)* | `portfolio project list` · `--stale N` filter · `--json` · aggregate verdict counts |
+| **v12.C** | Optional LLM content seeding *(renumbered 2026-05-17 — was v11.C; was v3.D pre-2026-05-07; was v9.A pre-2026-05-09; was v7.A pre-2026-05-10; was v7.D pre-2026-05-13; was v7.J pre-2026-05-13-pm; postponed indefinitely)* | `--seed-content` flag on `portfolio new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1–2 supporting pages from the topic (similar prompt pipeline to v2.A's brainstorm) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style (no narrative content) · *postponed indefinitely (2026-05-04 user call); v3.D built first* |
+| **v13.A** | Build-time stamping *(renumbered 2026-05-17 — was v12.A; was v10.A pre-2026-05-09; was v8.A pre-2026-05-13-pm)* | convention: every sites/* project writes `version.json` at build (commit + built_at) · new conformance check: has-version-stamp |
+| **v13.B** | HEAD vs deployed *(renumbered 2026-05-17 — was v12.B; was v10.B pre-2026-05-09; was v8.B pre-2026-05-13-pm)* | deploy-freshness signal · deploy-fresh conformance check · reads `version.json` from live URL |
+| **v13.C** | Build status + deploy lag *(renumbered 2026-05-17 — was v12.C; was v10.C pre-2026-05-09; was v8.C pre-2026-05-13-pm)* | deploy lag (push → live) · last build status via Cloudflare/Vercel API · last-build-success conformance · *requires platform tokens — major new infra* |
+| **v13.D** | Domain-list refresh tooling *(renumbered 2026-05-17 — was v12.D; new 2026-05-09; last-priority; was v8.D pre-2026-05-13-pm)* | Flag-only enhancements to existing `cleanup` (no new commands per user direction): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct $EDITOR on `data/portfolio.json` is documented in AI_AGENTS.md as the no-tooling path. |
 
 ## 6. Conformance rules
 
@@ -267,10 +300,11 @@ portfolio enforces these on sibling sites/* projects via `project status`. Failu
 | `ai-agents-md-has-deployment-info` | `AI_AGENTS.md` contains a `## Deployment info` heading (platform / live URL / deploy trigger) | v7.A |
 | `cf-pages-deployable` | frozen-lockfile install OK; no stray gitlinks; no `_redirects` SPA fallback | v8.A |
 | `domain-dir-match` | dir name matches a plan.md domain (or in override map) | v8.A |
-| `gsc-verified` | dir's eTLD is a verified GSC property | v9.B |
-| `has-version-stamp` | project writes `version.json` at build time | v10.A |
-| `deploy-fresh` | HEAD SHA matches deployed SHA | v10.B |
-| `last-build-success` | last Cloudflare/Vercel build succeeded | v10.C |
+| `gsc-verified` | dir's eTLD is a verified GSC property | v10.B *(renumbered 2026-05-17 — was v9.B)* |
+| `has-version-stamp` | project writes `version.json` at build time | v13.A *(renumbered 2026-05-17 — was v10.A → v12.A)* |
+| `deploy-fresh` | HEAD SHA matches deployed SHA | v13.B *(renumbered 2026-05-17 — was v10.B → v12.B)* |
+| `last-build-success` | last Cloudflare/Vercel build succeeded | v13.C *(renumbered 2026-05-17 — was v10.C → v12.C)* |
+| `ai-agents-md-has-canonical-sections` | AI_AGENTS.md has all 10 canonical H2 sections | v9.A *(new 2026-05-17)* |
 
 ## 7. Open questions
 
@@ -280,7 +314,7 @@ Append-only log. Questions get answered (with date) but never deleted.
 
 ## 8. Detailed PRDs
 
-The phase rows above (v8.D / v8.E / v9.A / v10.A) reference detailed designs.
+The phase rows above (v8.D / v8.E–v8.M / v10.A / v11.A) reference detailed designs.
 Inlined here rather than living as separate files in docs/prd/.
 Each retains its own structure (problem statement → goals → requirements
 → open questions → effort estimate → approval).
@@ -2317,7 +2351,7 @@ orchestration is the next wedge — see §11.
 
 ---
 
-### 8.3 — v9.A · lamill.toml per-site deploy declaration
+### 8.3 — v10.A · lamill.toml per-site deploy declaration *(renumbered 2026-05-17 — was v9.A)*
 
 
 ## 1. Problem statement
@@ -3029,7 +3063,7 @@ Sign off:
 
 ---
 
-### 8.4 — v10.A · `fleet hosting` — fleet-wide Vercel/CF deploy state
+### 8.4 — v11.A · `fleet hosting` — fleet-wide Vercel/CF deploy state *(renumbered 2026-05-17 — was v10.A)*
 
 
 ## 1. Problem statement
