@@ -38,12 +38,18 @@ breaks reproducibility on cached snapshots.
 from __future__ import annotations
 
 import json
+import re
+from dataclasses import dataclass, field
 from typing import Any
 
 from .operator_profile import OperatorProfile
 from .prompt_loader import load_prompt, render_prompt
 
 PRIMARY_PROMPT_NAME = "niche_evaluation_v1"
+
+# Canonical tokens per the standing prompt's response-format spec.
+_VALID_VERDICTS = {"GO", "NICHE-DOWN", "NO-GO"}
+_VALID_CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
 
 
 def _summarize_operator_profile(profile: OperatorProfile | None) -> str:
@@ -221,4 +227,158 @@ def render_primary_prompt(payload: dict, *,
         f"---\n\n"
         f"INPUT PAYLOAD (JSON):\n\n"
         f"```json\n{payload_json}\n```"
+    )
+
+
+# ---------- response parsing ----------
+
+
+@dataclass
+class ParsedVerdict:
+    """Structured representation of the primary interpretive pass's
+    markdown response. Required fields (verdict / confidence /
+    reasoning) are validated at parse time; optional fields default
+    to empty / None when the LLM omits them per the prompt spec
+    (e.g., `reductions` is only populated on NICHE-DOWN verdicts)."""
+    verdict: str               # GO | NICHE-DOWN | NO-GO
+    confidence: str            # HIGH | MEDIUM | LOW
+    reasoning: str             # prose; 2-4 paragraphs typically
+    moat_required: bool | None = None      # None when absent / unparseable
+    moat_prompt: str = ""                  # text shown to operator if moat needed
+    reductions: list[str] = field(default_factory=list)
+    operator_fit_warnings: list[str] = field(default_factory=list)
+    blind_spot_self_report: str = ""
+
+
+class VerdictParseError(ValueError):
+    """Raised when the LLM's response can't be parsed into a
+    ParsedVerdict. Caller (the runner) catches and surfaces — better
+    to fail loudly than to ship a half-parsed verdict downstream."""
+
+
+# Matches `### <header>` on its own line. Captures the header name so
+# the parser can dispatch on it. Header is case-insensitive on input
+# (`### Verdict` and `### verdict` both work) — coerced to lowercase
+# for the dispatch table.
+_SECTION_RE = re.compile(r"^###\s+([A-Za-z_][A-Za-z0-9_]*)\s*$", re.MULTILINE)
+
+# A bullet line in `reductions` / `operator_fit_warnings`. Permissive
+# on the bullet marker (`-`, `*`, `+`) and on numbered lists (`1.`,
+# `2.`, …). Captures the body text.
+_BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+(.+?)\s*$", re.MULTILINE)
+
+
+def _split_sections(text: str) -> dict[str, str]:
+    """Split a markdown response on `### <header>` boundaries.
+    Returns {lowercase_header_name: body}. Body is the raw text
+    between this section's header and the next (or EOF).
+
+    Anything before the first `### ...` line is discarded (preamble
+    chatter the LLM sometimes prepends, like "Here's my analysis:").
+    """
+    sections: dict[str, str] = {}
+    last_name: str | None = None
+    last_end = 0
+    for m in _SECTION_RE.finditer(text):
+        if last_name is not None:
+            sections[last_name] = text[last_end:m.start()].strip()
+        last_name = m.group(1).lower()
+        last_end = m.end()
+    if last_name is not None:
+        sections[last_name] = text[last_end:].strip()
+    return sections
+
+
+def _parse_bool(value: str) -> bool | None:
+    """Parse "true" / "false" (case-insensitive, leading/trailing
+    whitespace tolerated) → bool. Anything else → None so the caller
+    can keep the response usable even when the LLM hedges (the prompt
+    asks for strict true/false but real models sometimes write 'yes'
+    or 'likely'). Surface unparseable values as None rather than
+    raising — moat_required is optional and shouldn't fail the whole
+    verdict if the LLM hedged."""
+    if value is None:
+        return None
+    s = value.strip().lower()
+    if s in ("true", "yes"):
+        return True
+    if s in ("false", "no"):
+        return False
+    return None
+
+
+def _parse_bullets(body: str) -> list[str]:
+    """Extract bullet entries from a section body. Permissive on
+    marker style (`-` / `*` / `+` / `N.`). Returns an empty list when
+    the body has no bullets (e.g., the LLM wrote "(none)" or left
+    the section empty per the GO-verdict convention)."""
+    return [m.group(1).strip() for m in _BULLET_RE.finditer(body)]
+
+
+def _normalize_verdict_token(value: str) -> str:
+    """Coerce the verdict to a canonical token. The prompt spec uses
+    GO / NICHE-DOWN / NO-GO; LLMs sometimes emit minor variants like
+    "GO." with a trailing period, or "NICHE DOWN" with a space. Strip
+    punctuation + collapse internal whitespace + uppercase before
+    checking the canonical set. Returns the canonical token or the
+    raw value (which the caller will then reject)."""
+    s = value.strip().upper()
+    # Strip trailing punctuation the LLM might leave.
+    s = s.rstrip(".!,;:")
+    # Allow "NICHE DOWN" → "NICHE-DOWN" and "NICHE_DOWN" → same.
+    s = re.sub(r"[\s_]+", "-", s)
+    return s
+
+
+def parse_verdict(markdown_text: str) -> ParsedVerdict:
+    """Parse the LLM's markdown response into a `ParsedVerdict`.
+
+    Raises `VerdictParseError` when:
+      - Any of the three required sections is missing
+        (verdict / confidence / reasoning)
+      - The verdict token isn't in {GO, NICHE-DOWN, NO-GO}
+        (after normalization for trivial whitespace / punctuation
+        variation)
+      - The confidence token isn't in {HIGH, MEDIUM, LOW}
+
+    Permissive on:
+      - Optional sections: absent → empty / None defaults
+      - Bullet marker style in reductions / warnings (`-`, `*`,
+        `+`, `1.`)
+      - moat_required values: unparseable → None (doesn't fail)
+      - Header case (`### Verdict` and `### verdict` both work)
+      - Pre-section preamble chatter (discarded)
+    """
+    sections = _split_sections(markdown_text)
+
+    for required in ("verdict", "confidence", "reasoning"):
+        if required not in sections:
+            raise VerdictParseError(
+                f"required section `### {required}` missing from response. "
+                f"Sections found: {sorted(sections.keys())}"
+            )
+
+    verdict = _normalize_verdict_token(sections["verdict"])
+    if verdict not in _VALID_VERDICTS:
+        raise VerdictParseError(
+            f"verdict {sections['verdict']!r} not in canonical set "
+            f"{sorted(_VALID_VERDICTS)} (normalized: {verdict!r})"
+        )
+
+    confidence = sections["confidence"].strip().upper().rstrip(".!,;:")
+    if confidence not in _VALID_CONFIDENCE:
+        raise VerdictParseError(
+            f"confidence {sections['confidence']!r} not in canonical set "
+            f"{sorted(_VALID_CONFIDENCE)}"
+        )
+
+    return ParsedVerdict(
+        verdict=verdict,
+        confidence=confidence,
+        reasoning=sections["reasoning"].strip(),
+        moat_required=_parse_bool(sections.get("moat_required", "")),
+        moat_prompt=sections.get("moat_prompt", "").strip(),
+        reductions=_parse_bullets(sections.get("reductions", "")),
+        operator_fit_warnings=_parse_bullets(sections.get("operator_fit_warnings", "")),
+        blind_spot_self_report=sections.get("blind_spot_self_report", "").strip(),
     )
