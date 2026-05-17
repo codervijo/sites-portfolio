@@ -37,9 +37,13 @@ breaks reproducibility on cached snapshots.
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .operator_profile import OperatorProfile
+from .prompt_loader import load_prompt, render_prompt
+
+PRIMARY_PROMPT_NAME = "niche_evaluation_v1"
 
 
 def _summarize_operator_profile(profile: OperatorProfile | None) -> str:
@@ -148,3 +152,73 @@ def build_payload(cluster: dict, *,
         "raw_top_10_per_query": raw_top_10,
         "serp_features_per_query": serp_features,
     }
+
+
+# ---------- prompt rendering ----------
+
+
+def _operator_var_values(profile: OperatorProfile | None) -> dict[str, str]:
+    """Return the three operator-related `{{var}}` substitutions for
+    the standing prompt.
+
+    No-profile / default-profile maps every var to `"(not configured)"`
+    rather than inheriting the OperatorProfile dataclass defaults
+    (`mixed` / `monthly`). The LLM should know honestly when operator
+    constraints aren't set — dataclass defaults would falsely imply
+    the operator chose `mixed` and `monthly` deliberately.
+
+    Set profile renders the actual values; an operator-set profile
+    with empty expertise gets `"(none declared)"` for that field so
+    the prompt's bullet doesn't render with a trailing colon.
+    """
+    if profile is None or not _profile_has_content(profile):
+        return {
+            "operator_expertise": "(not configured)",
+            "operator_workflow_preference": "(not configured)",
+            "operator_motivation_cadence": "(not configured)",
+        }
+    expertise = ", ".join(profile.expertise) if profile.expertise else "(none declared)"
+    return {
+        "operator_expertise": expertise,
+        "operator_workflow_preference": profile.workflow_preference,
+        "operator_motivation_cadence": profile.motivation_cadence,
+    }
+
+
+def render_primary_prompt(payload: dict, *,
+                          operator_profile: OperatorProfile | None = None,
+                          prompt_name: str = PRIMARY_PROMPT_NAME) -> str:
+    """Assemble the final prompt string for `run_claude_text`.
+
+    Combines:
+      1. `prompts/<prompt_name>.md` with the three operator
+         `{{var}}` placeholders substituted (or `"(not configured)"`
+         when the profile isn't set).
+      2. A clear `---` delimiter line.
+      3. The structured payload from `build_payload(cluster, ...)`
+         JSON-encoded inside a ```json``` fence so it reads cleanly
+         in both the prompt itself and any debug snapshot.
+
+    Raises `UnfilledPlaceholderError` (from `prompt_loader.render_prompt`)
+    if the prompt file references a placeholder we don't substitute —
+    catches drift between the prompt template and the operator-var
+    substitution list at the rendering boundary, before the LLM call
+    burns a subscription quota slot.
+
+    The Claude CLI subprocess (`run_claude_text`) doesn't currently
+    support a separate `--system-prompt` flag, so the system message
+    + user message are concatenated into one prompt body. The prompt
+    template's own internal structure ("You are evaluating for this
+    operator: ... The user message will carry a structured payload:")
+    makes that single-string composition read naturally.
+    """
+    template = load_prompt(prompt_name)
+    var_values = _operator_var_values(operator_profile)
+    system_part = render_prompt(template, **var_values)
+    payload_json = json.dumps(payload, indent=2, default=str)
+    return (
+        f"{system_part}\n\n"
+        f"---\n\n"
+        f"INPUT PAYLOAD (JSON):\n\n"
+        f"```json\n{payload_json}\n```"
+    )
