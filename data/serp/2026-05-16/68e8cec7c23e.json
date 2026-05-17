@@ -1,0 +1,99 @@
+{
+  "schema": "serp-query-v1",
+  "query": "Earnings intelligence for rideshare drivers",
+  "fetched_at": "2026-05-16T23:42:34.614512+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "businessinsider.com",
+      "url": "https://www.businessinsider.com/lyft-ai-tool-earnings-assistant-helps-drivers-find-rides-2026-5",
+      "title": "Lyft says its latest AI push is all about helping drivers make ...",
+      "snippet": "Lyft describes how its Earnings Assistant provides AI-driven, real-time tips on where and when drivers should operate to maximize earnings.",
+      "displayed_link": "https://www.businessinsider.com \u203a Economy \u203a Tech"
+    },
+    {
+      "position": 2,
+      "domain": "getrollee.com",
+      "url": "https://www.getrollee.com/gig-income-report/gig-income-report-c",
+      "title": "Earnings IQ",
+      "snippet": "You're a driver working on Uber, Bolt or other driver platform? Compare your rides, earnings and mileage between platforms.",
+      "displayed_link": "https://www.getrollee.com \u203a gig-income-report-c"
+    },
+    {
+      "position": 3,
+      "domain": "mystrodriver.com",
+      "url": "https://mystrodriver.com/blog/how-to-increase-earnings-as-a-rideshare-driver",
+      "title": "How to Increase Earnings as a Rideshare Driver",
+      "snippet": "Increase your earnings as a rideshare driver with six concrete levers: trip filtering, multi-apping, demand windows, surge strategy, ...",
+      "displayed_link": "https://mystrodriver.com \u203a Blog"
+    },
+    {
+      "position": 4,
+      "domain": "gridwise.io",
+      "url": "https://gridwise.io/",
+      "title": "Gridwise | Delivery Driver Assistant App | Rideshare Assistant ...",
+      "snippet": "Gridwise is a delivery driver & rideshare assistant app that helps drivers maximize earnings and increase profitability. Try the app for free!",
+      "displayed_link": "https://gridwise.io"
+    },
+    {
+      "position": 5,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/thoughtcatalog/posts/gridwise-is-a-data-analytics-company-that-tracks-gig-economy-earnings-using-anon/1366925275476940/",
+      "title": "Gridwise is a data analytics company that tracks gig ...",
+      "snippet": "Gridwise is a data analytics company that tracks gig economy earnings using anonymized data from drivers who opt into its app.",
+      "displayed_link": "10+ reactions \u00b7 2 months ago"
+    },
+    {
+      "position": 6,
+      "domain": "finance.yahoo.com",
+      "url": "https://finance.yahoo.com/news/gridwise-launches-annual-gig-mobility-130100081.html",
+      "title": "Gridwise Launches Its Annual Gig Mobility Report ...",
+      "snippet": "Drivers Are Working More, Earning Less: Uber and Lyft drivers saw hourly earnings decline, with Uber drivers making 4% less per hour ($23.33) ...",
+      "displayed_link": "https://finance.yahoo.com \u203a news \u203a gridwise-launches-a..."
+    },
+    {
+      "position": 7,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=RKjHhNELmic",
+      "title": "LYFT's AI EARNINGS ASSISTANT offers drivers ideas on how ...",
+      "snippet": "Lyft has launched earnings assistant an AI chatbot tool for drivers seeking to optimize their time on the road.",
+      "displayed_link": "1.3K+ views \u00b7 1 year ago"
+    },
+    {
+      "position": 8,
+      "domain": "getrollee.com",
+      "url": "https://www.getrollee.com/gig-income-report/get-your-report",
+      "title": "Earnings IQ",
+      "snippet": "Stay on top of your earnings. Track your monthly and annual totals. Know exactly where your money's coming from, and which platform makes you earn the most.",
+      "displayed_link": "https://www.getrollee.com \u203a get-your-report"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Can I make $1500 a week doing Uber?",
+      "Can I make $200 per day driving Uber?",
+      "Which rideshare pays drivers the most?",
+      "Is Uber going to beat earnings?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

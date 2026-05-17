@@ -1,0 +1,115 @@
+{
+  "schema": "serp-query-v1",
+  "query": "Impact of collective bargaining on rideshare earnings",
+  "fetched_at": "2026-05-16T23:42:43.826461+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "americanprogress.org",
+      "url": "https://www.americanprogress.org/article/state-rideshare-collective-bargaining-policies-hold-great-promise/",
+      "title": "State Rideshare Collective Bargaining Policies Hold Great ...",
+      "snippet": "Collective bargaining generally leads to wages and benefits well above what comparable nonunionized workers earn, as well as to rights on the ...",
+      "displayed_link": "https://www.americanprogress.org \u203a article \u203a state-rides..."
+    },
+    {
+      "position": 2,
+      "domain": "americanprogress.org",
+      "url": "https://www.americanprogress.org/wp-content/uploads/sites/2/2025/08/RideshareCollectiveBargaining-report.pdf",
+      "title": "State Rideshare Collective Bargaining Policies Hold Great ...",
+      "snippet": "Most directly, these state policies will test whether a new type of collective bar- gaining policy can build power and improve conditions ...",
+      "displayed_link": "https://www.americanprogress.org \u203a 2025/08 \u203a R..."
+    },
+    {
+      "position": 3,
+      "domain": "dataforprogress.org",
+      "url": "https://www.dataforprogress.org/blog/2024/7/10/americans-support-stronger-labor-protections-for-rideshare-drivers",
+      "title": "Americans Support Stronger Labor Protections ...",
+      "snippet": "Majorities of Americans say that unionization would positively impact drivers' overall pay (61%) and job security (58%). ... When asked about ...",
+      "displayed_link": "https://www.dataforprogress.org \u203a blog \u203a americans-supp..."
+    },
+    {
+      "position": 4,
+      "domain": "ips-dc.org",
+      "url": "https://ips-dc.org/exposing-the-rideshare-industrys-misleading-wage-claims/",
+      "title": "Exposing the Rideshare Industry's Misleading Wage Claims",
+      "snippet": "Rideshare passenger drivers, the study found, take home $7.12 per hour in median net hourly earnings before tips \u2014 a fraction of California's ...",
+      "displayed_link": "https://ips-dc.org \u203a exposing-the-rideshare-industrys-mi..."
+    },
+    {
+      "position": 5,
+      "domain": "digitalcommons.law.buffalo.edu",
+      "url": "https://digitalcommons.law.buffalo.edu/cgi/viewcontent.cgi?article=4916&context=buffalolawreview",
+      "title": "Rideshare Drivers, Collective Labor Action, andAntitrust",
+      "snippet": "Indeed, whether it survives or not, ridesharing threatens to decimate public transportation, with disastrous impacts on income distribution, pollution and ...",
+      "displayed_link": "https://digitalcommons.law.buffalo.edu \u203a cgi \u203a vi..."
+    },
+    {
+      "position": 6,
+      "domain": "commonwealthbeacon.org",
+      "url": "https://commonwealthbeacon.org/opinion/vote-yes-to-let-workers-in-the-rideshare-sector-unionize/",
+      "title": "Vote yes to let workers in the rideshare sector unionize",
+      "snippet": "With a union, rideshare drivers and companies can build upon the standards laid out in the settlement agreement. Drivers and companies would be ...",
+      "displayed_link": "https://commonwealthbeacon.org \u203a opinion \u203a vote-yes-t..."
+    },
+    {
+      "position": 7,
+      "domain": "quora.com",
+      "url": "https://www.quora.com/What-would-be-the-impact-of-the-proposed-bill-for-collective-bargaining-for-rideshare-drivers-in-California",
+      "title": "What would be the impact of the proposed bill for collective ...",
+      "snippet": "Using collective bargaining enables the group to argue for relief from the most annoying aspects of their employment. Naturally, wages, benefits ...",
+      "displayed_link": "3 answers \u00b7 8 months ago"
+    },
+    {
+      "position": 8,
+      "domain": "governing.com",
+      "url": "https://www.governing.com/workforce/california-will-revolutionize-rideshare-industry-with-new-union-policy",
+      "title": "California Will Revolutionize Rideshare Industry With New ...",
+      "snippet": "Collective bargaining has a proven record of addressing the challenges rideshare drivers currently face, including low wages and poor or ...",
+      "displayed_link": "https://www.governing.com \u203a workforce \u203a california-wi..."
+    },
+    {
+      "position": 9,
+      "domain": "thinkmarkets.wordpress.com",
+      "url": "https://thinkmarkets.wordpress.com/2018/02/26/rigidity-and-flexibility-unions-in-the-on-demand-economy/",
+      "title": "Rigidity and Flexibility: Unions in the On-Demand Economy?",
+      "snippet": "Such adjustment is not possible where union collective bargaining agreements restrict wage changes, hiring and firing, maximum and minimum hours ...",
+      "displayed_link": "https://thinkmarkets.wordpress.com \u203a 2018/02/26 \u203a rigi..."
+    },
+    {
+      "position": 10,
+      "domain": "raijmr.com",
+      "url": "https://www.raijmr.com/ijrsml/wp-content/uploads/2023/10/IJRSML_2023_vol11_issue_06_Eng_12.pdf",
+      "title": "Collective Bargaining and Worker Rights in the Gig Economy",
+      "snippet": "The classification of gig workers as independent contractors or employees has significant consequences for their rights and ability to engage in collective ...",
+      "displayed_link": "https://www.raijmr.com \u203a uploads \u203a 2023/10 \u203a IJR..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Why do Uber drivers want to unionize?",
+      "What is the impact of collective bargaining?",
+      "Will Uber ever make a profit?",
+      "What are the disadvantages of collective bargaining?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

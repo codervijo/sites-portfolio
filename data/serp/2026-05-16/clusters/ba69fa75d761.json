@@ -1,0 +1,832 @@
+{
+  "schema": "research-cluster-v2",
+  "topic": "Earnings intelligence + collective bargaining tools for 800K CA rideshare drivers",
+  "topic_normalized": "earnings intelligence + collective bargaining tools for 800k ca rideshare drivers",
+  "topic_hash": "ba69fa75d761",
+  "fetched_at": "2026-05-16T23:42:43.827021+00:00",
+  "source": "serpapi",
+  "cluster_queries": [
+    "Earnings intelligence for rideshare drivers",
+    "Collective bargaining tools for California rideshare drivers",
+    "How to negotiate rideshare driver earnings",
+    "Best practices for rideshare driver unions",
+    "Impact of collective bargaining on rideshare earnings"
+  ],
+  "per_query_files": [
+    "2026-05-16/68e8cec7c23e.json",
+    "2026-05-16/68d7aa68c35b.json",
+    "2026-05-16/1cc73316d6bf.json",
+    "2026-05-16/950de1d3553f.json",
+    "2026-05-16/c0b51b3f86bb.json"
+  ],
+  "per_query_results": [
+    {
+      "schema": "serp-query-v1",
+      "query": "Earnings intelligence for rideshare drivers",
+      "fetched_at": "2026-05-16T23:42:34.614512+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "businessinsider.com",
+          "url": "https://www.businessinsider.com/lyft-ai-tool-earnings-assistant-helps-drivers-find-rides-2026-5",
+          "title": "Lyft says its latest AI push is all about helping drivers make ...",
+          "snippet": "Lyft describes how its Earnings Assistant provides AI-driven, real-time tips on where and when drivers should operate to maximize earnings.",
+          "displayed_link": "https://www.businessinsider.com \u203a Economy \u203a Tech"
+        },
+        {
+          "position": 2,
+          "domain": "getrollee.com",
+          "url": "https://www.getrollee.com/gig-income-report/gig-income-report-c",
+          "title": "Earnings IQ",
+          "snippet": "You're a driver working on Uber, Bolt or other driver platform? Compare your rides, earnings and mileage between platforms.",
+          "displayed_link": "https://www.getrollee.com \u203a gig-income-report-c"
+        },
+        {
+          "position": 3,
+          "domain": "mystrodriver.com",
+          "url": "https://mystrodriver.com/blog/how-to-increase-earnings-as-a-rideshare-driver",
+          "title": "How to Increase Earnings as a Rideshare Driver",
+          "snippet": "Increase your earnings as a rideshare driver with six concrete levers: trip filtering, multi-apping, demand windows, surge strategy, ...",
+          "displayed_link": "https://mystrodriver.com \u203a Blog"
+        },
+        {
+          "position": 4,
+          "domain": "gridwise.io",
+          "url": "https://gridwise.io/",
+          "title": "Gridwise | Delivery Driver Assistant App | Rideshare Assistant ...",
+          "snippet": "Gridwise is a delivery driver & rideshare assistant app that helps drivers maximize earnings and increase profitability. Try the app for free!",
+          "displayed_link": "https://gridwise.io"
+        },
+        {
+          "position": 5,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/thoughtcatalog/posts/gridwise-is-a-data-analytics-company-that-tracks-gig-economy-earnings-using-anon/1366925275476940/",
+          "title": "Gridwise is a data analytics company that tracks gig ...",
+          "snippet": "Gridwise is a data analytics company that tracks gig economy earnings using anonymized data from drivers who opt into its app.",
+          "displayed_link": "10+ reactions \u00b7 2 months ago"
+        },
+        {
+          "position": 6,
+          "domain": "finance.yahoo.com",
+          "url": "https://finance.yahoo.com/news/gridwise-launches-annual-gig-mobility-130100081.html",
+          "title": "Gridwise Launches Its Annual Gig Mobility Report ...",
+          "snippet": "Drivers Are Working More, Earning Less: Uber and Lyft drivers saw hourly earnings decline, with Uber drivers making 4% less per hour ($23.33) ...",
+          "displayed_link": "https://finance.yahoo.com \u203a news \u203a gridwise-launches-a..."
+        },
+        {
+          "position": 7,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=RKjHhNELmic",
+          "title": "LYFT's AI EARNINGS ASSISTANT offers drivers ideas on how ...",
+          "snippet": "Lyft has launched earnings assistant an AI chatbot tool for drivers seeking to optimize their time on the road.",
+          "displayed_link": "1.3K+ views \u00b7 1 year ago"
+        },
+        {
+          "position": 8,
+          "domain": "getrollee.com",
+          "url": "https://www.getrollee.com/gig-income-report/get-your-report",
+          "title": "Earnings IQ",
+          "snippet": "Stay on top of your earnings. Track your monthly and annual totals. Know exactly where your money's coming from, and which platform makes you earn the most.",
+          "displayed_link": "https://www.getrollee.com \u203a get-your-report"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "Can I make $1500 a week doing Uber?",
+          "Can I make $200 per day driving Uber?",
+          "Which rideshare pays drivers the most?",
+          "Is Uber going to beat earnings?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "Collective bargaining tools for California rideshare drivers",
+      "fetched_at": "2026-05-16T23:42:35.580074+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "kqed.org",
+          "url": "https://www.kqed.org/news/12083358/california-uber-lyft-drivers-take-step-toward-bargaining-table",
+          "title": "California Uber, Lyft Drivers Take Step Toward Bargaining ...",
+          "snippet": "A new California law requires app-based transportation companies to bargain in good faith with unions for drivers who are state-certified.",
+          "displayed_link": "https://www.kqed.org \u203a news \u203a california-uber-lyft-driv..."
+        },
+        {
+          "position": 2,
+          "domain": "seiu1021.org",
+          "url": "https://www.seiu1021.org/article/california-gig-workers-union-takes-major-step-represent-gig-rideshare-drivers-throughout",
+          "title": "California Gig Workers Union takes major step to represent ...",
+          "snippet": "AB 1340, which took effect on Jan. 1, 2026, establishes a legal framework allowing app-based drivers working for companies such as Uber and Lyft ...",
+          "displayed_link": "https://www.seiu1021.org \u203a article \u203a california-gig-wor..."
+        },
+        {
+          "position": 3,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=YcijsVEyRqM",
+          "title": "California Uber, Lyft Drivers take step toward bargaining table.",
+          "snippet": "You will find Postmates, Uber, Lyft, rideshare, Doordash ... California Uber, Lyft Drivers take step toward bargaining table. 23 ...",
+          "displayed_link": "20+ views \u00b7 2 days ago"
+        },
+        {
+          "position": 4,
+          "domain": "drivers-united.org",
+          "url": "https://www.drivers-united.org/",
+          "title": "Rideshare Drivers United - Uber & Lyft Driver Union",
+          "snippet": "California Legislation Gives Platform Drivers the Right to Unionize and Collectively BargainOn October 3rd, Governor Gavin Newsom signed AB 1340 into law, ...",
+          "displayed_link": "https://www.drivers-united.org"
+        },
+        {
+          "position": 5,
+          "domain": "governing.com",
+          "url": "https://www.governing.com/workforce/california-will-revolutionize-rideshare-industry-with-new-union-policy",
+          "title": "California Will Revolutionize Rideshare Industry With New ...",
+          "snippet": "A forthcoming state law will create the single largest new pool of workers with collective bargaining rights in decades.",
+          "displayed_link": "https://www.governing.com \u203a workforce \u203a california-wi..."
+        },
+        {
+          "position": 6,
+          "domain": "vensure.com",
+          "url": "https://vensure.com/employment-law-updates/california-grants-rideshare-drivers-collective-bargaining-rights/",
+          "title": "California Rideshare Drivers Gain Bargaining Rights",
+          "snippet": "This landmark law gives rideshare drivers the right to organize, join driver organizations, and bargain collectively, while maintaining their ...",
+          "displayed_link": "https://vensure.com \u203a employment-law-updates \u203a califor..."
+        },
+        {
+          "position": 7,
+          "domain": "internationalemploymentlawyer.com",
+          "url": "https://www.internationalemploymentlawyer.com/news/california-reaches-historic-deal-giving-rideshare-drivers-path-unionising",
+          "title": "California reaches historic deal giving rideshare drivers ...",
+          "snippet": "Uber and Lyft agree to support a collective bargaining bill in exchange for lower insurance burden in the state. Vehicle offering rides for ...",
+          "displayed_link": "https://www.internationalemploymentlawyer.com \u203a news"
+        },
+        {
+          "position": 8,
+          "domain": "capradio.org",
+          "url": "https://www.capradio.org/articles/2025/12/22/california-gig-drivers-gear-up-for-union-rights-in-2026/",
+          "title": "California gig drivers gear up for union rights in 2026",
+          "snippet": "Rideshare drivers can formally unionize for more labor protections under a new law going into effect Jan 1.",
+          "displayed_link": "https://www.capradio.org \u203a articles \u203a 2025/12/22 \u203a calif..."
+        },
+        {
+          "position": 9,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/CBSLA/posts/california-rideshare-drivers-will-have-the-ability-to-form-a-union-and-negotiate/1224874876339779/",
+          "title": "California rideshare drivers will have the ability to form a ...",
+          "snippet": "California rideshare drivers will have the ability to form a union and negotiate a contract, while still being classified as independent ...",
+          "displayed_link": "30+ reactions \u00b7 7 months ago"
+        },
+        {
+          "position": 10,
+          "domain": "usemultiplier.com",
+          "url": "https://www.usemultiplier.com/united-states/california-gig-worker-rights",
+          "title": "California AB 1340: Gig Worker Rights & Labor Laws",
+          "snippet": "California's AB 1340 establishes a legal pathway for rideshare and delivery drivers to unionize and negotiate collectively with platforms.",
+          "displayed_link": "https://www.usemultiplier.com \u203a united-states \u203a californ..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "How to negotiate rideshare driver earnings",
+      "fetched_at": "2026-05-16T23:42:38.091474+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/uberdrivers/comments/1ksgj07/how_do_you_all_deal_with_unpredictable_income/",
+          "title": "How do you all deal with unpredictable income from driving ...",
+          "snippet": "Hey all, I just started driving for Uber a few weeks ago, and I\u2019ve been pretty frustrated with how unpredictable the income is. Most budgeting tools ...",
+          "displayed_link": "40+ comments \u00b7 11 months ago"
+        },
+        {
+          "position": 2,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/groups/428775902289713/posts/1492059102628049/",
+          "title": "Negotiating gig driver pay for rush jobs",
+          "snippet": "Never undersell your time and worth. Even driving as a gig driver when they reach out to you for a rush job no one takes negotiate with them! I turned a ...",
+          "displayed_link": "7 comments \u00b7 2 weeks ago"
+        },
+        {
+          "position": 3,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=LbYdoYZXFsM",
+          "title": "GIVE YOURSELF A PAY RAISE?! A Way Rideshare Drivers ...",
+          "snippet": "A real way to give yourself a pay raise? Share this with other drivers! Watch the FULL show here: https://youtu.be/eK-fSepKgNE LISTEN to ...",
+          "displayed_link": "6.3K+ views \u00b7 3 years ago"
+        },
+        {
+          "position": 4,
+          "domain": "blog.stridehealth.com",
+          "url": "https://blog.stridehealth.com/post/5-strategies-for-maximizing-your-rideshare-driver-earnings",
+          "title": "4 Strategies for Maximizing Your Rideshare Driver Earnings",
+          "snippet": "Discover expert tips for maximizing your rideshare driver earnings. From peak hours to driver bonuses, learn how to increase your income on ...",
+          "displayed_link": "https://blog.stridehealth.com \u203a post \u203a 5-strategies-for-m..."
+        },
+        {
+          "position": 5,
+          "domain": "quora.com",
+          "url": "https://www.quora.com/What-strategies-do-rideshare-drivers-use-to-maximize-their-earnings",
+          "title": "What strategies do rideshare drivers use to maximize their ...",
+          "snippet": "What strategies do rideshare drivers use to maximize their earnings?",
+          "displayed_link": "1 answer \u00b7 1 year ago"
+        },
+        {
+          "position": 6,
+          "domain": "mystrodriver.com",
+          "url": "https://mystrodriver.com/blog/how-to-increase-earnings-as-a-rideshare-driver",
+          "title": "How to Increase Earnings as a Rideshare Driver",
+          "snippet": "Increase your earnings as a rideshare driver with six concrete levers: trip filtering, multi-apping, demand windows, surge strategy, ...",
+          "displayed_link": "https://mystrodriver.com \u203a Blog"
+        },
+        {
+          "position": 7,
+          "domain": "teamrora.com",
+          "url": "https://www.teamrora.com/companies/uber-salary-negotiation",
+          "title": "Uber Salary Negotiation Advice | Dozens of Offers ... - Rora",
+          "snippet": "Learn how to maximize your Uber salary based on our experience negotiating dozens of Uber offers. Get specific negotiation tips and a step-by-step guide to ...",
+          "displayed_link": "https://www.teamrora.com \u203a companies \u203a uber-salary-n..."
+        },
+        {
+          "position": 8,
+          "domain": "gridwise.io",
+          "url": "https://gridwise.io/blog/how-to-earn-more-as-a-rideshare-driver",
+          "title": "How To Earn More As a Rideshare Driver | Blog",
+          "snippet": "Tips, insights, and advice to help you earn more and work smarter, whether you do gig work, hourly, or shift work.",
+          "displayed_link": "https://gridwise.io \u203a blog \u203a how-to-earn-more-as-a-rides..."
+        },
+        {
+          "position": 9,
+          "domain": "carvertise.com",
+          "url": "https://carvertise.com/6-ways-rideshare-and-delivery-drivers-can-boost-their-income/",
+          "title": "6 Ways Rideshare and Delivery Drivers Boost Their Income",
+          "snippet": "Maintain a friendly, positive demeanor. \u00b7 Mirror how your passenger communicates \u2014 if they're sociable, talk with them. \u00b7 Keep your car clean and smelling fresh.",
+          "displayed_link": "https://carvertise.com \u203a Newsroom"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "How to get $750 from Uber?",
+          "How much does an Uber driver make on a $30 ride?",
+          "How to maximize rideshare earnings?",
+          "Is it possible to make $300 a day on Uber?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 1
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "Best practices for rideshare driver unions",
+      "fetched_at": "2026-05-16T23:42:41.160981+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "americanprogress.org",
+          "url": "https://www.americanprogress.org/article/state-rideshare-collective-bargaining-policies-hold-great-promise/",
+          "title": "State Rideshare Collective Bargaining Policies Hold Great ...",
+          "snippet": "Sectoral bargaining is particularly well suited to rideshare because it covers all drivers in the industry, from full time to casual, no matter ...",
+          "displayed_link": "https://www.americanprogress.org \u203a article \u203a state-rides..."
+        },
+        {
+          "position": 2,
+          "domain": "onlabor.org",
+          "url": "https://onlabor.org/the-untapped-potential-of-rideshare-take-rate-disclosure-requirements/",
+          "title": "The Untapped Potential of Rideshare Take-Rate ...",
+          "snippet": "Rideshare drivers are winning through the legislative process. In the last year, two states have enacted pathways to unionization.",
+          "displayed_link": "https://onlabor.org \u203a the-untapped-potential-of-rideshar..."
+        },
+        {
+          "position": 3,
+          "domain": "mulpress.mcmaster.ca",
+          "url": "https://mulpress.mcmaster.ca/globallabour/article/view/6739/5519",
+          "title": "Challenges and Opportunities for Rideshare Drivers' ...",
+          "snippet": "This article analyses the differences in organisational outcomes among rideshare drivers' organisations in the United States \u2014 particularly their varying ...",
+          "displayed_link": "https://mulpress.mcmaster.ca \u203a article \u203a view"
+        },
+        {
+          "position": 4,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/uberdrivers/comments/1bqabap/could_we_form_a_union/",
+          "title": "Could we form a union? : r/uberdrivers",
+          "snippet": "Tips for staying safe while driving for Uber. Open ... driver isn't allowed to use it simultaneously with a competing rideshare platform.",
+          "displayed_link": "20+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 5,
+          "domain": "wgbh.org",
+          "url": "https://www.wgbh.org/news/politics/2024-10-25/question-3-explaining-the-push-to-let-rideshare-drivers-unionize",
+          "title": "Question 3: Explaining the push to let rideshare drivers ...",
+          "snippet": "... rideshare drivers have a legal path to unionizing. If the measure passes, drivers not automatically get union membership \u2014 they'll have to ...",
+          "displayed_link": "https://www.wgbh.org \u203a news \u203a politics \u203a question-3-ex..."
+        },
+        {
+          "position": 6,
+          "domain": "appdriversunion.org",
+          "url": "https://www.appdriversunion.org/resources",
+          "title": "Resources - Fighting for Driver's Rights",
+          "snippet": "As we work together to strengthen our union and negotiate a fair contract, here are some resources to assist drivers in dealing with the companies' unjust ...",
+          "displayed_link": "https://www.appdriversunion.org \u203a resources"
+        },
+        {
+          "position": 7,
+          "domain": "heritage.org",
+          "url": "https://www.heritage.org/jobs-and-labor/commentary/rideshare-roadblocks-could-destroy-successful-platforms-uber-and-lyft",
+          "title": "Rideshare Roadblocks Could Destroy Successful ...",
+          "snippet": "While drivers can freely enter and exit rideshare platforms at any time, unions impose strict schedules that can lead to forced overtime. The ...",
+          "displayed_link": "https://www.heritage.org \u203a jobs-and-labor \u203a commentary"
+        },
+        {
+          "position": 8,
+          "domain": "mass.gov",
+          "url": "https://www.mass.gov/info-details/rideshare-driver-unionization",
+          "title": "Rideshare Driver Unionization",
+          "snippet": "The Department therefore cannot and will not provide any rideshare drivers with guidance, recommendations, or legal advice about forming or joining a union.",
+          "displayed_link": "https://www.mass.gov \u203a info-details \u203a rideshare-driver-..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "Why don't Uber drivers unionize?",
+          "Can Uber drivers join a union?",
+          "What is the 5 minute rule for Uber?",
+          "What are some negotiating tactics used by unions?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 4
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "Impact of collective bargaining on rideshare earnings",
+      "fetched_at": "2026-05-16T23:42:43.826461+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "americanprogress.org",
+          "url": "https://www.americanprogress.org/article/state-rideshare-collective-bargaining-policies-hold-great-promise/",
+          "title": "State Rideshare Collective Bargaining Policies Hold Great ...",
+          "snippet": "Collective bargaining generally leads to wages and benefits well above what comparable nonunionized workers earn, as well as to rights on the ...",
+          "displayed_link": "https://www.americanprogress.org \u203a article \u203a state-rides..."
+        },
+        {
+          "position": 2,
+          "domain": "americanprogress.org",
+          "url": "https://www.americanprogress.org/wp-content/uploads/sites/2/2025/08/RideshareCollectiveBargaining-report.pdf",
+          "title": "State Rideshare Collective Bargaining Policies Hold Great ...",
+          "snippet": "Most directly, these state policies will test whether a new type of collective bar- gaining policy can build power and improve conditions ...",
+          "displayed_link": "https://www.americanprogress.org \u203a 2025/08 \u203a R..."
+        },
+        {
+          "position": 3,
+          "domain": "dataforprogress.org",
+          "url": "https://www.dataforprogress.org/blog/2024/7/10/americans-support-stronger-labor-protections-for-rideshare-drivers",
+          "title": "Americans Support Stronger Labor Protections ...",
+          "snippet": "Majorities of Americans say that unionization would positively impact drivers' overall pay (61%) and job security (58%). ... When asked about ...",
+          "displayed_link": "https://www.dataforprogress.org \u203a blog \u203a americans-supp..."
+        },
+        {
+          "position": 4,
+          "domain": "ips-dc.org",
+          "url": "https://ips-dc.org/exposing-the-rideshare-industrys-misleading-wage-claims/",
+          "title": "Exposing the Rideshare Industry's Misleading Wage Claims",
+          "snippet": "Rideshare passenger drivers, the study found, take home $7.12 per hour in median net hourly earnings before tips \u2014 a fraction of California's ...",
+          "displayed_link": "https://ips-dc.org \u203a exposing-the-rideshare-industrys-mi..."
+        },
+        {
+          "position": 5,
+          "domain": "digitalcommons.law.buffalo.edu",
+          "url": "https://digitalcommons.law.buffalo.edu/cgi/viewcontent.cgi?article=4916&context=buffalolawreview",
+          "title": "Rideshare Drivers, Collective Labor Action, andAntitrust",
+          "snippet": "Indeed, whether it survives or not, ridesharing threatens to decimate public transportation, with disastrous impacts on income distribution, pollution and ...",
+          "displayed_link": "https://digitalcommons.law.buffalo.edu \u203a cgi \u203a vi..."
+        },
+        {
+          "position": 6,
+          "domain": "commonwealthbeacon.org",
+          "url": "https://commonwealthbeacon.org/opinion/vote-yes-to-let-workers-in-the-rideshare-sector-unionize/",
+          "title": "Vote yes to let workers in the rideshare sector unionize",
+          "snippet": "With a union, rideshare drivers and companies can build upon the standards laid out in the settlement agreement. Drivers and companies would be ...",
+          "displayed_link": "https://commonwealthbeacon.org \u203a opinion \u203a vote-yes-t..."
+        },
+        {
+          "position": 7,
+          "domain": "quora.com",
+          "url": "https://www.quora.com/What-would-be-the-impact-of-the-proposed-bill-for-collective-bargaining-for-rideshare-drivers-in-California",
+          "title": "What would be the impact of the proposed bill for collective ...",
+          "snippet": "Using collective bargaining enables the group to argue for relief from the most annoying aspects of their employment. Naturally, wages, benefits ...",
+          "displayed_link": "3 answers \u00b7 8 months ago"
+        },
+        {
+          "position": 8,
+          "domain": "governing.com",
+          "url": "https://www.governing.com/workforce/california-will-revolutionize-rideshare-industry-with-new-union-policy",
+          "title": "California Will Revolutionize Rideshare Industry With New ...",
+          "snippet": "Collective bargaining has a proven record of addressing the challenges rideshare drivers currently face, including low wages and poor or ...",
+          "displayed_link": "https://www.governing.com \u203a workforce \u203a california-wi..."
+        },
+        {
+          "position": 9,
+          "domain": "thinkmarkets.wordpress.com",
+          "url": "https://thinkmarkets.wordpress.com/2018/02/26/rigidity-and-flexibility-unions-in-the-on-demand-economy/",
+          "title": "Rigidity and Flexibility: Unions in the On-Demand Economy?",
+          "snippet": "Such adjustment is not possible where union collective bargaining agreements restrict wage changes, hiring and firing, maximum and minimum hours ...",
+          "displayed_link": "https://thinkmarkets.wordpress.com \u203a 2018/02/26 \u203a rigi..."
+        },
+        {
+          "position": 10,
+          "domain": "raijmr.com",
+          "url": "https://www.raijmr.com/ijrsml/wp-content/uploads/2023/10/IJRSML_2023_vol11_issue_06_Eng_12.pdf",
+          "title": "Collective Bargaining and Worker Rights in the Gig Economy",
+          "snippet": "The classification of gig workers as independent contractors or employees has significant consequences for their rights and ability to engage in collective ...",
+          "displayed_link": "https://www.raijmr.com \u203a uploads \u203a 2023/10 \u203a IJR..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "Why do Uber drivers want to unionize?",
+          "What is the impact of collective bargaining?",
+          "Will Uber ever make a profit?",
+          "What are the disadvantages of collective bargaining?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    }
+  ],
+  "fetch_errors": [],
+  "from_cache": false,
+  "gates": {
+    "gate_1_market": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "1,250 SV/month after pollution adjustment (LLM estimate, low-confidence)"
+      ],
+      "raw": {
+        "pollution_adjusted_volume": 1250,
+        "total_volume": 1250,
+        "polluted_queries": [],
+        "unpolluted_queries": [
+          "Earnings intelligence for rideshare drivers",
+          "Collective bargaining tools for California rideshare drivers",
+          "How to negotiate rideshare driver earnings",
+          "Best practices for rideshare driver unions",
+          "Impact of collective bargaining on rideshare earnings"
+        ],
+        "per_query_volumes": {
+          "Earnings intelligence for rideshare drivers": 300,
+          "Collective bargaining tools for California rideshare drivers": 150,
+          "How to negotiate rideshare driver earnings": 500,
+          "Best practices for rideshare driver unions": 200,
+          "Impact of collective bargaining on rideshare earnings": 100
+        },
+        "topic_stems": [
+          "800k",
+          "bargain",
+          "ca",
+          "collective",
+          "driv",
+          "earn",
+          "intelligence",
+          "rideshare",
+          "tool"
+        ],
+        "threshold": 5000,
+        "synthesis_only": false
+      }
+    },
+    "gate_2_serp": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "specialty incumbent: capradio.org (1 queries, programmatic URLs)",
+        "specialty incumbent: americanprogress.org (1 queries, programmatic URLs)",
+        "specialty incumbent: dataforprogress.org (1 queries, programmatic URLs)",
+        "specialty incumbent: thinkmarkets.wordpress.com (1 queries, programmatic URLs)",
+        "specialty incumbent: raijmr.com (1 queries, programmatic URLs)",
+        "programmatic at scale: facebook.com (3/5 queries)",
+        "programmatic at scale: youtube.com (3/5 queries)",
+        "AI Overview dominant: 5/5 queries",
+        "Reddit present: 2/5 queries (discussion intent locked)",
+        "25 potentially beatable results"
+      ],
+      "raw": {
+        "classifications": {
+          "specialty_incumbent": {
+            "present": true,
+            "incumbents": {
+              "capradio.org": [
+                "Collective bargaining tools for California rideshare drivers"
+              ],
+              "americanprogress.org": [
+                "Impact of collective bargaining on rideshare earnings"
+              ],
+              "dataforprogress.org": [
+                "Impact of collective bargaining on rideshare earnings"
+              ],
+              "thinkmarkets.wordpress.com": [
+                "Impact of collective bargaining on rideshare earnings"
+              ],
+              "raijmr.com": [
+                "Impact of collective bargaining on rideshare earnings"
+              ]
+            }
+          },
+          "programmatic_at_scale": {
+            "present": true,
+            "incumbents": {
+              "facebook.com": [
+                "Collective bargaining tools for California rideshare drivers",
+                "Earnings intelligence for rideshare drivers",
+                "How to negotiate rideshare driver earnings"
+              ],
+              "youtube.com": [
+                "Collective bargaining tools for California rideshare drivers",
+                "Earnings intelligence for rideshare drivers",
+                "How to negotiate rideshare driver earnings"
+              ]
+            }
+          },
+          "ai_overview_dominant": {
+            "dominant": true,
+            "queries": [
+              "Earnings intelligence for rideshare drivers",
+              "Collective bargaining tools for California rideshare drivers",
+              "How to negotiate rideshare driver earnings",
+              "Best practices for rideshare driver unions",
+              "Impact of collective bargaining on rideshare earnings"
+            ],
+            "count": 5
+          },
+          "media_locked": {
+            "locked": false,
+            "queries": {},
+            "count": 0,
+            "verticals": []
+          },
+          "reddit_present": {
+            "present": true,
+            "queries": [
+              "How to negotiate rideshare driver earnings",
+              "Best practices for rideshare driver unions"
+            ]
+          },
+          "potentially_beatable": {
+            "count": 25,
+            "domains": [
+              {
+                "domain": "businessinsider.com",
+                "query": "Earnings intelligence for rideshare drivers",
+                "title": "Lyft says its latest AI push is all about helping drivers make ..."
+              },
+              {
+                "domain": "getrollee.com",
+                "query": "Earnings intelligence for rideshare drivers",
+                "title": "Earnings IQ"
+              },
+              {
+                "domain": "mystrodriver.com",
+                "query": "Earnings intelligence for rideshare drivers",
+                "title": "How to Increase Earnings as a Rideshare Driver"
+              },
+              {
+                "domain": "gridwise.io",
+                "query": "Earnings intelligence for rideshare drivers",
+                "title": "Gridwise | Delivery Driver Assistant App | Rideshare Assistant ..."
+              },
+              {
+                "domain": "finance.yahoo.com",
+                "query": "Earnings intelligence for rideshare drivers",
+                "title": "Gridwise Launches Its Annual Gig Mobility Report ..."
+              },
+              {
+                "domain": "kqed.org",
+                "query": "Collective bargaining tools for California rideshare drivers",
+                "title": "California Uber, Lyft Drivers Take Step Toward Bargaining ..."
+              },
+              {
+                "domain": "seiu1021.org",
+                "query": "Collective bargaining tools for California rideshare drivers",
+                "title": "California Gig Workers Union takes major step to represent ..."
+              },
+              {
+                "domain": "drivers-united.org",
+                "query": "Collective bargaining tools for California rideshare drivers",
+                "title": "Rideshare Drivers United - Uber & Lyft Driver Union"
+              },
+              {
+                "domain": "governing.com",
+                "query": "Collective bargaining tools for California rideshare drivers",
+                "title": "California Will Revolutionize Rideshare Industry With New ..."
+              },
+              {
+                "domain": "vensure.com",
+                "query": "Collective bargaining tools for California rideshare drivers",
+                "title": "California Rideshare Drivers Gain Bargaining Rights"
+              },
+              {
+                "domain": "internationalemploymentlawyer.com",
+                "query": "Collective bargaining tools for California rideshare drivers",
+                "title": "California reaches historic deal giving rideshare drivers ..."
+              },
+              {
+                "domain": "usemultiplier.com",
+                "query": "Collective bargaining tools for California rideshare drivers",
+                "title": "California AB 1340: Gig Worker Rights & Labor Laws"
+              },
+              {
+                "domain": "blog.stridehealth.com",
+                "query": "How to negotiate rideshare driver earnings",
+                "title": "4 Strategies for Maximizing Your Rideshare Driver Earnings"
+              },
+              {
+                "domain": "quora.com",
+                "query": "How to negotiate rideshare driver earnings",
+                "title": "What strategies do rideshare drivers use to maximize their ..."
+              },
+              {
+                "domain": "teamrora.com",
+                "query": "How to negotiate rideshare driver earnings",
+                "title": "Uber Salary Negotiation Advice | Dozens of Offers ... - Rora"
+              },
+              {
+                "domain": "carvertise.com",
+                "query": "How to negotiate rideshare driver earnings",
+                "title": "6 Ways Rideshare and Delivery Drivers Boost Their Income"
+              },
+              {
+                "domain": "onlabor.org",
+                "query": "Best practices for rideshare driver unions",
+                "title": "The Untapped Potential of Rideshare Take-Rate ..."
+              },
+              {
+                "domain": "mulpress.mcmaster.ca",
+                "query": "Best practices for rideshare driver unions",
+                "title": "Challenges and Opportunities for Rideshare Drivers' ..."
+              },
+              {
+                "domain": "wgbh.org",
+                "query": "Best practices for rideshare driver unions",
+                "title": "Question 3: Explaining the push to let rideshare drivers ..."
+              },
+              {
+                "domain": "appdriversunion.org",
+                "query": "Best practices for rideshare driver unions",
+                "title": "Resources - Fighting for Driver's Rights"
+              },
+              {
+                "domain": "heritage.org",
+                "query": "Best practices for rideshare driver unions",
+                "title": "Rideshare Roadblocks Could Destroy Successful ..."
+              },
+              {
+                "domain": "mass.gov",
+                "query": "Best practices for rideshare driver unions",
+                "title": "Rideshare Driver Unionization"
+              },
+              {
+                "domain": "ips-dc.org",
+                "query": "Impact of collective bargaining on rideshare earnings",
+                "title": "Exposing the Rideshare Industry's Misleading Wage Claims"
+              },
+              {
+                "domain": "digitalcommons.law.buffalo.edu",
+                "query": "Impact of collective bargaining on rideshare earnings",
+                "title": "Rideshare Drivers, Collective Labor Action, andAntitrust"
+              },
+              {
+                "domain": "commonwealthbeacon.org",
+                "query": "Impact of collective bargaining on rideshare earnings",
+                "title": "Vote yes to let workers in the rideshare sector unionize"
+              }
+            ]
+          }
+        },
+        "kill_tier_reasons": [
+          "specialty_incumbent",
+          "programmatic_at_scale"
+        ],
+        "synthesis_only": false
+      }
+    },
+    "gate_3_moat": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "no moat provided"
+      ],
+      "raw": {
+        "required": true,
+        "moat_sentence": null
+      }
+    }
+  },
+  "operator_fit": {
+    "warnings": [],
+    "auto_fail_gate_2": false
+  },
+  "verdict": "NO-GO",
+  "suggested_reductions": [],
+  "moat_required": true,
+  "moat_provided": null
+}

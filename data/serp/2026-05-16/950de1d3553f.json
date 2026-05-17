@@ -1,0 +1,100 @@
+{
+  "schema": "serp-query-v1",
+  "query": "Best practices for rideshare driver unions",
+  "fetched_at": "2026-05-16T23:42:41.160981+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "americanprogress.org",
+      "url": "https://www.americanprogress.org/article/state-rideshare-collective-bargaining-policies-hold-great-promise/",
+      "title": "State Rideshare Collective Bargaining Policies Hold Great ...",
+      "snippet": "Sectoral bargaining is particularly well suited to rideshare because it covers all drivers in the industry, from full time to casual, no matter ...",
+      "displayed_link": "https://www.americanprogress.org \u203a article \u203a state-rides..."
+    },
+    {
+      "position": 2,
+      "domain": "onlabor.org",
+      "url": "https://onlabor.org/the-untapped-potential-of-rideshare-take-rate-disclosure-requirements/",
+      "title": "The Untapped Potential of Rideshare Take-Rate ...",
+      "snippet": "Rideshare drivers are winning through the legislative process. In the last year, two states have enacted pathways to unionization.",
+      "displayed_link": "https://onlabor.org \u203a the-untapped-potential-of-rideshar..."
+    },
+    {
+      "position": 3,
+      "domain": "mulpress.mcmaster.ca",
+      "url": "https://mulpress.mcmaster.ca/globallabour/article/view/6739/5519",
+      "title": "Challenges and Opportunities for Rideshare Drivers' ...",
+      "snippet": "This article analyses the differences in organisational outcomes among rideshare drivers' organisations in the United States \u2014 particularly their varying ...",
+      "displayed_link": "https://mulpress.mcmaster.ca \u203a article \u203a view"
+    },
+    {
+      "position": 4,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/uberdrivers/comments/1bqabap/could_we_form_a_union/",
+      "title": "Could we form a union? : r/uberdrivers",
+      "snippet": "Tips for staying safe while driving for Uber. Open ... driver isn't allowed to use it simultaneously with a competing rideshare platform.",
+      "displayed_link": "20+ comments \u00b7 2 years ago"
+    },
+    {
+      "position": 5,
+      "domain": "wgbh.org",
+      "url": "https://www.wgbh.org/news/politics/2024-10-25/question-3-explaining-the-push-to-let-rideshare-drivers-unionize",
+      "title": "Question 3: Explaining the push to let rideshare drivers ...",
+      "snippet": "... rideshare drivers have a legal path to unionizing. If the measure passes, drivers not automatically get union membership \u2014 they'll have to ...",
+      "displayed_link": "https://www.wgbh.org \u203a news \u203a politics \u203a question-3-ex..."
+    },
+    {
+      "position": 6,
+      "domain": "appdriversunion.org",
+      "url": "https://www.appdriversunion.org/resources",
+      "title": "Resources - Fighting for Driver's Rights",
+      "snippet": "As we work together to strengthen our union and negotiate a fair contract, here are some resources to assist drivers in dealing with the companies' unjust ...",
+      "displayed_link": "https://www.appdriversunion.org \u203a resources"
+    },
+    {
+      "position": 7,
+      "domain": "heritage.org",
+      "url": "https://www.heritage.org/jobs-and-labor/commentary/rideshare-roadblocks-could-destroy-successful-platforms-uber-and-lyft",
+      "title": "Rideshare Roadblocks Could Destroy Successful ...",
+      "snippet": "While drivers can freely enter and exit rideshare platforms at any time, unions impose strict schedules that can lead to forced overtime. The ...",
+      "displayed_link": "https://www.heritage.org \u203a jobs-and-labor \u203a commentary"
+    },
+    {
+      "position": 8,
+      "domain": "mass.gov",
+      "url": "https://www.mass.gov/info-details/rideshare-driver-unionization",
+      "title": "Rideshare Driver Unionization",
+      "snippet": "The Department therefore cannot and will not provide any rideshare drivers with guidance, recommendations, or legal advice about forming or joining a union.",
+      "displayed_link": "https://www.mass.gov \u203a info-details \u203a rideshare-driver-..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Why don't Uber drivers unionize?",
+      "Can Uber drivers join a union?",
+      "What is the 5 minute rule for Uber?",
+      "What are some negotiating tactics used by unions?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 4
+    }
+  }
+}

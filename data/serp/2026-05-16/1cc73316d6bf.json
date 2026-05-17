@@ -1,0 +1,108 @@
+{
+  "schema": "serp-query-v1",
+  "query": "How to negotiate rideshare driver earnings",
+  "fetched_at": "2026-05-16T23:42:38.091474+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/uberdrivers/comments/1ksgj07/how_do_you_all_deal_with_unpredictable_income/",
+      "title": "How do you all deal with unpredictable income from driving ...",
+      "snippet": "Hey all, I just started driving for Uber a few weeks ago, and I\u2019ve been pretty frustrated with how unpredictable the income is. Most budgeting tools ...",
+      "displayed_link": "40+ comments \u00b7 11 months ago"
+    },
+    {
+      "position": 2,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/groups/428775902289713/posts/1492059102628049/",
+      "title": "Negotiating gig driver pay for rush jobs",
+      "snippet": "Never undersell your time and worth. Even driving as a gig driver when they reach out to you for a rush job no one takes negotiate with them! I turned a ...",
+      "displayed_link": "7 comments \u00b7 2 weeks ago"
+    },
+    {
+      "position": 3,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=LbYdoYZXFsM",
+      "title": "GIVE YOURSELF A PAY RAISE?! A Way Rideshare Drivers ...",
+      "snippet": "A real way to give yourself a pay raise? Share this with other drivers! Watch the FULL show here: https://youtu.be/eK-fSepKgNE LISTEN to ...",
+      "displayed_link": "6.3K+ views \u00b7 3 years ago"
+    },
+    {
+      "position": 4,
+      "domain": "blog.stridehealth.com",
+      "url": "https://blog.stridehealth.com/post/5-strategies-for-maximizing-your-rideshare-driver-earnings",
+      "title": "4 Strategies for Maximizing Your Rideshare Driver Earnings",
+      "snippet": "Discover expert tips for maximizing your rideshare driver earnings. From peak hours to driver bonuses, learn how to increase your income on ...",
+      "displayed_link": "https://blog.stridehealth.com \u203a post \u203a 5-strategies-for-m..."
+    },
+    {
+      "position": 5,
+      "domain": "quora.com",
+      "url": "https://www.quora.com/What-strategies-do-rideshare-drivers-use-to-maximize-their-earnings",
+      "title": "What strategies do rideshare drivers use to maximize their ...",
+      "snippet": "What strategies do rideshare drivers use to maximize their earnings?",
+      "displayed_link": "1 answer \u00b7 1 year ago"
+    },
+    {
+      "position": 6,
+      "domain": "mystrodriver.com",
+      "url": "https://mystrodriver.com/blog/how-to-increase-earnings-as-a-rideshare-driver",
+      "title": "How to Increase Earnings as a Rideshare Driver",
+      "snippet": "Increase your earnings as a rideshare driver with six concrete levers: trip filtering, multi-apping, demand windows, surge strategy, ...",
+      "displayed_link": "https://mystrodriver.com \u203a Blog"
+    },
+    {
+      "position": 7,
+      "domain": "teamrora.com",
+      "url": "https://www.teamrora.com/companies/uber-salary-negotiation",
+      "title": "Uber Salary Negotiation Advice | Dozens of Offers ... - Rora",
+      "snippet": "Learn how to maximize your Uber salary based on our experience negotiating dozens of Uber offers. Get specific negotiation tips and a step-by-step guide to ...",
+      "displayed_link": "https://www.teamrora.com \u203a companies \u203a uber-salary-n..."
+    },
+    {
+      "position": 8,
+      "domain": "gridwise.io",
+      "url": "https://gridwise.io/blog/how-to-earn-more-as-a-rideshare-driver",
+      "title": "How To Earn More As a Rideshare Driver | Blog",
+      "snippet": "Tips, insights, and advice to help you earn more and work smarter, whether you do gig work, hourly, or shift work.",
+      "displayed_link": "https://gridwise.io \u203a blog \u203a how-to-earn-more-as-a-rides..."
+    },
+    {
+      "position": 9,
+      "domain": "carvertise.com",
+      "url": "https://carvertise.com/6-ways-rideshare-and-delivery-drivers-can-boost-their-income/",
+      "title": "6 Ways Rideshare and Delivery Drivers Boost Their Income",
+      "snippet": "Maintain a friendly, positive demeanor. \u00b7 Mirror how your passenger communicates \u2014 if they're sociable, talk with them. \u00b7 Keep your car clean and smelling fresh.",
+      "displayed_link": "https://carvertise.com \u203a Newsroom"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "How to get $750 from Uber?",
+      "How much does an Uber driver make on a $30 ride?",
+      "How to maximize rideshare earnings?",
+      "Is it possible to make $300 a day on Uber?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 1
+    }
+  }
+}

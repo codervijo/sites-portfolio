@@ -1,0 +1,110 @@
+{
+  "schema": "serp-query-v1",
+  "query": "Collective bargaining tools for California rideshare drivers",
+  "fetched_at": "2026-05-16T23:42:35.580074+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "kqed.org",
+      "url": "https://www.kqed.org/news/12083358/california-uber-lyft-drivers-take-step-toward-bargaining-table",
+      "title": "California Uber, Lyft Drivers Take Step Toward Bargaining ...",
+      "snippet": "A new California law requires app-based transportation companies to bargain in good faith with unions for drivers who are state-certified.",
+      "displayed_link": "https://www.kqed.org \u203a news \u203a california-uber-lyft-driv..."
+    },
+    {
+      "position": 2,
+      "domain": "seiu1021.org",
+      "url": "https://www.seiu1021.org/article/california-gig-workers-union-takes-major-step-represent-gig-rideshare-drivers-throughout",
+      "title": "California Gig Workers Union takes major step to represent ...",
+      "snippet": "AB 1340, which took effect on Jan. 1, 2026, establishes a legal framework allowing app-based drivers working for companies such as Uber and Lyft ...",
+      "displayed_link": "https://www.seiu1021.org \u203a article \u203a california-gig-wor..."
+    },
+    {
+      "position": 3,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=YcijsVEyRqM",
+      "title": "California Uber, Lyft Drivers take step toward bargaining table.",
+      "snippet": "You will find Postmates, Uber, Lyft, rideshare, Doordash ... California Uber, Lyft Drivers take step toward bargaining table. 23 ...",
+      "displayed_link": "20+ views \u00b7 2 days ago"
+    },
+    {
+      "position": 4,
+      "domain": "drivers-united.org",
+      "url": "https://www.drivers-united.org/",
+      "title": "Rideshare Drivers United - Uber & Lyft Driver Union",
+      "snippet": "California Legislation Gives Platform Drivers the Right to Unionize and Collectively BargainOn October 3rd, Governor Gavin Newsom signed AB 1340 into law, ...",
+      "displayed_link": "https://www.drivers-united.org"
+    },
+    {
+      "position": 5,
+      "domain": "governing.com",
+      "url": "https://www.governing.com/workforce/california-will-revolutionize-rideshare-industry-with-new-union-policy",
+      "title": "California Will Revolutionize Rideshare Industry With New ...",
+      "snippet": "A forthcoming state law will create the single largest new pool of workers with collective bargaining rights in decades.",
+      "displayed_link": "https://www.governing.com \u203a workforce \u203a california-wi..."
+    },
+    {
+      "position": 6,
+      "domain": "vensure.com",
+      "url": "https://vensure.com/employment-law-updates/california-grants-rideshare-drivers-collective-bargaining-rights/",
+      "title": "California Rideshare Drivers Gain Bargaining Rights",
+      "snippet": "This landmark law gives rideshare drivers the right to organize, join driver organizations, and bargain collectively, while maintaining their ...",
+      "displayed_link": "https://vensure.com \u203a employment-law-updates \u203a califor..."
+    },
+    {
+      "position": 7,
+      "domain": "internationalemploymentlawyer.com",
+      "url": "https://www.internationalemploymentlawyer.com/news/california-reaches-historic-deal-giving-rideshare-drivers-path-unionising",
+      "title": "California reaches historic deal giving rideshare drivers ...",
+      "snippet": "Uber and Lyft agree to support a collective bargaining bill in exchange for lower insurance burden in the state. Vehicle offering rides for ...",
+      "displayed_link": "https://www.internationalemploymentlawyer.com \u203a news"
+    },
+    {
+      "position": 8,
+      "domain": "capradio.org",
+      "url": "https://www.capradio.org/articles/2025/12/22/california-gig-drivers-gear-up-for-union-rights-in-2026/",
+      "title": "California gig drivers gear up for union rights in 2026",
+      "snippet": "Rideshare drivers can formally unionize for more labor protections under a new law going into effect Jan 1.",
+      "displayed_link": "https://www.capradio.org \u203a articles \u203a 2025/12/22 \u203a calif..."
+    },
+    {
+      "position": 9,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/CBSLA/posts/california-rideshare-drivers-will-have-the-ability-to-form-a-union-and-negotiate/1224874876339779/",
+      "title": "California rideshare drivers will have the ability to form a ...",
+      "snippet": "California rideshare drivers will have the ability to form a union and negotiate a contract, while still being classified as independent ...",
+      "displayed_link": "30+ reactions \u00b7 7 months ago"
+    },
+    {
+      "position": 10,
+      "domain": "usemultiplier.com",
+      "url": "https://www.usemultiplier.com/united-states/california-gig-worker-rights",
+      "title": "California AB 1340: Gig Worker Rights & Labor Laws",
+      "snippet": "California's AB 1340 establishes a legal pathway for rideshare and delivery drivers to unionize and negotiate collectively with platforms.",
+      "displayed_link": "https://www.usemultiplier.com \u203a united-states \u203a californ..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}
