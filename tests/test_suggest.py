@@ -1667,10 +1667,13 @@ def test_brainstorm_logs_filter_count_when_present(monkeypatch):
 
 
 def test_v3e_menu_items_v4d_polish_lineup():
-    """v4.D polish adds slot 9 (Rerun fresh). Nine slots total."""
+    """v4.D polish adds slot 9 (Rerun fresh). New `s` slot inserted
+    between 7 and 8 for "Show marked names as full grid" — keeps
+    numeric muscle memory intact while adding the shortlist-visualization
+    affordance next to its 6/7 siblings."""
     from portfolio.cli import MENU_ITEMS
     keys = [k for k, _, _ in MENU_ITEMS]
-    assert keys == ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+    assert keys == ["1", "2", "3", "4", "5", "6", "7", "s", "8", "9"]
 
 
 def test_v3e_menu_items_all_active_in_v4b():
@@ -1681,18 +1684,21 @@ def test_v3e_menu_items_all_active_in_v4b():
 
 
 def test_v3e_menu_keys_hint_format():
-    """The bad-input hint is generated from MENU_ITEMS — keeps in sync."""
+    """The bad-input hint is generated from MENU_ITEMS — keeps in sync.
+    `s` was added between 7 and 8 for the "Show marked as full grid"
+    affordance."""
     from portfolio.cli import _menu_keys_hint
-    assert _menu_keys_hint() == "1, 2, 3, 4, 5, 6, 7, 8, 9"
+    assert _menu_keys_hint() == "1, 2, 3, 4, 5, 6, 7, s, 8, 9"
 
 
 def test_v3e_render_menu_includes_active_items_and_quit():
-    """Snapshot-ish: _render_menu prints all nine items + 'q. Quit'."""
+    """Snapshot-ish: _render_menu prints all items + 'q. Quit'.
+    Includes the new `s` slot."""
     from portfolio.cli import _render_menu, console
     with console.capture() as cap:
         _render_menu()
     out = cap.get()
-    for key in ("1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "q."):
+    for key in ("1.", "2.", "3.", "4.", "5.", "6.", "7.", "s.", "8.", "9.", "q."):
         assert key in out
 
 

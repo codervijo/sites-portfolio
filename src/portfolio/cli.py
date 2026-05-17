@@ -2084,6 +2084,9 @@ MENU_ITEMS = [
     ("5", "Add my own names to the grid",              False),
     ("6", "Mark / unmark for shortlist",               False),
     ("7", "Decide from shortlist",                     False),
+    # Letter key keeps numeric muscle-memory (1-9) intact while
+    # adding the new affordance next to its shortlist siblings.
+    ("s", "Show marked names as full grid",            False),
     ("8", "Show TLD reference (pricing, SEO, vibe)",   False),
     ("9", "Rerun fresh (bypass cache)",                False),  # v4.D polish
 ]
@@ -2282,13 +2285,14 @@ def _render_tld_reference() -> None:
 
 
 def _render_menu(shortlist_count: int = 0) -> None:
-    """Render the post-grid menu. When shortlist_count > 0, item 6's label
-    gets a "(N marked)" suffix so the user can see at a glance how big their
-    finalists list has grown."""
+    """Render the post-grid menu. When shortlist_count > 0, items 6
+    (Mark / unmark) and `s` (Show marked as grid) both get a
+    "(N marked)" suffix so the user can see at a glance how big their
+    shortlist has grown."""
     console.print("\n[bold]What do you want to do next?[/]")
     for key, label, coming_soon in MENU_ITEMS:
         line = f"  {key}. {label}"
-        if key == "6" and shortlist_count > 0:
+        if key in ("6", "s") and shortlist_count > 0:
             line += f" ({shortlist_count} marked)"
         if coming_soon:
             line += "  [dim](coming soon)[/]"
@@ -2684,6 +2688,50 @@ def _menu_decide(rows, shortlist: list[str], tld_list: list[str],
         return row, row.pick_tld
 
 
+def _menu_show_marked(rows, shortlist: list[str], tld_list: list[str], *,
+                     show_renewal: bool, topic: str = "") -> None:
+    """Render the shortlist as a full registrar grid (same columns as
+    the main grid) so the operator can compare marked names side-by-
+    side with per-TLD cells, anchors, picks, and rationale visible.
+
+    Distinct from the brief shortlist printed inside `_menu_shortlist`
+    after each mark (that one is just name + pick + price). This is the
+    full grid scoped to the marked set. Handy after marking 10+ names
+    when the brief form loses the "why" / per-TLD detail.
+
+    No-op cases handled explicitly:
+      - empty shortlist → tells the operator to mark first
+      - shortlist exists but none of the names appear in the current
+        rows (can happen after `widen` filtered them out) → tells the
+        operator to re-mark from the current grid
+    """
+    if not shortlist:
+        console.print(
+            "[yellow]Shortlist is empty. Mark some rows first (option 6).[/]"
+        )
+        return
+    name_to_row = {r.name: r for r in rows}
+    marked_rows = [name_to_row[n] for n in shortlist if n in name_to_row]
+    missing = [n for n in shortlist if n not in name_to_row]
+
+    if not marked_rows:
+        console.print(
+            f"[yellow]None of the {len(shortlist)} marked names are in the "
+            f"current grid (e.g., after a widen pass that filtered them "
+            f"out). Re-mark from the current grid (option 6).[/]"
+        )
+        return
+
+    _render_grid(marked_rows, tld_list, show_renewal=show_renewal, topic=topic)
+    if missing:
+        sample = ", ".join(missing[:5])
+        more = f" + {len(missing) - 5} more" if len(missing) > 5 else ""
+        console.print(
+            f"[dim]Note: {len(missing)} marked name(s) not in current grid: "
+            f"{sample}{more}[/]"
+        )
+
+
 def _menu_shortlist(rows, shortlist: list[str]) -> list[str]:
     """Sub-prompt for menu option 6. Multi-target per invocation
     (`m 5 7 12` or `m 5,7,12` marks three at once).
@@ -2986,6 +3034,12 @@ def _domain_suggest_validation(
                 selected_row, selected_tld = result
                 break
             # b from decide → main menu (shortlist preserved)
+            continue
+        if choice == "s":
+            _menu_show_marked(
+                rows, shortlist, tld_list,
+                show_renewal=show_renewal, topic=topic,
+            )
             continue
         if choice == "8":
             _render_tld_reference()
