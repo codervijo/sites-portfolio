@@ -2514,7 +2514,7 @@ def _menu_widen(rows, *, topic: str, vocab_terms: list[str] | None,
     new_names = {r.name for r in new_rows}
     merged = new_rows + [r for r in rows if r.name not in new_names]
     merged.sort(key=lambda r: r.name.lower())
-    _render_grid(merged, tld_list, show_renewal=show_renewal)
+    _render_grid(merged, tld_list, show_renewal=show_renewal, topic=topic)
     return merged
 
 
@@ -2789,7 +2789,7 @@ def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,
     merged = user_rows + [r for r in rows if r.name not in user_names]
     # v4.A: alphabetical, matching build_grid.
     merged.sort(key=lambda r: r.name.lower())
-    _render_grid(merged, tld_list, show_renewal=show_renewal)
+    _render_grid(merged, tld_list, show_renewal=show_renewal, topic=topic)
     return merged
 
 
@@ -2919,7 +2919,7 @@ def _domain_suggest_validation(
         console.print("[yellow]No pickable candidates — every name was either taken or priced over --max-price. Try refining the topic, raising --max-price, or --no-cache.[/]")
         raise typer.Exit(0)
 
-    _render_grid(rows, tld_list, show_renewal=show_renewal)
+    _render_grid(rows, tld_list, show_renewal=show_renewal, topic=topic)
 
     if non_interactive:
         return
@@ -2951,7 +2951,7 @@ def _domain_suggest_validation(
                 selected_row, selected_tld = result
                 break
             # back from expand → re-render grid then re-show menu
-            _render_grid(rows, tld_list, show_renewal=show_renewal)
+            _render_grid(rows, tld_list, show_renewal=show_renewal, topic=topic)
             continue
         if choice == "3":
             _menu_ask_ai(rows, topic=topic, vocab_terms=vocab_terms,
@@ -3009,7 +3009,7 @@ def _domain_suggest_validation(
             if not rows:
                 console.print("[yellow]No pickable candidates after rerun. Try refining the topic.[/]")
                 continue
-            _render_grid(rows, tld_list, show_renewal=show_renewal)
+            _render_grid(rows, tld_list, show_renewal=show_renewal, topic=topic)
             if shortlist:
                 missing = [n for n in shortlist if not any(r.name == n for r in rows)]
                 if missing:
@@ -3214,11 +3214,21 @@ def _cell_str(state, show_renewal: bool = False) -> str:
     return "[yellow]?[/]"
 
 
-def _render_grid(rows, columns: list[str], show_renewal: bool = False) -> None:
+def _render_grid(rows, columns: list[str], show_renewal: bool = False,
+                 *, topic: str | None = None) -> None:
     """Render the v3.D registrar grid: rows = names, cols = TLD cells + Anchors
     + Pick + Why. Anchors column shows vocab terms found in the name (the row
     differentiator); cliff markers (↑Nx) on cells flag renewal bait-and-switch
-    (the column differentiator)."""
+    (the column differentiator).
+
+    When `topic` is provided, renders a one-line title above the table
+    so the operator can scan the grid with the original topic in
+    eyeshot — same affordance as `new research`'s Topic line. Optional
+    for backward compatibility with any caller that doesn't have the
+    topic in scope.
+    """
+    if topic:
+        console.print(f"\n[bold]Topic:[/] [cyan]{topic}[/]\n")
     t = Table(box=None, padding=(0, 1))
     t.add_column("#", justify="right")
     t.add_column("Name", style="bold")
