@@ -1,7 +1,7 @@
 {
   "schema": "serpapi-quota-v1",
   "month": "2026-05",
-  "queries_used": 151,
+  "queries_used": 164,
   "limit": 250,
-  "last_updated": "2026-05-17T06:33:29.240094+00:00"
+  "last_updated": "2026-05-17T06:47:58.958501+00:00"
 }
