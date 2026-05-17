@@ -3397,12 +3397,19 @@ def new_bootstrap(
         console.print(f"[red]bootstrap failed:[/] {e}")
         raise typer.Exit(2)
 
-    _render_bootstrap_summary(result, domain)
+    _render_bootstrap_summary(result, domain, topic=topic)
 
 
-def _render_bootstrap_summary(result, domain: str) -> None:
+def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:
     """Post-bootstrap report: header, file inventory, tree view, conformance
-    pass/fail, predicted live URL, grouped next-step commands."""
+    pass/fail, predicted live URL, grouped next-step commands.
+
+    When `topic` is non-empty, a one-line `Topic:` header is printed
+    first — same operator-facing affordance as `new research` /
+    `new suggest`. Empty topic omits the line.
+    """
+    if topic:
+        console.print(f"[bold]Topic:[/] [cyan]{topic}[/]\n")
     console.print(
         f"[green]✓[/] Bootstrapped [bold]{result.project_dir}[/]  "
         f"[dim](path={result.path}, stack={result.stack})[/]"
