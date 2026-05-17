@@ -78,11 +78,31 @@ def _ai_agents_md(domain: str, stack: str, topic: str) -> str:
     topic_line = f"\n_Topic: {topic}_\n" if topic else ""
     return f"""# AI Agent Context — {domain}
 {topic_line}
-## What this project is
+## Summary
 
-<1-2 sentence description — fill in>
+*one paragraph: what this site is, what it does*
 
-## Stack
+(to be filled in)
+
+## Audience
+
+*one sentence: who this is for (broad demographic)*
+
+(to be filled in)
+
+## ICP
+
+*the specific ideal customer — demographics, pain points, what they use today. More detail than Audience: Audience is the broad demo ("homeowners with EV chargers"), ICP is the specific targetable subset ("Tesla owners in CA who installed in last 90d, paid $2k+")*
+
+(to be filled in)
+
+## Goals
+
+*1-2 sentences: primary business / product goal*
+
+(to be filled in)
+
+## Tech stack
 
 {stack.capitalize()} project under the sites/* workspace. Build path goes
 through the parent `sites/Makefile` (Docker-orchestrated) which delegates
@@ -148,6 +168,12 @@ docker exec -w /usr/src/app <name> make test proj={domain}
 - **Env vars:** set `VITE_*` vars (e.g. `VITE_GA_ID`) in the Cloudflare Workers project's environment-variable settings — they're inlined at build time.
 - **Live URL:** https://{domain}/  *(update once first deploy succeeds)*
 - **Legacy:** if a `vercel.json` or `.vercelignore` is present from a Lovable export, it's inert on Cloudflare and safe to delete.
+
+## Content strategy
+
+*what content this site needs — page types, initial topics, format mix (long-form vs reference vs tool)*
+
+(to be filled in)
 
 ### Post-deploy checklist (do these once after the first successful deploy)
 
@@ -240,7 +266,7 @@ doubt, the canonical statement is `sites/portfolio/AI_AGENTS.md`.
 Track this project's progress in `docs/prd.md` against this taxonomy. v0.A is
 the bootstrap (this scaffold); v1.A is the first real shipped capability.
 
-## Key conventions
+## Conventions
 
 - Stack: {stack}
 - **Package manager: pnpm only.** No `bun.lockb`, no `package-lock.json`, no `yarn.lock` — they cause CF Pages to pick the wrong manager and break the build. The `pnpm-lock.yaml` is the only lockfile that should ever be committed.

@@ -52,7 +52,9 @@ def test_list_checks_filter_by_category():
     # v6.A.1: CHECK_013 ai-agents-versioning added to scaffold (now 9).
     # CHECK_040 (git-remote-name), CHECK_041 (dir-matches-portfolio),
     # CHECK_042 (live-final-url-matches) added to git (now 8).
-    assert len(scaffold) == 9
+    # v9.A 2026-05-17: CHECK_014 ai-agents-md-has-canonical-sections
+    # added to scaffold (now 10).
+    assert len(scaffold) == 10
     assert len(git) == 8
     assert len(docs) >= 4
     assert len(ci) == 1
