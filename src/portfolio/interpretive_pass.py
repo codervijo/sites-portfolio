@@ -40,12 +40,17 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+from .fix_helpers import ClaudeTextResult, run_claude_text
 from .operator_profile import OperatorProfile
 from .prompt_loader import load_prompt, render_prompt
 
 PRIMARY_PROMPT_NAME = "niche_evaluation_v1"
+PRIMARY_PROMPT_VERSION = "v1"   # matches the suffix on the prompt filename
+DEFAULT_BUDGET_USD = 0.50
+DEFAULT_TIMEOUT_S = 180
 
 # Canonical tokens per the standing prompt's response-format spec.
 _VALID_VERDICTS = {"GO", "NICHE-DOWN", "NO-GO"}
@@ -381,4 +386,107 @@ def parse_verdict(markdown_text: str) -> ParsedVerdict:
         reductions=_parse_bullets(sections.get("reductions", "")),
         operator_fit_warnings=_parse_bullets(sections.get("operator_fit_warnings", "")),
         blind_spot_self_report=sections.get("blind_spot_self_report", "").strip(),
+    )
+
+
+# ---------- runner ----------
+
+
+class InterpretivePassError(RuntimeError):
+    """Raised when the primary interpretive pass fails end-to-end:
+    Claude CLI call errored, response was empty, or markdown couldn't
+    be parsed into a `ParsedVerdict`. Caller (orchestrator) catches
+    and surfaces the underlying cause."""
+
+
+@dataclass
+class InterpretivePassResult:
+    """Outcome of one full primary-pass run. Carries the parsed
+    verdict alongside the metadata the snapshot needs to record what
+    produced it (prompt version + model id + cost + duration).
+
+    Snapshot persistence depends on these fields — keep the names
+    stable across v8.E commits.
+    """
+    verdict: ParsedVerdict
+    rendered_prompt: str        # full text sent to the LLM (for audit)
+    prompt_version: str         # "v1" — matches niche_evaluation_v1.md
+    model_id: str               # claude CLI doesn't always report this;
+                                # default to "claude-cli" when unknown
+    cost_usd: float
+    duration_s: float
+
+
+def run_primary_pass(
+    cluster: dict,
+    *,
+    operator_profile: OperatorProfile | None = None,
+    cwd: Path | None = None,
+    budget_usd: float = DEFAULT_BUDGET_USD,
+    timeout_s: int = DEFAULT_TIMEOUT_S,
+    claude_runner=None,
+) -> InterpretivePassResult:
+    """End-to-end orchestration of the primary interpretive pass.
+
+    Sequence:
+      1. `build_payload(cluster, operator_profile)`  → structured dict
+      2. `render_primary_prompt(payload, operator_profile)`  → str
+      3. `run_claude_text(prompt, cwd=...)`  → ClaudeTextResult
+      4. `parse_verdict(result.text)`  → ParsedVerdict
+
+    Returns `InterpretivePassResult` carrying the parsed verdict plus
+    the rendered prompt (for snapshot audit), prompt version, model
+    id, cost, and duration.
+
+    Raises `InterpretivePassError` when:
+      - Claude CLI returns ok=False (missing binary, timeout, quota
+        exhausted, etc.) — the `ClaudeTextResult.error` is wrapped
+        verbatim so the operator sees the real cause.
+      - The response can't be parsed into a `ParsedVerdict` (the
+        underlying `VerdictParseError` is wrapped).
+
+    `cwd` defaults to the project root; only matters if Claude tries
+    to read any files (with `--allowedTools ""` it shouldn't, but
+    `run_claude_text` requires a cwd argument).
+
+    `claude_runner` is a seam for testing — production callers leave
+    it None and get `run_claude_text`. Tests inject a stub that
+    returns canned markdown without invoking the real subprocess.
+    """
+    payload = build_payload(cluster, operator_profile=operator_profile)
+    rendered_prompt = render_primary_prompt(
+        payload, operator_profile=operator_profile,
+    )
+
+    runner = claude_runner if claude_runner is not None else run_claude_text
+    cwd = cwd if cwd is not None else Path(".")
+    cli_result: ClaudeTextResult = runner(
+        rendered_prompt, cwd=cwd,
+        budget_usd=budget_usd, timeout_s=timeout_s,
+    )
+    if not cli_result.ok:
+        raise InterpretivePassError(
+            f"Claude CLI call failed ({cli_result.error}). "
+            f"Cost so far: ${cli_result.cost_usd:.4f}, "
+            f"duration: {cli_result.duration_s:.1f}s."
+        )
+
+    try:
+        verdict = parse_verdict(cli_result.text)
+    except VerdictParseError as e:
+        raise InterpretivePassError(
+            f"Could not parse LLM response: {e}"
+        ) from e
+
+    return InterpretivePassResult(
+        verdict=verdict,
+        rendered_prompt=rendered_prompt,
+        prompt_version=PRIMARY_PROMPT_VERSION,
+        # `run_claude_text` doesn't currently surface the model id from
+        # the CLI's JSON envelope; "claude-cli" is the honest placeholder
+        # so snapshots record "this came from the subprocess" rather
+        # than pretending to know a specific revision.
+        model_id="claude-cli",
+        cost_usd=cli_result.cost_usd,
+        duration_s=cli_result.duration_s,
     )
