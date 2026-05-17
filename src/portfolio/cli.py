@@ -3756,10 +3756,100 @@ def new_research(
         except OSError as e:
             console.print(f"[dim]warn: could not persist gates: {e}[/]")
 
+    # v8.I — primary interpretive pass.
+    # Runs only on a fresh-gates pass (or when the cached snapshot
+    # lacks a primary verdict). Skips on cache hits that already
+    # carry a `primary_verdict` — the operator paid the ~5-15s on the
+    # previous run, no need to re-pay. Failure is non-fatal: the
+    # mechanical verdict above is still useful on its own.
+    cache_has_primary = (
+        payload.get("from_cache") and payload.get("primary_verdict")
+    )
+    if not cache_has_primary:
+        _run_primary_interpretive_pass(topic, payload, console=console)
+
     if json_out:
         _render_serp_json(payload)
     else:
         _render_research_v2_full(payload, console)
+
+
+def _run_primary_interpretive_pass(topic: str, payload: dict, *, console) -> None:
+    """Wire `run_primary_pass` into the research flow.
+
+    Loads the operator profile from `sites/portfolio/lamill.toml`,
+    runs the primary pass, persists the parsed verdict + metadata
+    into the cluster snapshot. Mutates `payload` in place so the
+    downstream renderer picks it up.
+
+    Non-fatal on failure — `claude` CLI absent / timeout / quota
+    exhausted / unparseable response all log a yellow warning and
+    let the rest of the command continue. The mechanical v8.D
+    verdict above is still valuable on its own.
+    """
+    from pathlib import Path
+    from .interpretive_pass import (
+        InterpretivePassError, run_primary_pass,
+    )
+    from .operator_profile import load_operator_profile
+    from .research_v2 import save_cluster_snapshot
+
+    profile = load_operator_profile()
+
+    console.print(
+        "[cyan]Running primary interpretive pass (Claude CLI subprocess)..."
+        "[/] [dim](~5-15s, no API cost)[/]"
+    )
+    try:
+        result = run_primary_pass(
+            payload, operator_profile=profile, cwd=Path("."),
+        )
+    except InterpretivePassError as e:
+        console.print(f"[yellow]  ✗ Interpretive pass skipped: {e}[/]")
+        return
+
+    # Persist the parsed verdict as a flat dict so JSON output +
+    # downstream consumers don't need to import the dataclass.
+    payload["primary_verdict"] = {
+        "verdict": result.verdict.verdict,
+        "confidence": result.verdict.confidence,
+        "reasoning": result.verdict.reasoning,
+        "moat_required": result.verdict.moat_required,
+        "moat_prompt": result.verdict.moat_prompt,
+        "reductions": result.verdict.reductions,
+        "operator_fit_warnings": result.verdict.operator_fit_warnings,
+        "blind_spot_self_report": result.verdict.blind_spot_self_report,
+    }
+    # Metadata kept under its own key — separates "what the LLM said"
+    # from "how / how-much it cost" for the snapshot reader.
+    payload["primary_pass_meta"] = {
+        "prompt_version": result.prompt_version,
+        "model_id": result.model_id,
+        "rendered_prompt": result.rendered_prompt,
+        "cost_usd": result.cost_usd,
+        "duration_s": result.duration_s,
+    }
+
+    console.print(
+        f"[green]  ✓ Interpretive verdict: {result.verdict.verdict} "
+        f"([{_confidence_color(result.verdict.confidence)}]"
+        f"{result.verdict.confidence}[/])[/] "
+        f"[dim](cost=${result.cost_usd:.4f}, "
+        f"duration={result.duration_s:.1f}s)[/]"
+    )
+
+    try:
+        save_cluster_snapshot(topic, payload)
+    except OSError as e:
+        console.print(f"[dim]warn: could not persist interpretive verdict: {e}[/]")
+
+
+def _confidence_color(confidence: str) -> str:
+    """HIGH → green, MEDIUM → yellow, LOW → red. Used by the
+    interpretive-verdict header line + the rich render."""
+    return {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}.get(
+        confidence, "white",
+    )
 
 
 def _run_gates_with_prompt(cluster: dict, *, console,
@@ -3886,6 +3976,12 @@ def _render_research_v2_full(payload: dict, console) -> None:
     if "gates" in payload:
         _render_gates_block(payload, console)
 
+    # v8.I — primary interpretive verdict (Claude). Lands right after
+    # the mechanical gates so the operator reads both verdicts
+    # back-to-back; disagreement between them is the high-signal case.
+    if "primary_verdict" in payload:
+        _render_primary_verdict_block(payload, console)
+
     # Per-query SERP summaries
     for pq in per_query:
         q = pq.get("query", "?")
@@ -3941,6 +4037,103 @@ def _verdict_marker(verdict: str) -> str:
     if verdict == "NICHE-DOWN":
         return "[bold yellow]NICHE-DOWN[/]"
     return "[bold red]NO-GO[/]"
+
+
+_VERDICT_COLOR = {
+    "GO": "green",
+    "NICHE-DOWN": "yellow",
+    "NO-GO": "red",
+}
+
+
+def _render_primary_verdict_block(payload: dict, console) -> None:
+    """Render the v8.I primary interpretive verdict (Claude) block.
+
+    Format intentionally mirrors the v8.D mechanical-gates block above
+    it — same color palette for verdict / confidence, same indentation,
+    same "Verdict: <token>" header structure — so the reader can scan
+    both verdicts side-by-side without re-orienting. Disagreement
+    between the two verdicts is the high-signal case v8.J's audit pass
+    will dig into.
+
+    Renders only the populated fields. `moat_required=False`, empty
+    reductions list, empty operator_fit_warnings, etc. → those
+    subsections are skipped (matches the prompt's "leave empty when
+    X" convention).
+    """
+    pv = payload["primary_verdict"]
+    meta = payload.get("primary_pass_meta", {})
+
+    verdict = pv.get("verdict", "?")
+    confidence = pv.get("confidence", "?")
+    v_color = _VERDICT_COLOR.get(verdict, "white")
+    c_color = _confidence_color(confidence)
+
+    console.print()
+    console.print("  [bold cyan]Interpretive verdict (Claude)[/]")
+    cost = meta.get("cost_usd")
+    duration = meta.get("duration_s")
+    model = meta.get("model_id", "?")
+    prompt_ver = meta.get("prompt_version", "?")
+    if cost is not None and duration is not None:
+        console.print(
+            f"    [dim]source: {model} · prompt={prompt_ver} · "
+            f"cost=${cost:.4f} · duration={duration:.1f}s[/]"
+        )
+    console.print(
+        f"    [bold]Verdict:[/]    [{v_color}]{verdict}[/]"
+    )
+    console.print(
+        f"    [bold]Confidence:[/] [{c_color}]{confidence}[/]"
+    )
+
+    reasoning = (pv.get("reasoning") or "").strip()
+    if reasoning:
+        from textwrap import fill
+        wrapped = fill(reasoning, width=68, initial_indent="      ",
+                       subsequent_indent="      ")
+        console.print(f"    [bold]Reasoning:[/]")
+        console.print(wrapped)
+
+    moat_required = pv.get("moat_required")
+    if moat_required:
+        console.print(f"    [bold]Moat required:[/] [yellow]yes[/]")
+        moat_prompt = (pv.get("moat_prompt") or "").strip()
+        if moat_prompt:
+            console.print(f"    [dim]    {moat_prompt}[/]")
+
+    reductions = pv.get("reductions") or []
+    if reductions:
+        console.print(f"    [bold]Suggested reductions:[/]")
+        for i, r in enumerate(reductions, 1):
+            console.print(f"      {i}. {r}")
+
+    warnings = pv.get("operator_fit_warnings") or []
+    if warnings:
+        console.print(f"    [bold]Operator-fit warnings:[/]")
+        for w in warnings:
+            console.print(f"      [yellow]·[/] {w}")
+
+    blind_spot = (pv.get("blind_spot_self_report") or "").strip()
+    if blind_spot:
+        console.print(f"    [bold dim]Blind-spot self-report:[/]")
+        from textwrap import fill
+        wrapped = fill(blind_spot, width=68, initial_indent="      ",
+                       subsequent_indent="      ")
+        console.print(f"[dim]{wrapped}[/]")
+
+    # Disagreement callout — when Claude's verdict differs from the
+    # mechanical verdict above, the operator should look at both.
+    # v8.J will formalize this with the GPT-4o audit pass; for now,
+    # a one-line nudge keeps the disagreement visible.
+    mechanical = payload.get("verdict")
+    if mechanical and mechanical != verdict:
+        console.print(
+            f"    [yellow bold]⚠[/] [yellow]Disagreement with mechanical "
+            f"verdict ([bold]{mechanical}[/] vs Claude's "
+            f"[bold]{verdict}[/]). Both views above; read them carefully.[/]"
+        )
+    console.print()
 
 
 def _render_gates_block(payload: dict, console) -> None:
