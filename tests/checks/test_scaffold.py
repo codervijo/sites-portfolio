@@ -255,6 +255,68 @@ def test_check_027_warn_no_file(tmp_path):
     assert run_check("CHECK_027", str(tmp_path)).status == "warn"
 
 
+# CHECK_043 — claude-md-heading-hygiene
+
+def test_check_043_pass(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "CLAUDE.md").write_text(
+        "# CLAUDE\n\n## Project\nx\n\n## Heading hygiene\nrule\n"
+    )
+    assert run_check("CHECK_043", str(tmp_path)).status == "pass"
+
+
+def test_check_043_pass_numbered_prefix(tmp_path):
+    """Tolerates `## 1. Heading hygiene` like the catalog's other
+    section checks (CHECK_027 pattern)."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "CLAUDE.md").write_text(
+        "## 1. Heading hygiene\nbody\n"
+    )
+    assert run_check("CHECK_043", str(tmp_path)).status == "pass"
+
+
+def test_check_043_pass_case_insensitive(tmp_path):
+    """`## HEADING HYGIENE` and `## heading hygiene` also count."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "CLAUDE.md").write_text(
+        "## HEADING HYGIENE\nbody\n"
+    )
+    assert run_check("CHECK_043", str(tmp_path)).status == "pass"
+
+
+def test_check_043_fail_missing(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "CLAUDE.md").write_text(
+        "## Project\nstuff\n## Commands\nmake dev\n"
+    )
+    r = run_check("CHECK_043", str(tmp_path))
+    assert r.status == "fail"
+    assert "Heading hygiene" in r.message
+
+
+def test_check_043_warn_no_file(tmp_path):
+    assert run_check("CHECK_043", str(tmp_path)).status == "warn"
+
+
+def test_check_043_fix_tier_1_idempotent(tmp_path):
+    """The Tier 1 fixer appends `## Heading hygiene` once and is a
+    no-op on subsequent applies."""
+    from portfolio.checks.scaffold.check_043_claude_md_heading_hygiene import fix_tier_1
+
+    (tmp_path / "docs").mkdir()
+    target = tmp_path / "docs" / "CLAUDE.md"
+    target.write_text("## Project\nstuff\n")
+
+    # First apply: should write.
+    r1 = fix_tier_1.apply(tmp_path, dry_run=False, assume_yes=True)
+    assert r1.status == "fixed"
+    assert "Heading hygiene" in target.read_text()
+
+    # Second apply: nothing to do (section already present).
+    r2 = fix_tier_1.apply(tmp_path, dry_run=False, assume_yes=True)
+    assert r2.status == "nothing-to-do"
+
+
 def test_check_012_fail_no_makefile(tmp_path):
     assert run_check("CHECK_012", str(tmp_path)).status == "fail"
 

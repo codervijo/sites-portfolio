@@ -43,11 +43,25 @@ def test_docs_prd_md_has_required_sections():
 
 
 def test_docs_claude_md_has_required_sections():
-    """docs/CLAUDE.md scaffold must satisfy CHECK_026 (Project + Commands)."""
+    """docs/CLAUDE.md scaffold must satisfy CHECK_026 (Project + Commands)
+    and CHECK_043 (Heading hygiene)."""
     out = templates.docs_claude_md("kwizicle.com")
     assert "## Project" in out
     assert "## Commands" in out
+    assert "## Heading hygiene" in out
     assert "kwizicle.com" in out
+
+
+def test_claude_md_section_heading_hygiene_emitter_shape():
+    """The section emitter produces a standalone `## Heading hygiene`
+    block that the section-injection fixer can drop into an existing
+    docs/CLAUDE.md."""
+    out = templates.claude_md_section_heading_hygiene()
+    assert out.startswith("## Heading hygiene")
+    # The pre-edit ritual mentions the grep one-liner.
+    assert "grep -nE '^#+ '" in out
+    # The rationale call-out is present (otherwise the rule loses force).
+    assert "Why:" in out or "**Why" in out
 
 
 def test_docs_prompts_md_has_dated_h2():
