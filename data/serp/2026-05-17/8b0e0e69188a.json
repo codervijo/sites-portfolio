@@ -1,0 +1,54 @@
+{
+  "schema": "serp-query-v1",
+  "query": "ICP: RN/Expo developer or small-team CTO at a consumer app with California users",
+  "fetched_at": "2026-05-17T17:27:13.636801+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "expo.dev",
+      "url": "https://expo.dev/careers",
+      "title": "We Are Hiring!",
+      "snippet": "Build developer trust. Be dependable and help developers succeed through reliable products, thoughtful support, and steady execution.",
+      "displayed_link": "https://expo.dev \u203a careers"
+    },
+    {
+      "position": 2,
+      "domain": "linkedin.com",
+      "url": "https://www.linkedin.com/posts/amos-bar-joseph_can-claude-code-make-my-startup-irrelevant-activity-7441872000794484737-iUVQ",
+      "title": "Can Claude Code Make Swan AI Irrelevant?",
+      "snippet": "We've watched teams spend weeks trying to architect GTM context in Claude Code - ICP definitions, routing logic, outreach strategy, funnel ...",
+      "displayed_link": "160+ reactions \u00b7 1 month ago"
+    },
+    {
+      "position": 3,
+      "domain": "faolex.fao.org",
+      "url": "https://faolex.fao.org/docs/pdf/igad215169.pdf",
+      "title": "ICPALD - FAOLEX",
+      "snippet": "To address the issues and increase consumer consciousness on food safety and animal health problems,. IGAD/ICPALD, through a consultancy developed a regional ...",
+      "displayed_link": "https://faolex.fao.org \u203a docs \u203a pdf \u203a igad215169"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

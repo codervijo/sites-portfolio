@@ -1,0 +1,816 @@
+{
+  "schema": "research-cluster-v2",
+  "topic": "ICP: RN/Expo developer or small-team CTO at a consumer app with California users. Never dealt with age compliance before. Found the law via a legal email or Twitter. Will self-serve, will not talk to sales.",
+  "topic_normalized": "icp: rn/expo developer or small-team cto at a consumer app with california users. never dealt with age compliance before. found the law via a legal email or twitter. will self-serve, will not talk to sales.",
+  "topic_hash": "02c967560d14",
+  "fetched_at": "2026-05-17T17:27:31.150146+00:00",
+  "source": "serpapi",
+  "cluster_queries": [
+    "ICP: RN/Expo developer or small-team CTO at a consumer app with California users",
+    "California age compliance laws for apps",
+    "how to ensure age compliance in mobile apps",
+    "best practices for age verification in consumer apps",
+    "legal resources for app developers in California"
+  ],
+  "per_query_files": [
+    "2026-05-17/8b0e0e69188a.json",
+    "2026-05-17/8dbe55d3e307.json",
+    "2026-05-17/4a1b5d0a312c.json",
+    "2026-05-17/73c797ff8a7a.json",
+    "2026-05-17/e297de3346c2.json"
+  ],
+  "per_query_results": [
+    {
+      "schema": "serp-query-v1",
+      "query": "ICP: RN/Expo developer or small-team CTO at a consumer app with California users",
+      "fetched_at": "2026-05-17T17:27:13.636801+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "expo.dev",
+          "url": "https://expo.dev/careers",
+          "title": "We Are Hiring!",
+          "snippet": "Build developer trust. Be dependable and help developers succeed through reliable products, thoughtful support, and steady execution.",
+          "displayed_link": "https://expo.dev \u203a careers"
+        },
+        {
+          "position": 2,
+          "domain": "linkedin.com",
+          "url": "https://www.linkedin.com/posts/amos-bar-joseph_can-claude-code-make-my-startup-irrelevant-activity-7441872000794484737-iUVQ",
+          "title": "Can Claude Code Make Swan AI Irrelevant?",
+          "snippet": "We've watched teams spend weeks trying to architect GTM context in Claude Code - ICP definitions, routing logic, outreach strategy, funnel ...",
+          "displayed_link": "160+ reactions \u00b7 1 month ago"
+        },
+        {
+          "position": 3,
+          "domain": "faolex.fao.org",
+          "url": "https://faolex.fao.org/docs/pdf/igad215169.pdf",
+          "title": "ICPALD - FAOLEX",
+          "snippet": "To address the issues and increase consumer consciousness on food safety and animal health problems,. IGAD/ICPALD, through a consultancy developed a regional ...",
+          "displayed_link": "https://faolex.fao.org \u203a docs \u203a pdf \u203a igad215169"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "California age compliance laws for apps",
+      "fetched_at": "2026-05-17T17:27:14.872800+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "hunton.com",
+          "url": "https://www.hunton.com/privacy-and-cybersecurity-law-blog/california-introduces-new-age-verification-requirements-for-software-applications",
+          "title": "California Introduces New Age Verification Requirements ...",
+          "snippet": "Operating system providers must also (1) provide, upon a developer's request, a digital signal specifying the user's age bracket, (2) minimize ...",
+          "displayed_link": "https://www.hunton.com \u203a california-introduces-new-ag..."
+        },
+        {
+          "position": 2,
+          "domain": "mcneeslaw.com",
+          "url": "https://www.mcneeslaw.com/age-verification-laws-app-developers-compliance/",
+          "title": "State laws introduce age verification rules for app developers",
+          "snippet": "New state laws in California, Utah, Texas, and Louisiana require age verification for apps and app stores. Learn compliance steps, deadlines ...",
+          "displayed_link": "https://www.mcneeslaw.com \u203a age-verification-laws-ap..."
+        },
+        {
+          "position": 3,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/linux/comments/1rnf8nd/the_new_california_law_basically_mandates_having/",
+          "title": "The new California law basically mandates having age ...",
+          "snippet": "Since all apps are mandated to request an age signal upon launch every time, and all devices/OSs are required to make the user enter personal ...",
+          "displayed_link": "450+ comments \u00b7 2 months ago"
+        },
+        {
+          "position": 4,
+          "domain": "privacyanddatasecurityinsight.com",
+          "url": "https://www.privacyanddatasecurityinsight.com/2026/03/a-deeper-dive-into-californias-app-store-accountability-law/",
+          "title": "A Deeper Dive Into California's App Store Accountability Law",
+          "snippet": "If signals show that children 16+ use an app, a developer cannot simply state the app is \u201cnot meant/intended for children.\u201d Under this new law, ...",
+          "displayed_link": "https://www.privacyanddatasecurityinsight.com \u203a a-dee..."
+        },
+        {
+          "position": 5,
+          "domain": "tomshardware.com",
+          "url": "https://www.tomshardware.com/software/operating-systems/california-introduces-age-verification-law",
+          "title": "California introduces age verification law for all operating ...",
+          "snippet": "California introduces age verification law for all operating systems, including Linux and SteamOS \u2014 user age verified during OS account setup.",
+          "displayed_link": "https://www.tomshardware.com \u203a ... \u203a Operating Systems"
+        },
+        {
+          "position": 6,
+          "domain": "truevault.com",
+          "url": "https://www.truevault.com/learn/the-california-digital-age-assurance-act",
+          "title": "The California Digital Age Assurance Act",
+          "snippet": "California Governor Gavin Newsom signed AB 1043, known as the Digital Age Assurance Act (DAAA), into law in October 2025.",
+          "displayed_link": "https://www.truevault.com \u203a Resource Center"
+        },
+        {
+          "position": 7,
+          "domain": "apcp.assembly.ca.gov",
+          "url": "https://apcp.assembly.ca.gov/system/files/2025-04/ab-1043-wicks-apcp-analysis.pdf",
+          "title": "AB 1043 (Wicks)",
+          "snippet": "By focusing on age verification at the app store level rather than forcing individual platforms to implement their own systems, this legislation ...",
+          "displayed_link": "https://apcp.assembly.ca.gov \u203a system \u203a files \u203a ab-..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "What is the new age verification law in California?",
+          "What are the age restrictions for apps?",
+          "Is it illegal to be on social media under 18?",
+          "How do I turn off age restriction for apps on my iPhone?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 3
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "how to ensure age compliance in mobile apps",
+      "fetched_at": "2026-05-17T17:27:18.796237+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "developer.apple.com",
+          "url": "https://developer.apple.com/kids/",
+          "title": "Design safe and age-appropriate experiences",
+          "snippet": "Follow the App Review Guidelines: Ensure your app follows the App Review Guidelines. Kids apps must also comply with guideline 1.3 and guideline 5.1.4. Provide ...",
+          "displayed_link": "https://developer.apple.com \u203a kids"
+        },
+        {
+          "position": 2,
+          "domain": "bakerdatacounsel.com",
+          "url": "https://www.bakerdatacounsel.com/blogs/an-app-developers-guide-to-app-store-age-assurance-laws/",
+          "title": "An App Developer's Guide to App Store Age-Assurance Laws",
+          "snippet": "For example, apps targeting children under 13 must obtain parental consent for data collection and provide clear notices as required under COPPA ...",
+          "displayed_link": "https://www.bakerdatacounsel.com \u203a blogs \u203a an-app-de..."
+        },
+        {
+          "position": 3,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/mobiledev/comments/1qdvuhl/what_to_do_about_the_new_age_verification_laws/",
+          "title": "What to do about the new age verification laws for social ...",
+          "snippet": "Mainly Australia, but some US states are coming with it too. Every app that is counted as social media must then have a \"reasonable way\" to check the ...",
+          "displayed_link": "4 comments \u00b7 4 months ago"
+        },
+        {
+          "position": 4,
+          "domain": "android-developers.googleblog.com",
+          "url": "https://android-developers.googleblog.com/2024/12/build-high-quality-enagaing-age-appropriate-apps.html",
+          "title": "Four Tips to Help You Build High-Quality, Engaging, and ...",
+          "snippet": "Explore the latest updates, resources, and best practices to help developers build high-quality, engaging, and age-appropriate apps.",
+          "displayed_link": "https://android-developers.googleblog.com \u203a 2024/12"
+        },
+        {
+          "position": 5,
+          "domain": "median.co",
+          "url": "https://median.co/blog/new-age-verification-laws-2026",
+          "title": "App store age verification laws for Android & iOS apps",
+          "snippet": "Audit your push notifications, in-app messages, and email campaigns. Segment them by age brackets to ensure minors only receive age-appropriate ...",
+          "displayed_link": "https://median.co \u203a Blog"
+        },
+        {
+          "position": 6,
+          "domain": "stlouischildrens.org",
+          "url": "https://www.stlouischildrens.org/health-resources/pulse/app-safety-age-age",
+          "title": "App Safety, Age by Age",
+          "snippet": "Pick quality, educational apps, and use them with your children. Limit time spent playing with apps to one hour a day. Also, look over your device's settings ...",
+          "displayed_link": "https://www.stlouischildrens.org \u203a health-resources \u203a pulse"
+        },
+        {
+          "position": 7,
+          "domain": "linkedin.com",
+          "url": "https://www.linkedin.com/pulse/age-assurance-mobile-new-requirements-app-stores-eric-dorphy-cljkc",
+          "title": "Age Assurance on Mobile: New Requirements for App ...",
+          "snippet": "Developers are required to use the age-category and consent information provided by the platform and ensure their apps behave appropriately when ...",
+          "displayed_link": "10+ reactions \u00b7 5 months ago"
+        },
+        {
+          "position": 8,
+          "domain": "developer.android.com",
+          "url": "https://developer.android.com/google/play/age-signals/overview",
+          "title": "Play Age Signals overview",
+          "snippet": "This guide explains how to use the Play Age Signals API (beta) to retrieve age-related signals for users, notify Google Play of app changes requiring ...",
+          "displayed_link": "https://developer.android.com \u203a ... \u203a Play Age Signals"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "How do I put an age limit on apps?",
+          "How do apps verify age?",
+          "How to allow 18+ content in iOS 18 app?",
+          "How do I allow 17+ apps on my iPhone?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 3
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "best practices for age verification in consumer apps",
+      "fetched_at": "2026-05-17T17:27:23.262915+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "eff.org",
+          "url": "https://www.eff.org/deeplinks/2025/12/age-assurance-methods-explained",
+          "title": "Age Assurance Methods Explained",
+          "snippet": "An alternative proposed approach to declaring your own age, called device-bound age attestation, is to have you set your age on your operating ...",
+          "displayed_link": "https://www.eff.org \u203a deeplinks \u203a 2025/12 \u203a age-assura..."
+        },
+        {
+          "position": 2,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/privacy/comments/1rllhed/is_there_a_simple_way_to_do_age_verification/",
+          "title": "Is there a simple way to do age verification without harming ...",
+          "snippet": "When it comes to age verification, from the beginning there was one obvious way of doing it right: making a government website check it in a clean ...",
+          "displayed_link": "140+ comments \u00b7 2 months ago"
+        },
+        {
+          "position": 3,
+          "domain": "ahoikapptn.com",
+          "url": "https://ahoikapptn.com/en/blog/age-verification",
+          "title": "Age Verification in the USA: What to Consider from 2026",
+          "snippet": "Starting from January 1, 2026, all apps available for download or use in the USA must conduct age verification or obtain parental consent.",
+          "displayed_link": "https://ahoikapptn.com \u203a blog \u203a age-verification"
+        },
+        {
+          "position": 4,
+          "domain": "identity.clearme.com",
+          "url": "https://identity.clearme.com/post/simplifying-age-verification-for-businesses-and-consumers",
+          "title": "Simplifying Age Verification For Businesses and Consumers",
+          "snippet": "CLEAR Verified, the connected identity platform, offers comprehensive ID verification solutions that go beyond age estimation to definitively prove age.",
+          "displayed_link": "https://identity.clearme.com \u203a post \u203a simplifying-age-ve..."
+        },
+        {
+          "position": 5,
+          "domain": "regulaforensics.com",
+          "url": "https://regulaforensics.com/age-verification-hub/",
+          "title": "Age Verification Hub: Rules, Risks, and Best Practices",
+          "snippet": "A practical guide to age verification: key terms, global laws, risks, and how to implement compliant, low-friction age checks without harming privacy or UX.",
+          "displayed_link": "https://regulaforensics.com \u203a age-verification-hub"
+        },
+        {
+          "position": 6,
+          "domain": "linkedin.com",
+          "url": "https://www.linkedin.com/pulse/abcs-age-verification-united-states-1qlde",
+          "title": "The ABC's of Age Verification in the United States",
+          "snippet": "Parental consent would be required for users under 16, and apps must use this signal to filter or restrict mature content. Enforcement rests ...",
+          "displayed_link": "4 reactions \u00b7 3 months ago"
+        },
+        {
+          "position": 7,
+          "domain": "newamerica.org",
+          "url": "https://www.newamerica.org/insights/age-verification-the-complicated-effort-to-protect-youth-online/age-assurance-and-age-verification/",
+          "title": "Age Assurance and Age Verification",
+          "snippet": "Age-gating/age-screening, or asking a user to self attest their age through checking a box or inputting a date of birth to confirm they are or older than the ...",
+          "displayed_link": "https://www.newamerica.org \u203a insights \u203a age-assurance-..."
+        },
+        {
+          "position": 8,
+          "domain": "loeb.com",
+          "url": "https://www.loeb.com/-/media/files/pdfs/2025-pdfs/client-alerts/app-store-age-verification-laws-trigger-new-federal-and-state-childrens-privacy-requirements.pdf?rev=b4658f8bc96b46069c1133138e84a9a6&hash=547DFEF2A8A84F6A1D6DEB991E6B0980",
+          "title": "app-store-age-verification-laws-trigger-new-federal-and- ...",
+          "snippet": "Below is an overview of the requirements and legal implications of these new laws for app developers, along with guidance for some best practices on how to ...",
+          "displayed_link": "https://www.loeb.com \u203a 2025-pdfs \u203a client-alerts"
+        },
+        {
+          "position": 9,
+          "domain": "prove.com",
+          "url": "https://www.prove.com/blog/approaches-to-the-complex-issue-of-age-verification",
+          "title": "Approaches to the Complex Issue of Age Verification",
+          "snippet": "Effective age verification is essential to prevent minors from accessing harmful content and services, ensuring compliance with evolving regulations, and ...",
+          "displayed_link": "https://www.prove.com \u203a blog \u203a approaches-to-the-com..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "What is the best age verification method?",
+          "How do apps verify age?",
+          "How to confirm 18+ on iPhone without credit card?",
+          "What apps are doing age verification?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 2
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "legal resources for app developers in California",
+      "fetched_at": "2026-05-17T17:27:31.149835+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "atlassian.com",
+          "url": "https://www.atlassian.com/blog/development/ccpa-101-for-app-developers",
+          "title": "California Consumer Privacy Act (CCPA) 101 for app ...",
+          "snippet": "Your obligations under the CCPA will depend on whether you are acting as a \u201cbusiness\u201d, \u201cservice provider\u201d, \u201cthird party\u201d or \u201ccontractor\u201d with ...",
+          "displayed_link": "https://www.atlassian.com \u203a ccpa-101-for-app-developers"
+        },
+        {
+          "position": 2,
+          "domain": "vondranlegal.com",
+          "url": "https://www.vondranlegal.com/mobile-app-services",
+          "title": "Mobile App Services",
+          "snippet": "Vondran Legal\u00ae Mobile Application Services\u2014Contracts, Terms of Use and Intellectual Property Protection. Call us at (877) 276-5084. California mobile app law ...",
+          "displayed_link": "https://www.vondranlegal.com \u203a mobile-app-services"
+        },
+        {
+          "position": 3,
+          "domain": "patentlawip.com",
+          "url": "https://patentlawip.com/practice-areas/internet-law/video-game-and-app-law/",
+          "title": "Legal Services for Video Game & App Developers",
+          "snippet": "Expert legal services for video game and app devs. We handle complex IP disputes, licensing agreements, and more so you can focus on building your next big ...",
+          "displayed_link": "https://patentlawip.com \u203a Practice Areas \u203a Internet Law"
+        },
+        {
+          "position": 4,
+          "domain": "atrizadeh.com",
+          "url": "https://www.atrizadeh.com/website-and-mobile-application-development.html",
+          "title": "Website and Mobile Application Development",
+          "snippet": "We will protect your intellectual property by drafting the relevant legal documents such as website, application, and software development agreements. These ...",
+          "displayed_link": "https://www.atrizadeh.com \u203a Practice Areas \u203a Internet Law"
+        },
+        {
+          "position": 5,
+          "domain": "mcneeslaw.com",
+          "url": "https://www.mcneeslaw.com/age-verification-laws-app-developers-compliance/",
+          "title": "State laws introduce age verification rules for app developers",
+          "snippet": "New state laws in California, Utah, Texas, and Louisiana require age verification for apps and app stores. Learn compliance steps, deadlines ...",
+          "displayed_link": "https://www.mcneeslaw.com \u203a age-verification-laws-ap..."
+        },
+        {
+          "position": 6,
+          "domain": "calosba.ca.gov",
+          "url": "https://calosba.ca.gov/wp-content/uploads/BQSG_SOFTWARE_MOBILE-APP-DEVELOPER.pdf",
+          "title": "Business Quick Start Guide Software and Mobile App Developer",
+          "snippet": "California Secretary of State (SOS) Filing \u2013 Not necessary for sole proprietors, but if you intend to form a corporation, limited liability company, or ...",
+          "displayed_link": "https://calosba.ca.gov \u203a wp-content \u203a uploads"
+        },
+        {
+          "position": 7,
+          "domain": "flurry.com",
+          "url": "https://www.flurry.com/ccpa-compliance-guide/",
+          "title": "CCPA Compliance Guide for App Developers",
+          "snippet": "To help the mobile app development community meet CCPA compliance, Flurry put together this guide to help clear up the common misperceptions among mobile ...",
+          "displayed_link": "https://www.flurry.com \u203a ccpa-compliance-guide"
+        },
+        {
+          "position": 8,
+          "domain": "content.next.westlaw.com",
+          "url": "https://content.next.westlaw.com/practical-law/document/If98aaf6e1c9011e38578f7ccc38dcbee/Mobile-App-Development-Key-Legal-Considerations?viewType=FullText&transitionType=Default&contextData=(sc.Default)",
+          "title": "Mobile App Development: Key Legal Considerations - Westlaw",
+          "snippet": "A discussion of key legal issues companies should consider and address when developing and distributing mobile applications (apps) for download by end users.",
+          "displayed_link": "https://content.next.westlaw.com \u203a document \u203a Mobile-..."
+        },
+        {
+          "position": 9,
+          "domain": "gdnlaw.com",
+          "url": "https://www.gdnlaw.com/practice-areas/app-gaming/",
+          "title": "Legal Services for App Developers - Audio/Voice Assistant ...",
+          "snippet": "Our firm has a focus in the legal aspects of the development, marketing and licensing of apps and video games.",
+          "displayed_link": "https://www.gdnlaw.com \u203a Practice Areas"
+        },
+        {
+          "position": 10,
+          "domain": "kleinmoynihan.com",
+          "url": "https://kleinmoynihan.com/california-to-require-mobile-app-developers-to-post-privacy-policies-2/",
+          "title": "California to Require Mobile App Developers to Post ...",
+          "snippet": "Whereas California's Online Privacy Protection Act (OPPA) expressly requires operators of websites to post privacy policies where those websites collect any ...",
+          "displayed_link": "https://kleinmoynihan.com \u203a Blog"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "Can you sue an app developer?",
+          "What is the 80/20 rule for lawyers?",
+          "How to create mobile apps that make $3,000 a day?",
+          "How to protect intellectual property for an app?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": false
+        }
+      }
+    }
+  ],
+  "fetch_errors": [],
+  "from_cache": false,
+  "gates": {
+    "gate_1_market": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "530 SV/month after pollution adjustment (LLM estimate, low-confidence)",
+        "1 of 5 queries polluted (top-3 titles don't match cluster topic)"
+      ],
+      "raw": {
+        "pollution_adjusted_volume": 530,
+        "total_volume": 580,
+        "polluted_queries": [
+          "ICP: RN/Expo developer or small-team CTO at a consumer app with California users"
+        ],
+        "unpolluted_queries": [
+          "California age compliance laws for apps",
+          "how to ensure age compliance in mobile apps",
+          "best practices for age verification in consumer apps",
+          "legal resources for app developers in California"
+        ],
+        "per_query_volumes": {
+          "ICP: RN/Expo developer or small-team CTO at a consumer app with California users": 50,
+          "California age compliance laws for apps": 200,
+          "how to ensure age compliance in mobile apps": 150,
+          "best practices for age verification in consumer apps": 100,
+          "legal resources for app developers in California": 80
+        },
+        "topic_stems": [
+          "age",
+          "app",
+          "before",
+          "california",
+          "compliance",
+          "consum",
+          "cto",
+          "dealt",
+          "develop",
+          "email",
+          "expo",
+          "found",
+          "icp",
+          "law",
+          "legal",
+          "nev",
+          "not",
+          "rn",
+          "sal",
+          "self",
+          "serve",
+          "small",
+          "talk",
+          "team",
+          "twitt",
+          "user",
+          "via",
+          "will"
+        ],
+        "threshold": 5000,
+        "synthesis_only": false
+      }
+    },
+    "gate_2_serp": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "specialty incumbent: privacyanddatasecurityinsight.com (1 queries, programmatic URLs)",
+        "specialty incumbent: android-developers.googleblog.com (1 queries, programmatic URLs)",
+        "specialty incumbent: eff.org (1 queries, programmatic URLs)",
+        "programmatic at scale: linkedin.com (3/5 queries)",
+        "programmatic at scale: reddit.com (3/5 queries)",
+        "AI Overview dominant: 5/5 queries",
+        "Reddit present: 3/5 queries (discussion intent locked)",
+        "26 potentially beatable results"
+      ],
+      "raw": {
+        "classifications": {
+          "specialty_incumbent": {
+            "present": true,
+            "incumbents": {
+              "privacyanddatasecurityinsight.com": [
+                "California age compliance laws for apps"
+              ],
+              "android-developers.googleblog.com": [
+                "how to ensure age compliance in mobile apps"
+              ],
+              "eff.org": [
+                "best practices for age verification in consumer apps"
+              ]
+            }
+          },
+          "programmatic_at_scale": {
+            "present": true,
+            "incumbents": {
+              "linkedin.com": [
+                "ICP: RN/Expo developer or small-team CTO at a consumer app with California users",
+                "best practices for age verification in consumer apps",
+                "how to ensure age compliance in mobile apps"
+              ],
+              "reddit.com": [
+                "California age compliance laws for apps",
+                "best practices for age verification in consumer apps",
+                "how to ensure age compliance in mobile apps"
+              ]
+            }
+          },
+          "ai_overview_dominant": {
+            "dominant": true,
+            "queries": [
+              "ICP: RN/Expo developer or small-team CTO at a consumer app with California users",
+              "California age compliance laws for apps",
+              "how to ensure age compliance in mobile apps",
+              "best practices for age verification in consumer apps",
+              "legal resources for app developers in California"
+            ],
+            "count": 5
+          },
+          "media_locked": {
+            "locked": false,
+            "queries": {
+              "California age compliance laws for apps": [
+                "tomshardware.com"
+              ]
+            },
+            "count": 1,
+            "verticals": [
+              "tech"
+            ]
+          },
+          "reddit_present": {
+            "present": true,
+            "queries": [
+              "California age compliance laws for apps",
+              "how to ensure age compliance in mobile apps",
+              "best practices for age verification in consumer apps"
+            ]
+          },
+          "potentially_beatable": {
+            "count": 26,
+            "domains": [
+              {
+                "domain": "expo.dev",
+                "query": "ICP: RN/Expo developer or small-team CTO at a consumer app with California users",
+                "title": "We Are Hiring!"
+              },
+              {
+                "domain": "faolex.fao.org",
+                "query": "ICP: RN/Expo developer or small-team CTO at a consumer app with California users",
+                "title": "ICPALD - FAOLEX"
+              },
+              {
+                "domain": "hunton.com",
+                "query": "California age compliance laws for apps",
+                "title": "California Introduces New Age Verification Requirements ..."
+              },
+              {
+                "domain": "mcneeslaw.com",
+                "query": "California age compliance laws for apps",
+                "title": "State laws introduce age verification rules for app developers"
+              },
+              {
+                "domain": "truevault.com",
+                "query": "California age compliance laws for apps",
+                "title": "The California Digital Age Assurance Act"
+              },
+              {
+                "domain": "apcp.assembly.ca.gov",
+                "query": "California age compliance laws for apps",
+                "title": "AB 1043 (Wicks)"
+              },
+              {
+                "domain": "developer.apple.com",
+                "query": "how to ensure age compliance in mobile apps",
+                "title": "Design safe and age-appropriate experiences"
+              },
+              {
+                "domain": "bakerdatacounsel.com",
+                "query": "how to ensure age compliance in mobile apps",
+                "title": "An App Developer's Guide to App Store Age-Assurance Laws"
+              },
+              {
+                "domain": "median.co",
+                "query": "how to ensure age compliance in mobile apps",
+                "title": "App store age verification laws for Android & iOS apps"
+              },
+              {
+                "domain": "stlouischildrens.org",
+                "query": "how to ensure age compliance in mobile apps",
+                "title": "App Safety, Age by Age"
+              },
+              {
+                "domain": "developer.android.com",
+                "query": "how to ensure age compliance in mobile apps",
+                "title": "Play Age Signals overview"
+              },
+              {
+                "domain": "ahoikapptn.com",
+                "query": "best practices for age verification in consumer apps",
+                "title": "Age Verification in the USA: What to Consider from 2026"
+              },
+              {
+                "domain": "identity.clearme.com",
+                "query": "best practices for age verification in consumer apps",
+                "title": "Simplifying Age Verification For Businesses and Consumers"
+              },
+              {
+                "domain": "regulaforensics.com",
+                "query": "best practices for age verification in consumer apps",
+                "title": "Age Verification Hub: Rules, Risks, and Best Practices"
+              },
+              {
+                "domain": "newamerica.org",
+                "query": "best practices for age verification in consumer apps",
+                "title": "Age Assurance and Age Verification"
+              },
+              {
+                "domain": "loeb.com",
+                "query": "best practices for age verification in consumer apps",
+                "title": "app-store-age-verification-laws-trigger-new-federal-and- ..."
+              },
+              {
+                "domain": "prove.com",
+                "query": "best practices for age verification in consumer apps",
+                "title": "Approaches to the Complex Issue of Age Verification"
+              },
+              {
+                "domain": "atlassian.com",
+                "query": "legal resources for app developers in California",
+                "title": "California Consumer Privacy Act (CCPA) 101 for app ..."
+              },
+              {
+                "domain": "vondranlegal.com",
+                "query": "legal resources for app developers in California",
+                "title": "Mobile App Services"
+              },
+              {
+                "domain": "patentlawip.com",
+                "query": "legal resources for app developers in California",
+                "title": "Legal Services for Video Game & App Developers"
+              },
+              {
+                "domain": "atrizadeh.com",
+                "query": "legal resources for app developers in California",
+                "title": "Website and Mobile Application Development"
+              },
+              {
+                "domain": "calosba.ca.gov",
+                "query": "legal resources for app developers in California",
+                "title": "Business Quick Start Guide Software and Mobile App Developer"
+              },
+              {
+                "domain": "flurry.com",
+                "query": "legal resources for app developers in California",
+                "title": "CCPA Compliance Guide for App Developers"
+              },
+              {
+                "domain": "content.next.westlaw.com",
+                "query": "legal resources for app developers in California",
+                "title": "Mobile App Development: Key Legal Considerations - Westlaw"
+              },
+              {
+                "domain": "gdnlaw.com",
+                "query": "legal resources for app developers in California",
+                "title": "Legal Services for App Developers - Audio/Voice Assistant ..."
+              },
+              {
+                "domain": "kleinmoynihan.com",
+                "query": "legal resources for app developers in California",
+                "title": "California to Require Mobile App Developers to Post ..."
+              }
+            ]
+          }
+        },
+        "kill_tier_reasons": [
+          "specialty_incumbent",
+          "programmatic_at_scale"
+        ],
+        "synthesis_only": false
+      }
+    },
+    "gate_3_moat": {
+      "passed": true,
+      "label": "PASS",
+      "findings": [
+        "moat acknowledged",
+        "\"age verification SDK\""
+      ],
+      "raw": {
+        "required": true,
+        "moat_sentence": "age verification SDK"
+      }
+    }
+  },
+  "operator_fit": {
+    "warnings": [],
+    "auto_fail_gate_2": false
+  },
+  "verdict": "NO-GO",
+  "suggested_reductions": [],
+  "moat_required": true,
+  "moat_provided": "age verification SDK",
+  "primary_verdict": {
+    "verdict": "NO-GO",
+    "confidence": "HIGH",
+    "reasoning": "This is a legal-compliance cluster dressed up as a developer-tools cluster, and the SERP makes that brutally clear. The top-3 for \"California age compliance laws for apps\" is hunton.com, mcneeslaw.com, and a Reddit thread \u2014 two BigLaw/specialty privacy firms followed by community discussion. The \"best practices\" query is owned by EFF (a policy NGO with massive topical authority) plus Reddit at position 2. \"Legal resources for app developers in California\" returns a wall of actual California law firms (vondranlegal, patentlawip, atrizadeh, gdnlaw, kleinmoynihan) competing for billable-hour leads. The operator's expertise stack \u2014 SEO/programmatic content, Python CLI tooling, domain portfolio management \u2014 has zero overlap with privacy law, age-assurance cryptography, or app-store compliance frameworks. There is no path where a builder-mode operator with no legal background out-ranks Hunton Andrews Kurth on a privacy law topic.\n\nGate 2 is correctly screaming. AI Overview is present on 5/5 queries with no cited domains visible, which means Google is synthesizing the answer in-pane and starving downstream CTR even for the ranked results. Reddit cards sit at positions 2\u20133 on three queries, locking discussion intent. Specialty incumbents appear on three of the five queries (privacyanddatasecurityinsight.com, android-developers.googleblog.com, eff.org), and developer.apple.com + developer.android.com own the \"how to comply\" surface \u2014 those are the actual sources of truth for the App Store Accountability Law (AB 1043) implementation, and nothing the operator builds replaces reading them. Gate 1 also fails at 530 SV/month post-pollution; this is a regulatory micro-niche, not a search market.\n\nThe Gate 3 \"moat\" \u2014 \"age verification SDK\" \u2014 is a product, not a content moat, and it's also unfalsifiable as stated. ClearMe, Prove, Regula, and TrueVault are well-funded incumbents in that exact category with enterprise sales motions, identity infrastructure, and existing compliance certifications. A solo builder shipping an \"age verification SDK\" against that field in a regulated space (where buyers need contractual indemnification, SOC 2, and legal sign-off) is a multi-year venture-scale play, not a sites/* weekly-cadence shipping target. The cluster is also fundamentally a \"find a lawyer\" / \"read the statute\" SERP \u2014 the operator's wheelhouse (programmatic content, domain portfolios) cannot compete here, and even a tool wedge collides with mature identity-vendor incumbents.\n\nA niche-down isn't rescuable either: the only sub-wedges (a free statute tracker, an AB 1043 deadline checker, a compliance checklist generator) all live downstream of EFF, Apple, Google, and the law firms \u2014 and AI Overview eats those queries before any click happens. Weekly motivation on a topic where the law itself moves quarterly and Google answers in-pane means the operator dies before traffic compounds.",
+    "moat_required": true,
+    "moat_prompt": "",
+    "reductions": [],
+    "operator_fit_warnings": [
+      "Expertise mismatch: privacy law / age-assurance / identity SDKs do not overlap with the operator's SEO + Python CLI + domain portfolio stack. Top results are law firms and identity-vendor incumbents.",
+      "Cadence mismatch: AI Overview present on 5/5 queries with no cited domains starves CTR; weekly motivation cadence will burn out before any compounding traffic materializes on a sub-1k SV regulatory micro-niche.",
+      "Workflow mismatch: \"builder\" preference is misaligned with a SERP that rewards either (a) law-firm authority content or (b) enterprise identity-vendor SDKs with compliance certifications \u2014 neither is a single-builder weekend shape."
+    ],
+    "blind_spot_self_report": "I treated the moat sentence \"age verification SDK\" as unserious without pressing whether the operator might be planning a thin developer-experience wrapper (e.g., an Expo/RN plugin around Apple's Declared Age Range + Google Play Age Signals APIs) rather than a real identity SDK \u2014 that narrower wedge could be more defensible than I gave credit for, though it still collides with developer.apple.com and developer.android.com owning the canonical surface. I also weighted AI Overview presence heavily without confirming whether cited_domains being empty reflects actual Google behavior or a scraping limitation in the payload."
+  },
+  "primary_pass_meta": {
+    "prompt_version": "v1",
+    "model_id": "claude-cli",
+    "rendered_prompt": "You are a niche analyst evaluating a SERP cluster for a personal\nportfolio operator deciding whether to ship a new site. You are not a\nflattering assistant. You read the gate outputs (mechanical\nclassification produced by deterministic rules), AND you read the raw\nSERP results, AND you produce a qualitative verdict.\n\nThe mechanical gates are usually right. But they catch known patterns\nonly \u2014 they blow on edge cases. Your job is to use the raw SERP data\nto spot what the rules missed: programmatic URL patterns that don't\nquite match the regex library, intent misclassification when SERP\nfeatures contradict the surface signal, KD traps where keyword\ndifficulty looks low but the top-3 is structurally owned, moats that\nsound clever but are unfalsifiable.\n\nYou are evaluating for this operator:\n\n- Expertise: SEO and programmatic content, Python CLI tooling, Domain portfolio management\n- Workflow preference: builder\n- Motivation cadence: weekly\n\nWeight these constraints in your verdict. Examples:\n\n- A `builder` operator + a niche where SERP rewards listicle content\n  \u2192 NICHE-DOWN to the tool/data wedge, not GO on the content angle.\n- A `weekly` cadence + an evergreen-reference cluster (informational\n  intent, AI-Overview-dominant) \u2192 either NICHE-DOWN to a faster-\n  moving sub-niche or NO-GO. Niche metrics on settled-knowledge\n  topics move monthly+, and `weekly` motivation will die before\n  results show.\n- The expertise list is hard signal \u2014 if the cluster's primary topic\n  terms don't overlap with the operator's expertise and the SERP\n  rewards authority (institutional + media-publisher domains in\n  top-10), NICHE-DOWN is the correct call. GO on a no-overlap +\n  authority-rewarded cluster is almost always wrong.\n\nThe user message will carry a structured payload:\n\n```\n{\n  \"topic\": str,\n  \"cluster_queries\": list[str],\n  \"gates\": {\n    \"gate_1_market\": {...},\n    \"gate_2_serp\": {...},\n    \"gate_3_moat\": {...}\n  },\n  \"operator_fit\": {\n    \"warnings\": list[str],\n    \"auto_fail_gate_2\": bool\n  },\n  \"raw_top_10_per_query\": list[{\"query\": str, \"results\": list[{...}]}],\n  \"serp_features_per_query\": list[{\"query\": str, \"features\": {...}}]\n}\n```\n\nRead all of it. Don't skim. The gates summarize patterns; the raw\ntop-10 reveals what the gates couldn't classify.\n\nReturn your verdict in this exact markdown shape. Every required\nsection must be present. Missing the verdict, confidence, or reasoning\nfields is a hard parse error.\n\n### verdict\nGO | NICHE-DOWN | NO-GO\n\n### confidence\nHIGH | MEDIUM | LOW\n\n### reasoning\n2-4 paragraphs. Reference specific data from the payload \u2014 the\nSERPs, the gate findings, the operator profile. Don't be generic.\nConcrete observations beat abstract reasoning.\n\n### moat_required\ntrue | false\n\nSet true when Gate 2's SERP classification revealed a specialty\nincumbent or programmatic-at-scale competitor that needs an unfair-\nadvantage answer to overcome. Set false when the SERP is genuinely\nbeatable on execution.\n\n### moat_prompt\n[text shown to the operator if moat_required is true; the\noperator types a moat sentence next, which becomes Gate 3 input.\nLeave blank if moat_required is false. Format example:\n\"What's your unfair advantage over <incumbent>? Be specific \u2014\n'better content' is unfalsifiable, 'real-time pricing the\nincumbent's static templates can't match' is testable.\"]\n\n### reductions\n- [reduction 1: how to narrow this niche to make it shippable]\n- [reduction 2]\n- [reduction 3]\n\nOnly populate when verdict is NICHE-DOWN. Otherwise leave the list\nempty. Each reduction should be a concrete narrowing axis \u2014 drop a\nsub-segment, restrict to a geography, target a specific persona, focus\non one use-case, change depth (tool vs content, data vs explanation),\nor change moment (triggered vs evergreen).\n\n### operator_fit_warnings\n- [conflict 1 with operator profile, if any]\n- [conflict 2]\n\nPass through any operator-profile conflicts that contributed to your\nverdict \u2014 expertise mismatch, workflow mismatch, cadence mismatch.\nLeave empty when no conflicts apply.\n\n### blind_spot_self_report\n[1-3 sentences on what YOU might be missing. The audit pass will use\nthis against you, so be honest. Examples: \"I weighted Gate 2's PASS\nheavily, but didn't deeply verify the POTENTIALLY_BEATABLE domains\naren't templated.\" \"I assumed informational intent from query\nphrasing, but didn't cross-check SERP features.\"]\n\n\n---\n\nINPUT PAYLOAD (JSON):\n\n```json\n{\n  \"topic\": \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users. Never dealt with age compliance before. Found the law via a legal email or Twitter. Will self-serve, will not talk to sales.\",\n  \"cluster_queries\": [\n    \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\",\n    \"California age compliance laws for apps\",\n    \"how to ensure age compliance in mobile apps\",\n    \"best practices for age verification in consumer apps\",\n    \"legal resources for app developers in California\"\n  ],\n  \"gates\": {\n    \"gate_1_market\": {\n      \"passed\": false,\n      \"label\": \"FAIL\",\n      \"findings\": [\n        \"530 SV/month after pollution adjustment (LLM estimate, low-confidence)\",\n        \"1 of 5 queries polluted (top-3 titles don't match cluster topic)\"\n      ],\n      \"raw\": {\n        \"pollution_adjusted_volume\": 530,\n        \"total_volume\": 580,\n        \"polluted_queries\": [\n          \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\"\n        ],\n        \"unpolluted_queries\": [\n          \"California age compliance laws for apps\",\n          \"how to ensure age compliance in mobile apps\",\n          \"best practices for age verification in consumer apps\",\n          \"legal resources for app developers in California\"\n        ],\n        \"per_query_volumes\": {\n          \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\": 50,\n          \"California age compliance laws for apps\": 200,\n          \"how to ensure age compliance in mobile apps\": 150,\n          \"best practices for age verification in consumer apps\": 100,\n          \"legal resources for app developers in California\": 80\n        },\n        \"topic_stems\": [\n          \"age\",\n          \"app\",\n          \"before\",\n          \"california\",\n          \"compliance\",\n          \"consum\",\n          \"cto\",\n          \"dealt\",\n          \"develop\",\n          \"email\",\n          \"expo\",\n          \"found\",\n          \"icp\",\n          \"law\",\n          \"legal\",\n          \"nev\",\n          \"not\",\n          \"rn\",\n          \"sal\",\n          \"self\",\n          \"serve\",\n          \"small\",\n          \"talk\",\n          \"team\",\n          \"twitt\",\n          \"user\",\n          \"via\",\n          \"will\"\n        ],\n        \"threshold\": 5000,\n        \"synthesis_only\": false\n      }\n    },\n    \"gate_2_serp\": {\n      \"passed\": false,\n      \"label\": \"FAIL\",\n      \"findings\": [\n        \"specialty incumbent: privacyanddatasecurityinsight.com (1 queries, programmatic URLs)\",\n        \"specialty incumbent: android-developers.googleblog.com (1 queries, programmatic URLs)\",\n        \"specialty incumbent: eff.org (1 queries, programmatic URLs)\",\n        \"programmatic at scale: linkedin.com (3/5 queries)\",\n        \"programmatic at scale: reddit.com (3/5 queries)\",\n        \"AI Overview dominant: 5/5 queries\",\n        \"Reddit present: 3/5 queries (discussion intent locked)\",\n        \"26 potentially beatable results\"\n      ],\n      \"raw\": {\n        \"classifications\": {\n          \"specialty_incumbent\": {\n            \"present\": true,\n            \"incumbents\": {\n              \"privacyanddatasecurityinsight.com\": [\n                \"California age compliance laws for apps\"\n              ],\n              \"android-developers.googleblog.com\": [\n                \"how to ensure age compliance in mobile apps\"\n              ],\n              \"eff.org\": [\n                \"best practices for age verification in consumer apps\"\n              ]\n            }\n          },\n          \"programmatic_at_scale\": {\n            \"present\": true,\n            \"incumbents\": {\n              \"linkedin.com\": [\n                \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\",\n                \"best practices for age verification in consumer apps\",\n                \"how to ensure age compliance in mobile apps\"\n              ],\n              \"reddit.com\": [\n                \"California age compliance laws for apps\",\n                \"best practices for age verification in consumer apps\",\n                \"how to ensure age compliance in mobile apps\"\n              ]\n            }\n          },\n          \"ai_overview_dominant\": {\n            \"dominant\": true,\n            \"queries\": [\n              \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\",\n              \"California age compliance laws for apps\",\n              \"how to ensure age compliance in mobile apps\",\n              \"best practices for age verification in consumer apps\",\n              \"legal resources for app developers in California\"\n            ],\n            \"count\": 5\n          },\n          \"media_locked\": {\n            \"locked\": false,\n            \"queries\": {\n              \"California age compliance laws for apps\": [\n                \"tomshardware.com\"\n              ]\n            },\n            \"count\": 1,\n            \"verticals\": [\n              \"tech\"\n            ]\n          },\n          \"reddit_present\": {\n            \"present\": true,\n            \"queries\": [\n              \"California age compliance laws for apps\",\n              \"how to ensure age compliance in mobile apps\",\n              \"best practices for age verification in consumer apps\"\n            ]\n          },\n          \"potentially_beatable\": {\n            \"count\": 26,\n            \"domains\": [\n              {\n                \"domain\": \"expo.dev\",\n                \"query\": \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\",\n                \"title\": \"We Are Hiring!\"\n              },\n              {\n                \"domain\": \"faolex.fao.org\",\n                \"query\": \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\",\n                \"title\": \"ICPALD - FAOLEX\"\n              },\n              {\n                \"domain\": \"hunton.com\",\n                \"query\": \"California age compliance laws for apps\",\n                \"title\": \"California Introduces New Age Verification Requirements ...\"\n              },\n              {\n                \"domain\": \"mcneeslaw.com\",\n                \"query\": \"California age compliance laws for apps\",\n                \"title\": \"State laws introduce age verification rules for app developers\"\n              },\n              {\n                \"domain\": \"truevault.com\",\n                \"query\": \"California age compliance laws for apps\",\n                \"title\": \"The California Digital Age Assurance Act\"\n              },\n              {\n                \"domain\": \"apcp.assembly.ca.gov\",\n                \"query\": \"California age compliance laws for apps\",\n                \"title\": \"AB 1043 (Wicks)\"\n              },\n              {\n                \"domain\": \"developer.apple.com\",\n                \"query\": \"how to ensure age compliance in mobile apps\",\n                \"title\": \"Design safe and age-appropriate experiences\"\n              },\n              {\n                \"domain\": \"bakerdatacounsel.com\",\n                \"query\": \"how to ensure age compliance in mobile apps\",\n                \"title\": \"An App Developer's Guide to App Store Age-Assurance Laws\"\n              },\n              {\n                \"domain\": \"median.co\",\n                \"query\": \"how to ensure age compliance in mobile apps\",\n                \"title\": \"App store age verification laws for Android & iOS apps\"\n              },\n              {\n                \"domain\": \"stlouischildrens.org\",\n                \"query\": \"how to ensure age compliance in mobile apps\",\n                \"title\": \"App Safety, Age by Age\"\n              },\n              {\n                \"domain\": \"developer.android.com\",\n                \"query\": \"how to ensure age compliance in mobile apps\",\n                \"title\": \"Play Age Signals overview\"\n              },\n              {\n                \"domain\": \"ahoikapptn.com\",\n                \"query\": \"best practices for age verification in consumer apps\",\n                \"title\": \"Age Verification in the USA: What to Consider from 2026\"\n              },\n              {\n                \"domain\": \"identity.clearme.com\",\n                \"query\": \"best practices for age verification in consumer apps\",\n                \"title\": \"Simplifying Age Verification For Businesses and Consumers\"\n              },\n              {\n                \"domain\": \"regulaforensics.com\",\n                \"query\": \"best practices for age verification in consumer apps\",\n                \"title\": \"Age Verification Hub: Rules, Risks, and Best Practices\"\n              },\n              {\n                \"domain\": \"newamerica.org\",\n                \"query\": \"best practices for age verification in consumer apps\",\n                \"title\": \"Age Assurance and Age Verification\"\n              },\n              {\n                \"domain\": \"loeb.com\",\n                \"query\": \"best practices for age verification in consumer apps\",\n                \"title\": \"app-store-age-verification-laws-trigger-new-federal-and- ...\"\n              },\n              {\n                \"domain\": \"prove.com\",\n                \"query\": \"best practices for age verification in consumer apps\",\n                \"title\": \"Approaches to the Complex Issue of Age Verification\"\n              },\n              {\n                \"domain\": \"atlassian.com\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"California Consumer Privacy Act (CCPA) 101 for app ...\"\n              },\n              {\n                \"domain\": \"vondranlegal.com\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"Mobile App Services\"\n              },\n              {\n                \"domain\": \"patentlawip.com\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"Legal Services for Video Game & App Developers\"\n              },\n              {\n                \"domain\": \"atrizadeh.com\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"Website and Mobile Application Development\"\n              },\n              {\n                \"domain\": \"calosba.ca.gov\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"Business Quick Start Guide Software and Mobile App Developer\"\n              },\n              {\n                \"domain\": \"flurry.com\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"CCPA Compliance Guide for App Developers\"\n              },\n              {\n                \"domain\": \"content.next.westlaw.com\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"Mobile App Development: Key Legal Considerations - Westlaw\"\n              },\n              {\n                \"domain\": \"gdnlaw.com\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"Legal Services for App Developers - Audio/Voice Assistant ...\"\n              },\n              {\n                \"domain\": \"kleinmoynihan.com\",\n                \"query\": \"legal resources for app developers in California\",\n                \"title\": \"California to Require Mobile App Developers to Post ...\"\n              }\n            ]\n          }\n        },\n        \"kill_tier_reasons\": [\n          \"specialty_incumbent\",\n          \"programmatic_at_scale\"\n        ],\n        \"synthesis_only\": false\n      }\n    },\n    \"gate_3_moat\": {\n      \"passed\": true,\n      \"label\": \"PASS\",\n      \"findings\": [\n        \"moat acknowledged\",\n        \"\\\"age verification SDK\\\"\"\n      ],\n      \"raw\": {\n        \"required\": true,\n        \"moat_sentence\": \"age verification SDK\"\n      }\n    }\n  },\n  \"operator_fit\": {\n    \"warnings\": [],\n    \"auto_fail_gate_2\": false\n  },\n  \"operator_profile_summary\": \"Expertise: SEO and programmatic content, Python CLI tooling, Domain portfolio management. Workflow preference: builder. Motivation cadence: weekly.\",\n  \"raw_top_10_per_query\": [\n    {\n      \"query\": \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"expo.dev\",\n          \"url\": \"https://expo.dev/careers\",\n          \"title\": \"We Are Hiring!\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"linkedin.com\",\n          \"url\": \"https://www.linkedin.com/posts/amos-bar-joseph_can-claude-code-make-my-startup-irrelevant-activity-7441872000794484737-iUVQ\",\n          \"title\": \"Can Claude Code Make Swan AI Irrelevant?\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"faolex.fao.org\",\n          \"url\": \"https://faolex.fao.org/docs/pdf/igad215169.pdf\",\n          \"title\": \"ICPALD - FAOLEX\"\n        }\n      ]\n    },\n    {\n      \"query\": \"California age compliance laws for apps\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"hunton.com\",\n          \"url\": \"https://www.hunton.com/privacy-and-cybersecurity-law-blog/california-introduces-new-age-verification-requirements-for-software-applications\",\n          \"title\": \"California Introduces New Age Verification Requirements ...\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"mcneeslaw.com\",\n          \"url\": \"https://www.mcneeslaw.com/age-verification-laws-app-developers-compliance/\",\n          \"title\": \"State laws introduce age verification rules for app developers\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/linux/comments/1rnf8nd/the_new_california_law_basically_mandates_having/\",\n          \"title\": \"The new California law basically mandates having age ...\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"privacyanddatasecurityinsight.com\",\n          \"url\": \"https://www.privacyanddatasecurityinsight.com/2026/03/a-deeper-dive-into-californias-app-store-accountability-law/\",\n          \"title\": \"A Deeper Dive Into California's App Store Accountability Law\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"tomshardware.com\",\n          \"url\": \"https://www.tomshardware.com/software/operating-systems/california-introduces-age-verification-law\",\n          \"title\": \"California introduces age verification law for all operating ...\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"truevault.com\",\n          \"url\": \"https://www.truevault.com/learn/the-california-digital-age-assurance-act\",\n          \"title\": \"The California Digital Age Assurance Act\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"apcp.assembly.ca.gov\",\n          \"url\": \"https://apcp.assembly.ca.gov/system/files/2025-04/ab-1043-wicks-apcp-analysis.pdf\",\n          \"title\": \"AB 1043 (Wicks)\"\n        }\n      ]\n    },\n    {\n      \"query\": \"how to ensure age compliance in mobile apps\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"developer.apple.com\",\n          \"url\": \"https://developer.apple.com/kids/\",\n          \"title\": \"Design safe and age-appropriate experiences\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"bakerdatacounsel.com\",\n          \"url\": \"https://www.bakerdatacounsel.com/blogs/an-app-developers-guide-to-app-store-age-assurance-laws/\",\n          \"title\": \"An App Developer's Guide to App Store Age-Assurance Laws\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/mobiledev/comments/1qdvuhl/what_to_do_about_the_new_age_verification_laws/\",\n          \"title\": \"What to do about the new age verification laws for social ...\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"android-developers.googleblog.com\",\n          \"url\": \"https://android-developers.googleblog.com/2024/12/build-high-quality-enagaing-age-appropriate-apps.html\",\n          \"title\": \"Four Tips to Help You Build High-Quality, Engaging, and ...\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"median.co\",\n          \"url\": \"https://median.co/blog/new-age-verification-laws-2026\",\n          \"title\": \"App store age verification laws for Android & iOS apps\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"stlouischildrens.org\",\n          \"url\": \"https://www.stlouischildrens.org/health-resources/pulse/app-safety-age-age\",\n          \"title\": \"App Safety, Age by Age\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"linkedin.com\",\n          \"url\": \"https://www.linkedin.com/pulse/age-assurance-mobile-new-requirements-app-stores-eric-dorphy-cljkc\",\n          \"title\": \"Age Assurance on Mobile: New Requirements for App ...\"\n        },\n        {\n          \"position\": 8,\n          \"domain\": \"developer.android.com\",\n          \"url\": \"https://developer.android.com/google/play/age-signals/overview\",\n          \"title\": \"Play Age Signals overview\"\n        }\n      ]\n    },\n    {\n      \"query\": \"best practices for age verification in consumer apps\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"eff.org\",\n          \"url\": \"https://www.eff.org/deeplinks/2025/12/age-assurance-methods-explained\",\n          \"title\": \"Age Assurance Methods Explained\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/privacy/comments/1rllhed/is_there_a_simple_way_to_do_age_verification/\",\n          \"title\": \"Is there a simple way to do age verification without harming ...\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"ahoikapptn.com\",\n          \"url\": \"https://ahoikapptn.com/en/blog/age-verification\",\n          \"title\": \"Age Verification in the USA: What to Consider from 2026\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"identity.clearme.com\",\n          \"url\": \"https://identity.clearme.com/post/simplifying-age-verification-for-businesses-and-consumers\",\n          \"title\": \"Simplifying Age Verification For Businesses and Consumers\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"regulaforensics.com\",\n          \"url\": \"https://regulaforensics.com/age-verification-hub/\",\n          \"title\": \"Age Verification Hub: Rules, Risks, and Best Practices\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"linkedin.com\",\n          \"url\": \"https://www.linkedin.com/pulse/abcs-age-verification-united-states-1qlde\",\n          \"title\": \"The ABC's of Age Verification in the United States\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"newamerica.org\",\n          \"url\": \"https://www.newamerica.org/insights/age-verification-the-complicated-effort-to-protect-youth-online/age-assurance-and-age-verification/\",\n          \"title\": \"Age Assurance and Age Verification\"\n        },\n        {\n          \"position\": 8,\n          \"domain\": \"loeb.com\",\n          \"url\": \"https://www.loeb.com/-/media/files/pdfs/2025-pdfs/client-alerts/app-store-age-verification-laws-trigger-new-federal-and-state-childrens-privacy-requirements.pdf?rev=b4658f8bc96b46069c1133138e84a9a6&hash=547DFEF2A8A84F6A1D6DEB991E6B0980\",\n          \"title\": \"app-store-age-verification-laws-trigger-new-federal-and- ...\"\n        },\n        {\n          \"position\": 9,\n          \"domain\": \"prove.com\",\n          \"url\": \"https://www.prove.com/blog/approaches-to-the-complex-issue-of-age-verification\",\n          \"title\": \"Approaches to the Complex Issue of Age Verification\"\n        }\n      ]\n    },\n    {\n      \"query\": \"legal resources for app developers in California\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"atlassian.com\",\n          \"url\": \"https://www.atlassian.com/blog/development/ccpa-101-for-app-developers\",\n          \"title\": \"California Consumer Privacy Act (CCPA) 101 for app ...\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"vondranlegal.com\",\n          \"url\": \"https://www.vondranlegal.com/mobile-app-services\",\n          \"title\": \"Mobile App Services\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"patentlawip.com\",\n          \"url\": \"https://patentlawip.com/practice-areas/internet-law/video-game-and-app-law/\",\n          \"title\": \"Legal Services for Video Game & App Developers\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"atrizadeh.com\",\n          \"url\": \"https://www.atrizadeh.com/website-and-mobile-application-development.html\",\n          \"title\": \"Website and Mobile Application Development\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"mcneeslaw.com\",\n          \"url\": \"https://www.mcneeslaw.com/age-verification-laws-app-developers-compliance/\",\n          \"title\": \"State laws introduce age verification rules for app developers\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"calosba.ca.gov\",\n          \"url\": \"https://calosba.ca.gov/wp-content/uploads/BQSG_SOFTWARE_MOBILE-APP-DEVELOPER.pdf\",\n          \"title\": \"Business Quick Start Guide Software and Mobile App Developer\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"flurry.com\",\n          \"url\": \"https://www.flurry.com/ccpa-compliance-guide/\",\n          \"title\": \"CCPA Compliance Guide for App Developers\"\n        },\n        {\n          \"position\": 8,\n          \"domain\": \"content.next.westlaw.com\",\n          \"url\": \"https://content.next.westlaw.com/practical-law/document/If98aaf6e1c9011e38578f7ccc38dcbee/Mobile-App-Development-Key-Legal-Considerations?viewType=FullText&transitionType=Default&contextData=(sc.Default)\",\n          \"title\": \"Mobile App Development: Key Legal Considerations - Westlaw\"\n        },\n        {\n          \"position\": 9,\n          \"domain\": \"gdnlaw.com\",\n          \"url\": \"https://www.gdnlaw.com/practice-areas/app-gaming/\",\n          \"title\": \"Legal Services for App Developers - Audio/Voice Assistant ...\"\n        },\n        {\n          \"position\": 10,\n          \"domain\": \"kleinmoynihan.com\",\n          \"url\": \"https://kleinmoynihan.com/california-to-require-mobile-app-developers-to-post-privacy-policies-2/\",\n          \"title\": \"California to Require Mobile App Developers to Post ...\"\n        }\n      ]\n    }\n  ],\n  \"serp_features_per_query\": [\n    {\n      \"query\": \"ICP: RN/Expo developer or small-team CTO at a consumer app with California users\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": []\n        }\n      }\n    },\n    {\n      \"query\": \"California age compliance laws for apps\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": []\n        },\n        \"video_pack\": {\n          \"present\": true\n        },\n        \"reddit_card\": {\n          \"present\": true,\n          \"position\": 3\n        }\n      }\n    },\n    {\n      \"query\": \"how to ensure age compliance in mobile apps\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": []\n        },\n        \"video_pack\": {\n          \"present\": true\n        },\n        \"reddit_card\": {\n          \"present\": true,\n          \"position\": 3\n        }\n      }\n    },\n    {\n      \"query\": \"best practices for age verification in consumer apps\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": []\n        },\n        \"reddit_card\": {\n          \"present\": true,\n          \"position\": 2\n        }\n      }\n    },\n    {\n      \"query\": \"legal resources for app developers in California\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": []\n        }\n      }\n    }\n  ]\n}\n```",
+    "cost_usd": 0.185064,
+    "duration_s": 35.77
+  }
+}

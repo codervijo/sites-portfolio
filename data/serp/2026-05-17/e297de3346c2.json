@@ -1,0 +1,115 @@
+{
+  "schema": "serp-query-v1",
+  "query": "legal resources for app developers in California",
+  "fetched_at": "2026-05-17T17:27:31.149835+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "atlassian.com",
+      "url": "https://www.atlassian.com/blog/development/ccpa-101-for-app-developers",
+      "title": "California Consumer Privacy Act (CCPA) 101 for app ...",
+      "snippet": "Your obligations under the CCPA will depend on whether you are acting as a \u201cbusiness\u201d, \u201cservice provider\u201d, \u201cthird party\u201d or \u201ccontractor\u201d with ...",
+      "displayed_link": "https://www.atlassian.com \u203a ccpa-101-for-app-developers"
+    },
+    {
+      "position": 2,
+      "domain": "vondranlegal.com",
+      "url": "https://www.vondranlegal.com/mobile-app-services",
+      "title": "Mobile App Services",
+      "snippet": "Vondran Legal\u00ae Mobile Application Services\u2014Contracts, Terms of Use and Intellectual Property Protection. Call us at (877) 276-5084. California mobile app law ...",
+      "displayed_link": "https://www.vondranlegal.com \u203a mobile-app-services"
+    },
+    {
+      "position": 3,
+      "domain": "patentlawip.com",
+      "url": "https://patentlawip.com/practice-areas/internet-law/video-game-and-app-law/",
+      "title": "Legal Services for Video Game & App Developers",
+      "snippet": "Expert legal services for video game and app devs. We handle complex IP disputes, licensing agreements, and more so you can focus on building your next big ...",
+      "displayed_link": "https://patentlawip.com \u203a Practice Areas \u203a Internet Law"
+    },
+    {
+      "position": 4,
+      "domain": "atrizadeh.com",
+      "url": "https://www.atrizadeh.com/website-and-mobile-application-development.html",
+      "title": "Website and Mobile Application Development",
+      "snippet": "We will protect your intellectual property by drafting the relevant legal documents such as website, application, and software development agreements. These ...",
+      "displayed_link": "https://www.atrizadeh.com \u203a Practice Areas \u203a Internet Law"
+    },
+    {
+      "position": 5,
+      "domain": "mcneeslaw.com",
+      "url": "https://www.mcneeslaw.com/age-verification-laws-app-developers-compliance/",
+      "title": "State laws introduce age verification rules for app developers",
+      "snippet": "New state laws in California, Utah, Texas, and Louisiana require age verification for apps and app stores. Learn compliance steps, deadlines ...",
+      "displayed_link": "https://www.mcneeslaw.com \u203a age-verification-laws-ap..."
+    },
+    {
+      "position": 6,
+      "domain": "calosba.ca.gov",
+      "url": "https://calosba.ca.gov/wp-content/uploads/BQSG_SOFTWARE_MOBILE-APP-DEVELOPER.pdf",
+      "title": "Business Quick Start Guide Software and Mobile App Developer",
+      "snippet": "California Secretary of State (SOS) Filing \u2013 Not necessary for sole proprietors, but if you intend to form a corporation, limited liability company, or ...",
+      "displayed_link": "https://calosba.ca.gov \u203a wp-content \u203a uploads"
+    },
+    {
+      "position": 7,
+      "domain": "flurry.com",
+      "url": "https://www.flurry.com/ccpa-compliance-guide/",
+      "title": "CCPA Compliance Guide for App Developers",
+      "snippet": "To help the mobile app development community meet CCPA compliance, Flurry put together this guide to help clear up the common misperceptions among mobile ...",
+      "displayed_link": "https://www.flurry.com \u203a ccpa-compliance-guide"
+    },
+    {
+      "position": 8,
+      "domain": "content.next.westlaw.com",
+      "url": "https://content.next.westlaw.com/practical-law/document/If98aaf6e1c9011e38578f7ccc38dcbee/Mobile-App-Development-Key-Legal-Considerations?viewType=FullText&transitionType=Default&contextData=(sc.Default)",
+      "title": "Mobile App Development: Key Legal Considerations - Westlaw",
+      "snippet": "A discussion of key legal issues companies should consider and address when developing and distributing mobile applications (apps) for download by end users.",
+      "displayed_link": "https://content.next.westlaw.com \u203a document \u203a Mobile-..."
+    },
+    {
+      "position": 9,
+      "domain": "gdnlaw.com",
+      "url": "https://www.gdnlaw.com/practice-areas/app-gaming/",
+      "title": "Legal Services for App Developers - Audio/Voice Assistant ...",
+      "snippet": "Our firm has a focus in the legal aspects of the development, marketing and licensing of apps and video games.",
+      "displayed_link": "https://www.gdnlaw.com \u203a Practice Areas"
+    },
+    {
+      "position": 10,
+      "domain": "kleinmoynihan.com",
+      "url": "https://kleinmoynihan.com/california-to-require-mobile-app-developers-to-post-privacy-policies-2/",
+      "title": "California to Require Mobile App Developers to Post ...",
+      "snippet": "Whereas California's Online Privacy Protection Act (OPPA) expressly requires operators of websites to post privacy policies where those websites collect any ...",
+      "displayed_link": "https://kleinmoynihan.com \u203a Blog"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Can you sue an app developer?",
+      "What is the 80/20 rule for lawyers?",
+      "How to create mobile apps that make $3,000 a day?",
+      "How to protect intellectual property for an app?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

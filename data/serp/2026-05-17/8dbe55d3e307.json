@@ -1,0 +1,92 @@
+{
+  "schema": "serp-query-v1",
+  "query": "California age compliance laws for apps",
+  "fetched_at": "2026-05-17T17:27:14.872800+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "hunton.com",
+      "url": "https://www.hunton.com/privacy-and-cybersecurity-law-blog/california-introduces-new-age-verification-requirements-for-software-applications",
+      "title": "California Introduces New Age Verification Requirements ...",
+      "snippet": "Operating system providers must also (1) provide, upon a developer's request, a digital signal specifying the user's age bracket, (2) minimize ...",
+      "displayed_link": "https://www.hunton.com \u203a california-introduces-new-ag..."
+    },
+    {
+      "position": 2,
+      "domain": "mcneeslaw.com",
+      "url": "https://www.mcneeslaw.com/age-verification-laws-app-developers-compliance/",
+      "title": "State laws introduce age verification rules for app developers",
+      "snippet": "New state laws in California, Utah, Texas, and Louisiana require age verification for apps and app stores. Learn compliance steps, deadlines ...",
+      "displayed_link": "https://www.mcneeslaw.com \u203a age-verification-laws-ap..."
+    },
+    {
+      "position": 3,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/linux/comments/1rnf8nd/the_new_california_law_basically_mandates_having/",
+      "title": "The new California law basically mandates having age ...",
+      "snippet": "Since all apps are mandated to request an age signal upon launch every time, and all devices/OSs are required to make the user enter personal ...",
+      "displayed_link": "450+ comments \u00b7 2 months ago"
+    },
+    {
+      "position": 4,
+      "domain": "privacyanddatasecurityinsight.com",
+      "url": "https://www.privacyanddatasecurityinsight.com/2026/03/a-deeper-dive-into-californias-app-store-accountability-law/",
+      "title": "A Deeper Dive Into California's App Store Accountability Law",
+      "snippet": "If signals show that children 16+ use an app, a developer cannot simply state the app is \u201cnot meant/intended for children.\u201d Under this new law, ...",
+      "displayed_link": "https://www.privacyanddatasecurityinsight.com \u203a a-dee..."
+    },
+    {
+      "position": 5,
+      "domain": "tomshardware.com",
+      "url": "https://www.tomshardware.com/software/operating-systems/california-introduces-age-verification-law",
+      "title": "California introduces age verification law for all operating ...",
+      "snippet": "California introduces age verification law for all operating systems, including Linux and SteamOS \u2014 user age verified during OS account setup.",
+      "displayed_link": "https://www.tomshardware.com \u203a ... \u203a Operating Systems"
+    },
+    {
+      "position": 6,
+      "domain": "truevault.com",
+      "url": "https://www.truevault.com/learn/the-california-digital-age-assurance-act",
+      "title": "The California Digital Age Assurance Act",
+      "snippet": "California Governor Gavin Newsom signed AB 1043, known as the Digital Age Assurance Act (DAAA), into law in October 2025.",
+      "displayed_link": "https://www.truevault.com \u203a Resource Center"
+    },
+    {
+      "position": 7,
+      "domain": "apcp.assembly.ca.gov",
+      "url": "https://apcp.assembly.ca.gov/system/files/2025-04/ab-1043-wicks-apcp-analysis.pdf",
+      "title": "AB 1043 (Wicks)",
+      "snippet": "By focusing on age verification at the app store level rather than forcing individual platforms to implement their own systems, this legislation ...",
+      "displayed_link": "https://apcp.assembly.ca.gov \u203a system \u203a files \u203a ab-..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "What is the new age verification law in California?",
+      "What are the age restrictions for apps?",
+      "Is it illegal to be on social media under 18?",
+      "How do I turn off age restriction for apps on my iPhone?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 3
+    }
+  }
+}
