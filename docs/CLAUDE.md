@@ -76,8 +76,8 @@ uv run portfolio new bootstrap <domain>
   - **`portfolio` repo is excluded from `check --git`** by default
     (`[git] ignore_repos = ["portfolio"]`) — it's a Python CLI tool, not
     a website, so the SEO/stack checks would all skip and create noise.
-  - **Four canonical docs** (all must match reality + code per
-    `docs/prd.md § Spec discipline`):
+  - **Five canonical doc surfaces** (all must match reality + code
+    per `docs/prd.md § Spec discipline`):
     - `docs/prd.md` — WHY / WHAT / WHEN (purpose, problem, target
       user, goals, versions/phases, conformance rules, open questions)
     - `docs/architecture.md` — HOW (project layout, mechanisms,
@@ -85,10 +85,13 @@ uv run portfolio new bootstrap <domain>
       active implementation plans, risks, tracked refactors)
     - `docs/shipping-history.md` — archived design rationale for
       shipped phases (append-only)
+    - `docs/decisions/` (ADRs) — load-bearing architectural
+      decisions (Nygard format; see ADR-0001 and `decisions/README.md`)
     - `docs/CLAUDE.md` — this file; Claude-specific decisions,
-      locked target shapes, deferred decisions, heading hygiene rule
+      locked target shapes, deferred decisions, heading hygiene rule,
+      ADR workflow
     - Plus `AI_AGENTS.md` (at repo root) — agent orientation +
-      canonical `vN.X` versioning rule.
+      canonical `vN.X` versioning rule (per ADR-0004).
 
 ## Canonical docs — when to update which
 
@@ -98,12 +101,54 @@ uv run portfolio new bootstrap <domain>
 | Phase status (planned → in-progress → shipped) | `docs/prd.md` phase row | yes |
 | A phase has just shipped | move its design notes from `prd.md` to `docs/shipping-history.md` | yes |
 | Goals, target user, conformance rule, open question | `docs/prd.md` | yes |
+| **A load-bearing architectural decision** (new or reversed) | **write a new ADR in `docs/decisions/`** | **yes** |
 | A Claude-specific convention or locked target shape | `docs/CLAUDE.md` (this file) | yes |
 | Agent-orientation summary or versioning rule | `AI_AGENTS.md` | yes |
 
 **Stale docs are a conformance failure, not a backlog item.** Never let
 docs drift "to be updated later" — fix in the same commit as the code
 change that made them stale.
+
+## ADR workflow
+
+`docs/decisions/` holds **Architecture Decision Records** (ADRs) for
+load-bearing architectural decisions. See `docs/decisions/README.md`
+for the full format spec. Quick reference:
+
+**Write an ADR when** a decision is load-bearing — i.e., future
+re-evaluation would hinge on knowing *why* this was chosen. Heuristic:
+"would someone six months from now ask 'why is it this way?' and need
+the rationale beyond what the code shows?"
+
+- ✅ ADR: language/runtime, write-surface constraints, catalog
+  shape, model-family choices, lockfile policy, build conventions,
+  doc-structure choices.
+- ❌ Not ADR: small implementation details (parser library, default
+  flag values, log format). Those belong in `shipping-history.md` or
+  code comments.
+
+**Forward commitment.** When working on a new phase that introduces a
+load-bearing decision, **an ADR is part of the shipping unit** —
+written alongside the code and the doc updates, not deferred. The
+PRD's § Spec discipline rule treats missing ADRs as drift.
+
+**Naming.** `NNNN-kebab-case-title.md`, four-digit zero-padded,
+sequentially numbered. Never re-number. The ID is the stable
+reference.
+
+**Supersession.** Don't edit accepted ADRs. To reverse a decision:
+1. Write a new ADR with the next available number capturing the new
+   decision; frontmatter says `Supersedes: ADR-NNNN`.
+2. Update the old ADR's frontmatter: `Status: Superseded by ADR-MMMM`.
+3. Update `docs/decisions/README.md` index for both rows.
+4. Old ADR body stays intact — historical record.
+
+**Status values:** `Proposed` | `Accepted` | `Deprecated` |
+`Superseded by ADR-NNNN`.
+
+**Scope: portfolio only.** Sibling `sites/<domain>/` projects do NOT
+use ADRs — they're consumer projects without architectural
+complexity to warrant the overhead.
 
 ## Heading hygiene
 

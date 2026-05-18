@@ -50,26 +50,28 @@ External snapshot for planning / orientation. Operational detail follows in late
 
 **Stack.** Python ≥3.11 / uv / typer / rich / httpx / tldextract / google-api-python-client. Self-contained build (does **not** use the central builder).
 
-**Canonical docs.** `docs/prd.md` (spec, roadmap, conformance rules), `docs/architecture.md` (how it's built — mechanisms, schemas, modules, CLI/UX), `docs/shipping-history.md` (archived design rationale for shipped phases), `docs/CLAUDE.md` (Claude-specific decisions + locked target shapes), `AI_AGENTS.md` (agent orientation — this file).
+**Canonical docs.** `docs/prd.md` (spec, roadmap, conformance rules), `docs/architecture.md` (how it's built — mechanisms, schemas, modules, CLI/UX), `docs/shipping-history.md` (archived design rationale for shipped phases), `docs/decisions/` (ADRs — load-bearing architectural decisions, see ADR-0001), `docs/CLAUDE.md` (Claude-specific decisions + locked target shapes), `AI_AGENTS.md` (agent orientation — this file).
 
 ## Canonical docs
 
-The four canonical docs in this repo, by purpose. **Spec discipline (per `docs/prd.md` § Spec discipline) requires that reality + code + all four docs match.** If you change a mechanism or schema, update the matching section in the right doc — in the same commit.
+The five canonical doc surfaces in this repo, by purpose. **Spec discipline (per `docs/prd.md` § Spec discipline) requires that reality + code + all five surfaces match.** If you change a mechanism, schema, or decision, update the matching surface in the right doc — in the same commit.
 
-| Doc | Holds | Update when |
+| Doc / surface | Holds | Update when |
 |---|---|---|
 | `docs/prd.md` | WHY (purpose, problem, target user) + WHAT (goals, conformance rules) + WHEN (versions/phases, open questions) | Goals shift, a new phase is planned, an open question is resolved, conformance rules change |
 | `docs/architecture.md` | HOW (project layout, mechanisms, schemas, modules, CLI/UX, integrations, stack baselines, active implementation plans, risks, tracked refactors) | A schema changes, a module is added/removed/renamed, a mechanism is altered, a new external integration lands |
 | `docs/shipping-history.md` | Archived design rationale + resolved open questions for shipped phases (append-only) | A phase ships — move its design notes + resolved opens here |
-| `docs/CLAUDE.md` | Claude-specific orientation: decisions, locked target shapes, deferred decisions, heading hygiene rule | A Claude-specific convention changes, a target shape is locked/unlocked, a decision is deferred or revisited |
+| `docs/decisions/` (ADRs) | Load-bearing architectural decisions (Nygard format, see ADR-0001). Cross-cutting "why we chose X over Y" with consequences | A **new load-bearing decision** is made (write a new ADR); an existing decision is **superseded** (write a superseding ADR; mark the old one `Superseded by ADR-NNNN`) |
+| `docs/CLAUDE.md` | Claude-specific orientation: decisions, locked target shapes, deferred decisions, heading hygiene rule, ADR workflow | A Claude-specific convention changes, a target shape is locked/unlocked, a decision is deferred or revisited |
 
-Plus this file (`AI_AGENTS.md`) — general agent orientation; canonical versioning rule.
+Plus this file (`AI_AGENTS.md`) — general agent orientation; canonical versioning rule (per ADR-0004).
 
 **Rule of thumb when editing code:**
 1. If the change touches a *mechanism* or *schema*, update `architecture.md` in the same commit.
 2. If the change *ships a phase*, move that phase's design notes from `prd.md` → `shipping-history.md`, update the phase row's status to `✅ done`, and tick the architecture sections it affects.
 3. If the change *resolves an open question*, edit the question in `prd.md` (or move it to `shipping-history.md` if shipped).
-4. Never let docs drift "to be updated later." Stale docs are a conformance failure.
+4. **If the change introduces or reverses a *load-bearing architectural decision*, write an ADR in `docs/decisions/` in the same commit** (use next sequential number; lightweight Nygard format; see `docs/decisions/README.md` for the heuristic + template). Forward commitment: ADRs are part of the shipping unit, not a backlog item.
+5. Never let docs drift "to be updated later." Stale docs are a conformance failure.
 
 ## Versioning
 
