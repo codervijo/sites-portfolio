@@ -27,6 +27,7 @@ import typer
 
 from .lamill_toml import (
     HOSTING_REQUIRED_PLATFORMS,
+    LAMILL_TOML_FILENAME,
     PLATFORM_VALUES,
     BackendBlock,
     DeployBlock,
@@ -34,6 +35,7 @@ from .lamill_toml import (
     LamillToml,
     ParseError,
     load,
+    to_dict,
     write,
 )
 from .project import SITES_ROOT, resolve_project
@@ -357,8 +359,151 @@ def _resolve_hosting(
         # write the empty section so the file parses, but warn.
         cons.print(
             "[yellow]All hosting fields blank.[/] "
-            f"[hosting] section will be empty — populate it manually "
+            f"\\[hosting] section will be empty — populate it manually "
             f"before deploying."
         )
         return HostingBlock()
     return HostingBlock(**fields)
+
+
+# ---- show-deploy ----------------------------------------------------
+
+
+def show_deploy(
+    name: str,
+    *,
+    as_json: bool = False,
+    console=None,
+) -> int:
+    """Render `sites/<name>/lamill.toml` for inspection.
+
+    Default mode prints a rich-formatted table. `--json` mode emits
+    `to_dict(payload)` as a JSON document. Returns the exit code
+    (0 on success or "missing file" — missing isn't an error,
+    just a discoverability outcome).
+    """
+    import json
+
+    from rich.console import Console
+    from rich.table import Table
+
+    cons = console if console is not None else Console()
+
+    res = resolve_project(name)
+    if res.matched is None:
+        if as_json:
+            print("null")
+        else:
+            if res.candidates:
+                cons.print(
+                    f"[red]Ambiguous name:[/] {name!r} matches "
+                    f"{', '.join(res.candidates)}. Be more specific."
+                )
+            else:
+                cons.print(
+                    f"[red]Domain not found in portfolio.json:[/] {name!r}."
+                )
+        return 1
+
+    repo_dir = SITES_ROOT / res.matched
+    if not repo_dir.exists():
+        if as_json:
+            print("null")
+        else:
+            cons.print(
+                f"[red]Sibling repo missing:[/] {repo_dir}."
+            )
+        return 1
+
+    try:
+        payload = load(repo_dir)
+    except ParseError as e:
+        if as_json:
+            print(json.dumps({"error": str(e)}))
+        else:
+            cons.print(f"[red]lamill.toml is malformed:[/] {e}")
+        return 1
+
+    if payload is None:
+        if as_json:
+            print("null")
+        else:
+            cons.print(
+                f"[dim]{res.matched} — no deploy declaration.[/]"
+            )
+            cons.print(
+                f"[dim](Run `lamill settings project set-deploy "
+                f"{res.matched} <platform>` to create one.)[/]"
+            )
+        return 0
+
+    if as_json:
+        print(json.dumps(to_dict(payload), indent=2))
+        return 0
+
+    # Pretty rendering.
+    file_path = repo_dir / LAMILL_TOML_FILENAME
+    cons.print(f"\n[bold]{res.matched}[/] — declared deployment")
+    cons.print(f"[dim]source: {file_path}[/]\n")
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column("field", style="dim", no_wrap=True)
+    table.add_column("value")
+    _render_deploy_rows(table, payload)
+    cons.print(table)
+    cons.print(
+        "\n[dim]Drift check: deferred (v10.E — `lamill.toml` vs "
+        "DNS-resolved actual).[/]"
+    )
+    return 0
+
+
+def _render_deploy_rows(table, payload: LamillToml) -> None:
+    """Append rows to a rich.Table describing the LamillToml."""
+    d = payload.deploy
+    table.add_row("platform", f"[bold]{d.platform}[/]")
+    table.add_row("account", d.account or "[dim]—[/]")
+    table.add_row("branch", d.production_branch)
+    auto = (
+        "yes" if d.auto_deploy is True
+        else "no" if d.auto_deploy is False
+        else f"[dim](platform default: "
+             f"{'yes' if d.effective_auto_deploy() else 'no'})[/]"
+    )
+    table.add_row("auto-deploy", auto)
+    table.add_row(
+        "domains",
+        ", ".join(d.custom_domains) if d.custom_domains else "[dim]—[/]",
+    )
+
+    if payload.hosting is not None:
+        table.add_row("", "")  # blank row as visual separator
+        table.add_row("[hosting]", "")
+        h = payload.hosting
+        if h.cpanel_user or h.cpanel_url:
+            table.add_row(
+                "  cpanel",
+                f"{h.cpanel_user or '?'} @ {h.cpanel_url or '?'}",
+            )
+        if h.ftp_user or h.ftp_host:
+            ftp = f"{h.ftp_user or '?'}@{h.ftp_host or '?'}"
+            if h.ftp_port is not None:
+                ftp += f":{h.ftp_port}"
+            table.add_row("  ftp", ftp)
+        if h.public_html_path:
+            table.add_row("  public_html", h.public_html_path)
+
+    if payload.backend is not None:
+        table.add_row("", "")
+        table.add_row("[backend]", "")
+        b = payload.backend
+        table.add_row("  db", b.db)
+        table.add_row("  framework", b.framework)
+        table.add_row("  hosting", b.hosting)
+
+    if payload.notes:
+        table.add_row("", "")
+        notes_short = payload.notes if len(payload.notes) <= 80 else (
+            payload.notes[:77] + "..."
+        )
+        table.add_row("notes", notes_short)

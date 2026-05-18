@@ -5342,6 +5342,29 @@ def settings_project_set_deploy(
     )
 
 
+@settings_project_app.command("show-deploy")
+def settings_project_show_deploy(
+    name: str = typer.Argument(..., metavar="DOMAIN",
+                               help="Domain (e.g. airsucks.com)"),
+    as_json: bool = typer.Option(False, "--json",
+                                 help="Emit `lamill.toml` as JSON "
+                                      "instead of a rich table"),
+) -> None:
+    """Show the declared deployment for sites/<DOMAIN>/.
+
+    Reads `lamill.toml` and renders platform / account / branch /
+    domains plus the optional [hosting] / [backend] / [notes]
+    blocks. `--json` emits the raw payload as JSON (paired with
+    `to_dict()` from `lamill_toml`). When no `lamill.toml` exists
+    the command exits 0 with a hint to run `settings project
+    set-deploy`.
+    """
+    from .project_deploy import show_deploy
+    rc = show_deploy(name, as_json=as_json, console=console)
+    if rc != 0:
+        raise typer.Exit(rc)
+
+
 @settings_project_app.command("set-launched")
 def settings_project_set_launched(
     name: str = typer.Argument(..., metavar="DOMAIN",

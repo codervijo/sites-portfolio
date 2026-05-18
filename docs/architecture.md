@@ -736,7 +736,7 @@ lamill
     │   │                                                    2026-05-18 — per-project
     │   │                                                    metadata fits settings)
     │   ├── set-deploy <name> <platform>             ✅ v10.B
-    │   └── show-deploy <name>                       ⏳ v10.B (next slice)
+    │   └── show-deploy <name>                       ✅ v10.B
     ├── (HostGator credentials)                      ⏳ v10.F — design open
     └── cost report                                  ⏳ v12.F (deferred) — LLM
                                                                 cost ledger
@@ -746,7 +746,7 @@ lamill
 
 | Phase | New CLI surface |
 |---|---|
-| v10.B | `settings project set-deploy` ✅ · `settings project show-deploy` (next). Also moved `set-launched` (v7.C) into the `settings project` namespace for consistency — per-project metadata stays together; `project` namespace reserved for project-code ops. |
+| v10.B | `settings project set-deploy` ✅ · `settings project show-deploy` ✅. Also moved `set-launched` (v7.C) into the `settings project` namespace for consistency — per-project metadata stays together; `project` namespace reserved for project-code ops. |
 | v10.C | `fleet repos --add-deploy-declarations` flag · `new bootstrap` writes `lamill.toml` (no surface change) |
 | v10.D | None (validation phase — uses existing CLIs) |
 | v10.E | None (CHECK_xxx series — surfaced via existing `project check` / `fleet check`) |
@@ -936,23 +936,31 @@ When v10.D ships, the v10 Design notes move to
 `docs/shipping-history.md` and these slices land as a single
 `## v10.A · ... — shipped 2026-05-18` entry there.
 
-### v10.B — operator CLI surfaces (planned)
+### v10.B — operator CLI surfaces ✅ (shipped 2026-05-18)
 
-~3-4h. Two slices, both under `portfolio: v10.B — <slice>` commit
-subjects:
+Two slices delivered the CLI half of `lamill.toml`:
 
-- *`settings project set-deploy <name> <platform>`.* Interactive prompts
-  when stdin is a TTY: required-field prompts depend on platform
-  (hostgator/custom walk cpanel + FTP breadcrumbs;
-  cf-pages/vercel/netlify only prompt for optional `account` /
-  `custom_domains`). `--non-interactive` rejects with a clear error
-  if any required field is missing. `--account <X>` /
-  `--branch <X>` pre-fill. Writes via `lamill_toml.write()` (atomic).
-- *`settings project show-deploy <name>`.* Pretty table renderer +
-  `--json` for raw payload. Renders platform / account / branch /
-  domains / hosting block / backend block / notes. Shows "(none
-  declared — run `settings project set-deploy`)" when no
-  `lamill.toml` exists.
+- *`settings project set-deploy <name> <platform>`* — interactive
+  by default; hostgator/custom walks cpanel + FTP breadcrumbs.
+  `--non-interactive` + flags (`--account`/`--branch`/
+  `--auto-deploy`/`--no-auto-deploy`/`--domain` repeatable/
+  `--cpanel-user`/.../`--public-html-path`) for scripted use. Writes
+  via `lamill_toml.write()` (atomic). 17 tests at
+  `tests/test_settings_project_set_deploy.py`.
+- *`settings project show-deploy <name>`* — rich-table renderer +
+  `--json` (uses `lamill_toml.to_dict()`). Shows "no deploy
+  declaration" hint + `set-deploy` invocation when no
+  `lamill.toml` exists. Long notes truncated. 12 tests at
+  `tests/test_settings_project_show_deploy.py`.
+
+Also moved `set-launched` (originally shipped v7.C as `project
+set-launched`) into the same `settings project` namespace for
+consistency. Per-project metadata stays together under settings;
+the `project` namespace is reserved for project-code ops
+(`check`/`fix`/`seo`/`diagnose`).
+
+Full design notes stay in `prd.md § 6 → v10 → Design notes` until
+v10.D ships and the whole tier moves to `shipping-history.md`.
 
 ### v10.C — auto-write integration (planned)
 

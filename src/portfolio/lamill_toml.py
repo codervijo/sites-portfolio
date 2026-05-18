@@ -319,18 +319,20 @@ def write(repo_path: Path, payload: LamillToml) -> None:
     where the operator hasn't hand-annotated the file yet).
     """
     target = repo_path / LAMILL_TOML_FILENAME
-    doc = _serialize(payload)
+    doc = to_dict(payload)
     body = tomli_w.dumps(doc)
     _atomic_write(target, body)
 
 
-def _serialize(payload: LamillToml) -> dict:
-    """Convert a `LamillToml` into a tomli_w-serializable dict.
+def to_dict(payload: LamillToml) -> dict:
+    """Convert a `LamillToml` into a serializable dict.
 
-    Stable key order: `schema`, then `[deploy]`, then optional
-    `[hosting]` / `[backend]` / `[notes]` blocks. Each block writes
-    only the fields the operator set (None / empty-list values are
-    omitted) so round-trip determinism holds.
+    Used by both the TOML writer (`write()`) and the v10.B
+    `show-deploy --json` path. Stable key order: `schema`, then
+    `[deploy]`, then optional `[hosting]` / `[backend]` / `[notes]`
+    blocks. Each block writes only the fields the operator set
+    (None / empty-list values are omitted) so round-trip determinism
+    holds and `--json` output stays minimal.
     """
     out: dict = {"schema": payload.schema}
 

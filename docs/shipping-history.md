@@ -24,6 +24,30 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v10.A · `lamill.toml` foundation (schema + parser + writer + infer) — shipped 2026-05-18
+
+Three commits delivered the library half — `src/portfolio/lamill_toml.py`
+(dataclasses, `load()`, `write()`, `infer_from_existing_configs()`,
+`detect_platform_signals()`, `to_dict()`) + `tests/test_lamill_toml.py`
+(70 tests). New dep `tomli-w`. Refs `4395e1d` → `c9d543b` → `be10787`.
+
+Full design notes stay in `prd.md § 6 → v10 → Design notes` until
+v10.D ships and the whole tier moves here together.
+
+## v10.B · `settings project set-deploy` + `show-deploy` CLI — shipped 2026-05-18
+
+Two CLI commands for managing `lamill.toml`. Refs `d28c516` (set-deploy
+implementation + 17 tests), `890841e` (namespace move from `project` to
+`settings project`), `<this commit>` (show-deploy + 12 tests).
+
+Per operator-direction 2026-05-18: per-project metadata commands live
+under `settings project`, not the `project` namespace (which is
+reserved for project-code ops — check / fix / seo / diagnose).
+`set-launched` (originally shipped v7.C as `project set-launched`)
+moved into the same `settings project` namespace for consistency.
+
+Full design notes stay in `prd.md` until v10.D ships.
+
 ## v12.A · Adversarial audit prompt rendering — shipped 2026-05-17
 
 (TBD — migrate from prd.md § 8.2 Phase 4b portion that covered v12.A.)
