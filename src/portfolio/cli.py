@@ -5274,6 +5274,69 @@ def project_diagnose(
     render(d, console)
 
 
+@project_app.command("set-deploy")
+def project_set_deploy(
+    name: str = typer.Argument(..., metavar="DOMAIN",
+                               help="Domain (e.g. airsucks.com)"),
+    platform: str = typer.Argument(..., metavar="PLATFORM",
+                                   help="cf-pages | cf-workers | vercel | "
+                                        "netlify | github-pages | hostgator | "
+                                        "custom | none"),
+    account: str = typer.Option("", "--account",
+                                help="Platform account/team slug"),
+    branch: str = typer.Option("", "--branch",
+                               help="Production branch (default: main)"),
+    auto_deploy: bool = typer.Option(None, "--auto-deploy/--no-auto-deploy",
+                                     help="Override platform default for "
+                                          "push-triggers-build"),
+    domain: list[str] = typer.Option(None, "--domain",
+                                     help="Custom domain the deploy serves "
+                                          "(repeatable)"),
+    cpanel_user: str = typer.Option("", "--cpanel-user",
+                                    help="cPanel user (hostgator/custom)"),
+    cpanel_url: str = typer.Option("", "--cpanel-url",
+                                   help="cPanel URL (hostgator/custom)"),
+    ftp_host: str = typer.Option("", "--ftp-host",
+                                 help="FTP host (hostgator/custom)"),
+    ftp_user: str = typer.Option("", "--ftp-user",
+                                 help="FTP user (hostgator/custom)"),
+    ftp_port: int = typer.Option(None, "--ftp-port",
+                                 help="FTP port (hostgator/custom)"),
+    public_html_path: str = typer.Option("", "--public-html-path",
+                                         help="Where public files live on "
+                                              "the host (hostgator/custom)"),
+    non_interactive: bool = typer.Option(False, "--non-interactive",
+                                         help="Refuse prompts; fail if "
+                                              "required fields missing"),
+) -> None:
+    """Create or update sites/<DOMAIN>/lamill.toml.
+
+    Interactive by default — prompts for optional fields and (for
+    hostgator/custom) walks the cPanel + FTP breadcrumbs. Pre-fill
+    any field via the matching flag to skip its prompt. Use
+    `--non-interactive` for scripted invocations; the command will
+    fail if hostgator/custom is requested without enough hosting
+    flags to populate the `[hosting]` section.
+    """
+    from .project_deploy import set_deploy
+    set_deploy(
+        name,
+        platform,
+        interactive=not non_interactive,
+        account=account or None,
+        branch=branch or None,
+        auto_deploy=auto_deploy,
+        custom_domains=list(domain) if domain else None,
+        cpanel_user=cpanel_user or None,
+        cpanel_url=cpanel_url or None,
+        ftp_host=ftp_host or None,
+        ftp_user=ftp_user or None,
+        ftp_port=ftp_port,
+        public_html_path=public_html_path or None,
+        console=console,
+    )
+
+
 @project_app.command("set-launched")
 def project_set_launched(
     name: str = typer.Argument(..., metavar="DOMAIN",

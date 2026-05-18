@@ -48,8 +48,10 @@ _AUTO_DEPLOY_TRUE_PLATFORMS: frozenset[str] = frozenset(
     {"cf-pages", "vercel", "netlify", "github-pages"}
 )
 
-# Platforms that require a `[hosting]` section to be reachable.
-_HOSTING_REQUIRED_PLATFORMS: frozenset[str] = frozenset({"hostgator", "custom"})
+# Platforms that require a `[hosting]` section to be reachable. The
+# CLI surface in `project_deploy.py` (v10.B) reads this to decide
+# which prompts / flags must be filled.
+HOSTING_REQUIRED_PLATFORMS: frozenset[str] = frozenset({"hostgator", "custom"})
 
 # `[backend]` enum values (scope expansion 2026-05-17). All default
 # to "none" — the slot exists so non-JS-rendering server stacks can
@@ -167,7 +169,7 @@ def _parse_doc(doc: dict, *, source: Path) -> LamillToml:
         else None
     )
 
-    if deploy.platform in _HOSTING_REQUIRED_PLATFORMS and hosting is None:
+    if deploy.platform in HOSTING_REQUIRED_PLATFORMS and hosting is None:
         raise ParseError(
             f"{source}: platform={deploy.platform!r} requires a "
             f"[hosting] section"
