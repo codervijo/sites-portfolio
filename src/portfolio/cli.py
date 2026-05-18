@@ -3434,9 +3434,40 @@ def new_bootstrap(
     git_url: str = typer.Option("", "--git-url", help="git clone URL into sites/<domain>/genai/, then proceed as --from-genai"),
     with_ingester: bool = typer.Option(False, "--with-ingester", help="Add scripts/ dir with an ingester template"),
     topic: str = typer.Option("", "--topic", help="One-line topic; written into AI_AGENTS.md and docs/prd.md"),
+    # v9.B — operator-input AI_AGENTS sections. Each flag overrides
+    # the interactive prompt; missing flags get prompted unless
+    # --non-interactive is set.
+    summary: str = typer.Option("", "--summary",
+                                help="AI_AGENTS.md Summary section content (skips the prompt)"),
+    audience: str = typer.Option("", "--audience",
+                                 help="AI_AGENTS.md Audience section content (skips the prompt)"),
+    icp: str = typer.Option("", "--icp",
+                            help="AI_AGENTS.md ICP section content (skips the prompt)"),
+    goal: str = typer.Option("", "--goal",
+                             help="AI_AGENTS.md Goals section content (skips the prompt)"),
+    content_strategy: str = typer.Option("", "--content-strategy",
+                                         help="AI_AGENTS.md Content strategy section content (skips the prompt)"),
+    non_interactive: bool = typer.Option(
+        False, "--non-interactive",
+        help="Skip all v9.B prompts — sections without --flag values get "
+             "(to be filled in) placeholders.",
+    ),
 ) -> None:
-    """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A)."""
+    """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A).
+
+    v9.B — bootstrap now prompts for the 5 operator-input AI_AGENTS
+    sections (Summary / Audience / ICP / Goals / Content strategy)
+    unless overridden by per-section flags or `--non-interactive`.
+    Sections left blank render as `(to be filled in)` placeholders
+    that CHECK_014's tier-1 fix can also populate later.
+    """
     from .bootstrap import BootstrapError, bootstrap as run_bootstrap
+
+    operator_inputs = _collect_operator_inputs(
+        summary=summary, audience=audience, icp=icp,
+        goal=goal, content_strategy=content_strategy,
+        non_interactive=non_interactive,
+    )
 
     try:
         result = run_bootstrap(
@@ -3446,12 +3477,77 @@ def new_bootstrap(
             git_url=git_url or None,
             with_ingester=with_ingester,
             topic=topic,
+            operator_inputs=operator_inputs,
         )
     except BootstrapError as e:
         console.print(f"[red]bootstrap failed:[/] {e}")
         raise typer.Exit(2)
 
     _render_bootstrap_summary(result, domain, topic=topic)
+
+
+# v9.B — bootstrap interactive prompts for the 5 operator-input
+# AI_AGENTS sections. The canonical schema (see
+# portfolio.canonical_sections) is the source of truth for which
+# sections are operator-input; this helper iterates that list so
+# adding a new operator section in v9.E doesn't require touching
+# CLI code.
+
+
+def _collect_operator_inputs(*,
+                             summary: str, audience: str, icp: str,
+                             goal: str, content_strategy: str,
+                             non_interactive: bool) -> dict[str, str]:
+    """Build the {heading → content} dict the bootstrap renderer
+    consumes for operator-input sections.
+
+    Flag values take precedence. Sections without a flag value get
+    interactively prompted unless `non_interactive=True`, in which
+    case they're left empty and the renderer drops in `(to be filled
+    in)` placeholders.
+
+    Returns a complete dict (one key per operator-input section,
+    even if the value is empty) so the renderer doesn't need to
+    guess defaults.
+    """
+    from .canonical_sections import operator_sections
+
+    # Map CLI-flag value → canonical heading. Mirrors the order in
+    # canonical_sections.AI_AGENTS_SECTIONS; the user-facing flag
+    # names are flat (no `--` prefix here; typer adds those).
+    flag_values: dict[str, str] = {
+        "Summary": summary,
+        "Audience": audience,
+        "ICP": icp,
+        "Goals": goal,
+        "Content strategy": content_strategy,
+    }
+
+    inputs: dict[str, str] = {}
+    pending_for_prompt: list = []
+    for spec in operator_sections():
+        v = flag_values.get(spec.heading, "").strip()
+        if v:
+            inputs[spec.heading] = v
+        elif non_interactive:
+            inputs[spec.heading] = ""   # placeholder will render
+        else:
+            pending_for_prompt.append(spec)
+            inputs[spec.heading] = ""   # provisional; overwritten if prompted
+
+    if pending_for_prompt:
+        console.print(
+            "\n[bold]Operator content for AI_AGENTS.md[/]"
+            " [dim](press Enter to skip; "
+            "section will render `(to be filled in)`)[/]"
+        )
+        for spec in pending_for_prompt:
+            console.print(f"\n  [cyan]{spec.heading}[/] — [dim]{spec.description}[/]")
+            answer = typer.prompt("  >", default="", show_default=False).strip()
+            if answer:
+                inputs[spec.heading] = answer
+
+    return inputs
 
 
 def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:

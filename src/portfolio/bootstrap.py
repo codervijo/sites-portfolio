@@ -74,7 +74,30 @@ def validate_domain(name: str) -> str:
 # ---------- templates ----------
 
 
-def _ai_agents_md(domain: str, stack: str, topic: str) -> str:
+def _ai_agents_md(domain: str, stack: str, topic: str,
+                  operator_inputs: dict[str, str] | None = None) -> str:
+    """Render AI_AGENTS.md for a new project.
+
+    `operator_inputs` is the {heading → content} dict the v9.B CLI
+    collects (interactively or via per-section flags). Sections with
+    non-empty content replace the `(to be filled in)` placeholder;
+    sections with empty content keep the placeholder so CHECK_014's
+    fixer can populate them later (or the operator can edit by hand).
+
+    Backward-compatible: when `operator_inputs` is None, all five
+    operator-input sections render with placeholders (matches v9.A's
+    template exactly).
+    """
+    operator_inputs = operator_inputs or {}
+
+    def _section_body(heading: str) -> str:
+        """Return the body for an operator-input section: the
+        operator's content when supplied, the canonical placeholder
+        otherwise. Keeps the indentation-free body that the H2 +
+        italic hint above already establish."""
+        content = (operator_inputs.get(heading) or "").strip()
+        return content if content else "(to be filled in)"
+
     topic_line = f"\n_Topic: {topic}_\n" if topic else ""
     return f"""# AI Agent Context — {domain}
 {topic_line}
@@ -82,25 +105,25 @@ def _ai_agents_md(domain: str, stack: str, topic: str) -> str:
 
 *one paragraph: what this site is, what it does*
 
-(to be filled in)
+{_section_body("Summary")}
 
 ## Audience
 
 *one sentence: who this is for (broad demographic)*
 
-(to be filled in)
+{_section_body("Audience")}
 
 ## ICP
 
 *the specific ideal customer — demographics, pain points, what they use today. More detail than Audience: Audience is the broad demo ("homeowners with EV chargers"), ICP is the specific targetable subset ("Tesla owners in CA who installed in last 90d, paid $2k+")*
 
-(to be filled in)
+{_section_body("ICP")}
 
 ## Goals
 
 *1-2 sentences: primary business / product goal*
 
-(to be filled in)
+{_section_body("Goals")}
 
 ## Tech stack
 
@@ -173,7 +196,7 @@ docker exec -w /usr/src/app <name> make test proj={domain}
 
 *what content this site needs — page types, initial topics, format mix (long-form vs reference vs tool)*
 
-(to be filled in)
+{_section_body("Content strategy")}
 
 ### Post-deploy checklist (do these once after the first successful deploy)
 
@@ -1117,9 +1140,10 @@ INGESTER_FILES = [
 ]
 
 
-def _render(key: str, domain: str, stack: str, topic: str, today: str) -> str:
+def _render(key: str, domain: str, stack: str, topic: str, today: str,
+            operator_inputs: dict[str, str] | None = None) -> str:
     if key == "ai_agents":
-        return _ai_agents_md(domain, stack, topic)
+        return _ai_agents_md(domain, stack, topic, operator_inputs)
     if key == "readme":
         return _readme_md(domain)
     if key == "gitignore":
@@ -1191,6 +1215,7 @@ def _write_files(
     topic: str,
     today: str,
     skip_existing: bool,
+    operator_inputs: dict[str, str] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Write spec files to project_dir. Returns (written, skipped) relative paths."""
     written: list[str] = []
@@ -1201,7 +1226,7 @@ def _write_files(
             skipped.append(rel)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_render(key, domain, stack, topic, today))
+        path.write_text(_render(key, domain, stack, topic, today, operator_inputs))
         written.append(rel)
     return written, skipped
 
@@ -1453,6 +1478,7 @@ def bootstrap(
     topic: str = "",
     sites_root: Path | None = None,
     today_iso: str | None = None,
+    operator_inputs: dict[str, str] | None = None,
 ) -> BootstrapResult:
     """Top-level orchestration. Always called with already-validated domain.
 
@@ -1460,6 +1486,13 @@ def bootstrap(
       git_url    → create dir + clone URL into genai/ + treat as from_genai
       from_genai → genai/ must exist; copy + CF fixes
       else      → template path (dir must NOT exist)
+
+    `operator_inputs` (v9.B) is a {heading → content} dict carrying
+    operator-supplied content for the 5 AI_AGENTS canonical
+    operator-input sections (Summary / Audience / ICP / Goals /
+    Content strategy). Sections with non-empty content land in the
+    rendered file; empty values keep the `(to be filled in)`
+    placeholder. None = no operator input (all placeholders).
     """
     domain = validate_domain(domain)
     sites = sites_root or SITES_ROOT
@@ -1503,7 +1536,7 @@ def bootstrap(
         stack_spec = ASTRO_FILES if stack == "astro" else VITE_FILES if stack == "vite" else None
         if stack_spec is None:
             raise BootstrapError(f"unsupported --stack: {stack!r}. Use 'astro' or 'vite'.")
-        written, _skipped = _write_files(project_dir, stack_spec, domain, stack, topic, today, skip_existing=False)
+        written, _skipped = _write_files(project_dir, stack_spec, domain, stack, topic, today, skip_existing=False, operator_inputs=operator_inputs)
         result = BootstrapResult(
             project_dir=project_dir,
             stack=stack,
@@ -1514,7 +1547,8 @@ def bootstrap(
     # Common scaffolding files. On --from-genai, skip files that genai already provided.
     skip_existing = (result.path != "template")
     common_written, common_skipped = _write_files(
-        project_dir, COMMON_FILES, domain, stack, topic, today, skip_existing=skip_existing
+        project_dir, COMMON_FILES, domain, stack, topic, today,
+        skip_existing=skip_existing, operator_inputs=operator_inputs,
     )
     result.files_written.extend(common_written)
     if common_skipped:
