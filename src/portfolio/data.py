@@ -453,7 +453,7 @@ def append_domain_row(
 def update_domain_field(name: str, field_name: str, value) -> bool:
     """Set a single field on one domain's portfolio.json entry. Atomic.
 
-    Used by `project set-launched` and the RDAP refresh path to mutate
+    Used by `settings project set-launched` and the RDAP refresh path to mutate
     a single record without rebuilding from CSV. Returns True if the
     domain was found and updated. `value` should be a JSON-serializable
     primitive (date objects auto-ISO-format).

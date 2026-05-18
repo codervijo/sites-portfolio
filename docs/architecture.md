@@ -667,14 +667,127 @@ Both write surfaces follow the same pattern:
 `new deploy` follows a similar pattern for GitHub repo + CF Pages
 project creation (not a project-dir write, but irreversible).
 
-### Phase-related new commands (planned)
+### Projected CLI surface (current + planned)
 
-| Command | Phase | Purpose |
-|---|---|---|
-| `lamill project set-deploy <name> <platform>` | v10.A | Create/update `sites/<name>/lamill.toml`; interactive prompts for required fields per platform |
-| `lamill project show-deploy <name>` | v10.A | Render `lamill.toml` as a human table; `--json` for raw |
-| `lamill fleet repos --add-deploy-declarations` | v10.A | One-time migration: walk every `sites/<dir>/`, infer platform from existing configs, write `lamill.toml` for unambiguous cases. `--dry-run` shows plan; `--include-ambiguous` writes for conflicting-config cases too |
-| `lamill fleet hosting` | v11.A | Per-domain table: provider · status · last successful deploy · failures. `--refresh` re-walks APIs; `--only DOMAIN` single-row probe; `--json` raw |
+Full command tree at the end of v14, with shipped nodes marked ✅
+and planned nodes labeled with the phase that introduces them.
+
+```
+lamill
+├── project                                          # ops on one project
+│   ├── check <name>                                 ✅ v7.A
+│   ├── fix <name>                                   ✅ v6.D
+│   ├── seo <name>                                   ✅ v7.A
+│   ├── diagnose <name>                              ✅ v7.F
+│   ├── version <name>                               ⏳ v14.A — read local
+│   │                                                          version.json
+│   └── deploy-status <name>                         ⏳ v14.B — HEAD vs deployed
+│                                                              SHA (or fold into
+│                                                              `diagnose`?)
+│
+├── fleet                                            # cross-portfolio ops
+│   ├── focus                                        ✅ v7.D
+│   ├── domains                                      ✅ v5.G
+│   ├── seo                                          ✅ v5.D
+│   ├── check                                        ✅ v5.B
+│   ├── fix                                          ✅ v6.G
+│   ├── drift                                        ✅ v6.A
+│   ├── repos [--add-deploy-declarations]            ✅ v7.E (flag in v10.C)
+│   ├── dashboard                                    ✅ v7.B
+│   ├── hosting                                      ⏳ v11.A — Vercel + CF
+│   │                                                          deploy state
+│   ├── trends                                       ⏳ v13.A — namespace
+│   │                                                          deferred (`fleet`
+│   │                                                          vs `settings gsc`)
+│   ├── (HostGator surface)                          ⏳ v10.F — design open;
+│   │                                                          first proposal
+│   │                                                          rejected, awaiting
+│   │                                                          rethink
+│   └── info
+│       ├── summary                                  ✅ v7.A
+│       ├── expiring                                 ✅ v7.A
+│       ├── cleanup                                  ✅ v7.A
+│       └── list                                     ⏳ v13.B — aggregate
+│                                                              verdict-counts
+│                                                              view
+│
+├── new                                              # create work
+│   ├── suggest                                      ✅ v2.A
+│   ├── bootstrap                                    ✅ v3.A
+│   │                                                   (writes lamill.toml in
+│   │                                                   v10.C)
+│   ├── deploy                                       ✅ v3.C
+│   │                                                   (reads lamill.toml +
+│   │                                                   routes CF Pages or SFTP
+│   │                                                   in v10.G)
+│   └── research [--verify]                          ✅ v8.D
+│                                                       (flag added in v12.E)
+│
+└── settings                                         # setup / debug
+    ├── catalog {list, describe, run}                ✅ v7.A
+    ├── gsc {auth, status}                           ✅ v7.A
+    ├── apikeys {list, set, delete}                  ✅ v7.A
+    ├── operator {show}                              ✅ v8.D
+    ├── cloudflare {token, status}                   ✅ v7.H
+    ├── serpapi-quota {show, sync}                   ✅ v8.D
+    ├── project                                      # per-project metadata
+    │   ├── set-launched <name> <date>               ✅ v7.C (moved here from
+    │   │                                                    `project set-launched`
+    │   │                                                    2026-05-18 — per-project
+    │   │                                                    metadata fits settings)
+    │   ├── set-deploy <name> <platform>             ✅ v10.B
+    │   └── show-deploy <name>                       ⏳ v10.B (next slice)
+    ├── (HostGator credentials)                      ⏳ v10.F — design open
+    └── cost report                                  ⏳ v12.F (deferred) — LLM
+                                                                cost ledger
+```
+
+#### Net additions by phase
+
+| Phase | New CLI surface |
+|---|---|
+| v10.B | `settings project set-deploy` ✅ · `settings project show-deploy` (next). Also moved `set-launched` (v7.C) into the `settings project` namespace for consistency — per-project metadata stays together; `project` namespace reserved for project-code ops. |
+| v10.C | `fleet repos --add-deploy-declarations` flag · `new bootstrap` writes `lamill.toml` (no surface change) |
+| v10.D | None (validation phase — uses existing CLIs) |
+| v10.E | None (CHECK_xxx series — surfaced via existing `project check` / `fleet check`) |
+| v10.F | HostGator surface — design open (first proposal `settings hostgator` + `fleet hostgator` split was **rejected** 2026-05-18; needs rethink before v10.F starts) |
+| v10.G | `new deploy` extended (no new node — transparently picks target from `lamill.toml`) |
+| v11.A | `fleet hosting` |
+| v12.B-G | `new research --verify` / `--no-verify` / `--audit-model <id>` / `--no-cache=audit` flags (no new node) |
+| v13.A | GSC trend correlation — namespace deferred (`fleet trends` vs `settings gsc trends`) |
+| v13.B | `fleet info list` (or `project list` — naming TBD) |
+| v13.C | LLM content seeding — postponed indefinitely; no surface change |
+| v14.A | `project version` |
+| v14.B | `project deploy-status` (or fold into `diagnose`?) |
+| v14.C | (deploy lag / build status surfaced via existing `fleet hosting`?) |
+| v14.D | `cleanup --refresh` / `--watch` flags (no new node) |
+
+#### Open CLI design questions
+
+These are deliberate non-decisions — resolve before the relevant
+phase ships. The operator either gates these in a planning session
+or signals "decide it when you get there" per-phase.
+
+1. **v10.F HostGator surface (design open).** First proposal —
+   `settings hostgator {token, accounts}` for creds + `fleet
+   hostgator {pull, status, sync}` for data — was rejected by the
+   operator 2026-05-18 ("don't like that CLI at all"). The
+   HostGator-shape question is parked until v10.F gets picked up.
+   Until then: no new `hostgator` commands land anywhere.
+2. **v13.A GSC trends namespace.** `fleet trends` (scope-first;
+   reuses `data/gsc/` snapshots; sits next to `fleet seo`) vs
+   `settings gsc trends` (keeps all GSC stuff together; sits
+   next to existing `settings gsc auth`/`status`). Deferred until
+   v13.A starts.
+3. **v13.B roll-up listing.** `fleet info list` (matches existing
+   inventory views; clean fit) vs `project list` (matches
+   pre-v7.A name; was deprecated). Leaning `fleet info list` —
+   confirm at v13.B kickoff.
+4. **v14.B deploy-status placement.** Standalone `project
+   deploy-status <name>` vs fold the HEAD-vs-deployed check into
+   the existing `project diagnose <name>` 5-layer probe. The
+   diagnose path is closer to the existing UX shape; standalone
+   adds a discoverable verb. Defer until v14.B starts.
 
 ### `--verify` semantics (v12)
 
@@ -828,17 +941,18 @@ When v10.D ships, the v10 Design notes move to
 ~3-4h. Two slices, both under `portfolio: v10.B — <slice>` commit
 subjects:
 
-- *`project set-deploy <name> <platform>`.* Interactive prompts
+- *`settings project set-deploy <name> <platform>`.* Interactive prompts
   when stdin is a TTY: required-field prompts depend on platform
   (hostgator/custom walk cpanel + FTP breadcrumbs;
   cf-pages/vercel/netlify only prompt for optional `account` /
   `custom_domains`). `--non-interactive` rejects with a clear error
   if any required field is missing. `--account <X>` /
   `--branch <X>` pre-fill. Writes via `lamill_toml.write()` (atomic).
-- *`project show-deploy <name>`.* Pretty table renderer + `--json`
-  for raw payload. Renders platform / account / branch / domains /
-  hosting block / backend block / notes. Shows "(none declared —
-  run `project set-deploy`)" when no `lamill.toml` exists.
+- *`settings project show-deploy <name>`.* Pretty table renderer +
+  `--json` for raw payload. Renders platform / account / branch /
+  domains / hosting block / backend block / notes. Shows "(none
+  declared — run `settings project set-deploy`)" when no
+  `lamill.toml` exists.
 
 ### v10.C — auto-write integration (planned)
 

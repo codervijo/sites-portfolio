@@ -1,8 +1,8 @@
 """v10.B — CLI surfaces for the `lamill.toml` deploy declaration.
 
-Implements `project set-deploy` (create/update) and `project
-show-deploy` (inspect). Thin layer on top of `lamill_toml`'s pure
-data API (v10.A).
+Implements `settings project set-deploy` (create/update) and
+`settings project show-deploy` (inspect). Thin layer on top of
+`lamill_toml`'s pure data API (v10.A).
 
 `set_deploy()`:
 - Resolves `<name>` against `portfolio.json` (fuzzy match via

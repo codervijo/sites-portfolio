@@ -56,6 +56,10 @@ settings_serpapi_app = typer.Typer(
     help="SerpAPI quota ledger — show local state + sync with SerpAPI's records.",
     no_args_is_help=True,
 )
+settings_project_app = typer.Typer(
+    help="Per-project metadata — `set-launched`, `set-deploy`, `show-deploy`.",
+    no_args_is_help=True,
+)
 app.add_typer(fleet_app, name="fleet")
 fleet_app.add_typer(fleet_info_app, name="info")
 app.add_typer(settings_app, name="settings")
@@ -65,6 +69,7 @@ settings_app.add_typer(settings_apikeys_app, name="apikeys")
 settings_app.add_typer(settings_operator_app, name="operator")
 settings_app.add_typer(settings_cloudflare_app, name="cloudflare")
 settings_app.add_typer(settings_serpapi_app, name="serpapi-quota")
+settings_app.add_typer(settings_project_app, name="project")
 
 
 @app.callback(invoke_without_command=True)
@@ -136,7 +141,7 @@ def focus(
 
     # Build domain → site-age map for the freshness-window suppression.
     # Reuses the dashboard's helper: prefers Domain.launched (manual via
-    # `project set-launched`); falls back to first-commit-date inference
+    # `settings project set-launched`); falls back to first-commit-date inference
     # for projects without an explicit launched date.
     domain_site_age = {
         d.name.lower(): _site_age_days(d.name, d.launched)
@@ -5274,8 +5279,8 @@ def project_diagnose(
     render(d, console)
 
 
-@project_app.command("set-deploy")
-def project_set_deploy(
+@settings_project_app.command("set-deploy")
+def settings_project_set_deploy(
     name: str = typer.Argument(..., metavar="DOMAIN",
                                help="Domain (e.g. airsucks.com)"),
     platform: str = typer.Argument(..., metavar="PLATFORM",
@@ -5337,8 +5342,8 @@ def project_set_deploy(
     )
 
 
-@project_app.command("set-launched")
-def project_set_launched(
+@settings_project_app.command("set-launched")
+def settings_project_set_launched(
     name: str = typer.Argument(..., metavar="DOMAIN",
                                help="Domain"),
     launched_date: str = typer.Argument(

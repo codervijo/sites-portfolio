@@ -241,7 +241,7 @@ read-only.
 |---|---|---|
 | v7.A | ✅ | CLI restructure — scope-first (`project` / `fleet` / `new` / `settings`). Reorganized the CLI surface around scope-first namespaces. New commands: `project check` (replaces `info status`), `project fix`, `project seo` (replaces `check seo --domain`), `fleet focus`/`live`/`seo`/`check`/`fix`/`drift`, `fleet info {summary,expiring,cleanup}`, `settings catalog {list,describe,run}`, `settings gsc {auth,status}`, `settings apikeys {list,set,delete}` (NEW — replaces manual `portfolio.env` editing). Old paths kept as additive aliases. |
 | v7.B | ✅ | `fleet dashboard` — unified live + SEO + git view. Single per-domain row joining `data/checks/<date>.json` + `data/seo/<date>.json` + local git state. Worst-of rollup dot leftmost. Sort modes: attention (worst rollup first — default), name, imp, age. |
-| v7.C | ✅ | Age tracking — `launched` + `domain_created`. Two new fields on each row in `data/portfolio.json`. `launched` manual via `lamill project set-launched <domain> <YYYY-MM-DD>`, falls back to first-commit-date inference; `domain_created` via RDAP `registration` event date. `fleet info cleanup --refresh-rdap`. Both surface as columns in `fleet dashboard` (Site age + Domain age). |
+| v7.C | ✅ | Age tracking — `launched` + `domain_created`. Two new fields on each row in `data/portfolio.json`. `launched` manual via `lamill settings project set-launched <domain> <YYYY-MM-DD>`, falls back to first-commit-date inference; `domain_created` via RDAP `registration` event date. `fleet info cleanup --refresh-rdap`. Both surface as columns in `fleet dashboard` (Site age + Domain age). |
 | v7.D | ✅ | `fleet focus` enhancements + P4 age-aware SEO grading. Five fixes: (1) variant-aware site-down; (2) platform-aware action text; (3) `--refresh` flag; (4) age-aware SEO signal suppression for sites <90d old with `--include-young` to override; (5) idle (🟡) signal for forwarder/parked. P4 closed the age-awareness loop in `seo_runtime.overall_status` — masks imp + pos cells when site is young. |
 | v7.E | ✅ | `fleet repos` audit + naming-consistency cluster + archived state. Read-only audit of every `sites/<domain>/`'s git-layer state. Three new git-category catalog checks: CHECK_040 (git-remote-name-matches-domain), CHECK_041 (dir-matches-portfolio-entry), CHECK_042 (live-final-url-matches-domain). Archived support via `TOMBSTONE.md` marker or portfolio.json category in `{to be deleted immediately, archived, tombstoned}`. |
 | v7.F | ✅ | `project diagnose <domain>` — five-layer auto-investigate. Probes DNS / HTTP / TLS / repo / inventory and synthesizes a root cause + suggested fix. Seven heuristics catching real-world patterns: Vercel deployment-not-found, Namecheap parking, intent-vs-actual mismatch, TLS alert 112 on intended platform, no-DNS-at-all, normal live site, forwarder/parked decision. |
@@ -298,9 +298,9 @@ plans / § 10 Risks` for the technical design.**
 | # | Status | Feature |
 |---|---|---|
 | v10.A | ✅ | `lamill.toml` foundation — schema constants (`PLATFORM_VALUES`, `DB_VALUES`, `FRAMEWORK_VALUES`, `BACKEND_HOSTING_VALUES`), dataclasses (`DeployBlock` / `HostingBlock` / `BackendBlock` / `LamillToml`), `load()` (strict-on-read, raises `ParseError`), atomic `write()` (tmpfile + rename, round-trip determinism), `infer_from_existing_configs()` + `detect_platform_signals()` (filesystem-marker classification with ambiguous-case detection). Shipped `4395e1d` → `c9d543b` → `be10787` 2026-05-18. 70 tests. |
-| v10.B | ⏳ | Operator CLI surfaces — `lamill project set-deploy <name> <platform>` (interactive prompts when stdin is TTY; `--non-interactive` rejects on missing required fields; hostgator/custom walks cpanel + FTP breadcrumbs) + `lamill project show-deploy <name>` (pretty table renderer + `--json`). ~3-4h. |
+| v10.B | ⏳ | Operator CLI surfaces — `lamill settings project set-deploy <name> <platform>` (interactive prompts when stdin is TTY; `--non-interactive` rejects on missing required fields; hostgator/custom walks cpanel + FTP breadcrumbs) + `lamill settings project show-deploy <name>` (pretty table renderer + `--json`). ~3-4h. Note: `set-launched` also moved into the same `settings project` namespace 2026-05-18 for consistency (was `project set-launched` v7.C). |
 | v10.C | ⏳ | Auto-write integration — `new bootstrap` writes `lamill.toml` as part of scaffolding (platform inferred from `--stack`; `--platform <X>` overrides). `fleet repos --add-deploy-declarations [--dry-run] [--include-ambiguous]` migration sweep walks every `sites/<dir>/`, classifies, writes safe cases. ~4-5h. |
-| v10.D | ⏳ | **Validation phase** — real-fleet sweep. Run the migration against the actual ~22-domain fleet; review the dry-run plan; `--apply` the unambiguous cases; handle ambiguous + manual-entry cases interactively via `project set-deploy`. End state: every applicable sibling `sites/<domain>/` repo has a valid `lamill.toml` committed. Surfaces bugs / edge cases that only appear against real config files. ~2-3h (mostly running the tools, fixing edge cases that surface). |
+| v10.D | ⏳ | **Validation phase** — real-fleet sweep. Run the migration against the actual ~22-domain fleet; review the dry-run plan; `--apply` the unambiguous cases; handle ambiguous + manual-entry cases interactively via `settings project set-deploy`. End state: every applicable sibling `sites/<domain>/` repo has a valid `lamill.toml` committed. Surfaces bugs / edge cases that only appear against real config files. ~2-3h (mostly running the tools, fixing edge cases that surface). |
 | v10.E | ⏳ *(renumbered 2026-05-18 — was v10.B)* | Drift detection + lamill.toml conformance checks. `CHECK_xxx` series comparing `lamill.toml` declaration vs DNS-resolved actual + live HTTP probe. `has-lamill-toml` + `lamill-toml-valid` + `deploy-drift` checks. ~6-8h. |
 | v10.F | ⏳ *(renumbered 2026-05-18 — was v10.C)* | HostGator cPanel integration. API pull of domains / WordPress installs / disk usage. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
 | v10.G | ⏳ *(renumbered 2026-05-18 — was v10.D)* | SFTP deploy abstraction. `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
@@ -320,9 +320,9 @@ answered. A canonical declaration in the repo closes all three gaps.
 - Schema for `lamill.toml` covering the common platforms + an
   extension slot for HostGator / custom hosts (v10.A).
 - `LamillToml` parser/writer module reused by future tools (v10.A).
-- `lamill project set-deploy <name> <platform>` to manually create or
-  update on existing sites (v10.B).
-- `lamill project show-deploy <name>` to inspect (v10.B).
+- `lamill settings project set-deploy <name> <platform>` to manually
+  create or update on existing sites (v10.B).
+- `lamill settings project show-deploy <name>` to inspect (v10.B).
 - `lamill new bootstrap` writes the file as part of scaffolding —
   inferred from `--stack` with a sensible default `cf-pages` (v10.C).
 - `lamill fleet repos --add-deploy-declarations` migration —
@@ -341,12 +341,12 @@ against live state.
    `platform=cf-pages` inferred from `--stack`. Operator can edit
    before `new deploy`.
 2. *Manually setting deploy on an existing site* (v10.B) — `lamill
-   project set-deploy hybridautopart.com hostgator` prompts for
-   cPanel + FTP breadcrumbs, writes `lamill.toml`. Tool writes to
-   working tree only — operator commits when ready.
-3. *Reading the declaration* (v10.B) — `lamill project show-deploy
-   hybridautopart.com` renders platform / account / branch /
-   domains / hosting block as a human table.
+   settings project set-deploy hybridautopart.com hostgator`
+   prompts for cPanel + FTP breadcrumbs, writes `lamill.toml`.
+   Tool writes to working tree only — operator commits when ready.
+3. *Reading the declaration* (v10.B) — `lamill settings project
+   show-deploy hybridautopart.com` renders platform / account /
+   branch / domains / hosting block as a human table.
 4. *Bulk migration of existing sites* (v10.C) — `lamill fleet repos
    --add-deploy-declarations --dry-run` walks every `sites/<dir>/`,
    classifies into unambiguous / manual-review / manual-entry /
@@ -354,8 +354,9 @@ against live state.
    the unambiguous cases.
 5. *Real-fleet rollout* (v10.D) — operator runs the migration
    against all ~22 fleet domains; reviews the plan; applies the
-   safe cases; handles edge cases interactively via `project
-   set-deploy`. Each sibling repo gets a `lamill.toml` committed
+   safe cases; handles edge cases interactively via `settings
+   project set-deploy`. Each sibling repo gets a `lamill.toml`
+   committed
    in. Validation phase surfaces real-world bugs that only show up
    against actual platform-config files in the wild.
 
@@ -366,7 +367,7 @@ against live state.
 | 10.A | TOML writer library — `tomllib` (stdlib, read-only) + manual write, `tomli-w` (~15KB), or `tomlkit` (~80KB, full round-trip with comments)? | **`tomli-w`** — operator edits go through `$EDITOR`; tool-side writes happen on fresh files or full re-renders, so comment preservation isn't load-bearing. Tomlkit heavier than its value at personal scale. (Shipped v10.A.) |
 | 10.B | Inference priority when multiple platform configs exist (`wrangler.jsonc` + `vercel.json` co-exist) — refuse + manual review, prefer DNS-matching one, or fixed priority order? | **Refuse — surface for manual review** (option 1). Migration is a one-time operation; ~5 ambiguous cases manageable manually. `--include-ambiguous` lets the operator skip the manual step at the cost of a possibly-wrong default. (Shipped v10.A via `infer_from_existing_configs` returning None on multi-signal; `detect_platform_signals` lets the v10.C migration command differentiate "no signals" from "ambiguous".) |
 | 10.C | Bootstrap default platform — `cf-pages`, `vercel`, or no default? | **Keep `cf-pages` for now.** Current v3.C convention; existing bootstrap output stable. If the next 3-4 sites all end up on Vercel, that's the signal to switch. (Resolves v10.C.) |
-| 10.D | Should `set-deploy` commit + push automatically? | **Just write the file.** Same posture as `project set-launched`. Operator decides when to commit + push. (Resolves v10.B.) |
+| 10.D | Should `set-deploy` commit + push automatically? | **Just write the file.** Same posture as `settings project set-launched`. Operator decides when to commit + push. (Resolves v10.B.) |
 | 10.E | Schema version handling on bumps (`lamill-toml-v1` → `v2`) — auto-migrate, reject loudly, or read-with-fallback / never-write-v1? | **Read-with-fallback / never-write-v1** (option 3). Operator-friendly without complex migration paths. Schema bumps should be rare. (Shipped v10.A.) |
 | 10.F | What about WordPress sites that have no project directory under `sites/`? | **Skip them in v10.C migration.** Sites without a local repo can't have a `lamill.toml` in the repo. v10.F (HostGator integration) will surface them differently. |
 | 10.G | Multi-deploy declarations (apex on platform A, `www.*` on platform B)? | **Not in v10.A-D.** YAGNI. If a multi-deploy case appears, write a follow-on PRD to extend the schema. |

@@ -183,7 +183,7 @@ def _site_age_days(domain: str, launched: date | None) -> int | None:
 
     Auto-inferred values aren't persisted — the dashboard recomputes on
     each read so projects that get a fresh first commit naturally update.
-    `project set-launched` persists an explicit override that wins over
+    `settings project set-launched` persists an explicit override that wins over
     the inference.
     """
     today = date.today()

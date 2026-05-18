@@ -1,4 +1,4 @@
-"""Tests for v10.B slice 1 — `project set-deploy` CLI.
+"""Tests for v10.B slice 1 — `settings project set-deploy` CLI.
 
 Covers: resolution (known/unknown/ambiguous domain), platform
 validation, non-interactive happy path, hostgator/custom hosting-
@@ -65,7 +65,7 @@ def test_set_deploy_rejects_invalid_platform(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "fly-io",
+        ["settings", "project", "set-deploy", "airsucks.com", "fly-io",
          "--non-interactive"],
     )
     assert result.exit_code == 2, result.stdout
@@ -77,7 +77,7 @@ def test_set_deploy_rejects_unknown_domain(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "doesnotexist.com", "cf-pages",
+        ["settings", "project", "set-deploy", "doesnotexist.com", "cf-pages",
          "--non-interactive"],
     )
     assert result.exit_code == 1, result.stdout
@@ -95,7 +95,7 @@ def test_set_deploy_rejects_when_sibling_repo_missing(monkeypatch, tmp_path):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "cf-pages",
+        ["settings", "project", "set-deploy", "airsucks.com", "cf-pages",
          "--non-interactive"],
     )
     assert result.exit_code == 1, result.stdout
@@ -110,7 +110,7 @@ def test_set_deploy_writes_minimal_lamill_toml(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "cf-pages",
+        ["settings", "project", "set-deploy", "airsucks.com", "cf-pages",
          "--non-interactive"],
     )
     assert result.exit_code == 0, result.stdout
@@ -132,7 +132,7 @@ def test_set_deploy_account_flag_persists(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "vercel",
+        ["settings", "project", "set-deploy", "airsucks.com", "vercel",
          "--account", "team-prod",
          "--non-interactive"],
     )
@@ -146,7 +146,7 @@ def test_set_deploy_branch_flag_overrides_default(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "cf-pages",
+        ["settings", "project", "set-deploy", "airsucks.com", "cf-pages",
          "--branch", "release",
          "--non-interactive"],
     )
@@ -160,7 +160,7 @@ def test_set_deploy_auto_deploy_flag_explicit_false(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "cf-pages",
+        ["settings", "project", "set-deploy", "airsucks.com", "cf-pages",
          "--no-auto-deploy",
          "--non-interactive"],
     )
@@ -175,7 +175,7 @@ def test_set_deploy_custom_domains_multiple_flags(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "vercel",
+        ["settings", "project", "set-deploy", "airsucks.com", "vercel",
          "--domain", "airsucks.com",
          "--domain", "www.airsucks.com",
          "--non-interactive"],
@@ -193,7 +193,7 @@ def test_set_deploy_hostgator_non_interactive_without_hosting_fails(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "hybridautopart.com", "hostgator",
+        ["settings", "project", "set-deploy", "hybridautopart.com", "hostgator",
          "--non-interactive"],
     )
     assert result.exit_code == 2, result.stdout
@@ -207,7 +207,7 @@ def test_set_deploy_hostgator_with_public_html_flag_succeeds(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "hybridautopart.com", "hostgator",
+        ["settings", "project", "set-deploy", "hybridautopart.com", "hostgator",
          "--public-html-path", "/home/vikt/public_html/hap/",
          "--non-interactive"],
     )
@@ -223,7 +223,7 @@ def test_set_deploy_custom_platform_requires_hosting_same_as_hostgator(fake_flee
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "custom",
+        ["settings", "project", "set-deploy", "airsucks.com", "custom",
          "--non-interactive"],
     )
     assert result.exit_code == 2, result.stdout
@@ -236,7 +236,7 @@ def test_set_deploy_hostgator_full_hosting_flags(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "hybridautopart.com", "hostgator",
+        ["settings", "project", "set-deploy", "hybridautopart.com", "hostgator",
          "--cpanel-user", "vikt",
          "--cpanel-url", "https://gator4045.hostgator.com:2083",
          "--ftp-host", "ftp.hybridautopart.com",
@@ -273,7 +273,7 @@ def test_set_deploy_preserves_existing_backend_and_notes(fake_fleet):
     # Operator changes platform but doesn't touch backend/notes.
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "calcengine.site", "vercel",
+        ["settings", "project", "set-deploy", "calcengine.site", "vercel",
          "--non-interactive"],
     )
     assert result.exit_code == 0, result.stdout
@@ -304,7 +304,7 @@ def test_set_deploy_preserves_existing_hosting_when_switching_to_non_hosting_pla
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "hybridautopart.com", "cf-pages",
+        ["settings", "project", "set-deploy", "hybridautopart.com", "cf-pages",
          "--non-interactive"],
     )
     assert result.exit_code == 0, result.stdout
@@ -324,7 +324,7 @@ def test_set_deploy_update_overwrites_account(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "vercel",
+        ["settings", "project", "set-deploy", "airsucks.com", "vercel",
          "--account", "team-new",
          "--non-interactive"],
     )
@@ -346,7 +346,7 @@ def test_set_deploy_rejects_when_existing_lamill_toml_malformed(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "cf-pages",
+        ["settings", "project", "set-deploy", "airsucks.com", "cf-pages",
          "--non-interactive"],
     )
     assert result.exit_code == 1, result.stdout
@@ -361,7 +361,7 @@ def test_set_deploy_leaves_no_temp_files(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["project", "set-deploy", "airsucks.com", "cf-pages",
+        ["settings", "project", "set-deploy", "airsucks.com", "cf-pages",
          "--non-interactive"],
     )
     assert result.exit_code == 0, result.stdout
