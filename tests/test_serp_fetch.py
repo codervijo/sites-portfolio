@@ -13,6 +13,24 @@ import pytest
 from portfolio import serp_fetch
 
 
+@pytest.fixture(autouse=True)
+def _isolate_serpapi_quota(monkeypatch, tmp_path):
+    """Repoint the quota ledger at `tmp_path` so tests don't read
+    the real `data/serp/_quota.json` ledger.
+
+    Mirrors `test_settings_serpapi_cli.py:_patch_quota_path`. Without
+    this fixture, all tests in this module would fail when the real
+    counter hits the monthly limit (250/250) — `serp_fetch.fetch_serp`
+    calls `is_quota_available()` before any HTTP work, and the
+    production ledger is the default read source. See `docs/bugs.md`
+    entry 2026-05-18 for the discovery context.
+    """
+    from portfolio import serpapi_quota
+    monkeypatch.setattr(
+        serpapi_quota, "QUOTA_PATH", tmp_path / "_quota.json"
+    )
+
+
 # ---------- a representative SerpAPI response fixture ----------
 
 
