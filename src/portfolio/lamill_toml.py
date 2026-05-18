@@ -406,15 +406,20 @@ def _atomic_write(target: Path, content: str) -> None:
 def _wrangler_platform(repo_path: Path) -> str | None:
     """CF Pages vs Workers from a wrangler config file.
 
-    The Pages-mode signal is the `pages_build_output_dir` key — Pages
-    config carries it, Workers config doesn't. Looks at
-    `wrangler.jsonc` first, then `wrangler.toml`. Returns `None` if
-    no wrangler file is present.
+    Two Pages-mode signals — either one promotes to `cf-pages`:
+    - `pages_build_output_dir` field (legacy CF Pages config).
+    - `assets` block (modern CF Pages spec — JSONC `"assets":` or
+      TOML `[assets]`; the bootstrap generator writes this form
+      per the homeloom.app convention with `assets.directory:
+      "./dist"` + `not_found_handling: "single-page-application"`).
+
+    Anything else with a wrangler config defaults to `cf-workers`.
+    Looks at `wrangler.jsonc` first, then `wrangler.toml`. Returns
+    `None` if no wrangler file is present.
 
     Comment-aware enough for the fleet's actual files — text-search
-    on the raw bytes. A `pages_build_output_dir` inside a JSONC
-    comment is a theoretical false positive but the operator almost
-    never writes such a comment.
+    on the raw bytes. False positives via JSONC comments are
+    theoretical but rare in practice.
     """
     for fname in ("wrangler.jsonc", "wrangler.toml"):
         path = repo_path / fname
@@ -423,11 +428,12 @@ def _wrangler_platform(repo_path: Path) -> str | None:
                 text = path.read_text(errors="replace")
             except OSError:
                 continue
-            return (
-                "cf-pages"
-                if "pages_build_output_dir" in text
-                else "cf-workers"
-            )
+            if "pages_build_output_dir" in text:
+                return "cf-pages"
+            # Modern CF Pages: JSONC `"assets":` or TOML `[assets]`.
+            if '"assets":' in text or "[assets]" in text:
+                return "cf-pages"
+            return "cf-workers"
     return None
 
 

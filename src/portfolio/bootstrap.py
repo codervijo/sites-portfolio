@@ -1545,6 +1545,7 @@ def bootstrap(
     today_iso: str | None = None,
     operator_inputs: dict[str, str] | None = None,
     growth_hypothesis: str = "",
+    platform: str | None = None,
 ) -> BootstrapResult:
     """Top-level orchestration. Always called with already-validated domain.
 
@@ -1640,6 +1641,53 @@ def bootstrap(
     if with_ingester:
         ing_written, _ = _write_files(project_dir, INGESTER_FILES, domain, stack, topic, today, skip_existing=skip_existing)
         result.files_written.extend(ing_written)
+
+    # v10.C — write `lamill.toml` declaring the deploy target.
+    # Platform priority: explicit `--platform` flag → infer from
+    # on-disk configs (wrangler.jsonc / vercel.json / netlify.toml
+    # — by now the CF safety fixes have written wrangler.jsonc so
+    # the template path always detects cf-pages) → default `cf-pages`
+    # (per `prd.md` v10 design notes resolution 10.C).
+    if not (project_dir / "lamill.toml").exists():
+        from .lamill_toml import (
+            DeployBlock,
+            HOSTING_REQUIRED_PLATFORMS,
+            LamillToml,
+            PLATFORM_VALUES,
+            infer_from_existing_configs,
+        )
+        from .lamill_toml import write as _write_lamill_toml
+        if platform is not None:
+            if platform not in PLATFORM_VALUES:
+                raise BootstrapError(
+                    f"unsupported --platform: {platform!r}. "
+                    f"Use one of {', '.join(PLATFORM_VALUES)}."
+                )
+            if platform in HOSTING_REQUIRED_PLATFORMS:
+                raise BootstrapError(
+                    f"--platform={platform!r} can't be set at bootstrap "
+                    f"time — it requires a [hosting] section that "
+                    f"bootstrap doesn't prompt for. Bootstrap with the "
+                    f"default platform first, then run `lamill settings "
+                    f"project set-deploy {domain} {platform}` to "
+                    f"populate the cpanel + FTP breadcrumbs."
+                )
+            chosen_platform = platform
+        else:
+            inferred = infer_from_existing_configs(project_dir)
+            chosen_platform = (
+                inferred.platform if inferred is not None else "cf-pages"
+            )
+        _write_lamill_toml(
+            project_dir,
+            LamillToml(
+                deploy=DeployBlock(
+                    platform=chosen_platform,
+                    custom_domains=[domain],
+                ),
+            ),
+        )
+        result.files_written.append("lamill.toml")
 
     initialized, sha = _git_init_and_commit(
         project_dir,

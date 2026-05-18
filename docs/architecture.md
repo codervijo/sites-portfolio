@@ -962,23 +962,35 @@ the `project` namespace is reserved for project-code ops
 Full design notes stay in `prd.md § 6 → v10 → Design notes` until
 v10.D ships and the whole tier moves to `shipping-history.md`.
 
-### v10.C — auto-write integration (planned)
+### v10.C — auto-write integration
 
 ~4-5h. Two slices:
 
-- *`new bootstrap` writes `lamill.toml`.* Platform inferred from
-  `--stack` (`cf-pages` default per resolution 10.C); `--platform
-  <X>` overrides. Operator can edit the file before `new deploy`
-  picks it up.
+- *`new bootstrap` writes `lamill.toml`* — shipped 2026-05-18.
+  After common files + CF safety fixes, bootstrap writes
+  `lamill.toml` if not already present. Platform priority:
+  explicit `--platform <X>` flag → `infer_from_existing_configs()`
+  on what's in the dir (CF safety fixes have just written
+  `wrangler.jsonc` so template-path bootstrap detects `cf-pages`
+  on its own) → `cf-pages` default. `--platform hostgator|custom`
+  rejects at bootstrap with a pointer to `settings project
+  set-deploy` — bootstrap doesn't prompt for the `[hosting]`
+  fields those platforms require. `custom_domains` set to
+  `[<domain>]`. Bootstrap doesn't clobber a pre-existing
+  `lamill.toml` (matters for `--from-genai` if the Lovable export
+  brought one along). Detection updated to recognize modern CF
+  Pages config (`assets` block) alongside legacy
+  `pages_build_output_dir`.
 - *`fleet repos --add-deploy-declarations [--dry-run]
-  [--include-ambiguous]`.* Walks every `sites/<dir>/`, calls
-  `detect_platform_signals()` per repo, classifies as unambiguous /
-  multiple-signals (ambiguous) / no-signals (manual entry needed) /
-  has-lamill-toml-already / archived. Writes for unambiguous cases
-  via `lamill_toml.write()`. Surfaces ambiguous + manual-entry
-  cases for operator follow-up. `--include-ambiguous` uses
-  `vercel.json > wrangler.jsonc > netlify.toml` priority order
-  with a `notes.text` warning in the generated file.
+  [--include-ambiguous]`* — planned. Walks every `sites/<dir>/`,
+  calls `detect_platform_signals()` per repo, classifies as
+  unambiguous / multiple-signals (ambiguous) / no-signals
+  (manual entry needed) / has-lamill-toml-already / archived.
+  Writes for unambiguous cases via `lamill_toml.write()`.
+  Surfaces ambiguous + manual-entry cases for operator follow-up.
+  `--include-ambiguous` uses `vercel.json > wrangler.jsonc >
+  netlify.toml` priority order with a `notes.text` warning in
+  the generated file.
 
 ### v10.D — validation phase (planned)
 

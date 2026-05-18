@@ -812,3 +812,145 @@ def test_detect_stack_from_pkg_unknown(tmp_path):
 
 def test_detect_stack_from_pkg_missing_returns_default(tmp_path):
     assert detect_stack_from_pkg(tmp_path) == "vite"
+
+
+# ---------- v10.C — lamill.toml writing as part of scaffolding ----------
+
+
+def test_bootstrap_writes_lamill_toml_with_cf_pages_default(tmp_path):
+    """Template path with default --stack astro → lamill.toml has
+    platform=cf-pages (per resolution 10.C — CF Pages stays the
+    current bootstrap default until the next 3-4 sites all ship
+    on Vercel)."""
+    from portfolio.lamill_toml import load
+    bootstrap("flow.dev", sites_root=tmp_path)
+    project = tmp_path / "flow.dev"
+    assert (project / "lamill.toml").exists()
+    payload = load(project)
+    assert payload is not None
+    assert payload.deploy.platform == "cf-pages"
+
+
+def test_bootstrap_lamill_toml_sets_custom_domains_to_domain(tmp_path):
+    from portfolio.lamill_toml import load
+    bootstrap("calcengine.site", sites_root=tmp_path)
+    payload = load(tmp_path / "calcengine.site")
+    assert payload.deploy.custom_domains == ["calcengine.site"]
+
+
+def test_bootstrap_vite_stack_also_defaults_to_cf_pages(tmp_path):
+    from portfolio.lamill_toml import load
+    bootstrap("kwizicle.com", stack="vite", sites_root=tmp_path)
+    payload = load(tmp_path / "kwizicle.com")
+    assert payload.deploy.platform == "cf-pages"
+
+
+def test_bootstrap_platform_flag_overrides_default(tmp_path):
+    from portfolio.lamill_toml import load
+    bootstrap("airsucks.com", sites_root=tmp_path, platform="vercel")
+    payload = load(tmp_path / "airsucks.com")
+    assert payload.deploy.platform == "vercel"
+
+
+def test_bootstrap_platform_flag_accepts_non_hosting_platforms(tmp_path):
+    """Every PLATFORM_VALUES entry except `hostgator` / `custom` is
+    accepted via --platform. The two hosting-required platforms reject
+    at bootstrap (see test_bootstrap_platform_flag_rejects_hostgator)
+    because bootstrap doesn't prompt for cpanel + FTP breadcrumbs."""
+    from portfolio.lamill_toml import (
+        HOSTING_REQUIRED_PLATFORMS, PLATFORM_VALUES, load,
+    )
+    for i, platform in enumerate(PLATFORM_VALUES):
+        if platform in HOSTING_REQUIRED_PLATFORMS:
+            continue
+        domain = f"test{i}.example"
+        bootstrap(domain, sites_root=tmp_path, platform=platform)
+        payload = load(tmp_path / domain)
+        assert payload.deploy.platform == platform
+
+
+@pytest.mark.parametrize("platform", ("hostgator", "custom"))
+def test_bootstrap_platform_flag_rejects_hosting_required(tmp_path, platform):
+    """`--platform hostgator|custom` rejects at bootstrap with a
+    pointer to `settings project set-deploy` (the only command that
+    knows how to prompt for the required hosting fields)."""
+    with pytest.raises(BootstrapError, match="can't be set at bootstrap"):
+        bootstrap(
+            f"hg-{platform}.example",
+            sites_root=tmp_path,
+            platform=platform,
+        )
+
+
+def test_bootstrap_platform_flag_rejects_invalid(tmp_path):
+    with pytest.raises(BootstrapError, match="unsupported --platform"):
+        bootstrap("invalid.example", sites_root=tmp_path, platform="fly-io")
+    # Project dir gets created earlier in bootstrap; the failure is
+    # mid-flight. That's the existing behavior (--stack 'bogus' also
+    # fails after `mkdir`); document but don't try to clean it up.
+
+
+def test_bootstrap_lamill_toml_round_trips_through_load(tmp_path):
+    """The file bootstrap writes must satisfy the v10.A parser
+    (strict-on-read). If load() ever raises ParseError here, that's
+    drift between the writer and the parser."""
+    from portfolio.lamill_toml import load
+    bootstrap("flow.dev", sites_root=tmp_path)
+    payload = load(tmp_path / "flow.dev")  # raises on malformed
+    assert payload is not None
+    assert payload.deploy.platform == "cf-pages"
+    assert payload.deploy.production_branch == "main"
+
+
+def test_bootstrap_doesnt_clobber_existing_lamill_toml(tmp_path):
+    """If a `lamill.toml` somehow already exists in the project dir
+    before bootstrap (uncommon but possible if --from-genai brought
+    one along), bootstrap leaves it alone."""
+    from portfolio.lamill_toml import (
+        BackendBlock, DeployBlock, LamillToml, load, write,
+    )
+    project_dir = tmp_path / "flow.dev"
+    project_dir.mkdir(parents=True)
+    # Pre-seed a vercel + backend payload so the bootstrap path
+    # would normally overwrite with cf-pages.
+    preexisting = LamillToml(
+        deploy=DeployBlock(platform="vercel", account="team-prod"),
+        backend=BackendBlock(db="postgres", framework="fastapi",
+                             hosting="fly.io"),
+    )
+    write(project_dir, preexisting)
+    # Bootstrap normally rejects existing project_dir on template
+    # path; use --from-genai instead. Pre-seed an empty genai dir.
+    (project_dir / "genai").mkdir()
+    (project_dir / "genai" / "package.json").write_text(
+        '{"name": "flow", "scripts": {"build": "echo build"}}'
+    )
+    bootstrap("flow.dev", from_genai=True, sites_root=tmp_path)
+    # The pre-existing lamill.toml survives untouched.
+    payload = load(project_dir)
+    assert payload.deploy.platform == "vercel"
+    assert payload.deploy.account == "team-prod"
+    assert payload.backend is not None
+    assert payload.backend.db == "postgres"
+
+
+def test_bootstrap_passes_day_zero_catalog_with_lamill_toml(tmp_path):
+    """v10.C addendum to the v6.B day-zero catalog regression — adding
+    a lamill.toml to the scaffold output mustn't break any check. If
+    a check fails because the bootstrap now writes an extra file,
+    that check is a regression introduced by v10.C."""
+    from portfolio.checks import list_checks, run_check
+    bootstrap("flow.dev", sites_root=tmp_path)
+    project_dir = str(tmp_path / "flow.dev")
+    transient = {
+        "CHECK_021", "CHECK_022", "CHECK_023", "CHECK_028",
+        "CHECK_031", "CHECK_041", "CHECK_042",
+    }
+    failed = []
+    for spec in list_checks():
+        if spec.id in transient:
+            continue
+        result = run_check(spec.id, project_dir)
+        if result.status == "fail":
+            failed.append(f"{spec.id}: {result.message}")
+    assert not failed, "checks failed on freshly-bootstrapped output:\n" + "\n".join(failed)

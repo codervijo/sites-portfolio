@@ -3476,6 +3476,15 @@ def new_bootstrap(
              "its audience? Written into docs/growth.md as the first "
              "dated H2 entry. (skips the prompt)",
     ),
+    # v10.C — `lamill.toml` written as part of scaffolding.
+    platform: str = typer.Option(
+        "", "--platform",
+        help="Override the lamill.toml [deploy].platform written by "
+             "bootstrap. Default: cf-pages (or inferred from existing "
+             "platform-config markers if --from-genai brought any). "
+             "Values: cf-pages | cf-workers | vercel | netlify | "
+             "github-pages | hostgator | custom | none.",
+    ),
 ) -> None:
     """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A).
 
@@ -3527,6 +3536,7 @@ def new_bootstrap(
             topic=topic,
             operator_inputs=operator_inputs,
             growth_hypothesis=growth_hypothesis_resolved,
+            platform=platform or None,
         )
     except BootstrapError as e:
         console.print(f"[red]bootstrap failed:[/] {e}")

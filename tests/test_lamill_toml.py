@@ -549,6 +549,38 @@ def test_detect_cf_pages_from_wrangler_jsonc(tmp_path: Path):
     assert s["cf-workers"] is False
 
 
+def test_detect_cf_pages_from_modern_assets_block_jsonc(tmp_path: Path):
+    # Modern CF Pages spec — no `pages_build_output_dir`, uses an
+    # `assets` block instead. The bootstrap generator writes this
+    # form per the homeloom.app convention.
+    (tmp_path / "wrangler.jsonc").write_text(
+        '{\n'
+        '  "name": "example",\n'
+        '  "compatibility_date": "2026-05-18",\n'
+        '  "assets": {\n'
+        '    "directory": "./dist",\n'
+        '    "not_found_handling": "single-page-application"\n'
+        '  }\n'
+        '}\n'
+    )
+    s = detect_platform_signals(tmp_path)
+    assert s["cf-pages"] is True
+    assert s["cf-workers"] is False
+
+
+def test_detect_cf_pages_from_modern_assets_block_toml(tmp_path: Path):
+    (tmp_path / "wrangler.toml").write_text(
+        'name = "example"\n'
+        'compatibility_date = "2026-05-18"\n\n'
+        '[assets]\n'
+        'directory = "./dist"\n'
+        'not_found_handling = "single-page-application"\n'
+    )
+    s = detect_platform_signals(tmp_path)
+    assert s["cf-pages"] is True
+    assert s["cf-workers"] is False
+
+
 def test_detect_cf_workers_from_wrangler_jsonc(tmp_path: Path):
     (tmp_path / "wrangler.jsonc").write_text(
         '{\n  "name": "example",\n  "main": "src/index.ts"\n}\n'
