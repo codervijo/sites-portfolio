@@ -623,15 +623,23 @@ scope when this tier's slot comes up.
 | v14.C | ⏳ | Build status + deploy lag. Deploy lag (push → live) · last build status via Cloudflare/Vercel API · `last-build-success` conformance · *requires platform tokens — major new infra*. |
 | v14.D | ⏳ | Domain-list refresh tooling. Flag-only enhancements to existing `cleanup` (no new commands): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct `$EDITOR` on `data/portfolio.json` is the no-tooling path. |
 
-## 7. Conformance rules
+## 7. Conformance rules for all websites
 
-portfolio enforces these on sibling `sites/*` projects via `project
-check` and `fleet check`. Failures show in the `failed` list with
-optional fix hints. Skipped rules don't apply (e.g. `live-site` for
-a CLI project that doesn't deploy). The complete numbered catalog
-(~85 checks across scaffold / git / stack / deploy / SEO / content
-categories) lives under `src/portfolio/checks/`; this table summarizes
-the load-bearing checks and where each landed.
+**Scope: every sibling `sites/<domain>/` website project.** This
+section is *not* about the `portfolio` (a.k.a. `lamill`) tool itself
+— `portfolio` is a Python CLI, not a website, and is explicitly
+excluded from these checks via `[git] ignore_repos = ["portfolio"]`
+in `~/.config/portfolio/config.toml`. The rules below are what
+`portfolio` *enforces on* the websites it manages.
+
+`portfolio` runs these checks via `project check <domain>` (one
+website) and `fleet check` (every sibling website not in
+`ignore_repos`). Failures show in the `failed` list with optional fix
+hints. Skipped rules don't apply (e.g. `live-site` for a CLI project
+that doesn't deploy). The complete numbered catalog (~85 checks
+across scaffold / git / stack / deploy / SEO / content categories)
+lives under `src/portfolio/checks/`; this table summarizes the
+load-bearing checks and where each landed.
 
 | Rule | Pass condition | Lands in |
 |---|---|---|
@@ -692,5 +700,3 @@ questions.
   workflow.
 - `AI_AGENTS.md` (repo root) — agent orientation; canonical
   versioning rule (ADR-0004); canonical-docs map.
-- `docs/handoff.md` — the current session-handoff brief (rotated as
-  state changes).
