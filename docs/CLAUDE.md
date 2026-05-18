@@ -76,9 +76,65 @@ uv run portfolio new bootstrap <domain>
   - **`portfolio` repo is excluded from `check --git`** by default
     (`[git] ignore_repos = ["portfolio"]`) — it's a Python CLI tool, not
     a website, so the SEO/stack checks would all skip and create noise.
-  - **AI_AGENTS.md (plural)** at root for general AI orientation;
-    `docs/CLAUDE.md` for Claude-specific. The two are intentionally
-    separate.
+  - **Four canonical docs** (all must match reality + code per
+    `docs/prd.md § Spec discipline`):
+    - `docs/prd.md` — WHY / WHAT / WHEN (purpose, problem, target
+      user, goals, versions/phases, conformance rules, open questions)
+    - `docs/architecture.md` — HOW (project layout, mechanisms,
+      schemas, modules, CLI/UX, integrations, stack baselines,
+      active implementation plans, risks, tracked refactors)
+    - `docs/shipping-history.md` — archived design rationale for
+      shipped phases (append-only)
+    - `docs/CLAUDE.md` — this file; Claude-specific decisions,
+      locked target shapes, deferred decisions, heading hygiene rule
+    - Plus `AI_AGENTS.md` (at repo root) — agent orientation +
+      canonical `vN.X` versioning rule.
+
+## Canonical docs — when to update which
+
+| If you're changing… | …update this doc | …in the same commit |
+|---|---|---|
+| A mechanism, schema, or module | `docs/architecture.md` | yes |
+| Phase status (planned → in-progress → shipped) | `docs/prd.md` phase row | yes |
+| A phase has just shipped | move its design notes from `prd.md` to `docs/shipping-history.md` | yes |
+| Goals, target user, conformance rule, open question | `docs/prd.md` | yes |
+| A Claude-specific convention or locked target shape | `docs/CLAUDE.md` (this file) | yes |
+| Agent-orientation summary or versioning rule | `AI_AGENTS.md` | yes |
+
+**Stale docs are a conformance failure, not a backlog item.** Never let
+docs drift "to be updated later" — fix in the same commit as the code
+change that made them stale.
+
+## Heading hygiene
+
+**Before adding any section, subsection, or heading to a Markdown
+file, output the file's current heading outline first:**
+
+```bash
+grep -nE '^#+ ' path/to/file.md
+```
+
+Then confirm — in the chat — that the planned new heading's:
+
+1. **Depth** (`#`, `##`, `###`, …) is the intended depth, not
+   accidentally one level too shallow.
+2. **Label** doesn't collide with existing headings — no duplicate
+   `## 1. <title>`, no `### N.X` subsection labels that look like
+   `vN.X` phase identifiers.
+
+Only after that confirmation, write.
+
+Applies especially to long-lived docs:
+`docs/prd.md`, `AI_AGENTS.md`, `docs/architecture.md`, `docs/CLAUDE.md`.
+
+**Why:** `docs/prd.md` accumulated four detailed-PRD bodies inlined
+at `##` depth instead of `###` under a parent `## 8. Detailed PRDs`.
+Each one created another `## 1. Problem statement` at the same depth
+as the file's top-level `## 1. Purpose`. The drift was invisible in
+any single design session — only visible in the aggregate (VS Code
+outline view showed a flat column with repeating numbers). The
+pre-edit outline ritual catches this at the point of writing, not
+at quarterly cleanup time.
 
 ## Locked target shapes
 
