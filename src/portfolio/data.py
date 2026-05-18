@@ -369,6 +369,87 @@ def load_plan(path: Path | None = None) -> dict[str, str]:
     return {d.name: d.category for d in load_domains() if d.category}
 
 
+def append_domain_row(
+    *,
+    name: str,
+    registrar: str,
+    registered: bool = True,
+    today: date | None = None,
+) -> str:
+    """v9.C — append a domain row to `data/portfolio.json` for a freshly-
+    bought / freshly-scaffolded domain. Atomic write, idempotent.
+
+    Returns:
+      "added"     — new row appended
+      "exists"    — row for `name` already present; no change
+      "no-file"   — portfolio.json doesn't exist (cold start; caller
+                    runs `fleet info cleanup` first)
+
+    Conservative placeholders fill fields a future Porkbun-CSV refresh
+    (or the `--sync-porkbun` API path TBD) will overwrite with
+    authoritative numbers:
+
+      created / domain_created → today UTC
+      expires                  → today + 1 year (Porkbun's default
+                                 registration term)
+      auto_renew               → "On" (Porkbun's default)
+      privacy                  → True (Porkbun's default for new regs)
+      transfer_locked          → True (registrar's standard 60-day lock)
+      renewal_price            → None (registrar-specific; CSV fills in)
+      nameservers              → "" (cleanup pulls live)
+      estimated_value          → None (operator decides later)
+
+    `status` is "Active" when `registered=True`, else "Pending" — the
+    Pending row reminds the operator the domain isn't bought yet, so
+    `project check <name>` resolves but won't surface in live-domain
+    rollups.
+    """
+    if not PORTFOLIO_JSON.exists():
+        return "no-file"
+    payload = json.loads(PORTFOLIO_JSON.read_text())
+    existing = {row.get("name", "").lower() for row in payload.get("domains", [])}
+    if name.lower() in existing:
+        return "exists"
+
+    today = today or date.today()
+    expires = today.replace(year=today.year + 1)
+    # Extract TLD from the domain — last dot-segment, prefixed with `.`
+    # so it matches the existing portfolio.json convention (".xyz",
+    # ".dev"). Handles ccTLDs by surfacing the eTLD-1 (e.g. ".uk" for
+    # "newsite.co.uk") — accurate enough for the inventory; the
+    # cleanup CSV refresh corrects in edge cases.
+    tld = "." + name.rsplit(".", 1)[-1]
+
+    row = {
+        "name": name,
+        "registrar": registrar,
+        "tld": tld,
+        "expires": expires.isoformat(),
+        "auto_renew": "On",
+        "status": "Active" if registered else "Pending",
+        "category": "Under build",
+        "created": today.isoformat(),
+        "renewal_price": None,
+        "estimated_value": None,
+        "listing_status": "",
+        "nameservers": "",
+        "forwarding_url": "",
+        "privacy": True,
+        "transfer_locked": True,
+        "launched": None,
+        "domain_created": today.isoformat() if registered else None,
+    }
+    payload.setdefault("domains", []).append(row)
+    payload["generated_at"] = datetime.now(timezone.utc).isoformat()
+    if "total" in payload:
+        payload["total"] = len(payload["domains"])
+
+    tmp = PORTFOLIO_JSON.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    tmp.replace(PORTFOLIO_JSON)
+    return "added"
+
+
 def update_domain_field(name: str, field_name: str, value) -> bool:
     """Set a single field on one domain's portfolio.json entry. Atomic.
 

@@ -3449,23 +3449,47 @@ def new_bootstrap(
                                          help="AI_AGENTS.md Content strategy section content (skips the prompt)"),
     non_interactive: bool = typer.Option(
         False, "--non-interactive",
-        help="Skip all v9.B prompts — sections without --flag values get "
-             "(to be filled in) placeholders.",
+        help="Skip all v9.B / v9.C prompts — operator-input sections "
+             "without --flag values get (to be filled in) placeholders; "
+             "domain inventory isn't updated unless --registered is set.",
+    ),
+    # v9.C — domain-registration prompt + portfolio.json auto-update.
+    registered: bool | None = typer.Option(
+        None, "--registered/--not-registered",
+        help="Domain registration status. --registered appends an Active "
+             "row to portfolio.json; --not-registered appends a Pending "
+             "row (reminder to come back). Omit to be prompted interactively.",
+    ),
+    registrar: str = typer.Option(
+        "", "--registrar",
+        help="porkbun | godaddy | namecheap | other  (skips the prompt)",
     ),
 ) -> None:
     """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A).
 
-    v9.B — bootstrap now prompts for the 5 operator-input AI_AGENTS
+    v9.B — bootstrap prompts for the 5 operator-input AI_AGENTS
     sections (Summary / Audience / ICP / Goals / Content strategy)
     unless overridden by per-section flags or `--non-interactive`.
     Sections left blank render as `(to be filled in)` placeholders
     that CHECK_014's tier-1 fix can also populate later.
+
+    v9.C — bootstrap also asks whether the domain is registered and
+    appends a row to data/portfolio.json so `project check <domain>`
+    resolves immediately. Bypass with `--registered` / `--not-registered`
+    + `--registrar <name>` flags, or `--non-interactive`.
     """
     from .bootstrap import BootstrapError, bootstrap as run_bootstrap
 
     operator_inputs = _collect_operator_inputs(
         summary=summary, audience=audience, icp=icp,
         goal=goal, content_strategy=content_strategy,
+        non_interactive=non_interactive,
+    )
+    # Resolve v9.C inputs BEFORE running bootstrap so a failed scaffold
+    # doesn't waste the operator's prompt answers. (The inventory write
+    # itself happens AFTER bootstrap succeeds.)
+    inventory_decision = _resolve_inventory_inputs(
+        domain=domain, registered=registered, registrar=registrar,
         non_interactive=non_interactive,
     )
 
@@ -3483,6 +3507,9 @@ def new_bootstrap(
         console.print(f"[red]bootstrap failed:[/] {e}")
         raise typer.Exit(2)
 
+    # v9.C — append portfolio.json row when applicable.
+    _apply_inventory_decision(domain, inventory_decision)
+
     _render_bootstrap_summary(result, domain, topic=topic)
 
 
@@ -3492,6 +3519,137 @@ def new_bootstrap(
 # sections are operator-input; this helper iterates that list so
 # adding a new operator section in v9.E doesn't require touching
 # CLI code.
+
+
+# v9.C — domain-registration prompt + portfolio.json auto-update.
+# Shape: `_resolve_inventory_inputs` gathers the operator's intent
+# (registered?, registrar?) ONCE — before the bootstrap call —
+# returning a dict the post-bootstrap code consumes. Failures in
+# `run_bootstrap` don't waste the prompt answers; re-running with
+# the same flags is idempotent.
+
+_REGISTRARS = ("porkbun", "godaddy", "namecheap", "other")
+
+
+def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
+                              registrar: str, non_interactive: bool) -> dict:
+    """Determine whether to update portfolio.json + with what fields.
+
+    Returns a dict with keys:
+      action:    "append" → call append_domain_row
+                 "skip"   → no inventory write (operator opted out or
+                            non-interactive without explicit flag)
+                 "exists" → predetermined: row already in portfolio.json
+                            (idempotent re-run); informational only
+      registered: bool (when action != "skip")
+      registrar:  str (when action != "skip")
+
+    Decision rules:
+      - If `name` already in portfolio.json → action="exists", no prompts.
+      - If `registered` flag set + `registrar` flag set → action="append".
+      - If `non_interactive` AND no `registered` flag → action="skip"
+        (no inventory write; operator runs cleanup later).
+      - Else interactive: prompt Y/n for registration + select registrar.
+    """
+    from .data import PORTFOLIO_JSON
+    import json as _json
+
+    # Existing-row short-circuit: skip prompts + inventory write entirely.
+    if PORTFOLIO_JSON.exists():
+        try:
+            payload = _json.loads(PORTFOLIO_JSON.read_text())
+            existing = {row.get("name", "").lower()
+                        for row in payload.get("domains", [])}
+        except (OSError, _json.JSONDecodeError):
+            existing = set()
+        if domain.lower() in existing:
+            return {"action": "exists"}
+
+    # Both flags supplied → no prompts.
+    if registered is not None and registrar:
+        if registrar not in _REGISTRARS:
+            console.print(
+                f"[red]--registrar must be one of {', '.join(_REGISTRARS)}; "
+                f"got {registrar!r}.[/]"
+            )
+            raise typer.Exit(2)
+        return {"action": "append", "registered": registered,
+                "registrar": registrar}
+
+    if non_interactive:
+        # No explicit flag in batch mode → skip inventory write.
+        # Operator can update later via fleet cleanup or a direct edit.
+        if registered is None:
+            return {"action": "skip"}
+        # Flag set in non-interactive mode but registrar omitted →
+        # default to "other" so we don't lose the registration signal.
+        return {"action": "append", "registered": registered,
+                "registrar": registrar or "other"}
+
+    # Interactive path. Prompt for registration status, then registrar.
+    console.print(
+        f"\n[bold]Domain inventory ([cyan]{domain}[/])[/]"
+        " [dim](v9.C — auto-updates portfolio.json so "
+        "`project check {domain}` resolves)[/]"
+    )
+    if registered is None:
+        answer = typer.prompt(
+            "  Is the domain registered? [Y/n]",
+            default="Y", show_default=False,
+        ).strip().lower()
+        registered = answer not in ("n", "no")
+    if not registrar:
+        registrar = typer.prompt(
+            f"  Registrar [{'/'.join(_REGISTRARS)}]",
+            default="porkbun", show_default=False,
+        ).strip().lower()
+        if registrar not in _REGISTRARS:
+            registrar = "other"
+
+    return {"action": "append", "registered": registered,
+            "registrar": registrar}
+
+
+def _apply_inventory_decision(domain: str, decision: dict) -> None:
+    """Execute the resolved inventory decision. Logs the outcome so
+    the operator sees what happened in the summary."""
+    action = decision.get("action")
+    if action == "skip":
+        # Silent — non-interactive runs deliberately skipped this.
+        return
+    if action == "exists":
+        console.print(
+            f"[dim]  portfolio.json: row for {domain} already present; "
+            f"no update.[/]"
+        )
+        return
+    if action == "append":
+        from .data import append_domain_row
+
+        result = append_domain_row(
+            name=domain,
+            registrar=decision["registrar"],
+            registered=decision["registered"],
+        )
+        status = "Active" if decision["registered"] else "Pending"
+        if result == "added":
+            console.print(
+                f"[green]  ✓ portfolio.json: appended {domain} "
+                f"(registrar={decision['registrar']}, status={status})[/]"
+            )
+        elif result == "exists":
+            # Race condition (unlikely but defensive) — pre-check
+            # didn't see the row but append did. Still informational.
+            console.print(
+                f"[dim]  portfolio.json: row for {domain} already present; "
+                f"no update.[/]"
+            )
+        elif result == "no-file":
+            console.print(
+                f"[yellow]  ⚠ portfolio.json missing — run "
+                f"`lamill fleet info cleanup` to bootstrap the inventory, "
+                f"then re-run this command (or add the row manually).[/]"
+            )
 
 
 def _collect_operator_inputs(*,
