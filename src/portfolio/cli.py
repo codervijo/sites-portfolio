@@ -5488,6 +5488,27 @@ def fleet_repos(
         False, "--json",
         help="Emit machine-readable JSON instead of a table.",
     ),
+    add_deploy_declarations: bool = typer.Option(
+        False, "--add-deploy-declarations",
+        help="v10.C migration: walk every sites/<dir>/ without a "
+             "lamill.toml, classify by detected platform-config "
+             "markers, write the file for unambiguous cases.",
+    ),
+    dry_run: bool = typer.Option(
+        True, "--dry-run/--apply",
+        help="When --add-deploy-declarations is set: --dry-run "
+             "(default) shows the plan without writing; --apply "
+             "actually writes lamill.toml files.",
+    ),
+    include_ambiguous: bool = typer.Option(
+        False, "--include-ambiguous",
+        help="When --add-deploy-declarations + --apply: also write "
+             "for sites with multiple platform-config files, picking "
+             "via vercel > cf-pages > cf-workers > netlify priority "
+             "and embedding a notes warning. Default refuses ambiguous "
+             "cases — operator must run `settings project set-deploy` "
+             "manually.",
+    ),
 ) -> None:
     """Audit each sites/<domain>/ for git-layer state (read-only).
 
@@ -5496,9 +5517,30 @@ def fleet_repos(
     or empty stub. Also flags any remote whose name truncates the
     domain (full-domain naming convention; CHECK_040 covers per-site).
 
-    Write modes (`--fix`, `--remote`) are intentionally not implemented
-    in this version — audit-only by design.
+    Write modes for the git-layer state (`--fix`, `--remote`) are
+    intentionally not implemented in this version — audit-only by
+    design. The `--add-deploy-declarations` flag (v10.C) is a
+    separate migration sweep that writes `lamill.toml` files, not a
+    git-layer fix.
     """
+    # v10.C migration path.
+    if add_deploy_declarations:
+        from .project_deploy import (
+            migrate_deploy_declarations,
+            render_migration_summary,
+        )
+        rows = migrate_deploy_declarations(
+            dry_run=dry_run,
+            include_ambiguous=include_ambiguous,
+        )
+        if dry_run:
+            console.print(
+                "[dim]Dry-run — no files written. Re-run with "
+                "[bold]--apply[/dim][/bold] [dim]to commit the plan.[/]"
+            )
+        render_migration_summary(rows, console)
+        return
+
     from .fleet_repos import (
         audit, render_detail, render_json, render_summary,
     )

@@ -34,6 +34,24 @@ Three commits delivered the library half — `src/portfolio/lamill_toml.py`
 Full design notes stay in `prd.md § 6 → v10 → Design notes` until
 v10.D ships and the whole tier moves here together.
 
+## v10.C · `new bootstrap` writes lamill.toml + `fleet repos --add-deploy-declarations` migration sweep — shipped 2026-05-18
+
+Two-slice auto-write integration. `new bootstrap` writes `lamill.toml`
+as part of scaffolding (platform priority: `--platform` flag → infer-
+from-existing-configs → `cf-pages` default; hostgator/custom rejected
+at bootstrap). `fleet repos --add-deploy-declarations [--dry-run/
+--apply] [--include-ambiguous]` migration sweep walks every
+`sites/<dir>/`, classifies into already_declared / archived /
+unambiguous / ambiguous / manual, writes safe cases. Refs `fd725ff`
+(bootstrap writes) + migration-sweep commit.
+
+Detection logic enhanced — `_wrangler_platform` now recognizes the
+modern CF Pages spec (`"assets":` / `[assets]` blocks) alongside the
+legacy `pages_build_output_dir` field, so both bootstrap-generated
+and historical wrangler files classify correctly.
+
+Full design notes stay in `prd.md` until v10.D ships.
+
 ## v10.B · `settings project set-deploy` + `show-deploy` CLI — shipped 2026-05-18
 
 Two CLI commands for managing `lamill.toml`. Refs `d28c516` (set-deploy

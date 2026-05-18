@@ -25,6 +25,8 @@ from pathlib import Path
 
 import typer
 
+from dataclasses import dataclass, field
+
 from .lamill_toml import (
     HOSTING_REQUIRED_PLATFORMS,
     LAMILL_TOML_FILENAME,
@@ -34,6 +36,8 @@ from .lamill_toml import (
     HostingBlock,
     LamillToml,
     ParseError,
+    detect_platform_signals,
+    infer_from_existing_configs,
     load,
     to_dict,
     write,
@@ -507,3 +511,270 @@ def _render_deploy_rows(table, payload: LamillToml) -> None:
             payload.notes[:77] + "..."
         )
         table.add_row("notes", notes_short)
+
+
+# ---- v10.C — migration sweep --------------------------------------
+
+
+# Priority order for `--include-ambiguous` mode (per v10 design
+# notes resolution 10.B): vercel > cf-pages > cf-workers > netlify.
+_AMBIGUOUS_PRIORITY: tuple[str, ...] = (
+    "vercel",
+    "cf-pages",
+    "cf-workers",
+    "netlify",
+)
+
+# Portfolio.json categories that mean "this site is being retired."
+# Mirrors `fleet_repos.ARCHIVED_CATEGORIES`.
+_ARCHIVED_CATEGORIES: frozenset[str] = frozenset({
+    "to be deleted immediately",
+    "archived",
+    "tombstoned",
+})
+
+_TOMBSTONE_MARKER = "TOMBSTONE.md"
+
+
+@dataclass
+class MigrationRow:
+    """One row of the `fleet repos --add-deploy-declarations` report."""
+    domain: str
+    classification: str
+    # Inferred platform when there's a single unambiguous signal, or
+    # the priority-picked one when --include-ambiguous resolves a
+    # multi-signal case. None when no signals or skipped.
+    chosen_platform: str | None = None
+    # Per-platform presence dict from `detect_platform_signals()`.
+    signals: dict[str, bool] = field(default_factory=dict)
+    # "would_write" / "wrote" / "skipped_already" / "skipped_archived"
+    # / "skipped_ambiguous" / "skipped_manual" — the verb that
+    # describes what the migration did (or planned to do).
+    action: str = ""
+    notes: str | None = None
+
+
+def migrate_deploy_declarations(
+    *,
+    dry_run: bool = True,
+    include_ambiguous: bool = False,
+    sites_root=None,
+    plan=None,
+) -> list[MigrationRow]:
+    """Walk every `sites/<dir>/` and classify lamill.toml status.
+
+    Returns a list of `MigrationRow` — one per site, in alphabetical
+    order. When `dry_run` is True (default), writes nothing; just
+    reports what would happen. When False, writes `lamill.toml` for
+    every unambiguous case (and ambiguous cases too if
+    `include_ambiguous`).
+
+    Classifications:
+    - `already_declared` — `lamill.toml` exists; left alone.
+    - `archived` — `TOMBSTONE.md` present or `portfolio.json`
+      category in `_ARCHIVED_CATEGORIES`; skipped.
+    - `unambiguous` — exactly one platform signal; the migration
+      writes (or in `dry_run`, would write) a fresh `lamill.toml`.
+    - `ambiguous` — multiple platform signals. Refused unless
+      `include_ambiguous`, in which case the migration picks via the
+      vercel > cf-pages > cf-workers > netlify priority order and
+      embeds a `[notes].text` warning in the generated file.
+    - `manual` — no signals + not archived. Operator must run
+      `lamill settings project set-deploy <domain> <platform>`.
+
+    `sites_root` overrides the default sites/ root (for tests).
+    `plan` overrides the portfolio.json plan dict (for tests; live
+    callers leave None to read from disk).
+    """
+    from .fleet_repos import list_site_dirs
+
+    site_dirs = list_site_dirs(sites_root=sites_root)
+    if plan is None:
+        from .data import load_plan
+        plan = load_plan()
+
+    rows: list[MigrationRow] = []
+    for site_dir in site_dirs:
+        domain = site_dir.name
+        row = _classify_site(
+            domain=domain,
+            site_dir=site_dir,
+            plan=plan,
+            include_ambiguous=include_ambiguous,
+        )
+        if not dry_run and row.action == "would_write":
+            _execute_write(site_dir, row)
+        rows.append(row)
+    return rows
+
+
+def _classify_site(
+    *,
+    domain: str,
+    site_dir,
+    plan: dict,
+    include_ambiguous: bool,
+) -> MigrationRow:
+    if (site_dir / LAMILL_TOML_FILENAME).exists():
+        return MigrationRow(
+            domain=domain,
+            classification="already_declared",
+            action="skipped_already",
+            notes="lamill.toml already exists; left alone",
+        )
+
+    if _is_archived(site_dir=site_dir, domain=domain, plan=plan):
+        return MigrationRow(
+            domain=domain,
+            classification="archived",
+            action="skipped_archived",
+            notes="TOMBSTONE.md or archived category — skipped",
+        )
+
+    signals = detect_platform_signals(site_dir)
+    present = [p for p, found in signals.items() if found]
+
+    if len(present) == 0:
+        return MigrationRow(
+            domain=domain,
+            classification="manual",
+            signals=signals,
+            action="skipped_manual",
+            notes=(
+                "no platform-config files (wrangler.jsonc / vercel.json / "
+                f"netlify.toml) found; run `lamill settings project "
+                f"set-deploy {domain} <platform>` interactively"
+            ),
+        )
+
+    if len(present) == 1:
+        return MigrationRow(
+            domain=domain,
+            classification="unambiguous",
+            chosen_platform=present[0],
+            signals=signals,
+            action="would_write",
+            notes=f"single signal: {present[0]}",
+        )
+
+    # Multiple signals — ambiguous.
+    if not include_ambiguous:
+        return MigrationRow(
+            domain=domain,
+            classification="ambiguous",
+            signals=signals,
+            action="skipped_ambiguous",
+            notes=(
+                f"multiple platform configs detected ({', '.join(present)}); "
+                "re-run with --include-ambiguous to write via priority "
+                "(vercel > cf-pages > cf-workers > netlify), or run "
+                f"`lamill settings project set-deploy {domain} <platform>` "
+                "manually"
+            ),
+        )
+    picked = _resolve_ambiguous_priority(present)
+    return MigrationRow(
+        domain=domain,
+        classification="ambiguous",
+        chosen_platform=picked,
+        signals=signals,
+        action="would_write",
+        notes=(
+            f"AMBIGUOUS: multiple platform configs ({', '.join(present)}); "
+            f"chose {picked!r} via priority order. Verify against actual "
+            "deploy state and edit lamill.toml if wrong."
+        ),
+    )
+
+
+def _resolve_ambiguous_priority(present: list[str]) -> str:
+    """Apply `_AMBIGUOUS_PRIORITY` order. Returns the first match."""
+    for p in _AMBIGUOUS_PRIORITY:
+        if p in present:
+            return p
+    # Shouldn't reach: every entry in `present` is from
+    # detect_platform_signals which returns only the 4 priority keys.
+    return present[0]
+
+
+def _is_archived(*, site_dir, domain: str, plan: dict) -> bool:
+    if (site_dir / _TOMBSTONE_MARKER).exists():
+        return True
+    category = (plan.get(domain) or "").strip().lower()
+    return category in _ARCHIVED_CATEGORIES
+
+
+def _execute_write(site_dir, row: MigrationRow) -> None:
+    """Write `lamill.toml` for an unambiguous (or priority-resolved
+    ambiguous) site. Updates `row.action` to `wrote`."""
+    payload = LamillToml(
+        deploy=DeployBlock(
+            platform=row.chosen_platform,
+            custom_domains=[row.domain],
+        ),
+        # For ambiguous-with-include path, surface the conflict in the
+        # generated file so the operator sees it on next inspection.
+        notes=row.notes if row.classification == "ambiguous" else None,
+    )
+    write(site_dir, payload)
+    row.action = "wrote"
+
+
+def render_migration_summary(rows: list[MigrationRow], console) -> None:
+    """Render the migration plan / result to the terminal.
+
+    Single-table summary grouped by classification, with footer counts
+    + next-step hints. Matches the `fleet repos` audit renderer's
+    compact style.
+    """
+    from rich.table import Table
+
+    by_class: dict[str, list[MigrationRow]] = {}
+    for r in rows:
+        by_class.setdefault(r.classification, []).append(r)
+
+    # Render order: most-actionable first.
+    classification_order = [
+        ("unambiguous", "[green]Unambiguous — safe to write[/]"),
+        ("ambiguous", "[yellow]Ambiguous — multiple signals[/]"),
+        ("manual", "[cyan]Manual entry needed — no signals[/]"),
+        ("already_declared", "[dim]Already declared[/]"),
+        ("archived", "[dim]Archived (skipped)[/]"),
+    ]
+
+    for cls, header in classification_order:
+        cls_rows = by_class.get(cls, [])
+        if not cls_rows:
+            continue
+        console.print(f"\n{header}: {len(cls_rows)}")
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("domain", style="bold", no_wrap=True)
+        table.add_column("platform", style="dim", no_wrap=True)
+        table.add_column("action / note")
+        for r in cls_rows:
+            table.add_row(
+                r.domain,
+                r.chosen_platform or "—",
+                _action_label(r),
+            )
+        console.print(table)
+
+    # Footer rollup.
+    counts = {cls: len(by_class.get(cls, [])) for cls, _ in classification_order}
+    summary = " · ".join(
+        f"{v} {k.replace('_', '-')}" for k, v in counts.items() if v
+    )
+    total = sum(counts.values())
+    console.print(f"\n[bold]Total:[/] {total} sites — {summary}")
+
+
+def _action_label(row: MigrationRow) -> str:
+    if row.action == "wrote":
+        return f"[green]wrote lamill.toml[/]"
+    if row.action == "would_write":
+        return f"[cyan]would write lamill.toml ({row.chosen_platform})[/]"
+    if row.action == "skipped_ambiguous":
+        return f"[yellow]{row.notes}[/]"
+    if row.action == "skipped_manual":
+        return f"[cyan]{row.notes}[/]"
+    return f"[dim]{row.notes or row.action}[/]"

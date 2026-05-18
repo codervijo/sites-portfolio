@@ -962,11 +962,11 @@ the `project` namespace is reserved for project-code ops
 Full design notes stay in `prd.md § 6 → v10 → Design notes` until
 v10.D ships and the whole tier moves to `shipping-history.md`.
 
-### v10.C — auto-write integration
+### v10.C — auto-write integration ✅ (shipped 2026-05-18)
 
-~4-5h. Two slices:
+Two slices delivered the auto-write half of `lamill.toml`:
 
-- *`new bootstrap` writes `lamill.toml`* — shipped 2026-05-18.
+- *`new bootstrap` writes `lamill.toml`* (commit `fd725ff`).
   After common files + CF safety fixes, bootstrap writes
   `lamill.toml` if not already present. Platform priority:
   explicit `--platform <X>` flag → `infer_from_existing_configs()`
@@ -981,16 +981,28 @@ v10.D ships and the whole tier moves to `shipping-history.md`.
   brought one along). Detection updated to recognize modern CF
   Pages config (`assets` block) alongside legacy
   `pages_build_output_dir`.
-- *`fleet repos --add-deploy-declarations [--dry-run]
-  [--include-ambiguous]`* — planned. Walks every `sites/<dir>/`,
-  calls `detect_platform_signals()` per repo, classifies as
-  unambiguous / multiple-signals (ambiguous) / no-signals
-  (manual entry needed) / has-lamill-toml-already / archived.
-  Writes for unambiguous cases via `lamill_toml.write()`.
-  Surfaces ambiguous + manual-entry cases for operator follow-up.
-  `--include-ambiguous` uses `vercel.json > wrangler.jsonc >
-  netlify.toml` priority order with a `notes.text` warning in
-  the generated file.
+- *`fleet repos --add-deploy-declarations`* (migration-sweep
+  commit). Walks every `sites/<dir>/` (reusing
+  `fleet_repos.list_site_dirs`), calls
+  `detect_platform_signals()` per repo, classifies as:
+  `already_declared` (lamill.toml exists), `archived`
+  (TOMBSTONE.md or portfolio.json category in archived set),
+  `unambiguous` (single signal — writes), `ambiguous`
+  (multiple signals — refused unless `--include-ambiguous`),
+  `manual` (no signals — operator follows up via `settings
+  project set-deploy`). `--dry-run` is the default; `--apply`
+  commits writes. `--include-ambiguous` picks via priority
+  `vercel > cf-pages > cf-workers > netlify` and embeds a
+  `[notes].text` warning in the generated file so the operator
+  sees the conflict on next inspection. Implementation in
+  `project_deploy.py:migrate_deploy_declarations()` returning a
+  list of `MigrationRow` structs; renderer
+  `render_migration_summary()` groups output by classification
+  with footer counts.
+
+v10.D (validation phase) runs this against the actual fleet
+next; design notes stay in `prd.md` until v10.D ships and the
+whole tier moves to `shipping-history.md`.
 
 ### v10.D — validation phase (planned)
 
