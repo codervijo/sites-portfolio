@@ -65,6 +65,51 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-18 — `test_serp_fetch.py` not isolated from real `data/serp/_quota.json`
+
+**Repro**
+    # With data/serp/_quota.json at queries_used == limit (250/250):
+    uv run pytest tests/test_serp_fetch.py -q
+
+**Expected**
+All `test_serp_fetch.py` tests pass regardless of the real
+quota counter state. Tests should monkeypatch the quota path to
+`tmp_path` (mirroring `test_settings_serpapi_cli.py`'s
+`_patch_quota_path` fixture pattern).
+
+**Actual**
+18 of 21 tests fail with
+`portfolio.serpapi_quota.QuotaExhausted: SerpAPI free-tier quota
+exhausted for this UTC month.` The failure is at
+`src/portfolio/serp_fetch.py:56` calling the production
+`is_quota_available()` — confirming the tests hit the real
+`data/serp/_quota.json` rather than a mocked one. Triggered
+today when the operator's actual SerpAPI quota hit 250/250 mid-
+session; previously masked because the counter was at 127/250
+and the gate was open.
+
+**Where (guess)**
+`tests/test_serp_fetch.py` is missing a `monkeypatch.setattr(
+serpapi_quota, "QUOTA_PATH", tmp_path / "_quota.json")` fixture
+like the one in `tests/test_settings_serpapi_cli.py:18-20`.
+Probably one fixture at the top + per-test inclusion fixes all 18.
+
+**Severity**
+major — breaks the test suite when production quota is full. CI
+would have caught this earlier if quota was ever full at that
+time. Doesn't affect runtime correctness, but blocks confident
+development.
+
+**Notes**
+Discovered while shipping v10.B slice 2 — the v10.B tests are
+fine (different code path); only `test_serp_fetch.py` is affected.
+Workaround for now: skip these tests locally with `uv run pytest
+-q --ignore=tests/test_serp_fetch.py` until fixed. Quick fix
+(~15 min) once picked up — copy the `_patch_quota_path` fixture
+shape from `test_settings_serpapi_cli.py`.
+
+---
+
 ### 2026-05-18 — `fleet seo --refresh` and `fleet domains` show different domain counts
 
 **Repro**
