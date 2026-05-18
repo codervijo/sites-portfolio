@@ -20,23 +20,41 @@ Read these in this order before doing anything:
      this for every Markdown file you touch.**
 3. `docs/decisions/README.md` — the ADR index. Skim it; it tells you
    which load-bearing decisions are already recorded.
-4. `docs/prd.md` § 5 (Phases) — current state of every shippable
-   slice with `✅ done` / `planned` markers.
-5. `docs/architecture.md` — currently mostly TBD; will hold the HOW
-   once the migration completes (one of your tasks).
+4. `docs/prd.md` § 6 (Versions) — tier-grouped phase log. Each
+   `### vN` has `#### Phases` (status table) and (for unshipped
+   tiers) `#### Design notes` (problem / goals / user journey /
+   resolved opens / effort / approval).
+5. `docs/architecture.md` — HOW the tool is built. Mechanisms,
+   schemas, modules, CLI/UX, integrations, active implementation
+   plans (per unshipped phase), risks. **Companion to prd.md** —
+   any technical question about HOW lives here.
 6. `docs/shipping-history.md` — archived rationale for shipped phases
    (v8.D's full detailed PRD is here as the worked example).
 
 ## Where the work is
 
-**Project state:** 28 of ~75 phases shipped. Phase table snapshot
-lives in `docs/prd.md` § 5 — render the current truth with
-`/feature-table` if you have it.
+**Project state:** 28 of ~75 phases shipped. Phase table now lives
+tier-grouped under `docs/prd.md § 6. Versions` — render the current
+truth with `/feature-table` if you have it.
 
 **Last shipped (code):** `v12.A — adversarial audit prompt rendering`
 (commit `1ecfebf`). Full test suite: 1672/0/1.
 
-**Most recent commits (docs cleanup, 2026-05-18):**
+**Most recent docs work (2026-05-18 — completed this session):**
+
+- `docs/architecture.md` populated from prd.md §8.2/§8.3/§8.4 — every
+  section has real content; no more `(TBD)` placeholders. ~978 lines.
+- `docs/prd.md` restructured to the 9-section model. Tier-grouped
+  `### vN` headings under `## 6. Versions`, each with `#### Phases`
+  and (for unshipped tiers v10/v11/v12) `#### Design notes`. The
+  `## 8. Detailed PRDs` container is gone. ~696 lines (down from
+  2691).
+- Cross-ref sweep: stale `§8.2`/`§6.A`-style refs in architecture.md
+  updated to point at the new doc + section.
+- Tests green: 1672/0/1.
+
+**Earlier doc-cleanup commits (2026-05-18 morning, before this
+session):**
 
 | Commit   | Subject |
 |----------|---------|
@@ -48,94 +66,57 @@ lives in `docs/prd.md` § 5 — render the current truth with
 Plus 17 sibling-repo commits propagating the Heading hygiene section
 to every `sites/<domain>/docs/CLAUDE.md`.
 
-**Next code phase (deferred from this session):** `v12.B — adversarial
-audit response parser` — was the original handoff target but the
-operator pivoted to doc cleanup first. Resume v12.B after doc cleanup
-completes, or sooner if priorities shift.
+**Next code phase:** `v12.B — adversarial audit response parser`.
+Doc cleanup is now done; resume code work on v12.B.
 
-## Next task in detail — continue doc cleanup
+## Next task in detail — v12.B: adversarial audit response parser
 
-The doc cleanup is **partially done** as of 2026-05-18. Three tasks
-remain:
+Spec lives in `docs/prd.md § 6 Versions → v12 → #### Phases (v12.B
+row)` plus the audit-pass arc in `docs/prd.md § 6 Versions → v12 →
+#### Design notes`. Cross-doc HOW lives in `docs/architecture.md
+§ 3 Mechanisms (Research module)` + `§ 4 Schemas (data model:
+ParsedAudit)` + `§ 9 Active implementation plans (v12.B onward)`.
 
-### Task: populate `docs/architecture.md` from prd.md
+**Goal.** Add `audit_pass.parse_audit(markdown) → ParsedAudit` +
+`AuditParseError`. Parallel to v8.G's `parse_verdict` /
+`VerdictParseError`. Schema is different:
 
-`docs/architecture.md` was created as a skeleton with 11 sections, all
-marked `(TBD)`. Your job: extract technical/implementation content
-from the still-inlined detailed PRDs in `prd.md` § 8.2 / § 8.3 / § 8.4
-and populate the matching architecture.md sections.
+- Required `### agreement_level` ∈ {full, partial, disagree}
+- Required `### confidence` ∈ {HIGH, MEDIUM, LOW}
+- Required `### specific_concerns` (≥1 bullet)
+- Optional `### counter_verdict` (only present when
+  `agreement_level == disagree`)
+- Optional `### audit_self_check`
 
-What moves and where:
+**Tolerances same as `parse_verdict`:** case-insensitive headers,
+bullet markers (`-`, `*`, `+`, `N.`), trailing punctuation, leading
+preamble. Different model styles → also accept `**foo:**`, `# foo`,
+`## foo` as section headers.
 
-| From `prd.md`                                          | To `architecture.md`                                     |
-|--------------------------------------------------------|----------------------------------------------------------|
-| § 8.2 (v8.E–v12.G) — functional requirements, data model, output rendering, implementation plans, risks | § 3 Mechanisms, § 4 Schemas, § 5 CLI/UX, § 9 Plans, § 10 Risks |
-| § 8.3 (v10.A) — Schema, Platform enum, Parser module, CLI surface, Bootstrap defaults, Migration command, Data model, Implementation plan | § 4 Schemas (lamill.toml), § 5 CLI/UX, § 8 Module index, § 9 Plans |
-| § 8.4 (v11.A) — Provider walkers, Table renderer, Dashboard integration, Data model, Implementation plan | § 3 Mechanisms (Provider walkers), § 4 Schemas (HostingRow + snapshot), § 9 Plans |
+**Where to write.** `src/portfolio/audit_pass.py`. Module already
+exists (v8.J shipped `build_audit_payload`; v12.A shipped
+`render_audit_prompt`). Add `ParsedAudit` dataclass next to those
+helpers, then the parser, then the error class.
 
-What stays in `prd.md` per detailed PRD (becomes the eventual `####
-Design notes` for each unshipped phase): Problem statement, Goals (or
-fold into top-level §2 Goals), User journey scenarios, Open questions,
-Effort estimate, Approval. The technical content moves out.
+**Tests.** `tests/test_audit_pass.py` — start with the success cases
+(full / partial / disagree), then add tolerance cases (case
+variants, bullet markers, preamble), then add failure cases
+(missing required section → `AuditParseError`, bad
+`agreement_level` token → `AuditParseError`). Aim for ~15-20 tests
+to match the v8.G parser's coverage.
 
-Estimated reduction: prd.md shrinks by ~700–1000 more lines (currently
-2691; target ~1700–2000 after this task).
+**Effort estimate.** ~2h.
 
-### Task: restructure `docs/prd.md` to the new 9-section model
-
-Current top-level structure (post-v8.D-migration):
-
-```
-## 1. Purpose
-## 2. Audience
-## 3. Goals & non-goals
-## 4. Versions
-## 5. Phases
-## 6. Conformance rules
-## 7. Open questions
-## 8. Detailed PRDs       ← container; § 8.2 / § 8.3 / § 8.4 still inlined here
-```
-
-Target (agreed 2026-05-18):
+**Commit-message format.**
 
 ```
-## 1. Purpose
-## 2. Goals & non-goals
-## 3. Problem statement       ← NEW (extract from § 1 Purpose if needed; or write fresh)
-## 4. Target user             ← merges in current § 2 Audience content
-## 5. Spec discipline         ← NEW: reality + code + all five docs must match
-## 6. Versions                ← merges current §4 Versions + §5 Phases; grouped by tier
-   ### v1 — <theme>
-      #### Phases
-      | v1.A ✅ | <feature> |
-      ...
-   ### v8 — <theme>
-      #### Phases
-      #### Design notes        ← only for versions with unshipped phases
-   ...
-## 7. Conformance rules       ← was §6
-## 8. Open questions          ← was §7
-## 9. References              ← NEW: links to architecture.md, shipping-history.md, decisions/, AI_AGENTS.md
+portfolio: v12.B — adversarial audit response parser
+
+<2–5 short paragraphs. WHY this slice exists and what shipped.
+Mention test count and prior commit refs.>
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 ```
-
-The `## 8. Detailed PRDs` container goes away entirely. § 8.2 / § 8.3 /
-§ 8.4 design-notes content gets merged into the matching `### vN`
-section's `#### Design notes` subsection. § 8.2's technical content
-moved to architecture.md (previous task).
-
-### Task: verify
-
-After the two tasks above, run a final outline check + cross-ref
-sanity pass:
-
-- `grep -nE '^#+ ' docs/prd.md` → confirm 9 top-level `## N.`
-  headings, no duplicates, no `## 1. Problem statement` at H2 depth
-  anywhere (the v8.D drift case is the canary).
-- Confirm `prd.md`'s in-prose references to "§ 8.A" / "§ 6.B" / etc.
-  are updated to point at the right new doc + section.
-- Confirm AI_AGENTS.md's `## Canonical docs` table still lists all
-  five surfaces correctly.
-- `uv run pytest -q` is green.
 
 ## Hard constraints — read before editing
 
@@ -296,21 +277,23 @@ Push after each shippable commit. Don't batch.
 
 ## End state for the next slice
 
-After the remaining three doc-cleanup tasks above:
+After v12.B ships:
 
-- `prd.md` is ~1700–2000 lines, has 9 top-level sections, has no `##
-  1. Problem statement` collisions at any depth.
-- `architecture.md` has real content under every section (no more
-  `(TBD)` placeholders).
-- `shipping-history.md` has v8.D as the only filled entry (others
-  remain TBD until those phases ship).
-- All five canonical-doc surfaces are listed in AI_AGENTS.md and
-  docs/CLAUDE.md, with update-when triggers documented.
-- `uv run pytest -q` green; `git status` clean (or only runtime
-  data); commits pushed.
+- `audit_pass.parse_audit(markdown) → ParsedAudit` lands in
+  `src/portfolio/audit_pass.py` alongside the existing
+  `build_audit_payload` (v8.J) + `render_audit_prompt` (v12.A).
+- `AuditParseError` defined; raised on missing required section or
+  bad enum token.
+- `tests/test_audit_pass.py` covers success / tolerance / failure
+  cases (~15-20 tests).
+- `prd.md § 6 v12 #### Phases` v12.B row marked ✅; `prd.md` v12
+  Design notes unchanged (still describes the unshipped audit arc;
+  v12.C-G remain ⏳).
+- `docs/shipping-history.md` gains a one-line `## v12.B · ... —
+  shipped YYYY-MM-DD` entry (full design notes stay in prd.md until
+  v12.G ships the whole audit arc).
+- `uv run pytest -q` green; commit pushed.
 
-Then update this file's "Where the work is" / "Next task in detail"
-sections and resume code work on **v12.B — adversarial audit
-response parser** per the original handoff (the v12.B brief lives in
-git: see commit `2d7749b`'s parent or `git log -p docs/prd.md` for
-the v12.B row's design notes).
+After v12.B, the next slice is v12.C (audit-pass runner — orchestrates
+build_audit_payload → render_audit_prompt → OpenAI chat-completions →
+parse_audit). Same `audit_pass.py` module. ~3h.
