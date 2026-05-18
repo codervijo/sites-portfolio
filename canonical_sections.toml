@@ -1,0 +1,74 @@
+# v9.E — canonical AI_AGENTS.md sections schema.
+#
+# Single source of truth for the 10 H2 sections every sites/<domain>/
+# AI_AGENTS.md must contain. Edit this file to evolve the schema
+# without touching Python code; `portfolio.canonical_sections` reads
+# this at import and exposes the result as a tuple of dataclasses.
+#
+# Schema version is checked at load time — the loader refuses to
+# proceed if it doesn't recognize the version (forces an explicit
+# bump in code when the format itself changes, not just the content).
+#
+# `source` field is a closed enum:
+#   "operator" — content collected by `new bootstrap` interactive
+#                prompts (v9.B). Empty content → "(to be filled in)"
+#                placeholder.
+#   "template" — content populated by the bootstrap template
+#                renderer with project-aware boilerplate.
+#
+# Order matters: bootstrap template renderer writes sections in
+# this sequence, and the CHECK_014 tier-1 fix appends missing
+# sections in this order so the rendered AI_AGENTS.md always reads
+# the same way across projects.
+
+schema_version = "v9.A"
+
+[[sections]]
+heading = "Summary"
+source = "operator"
+description = "one paragraph: what this site is, what it does"
+
+[[sections]]
+heading = "Audience"
+source = "operator"
+description = "one sentence: who this is for (broad demographic)"
+
+[[sections]]
+heading = "ICP"
+source = "operator"
+description = "the specific ideal customer — demographics, pain points, what they use today. More detail than Audience: Audience is the broad demo (\"homeowners with EV chargers\"), ICP is the specific targetable subset (\"Tesla owners in CA who installed in last 90d, paid $2k+\")"
+
+[[sections]]
+heading = "Goals"
+source = "operator"
+description = "1-2 sentences: primary business / product goal"
+
+[[sections]]
+heading = "Tech stack"
+source = "template"
+description = "frontend stack (Astro / Vite / etc.) + key deps"
+
+[[sections]]
+heading = "Building info"
+source = "template"
+description = "Makefile forwards-to-parent, `make deps` / `make dev` / `make build` recipes"
+
+[[sections]]
+heading = "Deployment info"
+source = "template"
+description = "platform (CF Pages / Vercel / Netlify), wrangler.jsonc, predicted live URL"
+
+[[sections]]
+heading = "Content strategy"
+source = "operator"
+description = "what content this site needs — page types, initial topics, format mix (long-form vs reference vs tool)"
+
+[[sections]]
+heading = "Versioning"
+source = "template"
+description = "two-level vN.X rule pointer + CHECK_013 reference (canonical convention defined in sites/portfolio/AI_AGENTS.md)"
+
+[[sections]]
+heading = "Conventions"
+source = "template"
+description = "pnpm-only, Vite ≥6, deferred-decisions log, project-specific quirks"
