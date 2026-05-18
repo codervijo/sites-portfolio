@@ -809,41 +809,77 @@ Commit-by-commit plans for unshipped phases. Each plan moves to
 `docs/shipping-history.md` when its phase ships. Plans here are the
 HOW companion to `prd.md`'s `### vN #### Design notes` (the WHY).
 
-### v10.A — `lamill.toml` per-site deploy declaration
+### v10.A — `lamill.toml` foundation ✅ (shipped 2026-05-18)
 
-~12-16h, eight commits. Reuses the `new bootstrap` and `project fix`
-write surfaces. Each commit subject is `portfolio: v10.A — <slice>`
-per the two-level convention; the slice names what landed.
+Three commits delivered the library half — schema, parser, atomic
+writer, inference. Tests at `tests/test_lamill_toml.py` (70 tests).
+Module API documented in §4 Schemas → `LamillToml` above.
 
-Sequential slices, in commit order:
+- `4395e1d` schema + parser; `BackendBlock` + dataclasses + `load()`
+- `c9d543b` atomic `write()` + round-trip determinism
+- `be10787` `infer_from_existing_configs()` + `detect_platform_signals()`
 
-- *Schema + parser.* `src/portfolio/lamill_toml.py` —
-  `DeployBlock` / `HostingBlock` / `BackendBlock` / `LamillToml`
-  dataclasses. `load(repo_path) → LamillToml | None`. New dep
-  `tomli-w` in `pyproject.toml`. Smoke:
-  `pytest tests/test_lamill_toml.py -q`.
-- *Atomic write + round-trip.* `write(repo_path, payload)` via
-  tmpfile + rename. Round-trip determinism tests (write → load →
-  write → compare).
-- *Inference from existing configs.*
-  `infer_from_existing_configs(repo_path) → DeployBlock | None` —
-  reads `wrangler.jsonc` / `vercel.json` / `netlify.toml`. Tests
-  per platform + the multiple-config "ambiguous" return.
-- *`project set-deploy <name> <platform>` CLI.* Interactive prompts
-  when stdin is a TTY; `--non-interactive` rejects with a clear
-  error if any required field is missing.
-- *`project show-deploy <name>` CLI.* Pretty table renderer +
-  `--json`.
+When v10.D ships, the v10 Design notes move to
+`docs/shipping-history.md` and these slices land as a single
+`## v10.A · ... — shipped 2026-05-18` entry there.
+
+### v10.B — operator CLI surfaces (planned)
+
+~3-4h. Two slices, both under `portfolio: v10.B — <slice>` commit
+subjects:
+
+- *`project set-deploy <name> <platform>`.* Interactive prompts
+  when stdin is a TTY: required-field prompts depend on platform
+  (hostgator/custom walk cpanel + FTP breadcrumbs;
+  cf-pages/vercel/netlify only prompt for optional `account` /
+  `custom_domains`). `--non-interactive` rejects with a clear error
+  if any required field is missing. `--account <X>` /
+  `--branch <X>` pre-fill. Writes via `lamill_toml.write()` (atomic).
+- *`project show-deploy <name>`.* Pretty table renderer + `--json`
+  for raw payload. Renders platform / account / branch / domains /
+  hosting block / backend block / notes. Shows "(none declared —
+  run `project set-deploy`)" when no `lamill.toml` exists.
+
+### v10.C — auto-write integration (planned)
+
+~4-5h. Two slices:
+
 - *`new bootstrap` writes `lamill.toml`.* Platform inferred from
-  `--stack` (cf-pages default). `--platform <X>` overrides.
+  `--stack` (`cf-pages` default per resolution 10.C); `--platform
+  <X>` overrides. Operator can edit the file before `new deploy`
+  picks it up.
 - *`fleet repos --add-deploy-declarations [--dry-run]
-  [--include-ambiguous]`.* Walks every `sites/<dir>/`, classifies,
-  writes safe cases. Refuses ambiguous (multiple platform configs)
-  without `--include-ambiguous`.
-- *Docs update.* `docs/CLAUDE.md` brief on `lamill.toml`,
-  `AI_AGENTS.md` note on the new file convention,
-  `docs/Prompts.md` dated H2 entry, `docs/prd.md` v10.A row → ✅,
-  v10.A Design notes → `shipping-history.md`.
+  [--include-ambiguous]`.* Walks every `sites/<dir>/`, calls
+  `detect_platform_signals()` per repo, classifies as unambiguous /
+  multiple-signals (ambiguous) / no-signals (manual entry needed) /
+  has-lamill-toml-already / archived. Writes for unambiguous cases
+  via `lamill_toml.write()`. Surfaces ambiguous + manual-entry
+  cases for operator follow-up. `--include-ambiguous` uses
+  `vercel.json > wrangler.jsonc > netlify.toml` priority order
+  with a `notes.text` warning in the generated file.
+
+### v10.D — validation phase (planned)
+
+~2-3h. Real-fleet rollout. Operator-driven, not code-heavy:
+
+- Run `lamill fleet repos --add-deploy-declarations --dry-run`
+  against the actual 22-ish-domain fleet.
+- Review the plan; resolve any v10.A/B/C bugs that surface (real
+  config files in the wild often have edge cases the test fixtures
+  don't cover).
+- `--apply` the unambiguous cases.
+- For each ambiguous / manual-entry case, run `lamill project
+  set-deploy <name> <platform>` interactively.
+- Each sibling `sites/<domain>/` repo gets a `lamill.toml`
+  committed in (each repo's own commit, not bundled into
+  `sites/portfolio`).
+- End state: every applicable sibling repo carries a valid
+  `lamill.toml`; v10.E (drift detection) can now read declarations.
+
+Validation phase exit criterion: every sibling repo classified as
+`live-site` or `forwarder` in the latest `data/checks/<date>.json`
+has a committed `lamill.toml`. Archived / parked / dead sites
+skipped per the migration's archived-detection rules.
 
 ### v11.A — `fleet hosting` — fleet-wide Vercel/CF deploy state
 

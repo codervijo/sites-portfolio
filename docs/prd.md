@@ -282,18 +282,28 @@ Visible TOML file at each `sites/<domain>/` repo root declaring where
 the site deploys. Closes the gap for hosts without canonical configs
 (HostGator, WordPress, custom VPS). Scope expanded 2026-05-17 to
 include a `[backend]` section for non-JS-rendering server stacks.
+
+The lamill.toml feature ships across **v10.A-D** (foundation → CLI →
+auto-write → real-fleet validation); **v10.E-G** are downstream
+follow-ons (drift detection, HostGator API, SFTP deploy). The
+v10.A-D split landed 2026-05-18 — the original v10.A row covered the
+whole umbrella; splitting per-concern keeps the phase table 1:1
+with actual ship cadence per the strict-two-level convention.
+
 **See `docs/architecture.md § 4 Schemas / § 9 Active implementation
-plans / § 10 Risks` for the full technical design + commit-by-commit
-plan.**
+plans / § 10 Risks` for the technical design.**
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v10.A | ⏳ | `lamill.toml` per-site deploy declaration. Schema: `[deploy]` (platform, account, branch, custom_domains) + `[hosting]` (cPanel/FTP breadcrumbs when applicable) + `[backend]` (DB + server framework + backend-hosting target) + `[notes]`. CLI: `project set-deploy`, `project show-deploy`, `fleet repos --add-deploy-declarations` migration. `new bootstrap` writes it automatically. ~12-16h. |
-| v10.B | ⏳ | Drift detection + lamill.toml conformance checks. CHECK_xxx series comparing `lamill.toml` declaration vs DNS-resolved actual + live HTTP probe. `has-lamill-toml` + `lamill-toml-valid` + `deploy-drift` checks. ~6-8h. |
-| v10.C | ⏳ | HostGator cPanel integration. API pull of domains / WordPress installs / disk usage. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
-| v10.D | ⏳ | SFTP deploy abstraction. `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
+| v10.A | ✅ | `lamill.toml` foundation — schema constants (`PLATFORM_VALUES`, `DB_VALUES`, `FRAMEWORK_VALUES`, `BACKEND_HOSTING_VALUES`), dataclasses (`DeployBlock` / `HostingBlock` / `BackendBlock` / `LamillToml`), `load()` (strict-on-read, raises `ParseError`), atomic `write()` (tmpfile + rename, round-trip determinism), `infer_from_existing_configs()` + `detect_platform_signals()` (filesystem-marker classification with ambiguous-case detection). Shipped `4395e1d` → `c9d543b` → `be10787` 2026-05-18. 70 tests. |
+| v10.B | ⏳ | Operator CLI surfaces — `lamill project set-deploy <name> <platform>` (interactive prompts when stdin is TTY; `--non-interactive` rejects on missing required fields; hostgator/custom walks cpanel + FTP breadcrumbs) + `lamill project show-deploy <name>` (pretty table renderer + `--json`). ~3-4h. |
+| v10.C | ⏳ | Auto-write integration — `new bootstrap` writes `lamill.toml` as part of scaffolding (platform inferred from `--stack`; `--platform <X>` overrides). `fleet repos --add-deploy-declarations [--dry-run] [--include-ambiguous]` migration sweep walks every `sites/<dir>/`, classifies, writes safe cases. ~4-5h. |
+| v10.D | ⏳ | **Validation phase** — real-fleet sweep. Run the migration against the actual ~22-domain fleet; review the dry-run plan; `--apply` the unambiguous cases; handle ambiguous + manual-entry cases interactively via `project set-deploy`. End state: every applicable sibling `sites/<domain>/` repo has a valid `lamill.toml` committed. Surfaces bugs / edge cases that only appear against real config files. ~2-3h (mostly running the tools, fixing edge cases that surface). |
+| v10.E | ⏳ *(renumbered 2026-05-18 — was v10.B)* | Drift detection + lamill.toml conformance checks. `CHECK_xxx` series comparing `lamill.toml` declaration vs DNS-resolved actual + live HTTP probe. `has-lamill-toml` + `lamill-toml-valid` + `deploy-drift` checks. ~6-8h. |
+| v10.F | ⏳ *(renumbered 2026-05-18 — was v10.C)* | HostGator cPanel integration. API pull of domains / WordPress installs / disk usage. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
+| v10.G | ⏳ *(renumbered 2026-05-18 — was v10.D)* | SFTP deploy abstraction. `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
 
 #### Design notes
 
@@ -308,59 +318,68 @@ answered. A canonical declaration in the repo closes all three gaps.
 
 **Goals.**
 - Schema for `lamill.toml` covering the common platforms + an
-  extension slot for HostGator / custom hosts.
-- `lamill new bootstrap` writes the file as part of scaffolding —
-  inferred from `--stack` with a sensible default (`cf-pages`).
+  extension slot for HostGator / custom hosts (v10.A).
+- `LamillToml` parser/writer module reused by future tools (v10.A).
 - `lamill project set-deploy <name> <platform>` to manually create or
-  update on existing sites.
-- `lamill project show-deploy <name>` to inspect.
+  update on existing sites (v10.B).
+- `lamill project show-deploy <name>` to inspect (v10.B).
+- `lamill new bootstrap` writes the file as part of scaffolding —
+  inferred from `--stack` with a sensible default `cf-pages` (v10.C).
 - `lamill fleet repos --add-deploy-declarations` migration —
-  safe-by-default (refuses ambiguous cases).
-- A `LamillToml` parser/writer module reused by future tools.
+  safe-by-default, refuses ambiguous cases (v10.C).
+- Real-fleet rollout: every applicable sibling repo carries a
+  committed `lamill.toml` (v10.D).
 
-**Non-goals** (deferred): drift detection (v10.B), conformance checks
-(v10.B), HostGator API integration (v10.C), deploy abstraction (v10.D),
-multi-platform site declarations, validation against live state.
+**Non-goals** (deferred to v10.E-G or later): drift detection +
+conformance checks (v10.E), HostGator API integration (v10.F), deploy
+abstraction (v10.G), multi-platform site declarations, validation
+against live state.
 
 **User journey scenarios.**
-1. *Bootstrapping a new site* — `lamill new bootstrap newdomain.com
-   --stack astro` writes `lamill.toml` with `platform=cf-pages`
-   inferred from `--stack`. Operator can edit before `new deploy`.
-2. *Manually setting deploy on an existing site* — `lamill project
-   set-deploy hybridautopart.com hostgator` prompts for cPanel +
-   FTP breadcrumbs, writes `lamill.toml`. Tool writes to working tree
-   only — operator commits when ready.
-3. *Reading the declaration* — `lamill project show-deploy
-   hybridautopart.com` renders platform / account / branch / domains
-   / hosting block as a human table.
-4. *Bulk migration of existing sites* — `lamill fleet repos
+1. *Bootstrapping a new site* (v10.C) — `lamill new bootstrap
+   newdomain.com --stack astro` writes `lamill.toml` with
+   `platform=cf-pages` inferred from `--stack`. Operator can edit
+   before `new deploy`.
+2. *Manually setting deploy on an existing site* (v10.B) — `lamill
+   project set-deploy hybridautopart.com hostgator` prompts for
+   cPanel + FTP breadcrumbs, writes `lamill.toml`. Tool writes to
+   working tree only — operator commits when ready.
+3. *Reading the declaration* (v10.B) — `lamill project show-deploy
+   hybridautopart.com` renders platform / account / branch /
+   domains / hosting block as a human table.
+4. *Bulk migration of existing sites* (v10.C) — `lamill fleet repos
    --add-deploy-declarations --dry-run` walks every `sites/<dir>/`,
    classifies into unambiguous / manual-review / manual-entry /
-   archived, surfaces a plan. Re-run without `--dry-run` to write the
-   unambiguous cases.
+   archived, surfaces a plan. Re-run without `--dry-run` to write
+   the unambiguous cases.
+5. *Real-fleet rollout* (v10.D) — operator runs the migration
+   against all ~22 fleet domains; reviews the plan; applies the
+   safe cases; handles edge cases interactively via `project
+   set-deploy`. Each sibling repo gets a `lamill.toml` committed
+   in. Validation phase surfaces real-world bugs that only show up
+   against actual platform-config files in the wild.
 
 **Open questions.**
 
 | # | Question | Resolution |
 |---|---|---|
-| 10.A | TOML writer library — `tomllib` (stdlib, read-only) + manual write, `tomli-w` (~15KB), or `tomlkit` (~80KB, full round-trip with comments)? | **`tomli-w`** — operator edits go through `$EDITOR`; tool-side writes happen on fresh files or full re-renders, so comment preservation isn't load-bearing. Tomlkit heavier than its value at personal scale. |
-| 10.B | Inference priority when multiple platform configs exist (`wrangler.jsonc` + `vercel.json` co-exist) — refuse + manual review, prefer DNS-matching one, or fixed priority order? | **Refuse — surface for manual review** (option 1). Migration is a one-time operation; ~5 ambiguous cases manageable manually. `--include-ambiguous` lets the operator skip the manual step at the cost of a possibly-wrong default. |
-| 10.C | Bootstrap default platform — `cf-pages`, `vercel`, or no default? | **Keep `cf-pages` for now.** Current v3.C convention; existing bootstrap output stable. If the next 3-4 sites all end up on Vercel, that's the signal to switch. |
-| 10.D | Should `set-deploy` commit + push automatically? | **Just write the file.** Same posture as `project set-launched`. Operator decides when to commit + push. |
-| 10.E | Schema version handling on bumps (`lamill-toml-v1` → `v2`) — auto-migrate, reject loudly, or read-with-fallback / never-write-v1? | **Read-with-fallback / never-write-v1** (option 3). Operator-friendly without complex migration paths. Schema bumps should be rare. |
-| 10.F | What about WordPress sites that have no project directory under `sites/`? | **Skip them in v10.A.** Sites without a local repo can't have a `lamill.toml` in the repo. v10.C (HostGator integration) will surface them differently. |
-| 10.G | Multi-deploy declarations (apex on platform A, `www.*` on platform B)? | **Not in v10.A.** YAGNI. If a multi-deploy case appears, write a follow-on PRD to extend the schema. |
-| 10.H | Where does `account` come from for new bootstraps? | **Leave blank for v10.A.** Operator profile isn't shipped yet. When it is, `bootstrap` reads it and populates `account`. Blank with a `# TODO` comment in the generated file for now. |
+| 10.A | TOML writer library — `tomllib` (stdlib, read-only) + manual write, `tomli-w` (~15KB), or `tomlkit` (~80KB, full round-trip with comments)? | **`tomli-w`** — operator edits go through `$EDITOR`; tool-side writes happen on fresh files or full re-renders, so comment preservation isn't load-bearing. Tomlkit heavier than its value at personal scale. (Shipped v10.A.) |
+| 10.B | Inference priority when multiple platform configs exist (`wrangler.jsonc` + `vercel.json` co-exist) — refuse + manual review, prefer DNS-matching one, or fixed priority order? | **Refuse — surface for manual review** (option 1). Migration is a one-time operation; ~5 ambiguous cases manageable manually. `--include-ambiguous` lets the operator skip the manual step at the cost of a possibly-wrong default. (Shipped v10.A via `infer_from_existing_configs` returning None on multi-signal; `detect_platform_signals` lets the v10.C migration command differentiate "no signals" from "ambiguous".) |
+| 10.C | Bootstrap default platform — `cf-pages`, `vercel`, or no default? | **Keep `cf-pages` for now.** Current v3.C convention; existing bootstrap output stable. If the next 3-4 sites all end up on Vercel, that's the signal to switch. (Resolves v10.C.) |
+| 10.D | Should `set-deploy` commit + push automatically? | **Just write the file.** Same posture as `project set-launched`. Operator decides when to commit + push. (Resolves v10.B.) |
+| 10.E | Schema version handling on bumps (`lamill-toml-v1` → `v2`) — auto-migrate, reject loudly, or read-with-fallback / never-write-v1? | **Read-with-fallback / never-write-v1** (option 3). Operator-friendly without complex migration paths. Schema bumps should be rare. (Shipped v10.A.) |
+| 10.F | What about WordPress sites that have no project directory under `sites/`? | **Skip them in v10.C migration.** Sites without a local repo can't have a `lamill.toml` in the repo. v10.F (HostGator integration) will surface them differently. |
+| 10.G | Multi-deploy declarations (apex on platform A, `www.*` on platform B)? | **Not in v10.A-D.** YAGNI. If a multi-deploy case appears, write a follow-on PRD to extend the schema. |
+| 10.H | Where does `account` come from for new bootstraps? | **Leave blank for v10.C bootstrap integration.** Operator profile isn't shipped yet. When it is, `bootstrap` reads it and populates `account`. Blank with a `# TODO` comment in the generated file for now. |
 
-**Effort estimate.** 12-16h, 8 commits. Phase 1 (schema + parser, 4-5h),
-Phase 2 (CLI, 3-4h), Phase 3 (bootstrap integration, 1-2h), Phase 4
-(migration, 3-4h), Final (1h). Wider range mostly from Phase 4 —
-classification logic has to handle real-world cases without auto-
-corrupting deploys.
+**Effort estimate.** v10.A-D total ≈ 12-17h, distributed across four
+shippable phases. v10.A (foundation) shipped 2026-05-18 — three
+commits, ~4-5h actual. v10.B (CLI) ≈ 3-4h. v10.C (auto-write) ≈ 4-5h.
+v10.D (real-fleet validation) ≈ 2-3h, mostly running tools + fixing
+edge cases that surface against actual platform configs in the wild.
 
-**Approval.** Draft, awaiting review. Before any code lands: confirm
-schema (architecture.md §4 lamill.toml) is right shape; confirm
-12-16h effort is acceptable; final approval signoff.
+**Approval.** Approved 2026-05-18 (per session reorg). v10.A
+shipped; v10.B-D queued in strict numerical order.
 
 ### v11 — fleet hosting view *(renumbered 2026-05-17; was v10)*
 
@@ -660,7 +679,7 @@ load-bearing checks and where each landed.
 | `ai-agents-md-has-deployment-info` | `AI_AGENTS.md` contains a `## Deployment info` heading | v7.A |
 | `cf-pages-deployable` | frozen-lockfile install OK; no stray gitlinks; no `_redirects` SPA fallback | v5.C / CHECK_050-056 |
 | `domain-dir-match` | dir name matches a portfolio.json domain (or override map) | v5.A |
-| `gsc-verified` | dir's eTLD is a verified GSC property | v10.B *(renumbered 2026-05-17 — was v9.B)* |
+| `gsc-verified` | dir's eTLD is a verified GSC property | v10.E *(renumbered 2026-05-18 — was v10.B → v9.B)* |
 | `has-version-stamp` | project writes `version.json` at build time | v14.A *(renumbered 2026-05-17 PM — was v13.A → v12.A → v10.A)* |
 | `deploy-fresh` | HEAD SHA matches deployed SHA | v14.B *(renumbered 2026-05-17 PM — was v13.B → v12.B → v10.B)* |
 | `last-build-success` | last Cloudflare/Vercel build succeeded | v14.C *(renumbered 2026-05-17 PM — was v13.C → v12.C → v10.C)* |
