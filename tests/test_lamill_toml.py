@@ -16,6 +16,7 @@ from portfolio.lamill_toml import (
     BACKEND_HOSTING_VALUES,
     DB_VALUES,
     FRAMEWORK_VALUES,
+    LAMILL_TOML_FILENAME,
     PLATFORM_VALUES,
     SCHEMA_VERSION,
     BackendBlock,
@@ -24,6 +25,7 @@ from portfolio.lamill_toml import (
     LamillToml,
     ParseError,
     load,
+    write,
 )
 
 
@@ -337,3 +339,187 @@ def test_framework_values_includes_expected_set():
 
 def test_backend_hosting_values_includes_expected_set():
     assert set(BACKEND_HOSTING_VALUES) == {"fly.io", "managed-provider", "none"}
+
+
+# ---------- writer ----------
+
+
+def test_write_creates_lamill_toml_at_repo_root(tmp_path: Path):
+    write(tmp_path, LamillToml(deploy=DeployBlock(platform="cf-pages")))
+    target = tmp_path / LAMILL_TOML_FILENAME
+    assert target.exists()
+    assert target.is_file()
+
+
+def test_write_minimal_payload_round_trips(tmp_path: Path):
+    payload = LamillToml(deploy=DeployBlock(platform="cf-pages"))
+    write(tmp_path, payload)
+    reloaded = load(tmp_path)
+    assert reloaded == payload
+
+
+def test_write_full_payload_round_trips(tmp_path: Path):
+    payload = LamillToml(
+        schema=SCHEMA_VERSION,
+        deploy=DeployBlock(
+            platform="hostgator",
+            account="vik@hostgator",
+            production_branch="release",
+            auto_deploy=False,
+            custom_domains=["example.com", "www.example.com"],
+        ),
+        hosting=HostingBlock(
+            cpanel_user="vikt",
+            cpanel_url="https://gator4045.hostgator.com:2083",
+            ftp_host="ftp.example.com",
+            ftp_user="vikt@example.com",
+            ftp_port=21,
+            public_html_path="/home/vikt/public_html/example.com/",
+        ),
+        backend=BackendBlock(db="postgres", framework="fastapi", hosting="fly.io"),
+        notes="WordPress install; planning React migration",
+    )
+    write(tmp_path, payload)
+    reloaded = load(tmp_path)
+    assert reloaded == payload
+
+
+def test_write_omits_unset_optional_deploy_fields(tmp_path: Path):
+    write(tmp_path, LamillToml(deploy=DeployBlock(platform="cf-pages")))
+    body = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert "account" not in body
+    assert "auto_deploy" not in body
+    assert "custom_domains" not in body
+
+
+def test_write_includes_production_branch_even_when_default(tmp_path: Path):
+    write(tmp_path, LamillToml(deploy=DeployBlock(platform="cf-pages")))
+    body = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert 'production_branch = "main"' in body
+
+
+def test_write_omits_hosting_block_when_none(tmp_path: Path):
+    write(tmp_path, LamillToml(deploy=DeployBlock(platform="cf-pages")))
+    body = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert "[hosting]" not in body
+
+
+def test_write_omits_backend_block_when_none(tmp_path: Path):
+    write(tmp_path, LamillToml(deploy=DeployBlock(platform="cf-pages")))
+    body = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert "[backend]" not in body
+
+
+def test_write_omits_notes_block_when_none(tmp_path: Path):
+    write(tmp_path, LamillToml(deploy=DeployBlock(platform="cf-pages")))
+    body = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert "[notes]" not in body
+
+
+def test_write_includes_backend_block_with_default_nones(tmp_path: Path):
+    payload = LamillToml(
+        deploy=DeployBlock(platform="cf-pages"),
+        backend=BackendBlock(),
+    )
+    write(tmp_path, payload)
+    body = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert "[backend]" in body
+    assert 'db = "none"' in body
+    assert 'framework = "none"' in body
+    # Round-trip preserves the explicit declaration even when all-default.
+    assert load(tmp_path) == payload
+
+
+def test_write_includes_partial_hosting_block(tmp_path: Path):
+    payload = LamillToml(
+        deploy=DeployBlock(platform="hostgator"),
+        hosting=HostingBlock(
+            cpanel_user="vikt",
+            public_html_path="/home/vikt/public_html/x/",
+        ),
+    )
+    write(tmp_path, payload)
+    body = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert 'cpanel_user = "vikt"' in body
+    assert "ftp_host" not in body
+    assert load(tmp_path) == payload
+
+
+def test_write_atomic_replaces_existing_file(tmp_path: Path):
+    # First write
+    first = LamillToml(deploy=DeployBlock(platform="cf-pages"))
+    write(tmp_path, first)
+    # Overwrite with a different payload
+    second = LamillToml(
+        deploy=DeployBlock(platform="vercel", account="team-a"),
+    )
+    write(tmp_path, second)
+    # Only the target file remains — no temp files left behind.
+    files = sorted(p.name for p in tmp_path.iterdir())
+    assert files == [LAMILL_TOML_FILENAME]
+    assert load(tmp_path) == second
+
+
+@pytest.mark.parametrize("platform", PLATFORM_VALUES)
+def test_round_trip_each_platform(tmp_path: Path, platform: str):
+    payload = LamillToml(
+        deploy=DeployBlock(platform=platform),
+        hosting=(
+            HostingBlock(public_html_path="/var/www/x/")
+            if platform in ("hostgator", "custom")
+            else None
+        ),
+    )
+    write(tmp_path, payload)
+    assert load(tmp_path) == payload
+
+
+def test_round_trip_preserves_explicit_auto_deploy_false_on_cf_pages(
+    tmp_path: Path,
+):
+    payload = LamillToml(
+        deploy=DeployBlock(platform="cf-pages", auto_deploy=False),
+    )
+    write(tmp_path, payload)
+    reloaded = load(tmp_path)
+    assert reloaded is not None
+    assert reloaded.deploy.auto_deploy is False
+    assert reloaded.deploy.effective_auto_deploy() is False
+
+
+def test_round_trip_preserves_explicit_auto_deploy_true_on_hostgator(
+    tmp_path: Path,
+):
+    payload = LamillToml(
+        deploy=DeployBlock(platform="hostgator", auto_deploy=True),
+        hosting=HostingBlock(public_html_path="/var/www/x/"),
+    )
+    write(tmp_path, payload)
+    reloaded = load(tmp_path)
+    assert reloaded is not None
+    assert reloaded.deploy.auto_deploy is True
+    assert reloaded.deploy.effective_auto_deploy() is True
+
+
+def test_write_load_write_byte_for_byte_determinism(tmp_path: Path):
+    """write() must be a pure function of LamillToml: write → load →
+    write must produce identical bytes on the second write. This is
+    the core round-trip determinism guarantee."""
+    payload = LamillToml(
+        deploy=DeployBlock(
+            platform="vercel",
+            account="team-prod",
+            production_branch="main",
+            auto_deploy=True,
+            custom_domains=["calcengine.site"],
+        ),
+        backend=BackendBlock(db="sqlite", framework="fastapi", hosting="fly.io"),
+        notes="brief note",
+    )
+    write(tmp_path, payload)
+    first_bytes = (tmp_path / LAMILL_TOML_FILENAME).read_bytes()
+    reloaded = load(tmp_path)
+    assert reloaded is not None
+    write(tmp_path, reloaded)
+    second_bytes = (tmp_path / LAMILL_TOML_FILENAME).read_bytes()
+    assert first_bytes == second_bytes

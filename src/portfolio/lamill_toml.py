@@ -16,9 +16,14 @@ Schema: `docs/architecture.md` § 4 Schemas (sites/<domain>/lamill.toml).
 """
 from __future__ import annotations
 
+import os
+import shutil
+import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import tomli_w
 
 
 # ---- schema constants -----------------------------------------------
@@ -296,3 +301,96 @@ def _parse_notes(raw: object, *, source: Path) -> str | None:
     if not isinstance(text, str):
         raise ParseError(f"{source}: [notes].text must be a string")
     return text
+
+
+# ---- writer ---------------------------------------------------------
+
+
+def write(repo_path: Path, payload: LamillToml) -> None:
+    """Atomically write `<repo_path>/lamill.toml`.
+
+    Uses tmpfile + rename so partial writes can't corrupt an existing
+    file. Comments are NOT preserved — tomli-w doesn't carry them
+    through a round-trip, and operator edits go through `$EDITOR`
+    directly (the writer is only invoked from `new bootstrap`,
+    `project set-deploy`, and the migration sweep — paths where the
+    operator hasn't hand-annotated the file yet).
+    """
+    target = repo_path / LAMILL_TOML_FILENAME
+    doc = _serialize(payload)
+    body = tomli_w.dumps(doc)
+    _atomic_write(target, body)
+
+
+def _serialize(payload: LamillToml) -> dict:
+    """Convert a `LamillToml` into a tomli_w-serializable dict.
+
+    Stable key order: `schema`, then `[deploy]`, then optional
+    `[hosting]` / `[backend]` / `[notes]` blocks. Each block writes
+    only the fields the operator set (None / empty-list values are
+    omitted) so round-trip determinism holds.
+    """
+    out: dict = {"schema": payload.schema}
+
+    deploy: dict = {"platform": payload.deploy.platform}
+    if payload.deploy.account is not None:
+        deploy["account"] = payload.deploy.account
+    # production_branch always written — its dataclass default "main"
+    # is meaningful to operators reading the file; being explicit is
+    # cheap and avoids the "where's production_branch?" confusion.
+    deploy["production_branch"] = payload.deploy.production_branch
+    if payload.deploy.auto_deploy is not None:
+        deploy["auto_deploy"] = payload.deploy.auto_deploy
+    if payload.deploy.custom_domains:
+        deploy["custom_domains"] = list(payload.deploy.custom_domains)
+    out["deploy"] = deploy
+
+    if payload.hosting is not None:
+        out["hosting"] = _serialize_hosting(payload.hosting)
+
+    if payload.backend is not None:
+        out["backend"] = {
+            "db": payload.backend.db,
+            "framework": payload.backend.framework,
+            "hosting": payload.backend.hosting,
+        }
+
+    if payload.notes is not None:
+        out["notes"] = {"text": payload.notes}
+
+    return out
+
+
+def _serialize_hosting(h: HostingBlock) -> dict:
+    out: dict = {}
+    if h.cpanel_user is not None:
+        out["cpanel_user"] = h.cpanel_user
+    if h.cpanel_url is not None:
+        out["cpanel_url"] = h.cpanel_url
+    if h.ftp_host is not None:
+        out["ftp_host"] = h.ftp_host
+    if h.ftp_user is not None:
+        out["ftp_user"] = h.ftp_user
+    if h.ftp_port is not None:
+        out["ftp_port"] = h.ftp_port
+    if h.public_html_path is not None:
+        out["public_html_path"] = h.public_html_path
+    return out
+
+
+def _atomic_write(target: Path, content: str) -> None:
+    """Write `content` to `target` via tmpfile + rename for atomicity.
+
+    Mirrors `apikeys._atomic_write`. Assumes `target.parent` exists.
+    """
+    fd, tmp = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        shutil.move(tmp, target)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
