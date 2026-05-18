@@ -494,7 +494,11 @@ class CheckResult:
     details: dict = field(default_factory=dict)
 ```
 
-#### `LamillToml` (v10.A — `src/portfolio/lamill_toml.py`, planned)
+#### `LamillToml` (v10.A — `src/portfolio/lamill_toml.py`)
+
+Dataclasses (parser + dataclass shape shipped with v10.A's first
+slice; `write()` + `infer_from_existing_configs()` arrive in
+subsequent slices):
 
 ```python
 @dataclass
@@ -502,8 +506,12 @@ class DeployBlock:
     platform: str
     account: str | None = None
     production_branch: str = "main"
-    auto_deploy: bool | None = None  # default depends on platform
+    auto_deploy: bool | None = None  # None → effective default by platform
     custom_domains: list[str] = field(default_factory=list)
+
+    def effective_auto_deploy(self) -> bool: ...
+        # True for cf-pages / vercel / netlify / github-pages;
+        # False for the rest. Explicit value in the file wins.
 
 @dataclass
 class HostingBlock:
@@ -515,20 +523,39 @@ class HostingBlock:
     public_html_path: str | None = None
 
 @dataclass
+class BackendBlock:
+    db: str = "none"          # postgres | sqlite | duckdb | redis | none
+    framework: str = "none"   # go-fiber | fastapi | express |
+                              # node-bare | rust-axum | none
+    hosting: str = "none"     # fly.io | managed-provider | none
+
+@dataclass
 class LamillToml:
-    schema: str = "lamill-toml-v1"
     deploy: DeployBlock
+    schema: str = "lamill-toml-v1"
     hosting: HostingBlock | None = None
+    backend: BackendBlock | None = None
     notes: str | None = None
 ```
 
 Module API:
 
 ```python
+class ParseError(Exception): ...
+
 def load(repo_path: Path) -> LamillToml | None: ...
-def write(repo_path: Path, payload: LamillToml) -> None: ...
-def infer_from_existing_configs(repo_path: Path) -> DeployBlock | None: ...
+def write(repo_path: Path, payload: LamillToml) -> None: ...           # planned
+def infer_from_existing_configs(repo_path: Path) -> DeployBlock | None: ...  # planned
 ```
+
+`load()` returns `None` if `<repo_path>/lamill.toml` doesn't exist;
+raises `ParseError` on TOML syntax errors, missing required fields
+(`[deploy]`, `platform`), invalid enum values (`platform` not in
+`PLATFORM_VALUES`; backend fields not in their enum tuples), wrong
+types (`auto_deploy` non-bool, `custom_domains` non-list, etc.), or
+missing `[hosting]` when `platform ∈ {hostgator, custom}`. The
+`[operator]` section is silently ignored — owned by
+`operator_profile.py`.
 
 Format: TOML via stdlib `tomllib`. Round-trip write via `tomli-w`
 (small dep, no transitive deps). **No comment preservation on
@@ -581,8 +608,8 @@ lamill
 
 Daily-ops users see the first three. "Everything else" lives under
 `settings`. See `docs/CLAUDE.md § v7.A` for the full rename map and
-phased rollout (v7.A.1 additive → v7.A.2 deprecation aliases →
-v7.A.3 cleanup).
+phased rollout — three slices under `v7.A`: additive paths, then
+deprecation aliases, then cleanup.
 
 ### Standard flags
 
@@ -760,75 +787,76 @@ HOW companion to `prd.md`'s `### vN #### Design notes` (the WHY).
 
 ### v10.A — `lamill.toml` per-site deploy declaration
 
-Eight commits, ~12-16h. Reuses the `new bootstrap` and `project fix`
-write surfaces.
+~12-16h, eight commits. Reuses the `new bootstrap` and `project fix`
+write surfaces. Each commit subject is `portfolio: v10.A — <slice>`
+per the two-level convention; the slice names what landed.
 
-**Phase 1 — schema + parser (4-5h)**
-- C1: `src/portfolio/lamill_toml.py` — dataclasses for `DeployBlock`,
-  `HostingBlock`, `LamillToml`. `load()` returns
-  `LamillToml | None`. New dep `tomli-w` added to `pyproject.toml`.
-  Smoke: `pytest tests/test_lamill_toml.py -q` (~15 tests).
-- C2: `write()` with atomic tmpfile + rename. Round-trip determinism
-  tests (write → load → write → compare).
-- C3: `infer_from_existing_configs()` — reads `wrangler.jsonc` /
-  `vercel.json` / `netlify.toml`, returns a `DeployBlock | None`.
-  Tests per platform + the multiple-config "ambiguous" return.
+Sequential slices, in commit order:
 
-**Phase 2 — CLI commands (3-4h)**
-- C4: `lamill project set-deploy <name> <platform>`. Interactive
-  prompts when stdin is a TTY; `--non-interactive` failure when not.
-- C5: `lamill project show-deploy <name>`. Pretty table renderer +
+- *Schema + parser.* `src/portfolio/lamill_toml.py` —
+  `DeployBlock` / `HostingBlock` / `BackendBlock` / `LamillToml`
+  dataclasses. `load(repo_path) → LamillToml | None`. New dep
+  `tomli-w` in `pyproject.toml`. Smoke:
+  `pytest tests/test_lamill_toml.py -q`.
+- *Atomic write + round-trip.* `write(repo_path, payload)` via
+  tmpfile + rename. Round-trip determinism tests (write → load →
+  write → compare).
+- *Inference from existing configs.*
+  `infer_from_existing_configs(repo_path) → DeployBlock | None` —
+  reads `wrangler.jsonc` / `vercel.json` / `netlify.toml`. Tests
+  per platform + the multiple-config "ambiguous" return.
+- *`project set-deploy <name> <platform>` CLI.* Interactive prompts
+  when stdin is a TTY; `--non-interactive` rejects with a clear
+  error if any required field is missing.
+- *`project show-deploy <name>` CLI.* Pretty table renderer +
   `--json`.
-
-**Phase 3 — Bootstrap integration (1-2h)**
-- C6: `lamill new bootstrap` writes `lamill.toml` as part of
-  scaffolding. Platform inferred from `--stack` (cf-pages default).
-  `--platform <X>` overrides.
-
-**Phase 4 — Migration (3-4h)**
-- C7: `lamill fleet repos --add-deploy-declarations [--dry-run]
-  [--include-ambiguous]`. Walks every `sites/<dir>/`, classifies,
+- *`new bootstrap` writes `lamill.toml`.* Platform inferred from
+  `--stack` (cf-pages default). `--platform <X>` overrides.
+- *`fleet repos --add-deploy-declarations [--dry-run]
+  [--include-ambiguous]`.* Walks every `sites/<dir>/`, classifies,
   writes safe cases. Refuses ambiguous (multiple platform configs)
   without `--include-ambiguous`.
-
-**Final (1h)**
-- C8: Documentation update. `docs/CLAUDE.md` brief on `lamill.toml`,
-  `AI_AGENTS.md` note on the new file convention, `docs/Prompts.md`
-  dated H2 entry, `docs/prd.md` v10.A row → ✅.
+- *Docs update.* `docs/CLAUDE.md` brief on `lamill.toml`,
+  `AI_AGENTS.md` note on the new file convention,
+  `docs/Prompts.md` dated H2 entry, `docs/prd.md` v10.A row → ✅,
+  v10.A Design notes → `shipping-history.md`.
 
 ### v11.A — `fleet hosting` — fleet-wide Vercel/CF deploy state
 
-Twelve commits, ~12-17h. Mirrors `fleet seo` shape: read-only,
-cached, refreshable, emoji table.
+~12-17h, twelve commits. Mirrors `fleet seo` shape: read-only,
+cached, refreshable, emoji table. Each commit subject is
+`portfolio: v11.A — <slice>`.
 
-**Phase 1 — Provider walkers + per-domain match (~6-8h)**
-- C1: `apikeys.py`: add `VERCEL_TOKEN` to `KNOWN_KEYS` +
-  `_probe_vercel()` (`GET /v2/user`, 5s timeout). One new test.
-- C2: `src/portfolio/hosting.py`: `HostingRow` dataclass; constants
-  `RECENT_DAYS=30`, `STALE_DAYS=90`, `MAX_DEPLOY_LOOKBACK=10`.
-- C3: `walk_vercel()` — paginated projects list + per-project
-  deployments. Mocked unit tests.
-- C4: `walk_cf_pages()` — same shape against the CF API.
-- C5: `run_hosting()` orchestrator + domain-match logic +
-  provider-conflict detection.
-- C6: `hosting_cache.py` mirroring `seo_cache.py`.
+Sequential slices, in commit order:
 
-**Phase 2 — Table renderer + CLI surface (~4-6h)**
-- C7: `fleet hosting` CLI shell + cache-eligibility logic +
-  `--refresh` / `--only` / `--json` flags.
-- C8: `_render_hosting_table()` + status-emoji helper. Five columns:
-  Domain · Provider · Status · Last Success · Failures. Footer with
-  rollup counts.
-- C9: Token-missing surface + walker-error rendering (per `prd.md`
-  v11 Design notes — resolution 11.H).
-
-**Phase 3 — Dashboard + diagnose integration (~2-3h)**
-- C10: `dashboard.py`: new `Hosting` column joining the latest
-  `data/hosting/` snapshot.
-- C11: `diagnose.py`: optional "Hosting:" section when a hosting
-  snapshot covers the diagnosed domain.
-- C12: Docs (`docs/CLAUDE.md`, `AI_AGENTS.md`, `docs/Prompts.md`,
-  prd v11.A row → ✅).
+- *`VERCEL_TOKEN` API-keys plumbing.* Add to `apikeys.KNOWN_KEYS`
+  + `_probe_vercel()` (`GET /v2/user`, 5s timeout). One new test.
+- *Dataclass + constants.* New `src/portfolio/hosting.py` with
+  `HostingRow` dataclass; constants `RECENT_DAYS=30`,
+  `STALE_DAYS=90`, `MAX_DEPLOY_LOOKBACK=10`.
+- *Vercel walker.* `walk_vercel()` — paginated projects list +
+  per-project deployments. Mocked unit tests.
+- *Cloudflare Pages walker.* `walk_cf_pages()` — same shape against
+  the CF API.
+- *Orchestrator + match logic.* `run_hosting()` + domain-match
+  bare-host normalize + provider-conflict detection.
+- *Snapshot cache.* `hosting_cache.py` mirroring `seo_cache.py`.
+- *CLI shell + cache-eligibility.* `fleet hosting` Typer command +
+  cache-eligibility logic + `--refresh` / `--only` / `--json`
+  flags.
+- *Table renderer.* `_render_hosting_table()` + status-emoji helper.
+  Five columns: Domain · Provider · Status · Last Success ·
+  Failures. Footer with rollup counts.
+- *Walker error surfaces.* Token-missing surface + per-row 5xx /
+  rate-limit rendering (per `prd.md` v11 Design notes — resolution
+  11.H).
+- *Dashboard join.* `dashboard.py`: new `Hosting` column joining
+  the latest `data/hosting/` snapshot.
+- *Diagnose integration.* `diagnose.py`: optional "Hosting:"
+  section when a hosting snapshot covers the diagnosed domain.
+- *Docs update.* `docs/CLAUDE.md`, `AI_AGENTS.md`,
+  `docs/Prompts.md`, prd v11.A row → ✅, v11.A Design notes →
+  `shipping-history.md`.
 
 **Test strategy** (`prd.md` v11 Design notes — resolution 11.J): all
 real API calls mocked at the `httpx`/`requests` layer (same pattern

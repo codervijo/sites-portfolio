@@ -1,0 +1,298 @@
+"""v10.A — `lamill.toml` per-site deploy declaration: schema + parser.
+
+Reads `<repo_path>/lamill.toml` into a typed `LamillToml` struct.
+Strict on read — raises `ParseError` on malformed files or schema
+violations. (Contrast `operator_profile.load_operator_profile()`,
+which is permissive on its narrow `[operator]` slice.)
+
+This loader ignores the `[operator]` section; that stays the
+responsibility of `operator_profile.py` (v8.D Phase 3). The two
+loaders co-exist while the portfolio repo's `lamill.toml` carries
+both `[deploy]` (when v10.A ships against the portfolio's own repo)
+and `[operator]` (already shipped).
+
+Spec: `docs/prd.md` § 6 → v10 → Design notes.
+Schema: `docs/architecture.md` § 4 Schemas (sites/<domain>/lamill.toml).
+"""
+from __future__ import annotations
+
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+# ---- schema constants -----------------------------------------------
+
+SCHEMA_VERSION = "lamill-toml-v1"
+LAMILL_TOML_FILENAME = "lamill.toml"
+
+PLATFORM_VALUES: tuple[str, ...] = (
+    "cf-pages",
+    "cf-workers",
+    "vercel",
+    "netlify",
+    "github-pages",
+    "hostgator",
+    "custom",
+    "none",
+)
+
+# Platforms with native git integration → `auto_deploy` defaults true.
+# Anything not in this set defaults to false.
+_AUTO_DEPLOY_TRUE_PLATFORMS: frozenset[str] = frozenset(
+    {"cf-pages", "vercel", "netlify", "github-pages"}
+)
+
+# Platforms that require a `[hosting]` section to be reachable.
+_HOSTING_REQUIRED_PLATFORMS: frozenset[str] = frozenset({"hostgator", "custom"})
+
+# `[backend]` enum values (scope expansion 2026-05-17). All default
+# to "none" — the slot exists so non-JS-rendering server stacks can
+# declare what they run, but a vanilla static site has nothing to fill.
+DB_VALUES: tuple[str, ...] = ("postgres", "sqlite", "duckdb", "redis", "none")
+FRAMEWORK_VALUES: tuple[str, ...] = (
+    "go-fiber",
+    "fastapi",
+    "express",
+    "node-bare",
+    "rust-axum",
+    "none",
+)
+BACKEND_HOSTING_VALUES: tuple[str, ...] = ("fly.io", "managed-provider", "none")
+
+
+class ParseError(Exception):
+    """Raised when `lamill.toml` is malformed or violates the schema."""
+
+
+# ---- dataclasses ----------------------------------------------------
+
+
+@dataclass
+class DeployBlock:
+    platform: str
+    account: str | None = None
+    production_branch: str = "main"
+    auto_deploy: bool | None = None
+    custom_domains: list[str] = field(default_factory=list)
+
+    def effective_auto_deploy(self) -> bool:
+        """Resolve `auto_deploy` to its concrete bool value.
+
+        Default: true for platforms with native git integration
+        (cf-pages / vercel / netlify / github-pages); false for the
+        rest. An explicit value in the file wins.
+        """
+        if self.auto_deploy is not None:
+            return self.auto_deploy
+        return self.platform in _AUTO_DEPLOY_TRUE_PLATFORMS
+
+
+@dataclass
+class HostingBlock:
+    cpanel_user: str | None = None
+    cpanel_url: str | None = None
+    ftp_host: str | None = None
+    ftp_user: str | None = None
+    ftp_port: int | None = None
+    public_html_path: str | None = None
+
+
+@dataclass
+class BackendBlock:
+    db: str = "none"
+    framework: str = "none"
+    hosting: str = "none"
+
+
+@dataclass
+class LamillToml:
+    deploy: DeployBlock
+    schema: str = SCHEMA_VERSION
+    hosting: HostingBlock | None = None
+    backend: BackendBlock | None = None
+    notes: str | None = None
+
+
+# ---- loader ---------------------------------------------------------
+
+
+def load(repo_path: Path) -> LamillToml | None:
+    """Load `<repo_path>/lamill.toml` into a `LamillToml` struct.
+
+    Returns `None` if the file doesn't exist (no declaration on this
+    project). Raises `ParseError` on TOML syntax errors, missing
+    required sections / fields, invalid enum values, or wrong-type
+    fields.
+    """
+    p = repo_path / LAMILL_TOML_FILENAME
+    if not p.exists():
+        return None
+
+    try:
+        with p.open("rb") as f:
+            doc = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ParseError(f"{p}: invalid TOML — {e}") from e
+    except OSError as e:
+        raise ParseError(f"{p}: cannot read — {e}") from e
+
+    return _parse_doc(doc, source=p)
+
+
+def _parse_doc(doc: dict, *, source: Path) -> LamillToml:
+    schema = doc.get("schema", SCHEMA_VERSION)
+    if not isinstance(schema, str):
+        raise ParseError(f"{source}: top-level `schema` must be a string")
+
+    deploy_raw = doc.get("deploy")
+    if not isinstance(deploy_raw, dict):
+        raise ParseError(f"{source}: missing required [deploy] section")
+    deploy = _parse_deploy(deploy_raw, source=source)
+
+    hosting_raw = doc.get("hosting")
+    if hosting_raw is not None and not isinstance(hosting_raw, dict):
+        raise ParseError(
+            f"{source}: [hosting] must be a table, "
+            f"got {type(hosting_raw).__name__}"
+        )
+    hosting = (
+        _parse_hosting(hosting_raw, source=source)
+        if hosting_raw is not None
+        else None
+    )
+
+    if deploy.platform in _HOSTING_REQUIRED_PLATFORMS and hosting is None:
+        raise ParseError(
+            f"{source}: platform={deploy.platform!r} requires a "
+            f"[hosting] section"
+        )
+
+    backend_raw = doc.get("backend")
+    if backend_raw is not None and not isinstance(backend_raw, dict):
+        raise ParseError(
+            f"{source}: [backend] must be a table, "
+            f"got {type(backend_raw).__name__}"
+        )
+    backend = (
+        _parse_backend(backend_raw, source=source)
+        if backend_raw is not None
+        else None
+    )
+
+    notes = _parse_notes(doc.get("notes"), source=source)
+
+    return LamillToml(
+        schema=schema,
+        deploy=deploy,
+        hosting=hosting,
+        backend=backend,
+        notes=notes,
+    )
+
+
+def _parse_deploy(raw: dict, *, source: Path) -> DeployBlock:
+    platform = raw.get("platform")
+    if not isinstance(platform, str):
+        raise ParseError(
+            f"{source}: [deploy].platform is required and must be a string"
+        )
+    if platform not in PLATFORM_VALUES:
+        raise ParseError(
+            f"{source}: [deploy].platform={platform!r} is not a valid "
+            f"platform (expected one of {', '.join(PLATFORM_VALUES)})"
+        )
+
+    account = raw.get("account")
+    if account is not None and not isinstance(account, str):
+        raise ParseError(f"{source}: [deploy].account must be a string")
+
+    production_branch = raw.get("production_branch", "main")
+    if not isinstance(production_branch, str):
+        raise ParseError(
+            f"{source}: [deploy].production_branch must be a string"
+        )
+
+    auto_deploy = raw.get("auto_deploy")
+    if auto_deploy is not None and not isinstance(auto_deploy, bool):
+        raise ParseError(f"{source}: [deploy].auto_deploy must be a bool")
+
+    custom_domains_raw = raw.get("custom_domains", [])
+    if not isinstance(custom_domains_raw, list):
+        raise ParseError(
+            f"{source}: [deploy].custom_domains must be a list of strings"
+        )
+    custom_domains: list[str] = []
+    for d in custom_domains_raw:
+        if not isinstance(d, str):
+            raise ParseError(
+                f"{source}: [deploy].custom_domains entries must be strings"
+            )
+        custom_domains.append(d)
+
+    return DeployBlock(
+        platform=platform,
+        account=account,
+        production_branch=production_branch,
+        auto_deploy=auto_deploy,
+        custom_domains=custom_domains,
+    )
+
+
+def _parse_hosting(raw: dict, *, source: Path) -> HostingBlock:
+    def _str(key: str) -> str | None:
+        v = raw.get(key)
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ParseError(f"{source}: [hosting].{key} must be a string")
+        return v
+
+    ftp_port = raw.get("ftp_port")
+    if ftp_port is not None and (
+        not isinstance(ftp_port, int) or isinstance(ftp_port, bool)
+    ):
+        raise ParseError(f"{source}: [hosting].ftp_port must be an integer")
+
+    return HostingBlock(
+        cpanel_user=_str("cpanel_user"),
+        cpanel_url=_str("cpanel_url"),
+        ftp_host=_str("ftp_host"),
+        ftp_user=_str("ftp_user"),
+        ftp_port=ftp_port,
+        public_html_path=_str("public_html_path"),
+    )
+
+
+def _parse_backend(raw: dict, *, source: Path) -> BackendBlock:
+    def _enum(key: str, allowed: tuple[str, ...]) -> str:
+        v = raw.get(key, "none")
+        if not isinstance(v, str):
+            raise ParseError(f"{source}: [backend].{key} must be a string")
+        if v not in allowed:
+            raise ParseError(
+                f"{source}: [backend].{key}={v!r} not in "
+                f"{{{', '.join(allowed)}}}"
+            )
+        return v
+
+    return BackendBlock(
+        db=_enum("db", DB_VALUES),
+        framework=_enum("framework", FRAMEWORK_VALUES),
+        hosting=_enum("hosting", BACKEND_HOSTING_VALUES),
+    )
+
+
+def _parse_notes(raw: object, *, source: Path) -> str | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ParseError(
+            f"{source}: [notes] must be a table, got {type(raw).__name__}"
+        )
+    text = raw.get("text")
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        raise ParseError(f"{source}: [notes].text must be a string")
+    return text
