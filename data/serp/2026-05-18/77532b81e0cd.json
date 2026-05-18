@@ -1,0 +1,107 @@
+{
+  "schema": "serp-query-v1",
+  "query": "best practices for home SEO",
+  "fetched_at": "2026-05-18T03:56:47.663178+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "semrush.com",
+      "url": "https://www.semrush.com/blog/homepage-seo/",
+      "title": "Homepage SEO: What Makes It Unique & How to Do It",
+      "snippet": "1. Identify Your Primary Keyword \u00b7 2. Optimize Your Homepage's Content \u00b7 3. Create a Great User Experience (UX) \u00b7 4. Showcase E-E-A-T \u00b7 5. Add ...",
+      "displayed_link": "https://www.semrush.com \u203a Blog"
+    },
+    {
+      "position": 2,
+      "domain": "greenflagdigital.com",
+      "url": "https://greenflagdigital.com/homepage-seo/",
+      "title": "Homepage SEO Best Practices (with 16 Examples)",
+      "snippet": "Does homepage SEO exist? How should you optimize the homepage? We discuss this topic with 16 examples for your entertainment.",
+      "displayed_link": "https://greenflagdigital.com \u203a Blog"
+    },
+    {
+      "position": 3,
+      "domain": "gatorworks.net",
+      "url": "https://gatorworks.net/ultimate-guide-home-services-seo/",
+      "title": "SEO for Home Services Companies: The Do's and Dont's",
+      "snippet": "1. You Need a Google Business Profile \u00b7 2. Respond to Good (and Bad) Customer Reviews \u00b7 3. Write Optimized Meta Titles & Descriptions \u00b7 4. Build Out Your Location ...",
+      "displayed_link": "https://gatorworks.net \u203a ultimate-guide-home-services-seo"
+    },
+    {
+      "position": 4,
+      "domain": "developers.google.com",
+      "url": "https://developers.google.com/search/docs/fundamentals/seo-starter-guide",
+      "title": "Search Engine Optimization (SEO) Starter Guide",
+      "snippet": "A knowledge of basic SEO can have a noticeable impact. Explore the Google SEO starter guide for an overview of search engine optimization essentials.",
+      "displayed_link": "https://developers.google.com \u203a ... \u203a Documentation"
+    },
+    {
+      "position": 5,
+      "domain": "aioseo.com",
+      "url": "https://aioseo.com/homepage-seo-guide/",
+      "title": "The Ultimate Homepage SEO Guide for Better Search ...",
+      "snippet": "Best practices for homepage SEO include using the right SEO tools like All In One SEO (AIOSEO). It also involves configuring homepage display ...",
+      "displayed_link": "https://aioseo.com \u203a SEO Basics"
+    },
+    {
+      "position": 6,
+      "domain": "servicetitan.com",
+      "url": "https://www.servicetitan.com/blog/seo-for-home-service-businesses",
+      "title": "Home Service SEO Strategy: 5 Tips to Show Up Online",
+      "snippet": "Create High-Quality Content \u00b7 Step #1: Find relevant topics to write about \u00b7 Step #2: Optimize your content for a search audience \u00b7 Step #3: ...",
+      "displayed_link": "https://www.servicetitan.com \u203a Toolbox \u203a Blog"
+    },
+    {
+      "position": 7,
+      "domain": "mtu.edu",
+      "url": "https://www.mtu.edu/umc/services/websites/seo/",
+      "title": "Six Ways to Improve Your Site's Ranking (SEO)",
+      "snippet": "1. Set an SEO Optimization Strategy ... Creating an effective SEO strategy involves foundational practices, advanced techniques, and ongoing analysis. Below are ...",
+      "displayed_link": "https://www.mtu.edu \u203a umc \u203a services \u203a websites \u203a seo"
+    },
+    {
+      "position": 8,
+      "domain": "1seo.com",
+      "url": "https://1seo.com/blog/local-seo-strategies-for-home-service-businesses/",
+      "title": "Local SEO Strategies for Home Service Businesses",
+      "snippet": "Engagement with your local community can also enhance your Local SEO efforts. Participating in local events, sponsoring local sports teams, or ...",
+      "displayed_link": "https://1seo.com \u203a Blog"
+    },
+    {
+      "position": 9,
+      "domain": "linkedin.com",
+      "url": "https://www.linkedin.com/pulse/7-seo-tips-every-home-service-business-owner-should-know-mac-canali-8yixe",
+      "title": "7 SEO Tips Every Home Service Business Owner Should ...",
+      "snippet": "In this article, I'm going to share seven simple, yet crucial SEO tips to help your business get noticed, drive more traffic to your website, and convert that ...",
+      "displayed_link": "1 reaction \u00b7 10 months ago"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "What is the 80/20 rule for SEO?",
+      "Is SEO dead or evolving in 2026?",
+      "What are the 3 C's of SEO?",
+      "How to SEO optimize your homepage?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

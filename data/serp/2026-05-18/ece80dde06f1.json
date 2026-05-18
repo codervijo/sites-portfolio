@@ -1,0 +1,107 @@
+{
+  "schema": "serp-query-v1",
+  "query": "home SEO tools",
+  "fetched_at": "2026-05-18T03:56:52.784683+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "marketermilk.com",
+      "url": "https://www.marketermilk.com/blog/best-seo-tools",
+      "title": "24 best SEO tools I'm using in 2026 (free + paid)",
+      "snippet": "Over the past decade, I have collected the best SEO tools (free and paid) that I use almost daily. Today, I reveal them all to you in this ...",
+      "displayed_link": "https://www.marketermilk.com \u203a blog \u203a best-seo-tools"
+    },
+    {
+      "position": 2,
+      "domain": "aioseo.com",
+      "url": "https://aioseo.com/best-diy-seo-tools/",
+      "title": "9 Best DIY SEO Tools to Help You Rank Your Content",
+      "snippet": "Ready to conquer SEO yourself? Discover the top DIY SEO tools that make boosting your rankings & driving traffic easy, even on a budget!",
+      "displayed_link": "https://aioseo.com \u203a SEO Basics"
+    },
+    {
+      "position": 3,
+      "domain": "semrush.com",
+      "url": "https://www.semrush.com/seo/",
+      "title": "SEO Tools You Can Trust for the AI Search Era",
+      "snippet": "From research to reporting, take your SEO to the next level with Semrush tools. Keyword research, backlink audit, rank tracking, competitor analysis & more.",
+      "displayed_link": "https://www.semrush.com \u203a seo"
+    },
+    {
+      "position": 4,
+      "domain": "intergrowth.com",
+      "url": "https://intergrowth.com/seo/diy-tools/",
+      "title": "14 DIY SEO Tools for Do-It-Yourself Content Marketers",
+      "snippet": "Here's a quick list of our favorite SEO tools for DIY marketers: Ahrefs Keyword Explorer; Ahrefs Free Keyword Generator; Ahrefs Free Keyword Difficulty Checker ...",
+      "displayed_link": "https://intergrowth.com \u203a SEO"
+    },
+    {
+      "position": 5,
+      "domain": "seoreviewtools.com",
+      "url": "https://www.seoreviewtools.com/",
+      "title": "#1 Free SEO & AI Tools \u2192 SEO Review Tools",
+      "snippet": "SEO Review Tools is an collection of real-time SEO tools to analyze your website and to keep track of your competitors in Search.",
+      "displayed_link": "https://www.seoreviewtools.com"
+    },
+    {
+      "position": 6,
+      "domain": "lendio.com",
+      "url": "https://www.lendio.com/guides/seo-tools",
+      "title": "20 SEO Tools Your Small Business Needs",
+      "snippet": "In this comprehensive guide, we will highlight 20 essential SEO tools that are well-suited for small businesses.",
+      "displayed_link": "https://www.lendio.com \u203a Lending Library"
+    },
+    {
+      "position": 7,
+      "domain": "pcmag.com",
+      "url": "https://www.pcmag.com/picks/the-best-seo-tools",
+      "title": "The Best SEO Tools",
+      "snippet": "We test popular search engine optimization (SEO) players that'll help you keep your site at the top of the Google heap.",
+      "displayed_link": "https://www.pcmag.com \u203a ... \u203a SEO Tools"
+    },
+    {
+      "position": 8,
+      "domain": "yoast.com",
+      "url": "https://yoast.com/tools/",
+      "title": "The ultimate website tools list - SEO, tech and marketing",
+      "snippet": "This handy list combines the best tools to help you with SEO, development, marketing, and more. It's your go-to toolkit for building, growing, and getting the ...",
+      "displayed_link": "https://yoast.com \u203a tools"
+    },
+    {
+      "position": 9,
+      "domain": "ahrefs.com",
+      "url": "https://ahrefs.com/blog/free-seo-tools/",
+      "title": "34 Free SEO Tools for DIY SEOs",
+      "snippet": "34 Free SEO Tools for DIY SEOs \u00b7 1. Ahrefs Webmaster Tools \u00b7 2. Keyword Generator \u00b7 3. Google Keyword Planner \u00b7 4. AlsoAsked \u00b7 5. Keyworddit \u00b7 6.",
+      "displayed_link": "https://ahrefs.com \u203a blog \u203a free-seo-tools"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Is SEO dead or evolving in 2026?",
+      "Which SEO tool is best for beginners?",
+      "What is the 80 20 rule of SEO?",
+      "Can ChatGPT do an SEO audit?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

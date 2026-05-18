@@ -1,0 +1,100 @@
+{
+  "schema": "serp-query-v1",
+  "query": "home SEO tips for beginners",
+  "fetched_at": "2026-05-18T03:56:50.740424+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "developers.google.com",
+      "url": "https://developers.google.com/search/docs/fundamentals/seo-starter-guide",
+      "title": "Search Engine Optimization (SEO) Starter Guide",
+      "snippet": "Make your site interesting and useful \u00b7 Expect your readers' search terms \u00b7 Avoid distracting advertisements \u00b7 Link to relevant resources.",
+      "displayed_link": "https://developers.google.com \u203a ... \u203a Documentation"
+    },
+    {
+      "position": 2,
+      "domain": "moz.com",
+      "url": "https://moz.com/beginners-guide-to-seo",
+      "title": "Beginner's Guide to SEO (Search Engine Optimization)",
+      "snippet": "This guide is designed to describe all major aspects of SEO, from finding the terms and phrases (keywords) that can generate qualified traffic to your website.",
+      "displayed_link": "https://moz.com \u203a beginners-guide-to-seo"
+    },
+    {
+      "position": 3,
+      "domain": "scorpion.co",
+      "url": "https://www.scorpion.co/articles/expert-tips/marketing/a-beginner-s-guide-to-seo-everything-you-need-to/",
+      "title": "A Beginner's Guide to SEO: Everything You Need to Know to ...",
+      "snippet": "How to Get Started with SEO \u00b7 Keyword Research & Optimization \u00b7 Write High-Quality Content \u00b7 Build Links \u00b7 Optimize Technical SEO \u00b7 Track & Measure ...",
+      "displayed_link": "https://www.scorpion.co \u203a expert-tips \u203a marketing \u203a a-be..."
+    },
+    {
+      "position": 4,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/Entrepreneur/comments/4wbdcz/seo_is_not_hard_a_stepbystep_seo_tutorial_for/",
+      "title": "SEO is Not Hard . A step-by-step SEO Tutorial for ...",
+      "snippet": "It takes time, money, and resources to get a website ranking well in the SERPS. SEO involves content marketing, social media, user experience, ...",
+      "displayed_link": "630+ comments \u00b7 9 years ago"
+    },
+    {
+      "position": 5,
+      "domain": "integrityxd.com",
+      "url": "https://www.integrityxd.com/blog/12-seo-tips-for-beginners",
+      "title": "12 SEO Tips for Beginners - Integrity | St Louis | USA",
+      "snippet": "1. Optimize Your Page Title and Meta Description \u00b7 2. Use Descriptive Image File Names \u00b7 3. Add Alt Text to Every Image \u00b7 4. Include Your Keyword ...",
+      "displayed_link": "https://www.integrityxd.com \u203a blog \u203a 12-seo-tips-for-be..."
+    },
+    {
+      "position": 6,
+      "domain": "productiveblogging.com",
+      "url": "https://www.productiveblogging.com/beginners-guide-seo/",
+      "title": "A beginner's guide to SEO for bloggers [2026]",
+      "snippet": "In this beginner's guide to SEO I will take you step by step through the most important aspects of SEO for bloggers.",
+      "displayed_link": "https://www.productiveblogging.com \u203a ... \u203a SEO Tips"
+    },
+    {
+      "position": 7,
+      "domain": "webnode.com",
+      "url": "https://www.webnode.com/blog/how-to-do-seo-for-your-website/",
+      "title": "DIY SEO Guide For Beginner's Website",
+      "snippet": "Keep it under 60 characters. \u00b7 Summarize the page's main topic in a clear phrase. \u00b7 Put the primary keyword first; add your brand last if space ...",
+      "displayed_link": "https://www.webnode.com \u203a blog \u203a how-to-do-seo-for-..."
+    },
+    {
+      "position": 8,
+      "domain": "bruceclay.com",
+      "url": "https://www.bruceclay.com/blog/diy-seo-doable-steps-for-beginners/",
+      "title": "DIY SEO: 9 Doable Steps for Beginners",
+      "snippet": "DIY SEO: 9 Steps for Beginners \u00b7 1. Take SEO Training \u00b7 2. Do the Basic Technical Requirements \u00b7 3. Manage Your Site Structure and Links \u00b7 4.",
+      "displayed_link": "https://www.bruceclay.com \u203a blog \u203a diy-seo-doable-ste..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "What is the 80 20 rule of SEO?",
+      "Is SEO dead or evolving in 2026?",
+      "What are the 3 C's of SEO?",
+      "How do I learn SEO as a beginner?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 4
+    }
+  }
+}

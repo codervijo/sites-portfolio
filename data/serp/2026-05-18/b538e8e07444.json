@@ -1,0 +1,99 @@
+{
+  "schema": "serp-query-v1",
+  "query": "home SEO",
+  "fetched_at": "2026-05-18T03:56:43.054112+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "semrush.com",
+      "url": "https://www.semrush.com/blog/homepage-seo/",
+      "title": "Homepage SEO: What Makes It Unique & How to Do It",
+      "snippet": "Learn how to optimize your homepage for search engines and AI Overviews. Improve visibility, traffic, and rankings with smart homepage SEO.",
+      "displayed_link": "https://www.semrush.com \u203a Blog"
+    },
+    {
+      "position": 2,
+      "domain": "aioseo.com",
+      "url": "https://aioseo.com/docs/setting-the-seo-for-your-home-page/",
+      "title": "Setting the SEO for Your Home Page",
+      "snippet": "To set the SEO title for your homepage, click on one of our smart tags shown above the Home Title field. Adding a smart tag to the Home ...",
+      "displayed_link": "https://aioseo.com \u203a Docs \u203a Search Appearance"
+    },
+    {
+      "position": 3,
+      "domain": "proactiveseosolutions.com",
+      "url": "https://www.proactiveseosolutions.com/home-seo-services/",
+      "title": "Home SEO Services",
+      "snippet": "Proactive SEO Solutions offers a number of home SEO specialties, including SEO for HVAC, Junk Removal, Plumbing, Pressure Washing, and much more.",
+      "displayed_link": "https://www.proactiveseosolutions.com \u203a home-seo-serv..."
+    },
+    {
+      "position": 4,
+      "domain": "253media.com",
+      "url": "https://www.253media.com/resources/the-complete-guide-to-home-service-seo-how-to-get-more-local-leads-online",
+      "title": "The Complete Guide to Home Service SEO",
+      "snippet": "Master home service SEO with this complete guide. Learn Google Business optimization, Webflow best practices, and local tactics to generate ...",
+      "displayed_link": "https://www.253media.com \u203a resources \u203a the-complete-..."
+    },
+    {
+      "position": 5,
+      "domain": "newhomestar.com",
+      "url": "https://www.newhomestar.com/blog/home-builder-seo",
+      "title": "Mastering Home Builder SEO: A Comprehensive Manual",
+      "snippet": "Top Strategies for Home Builder SEO \u00b7 1. Market Research \u00b7 2. Local Focus \u00b7 3. Content Strategy \u00b7 4. Analytics \u00b7 5. Backlinking \u00b7 6. Social ...",
+      "displayed_link": "https://www.newhomestar.com \u203a blog \u203a home-builder-seo"
+    },
+    {
+      "position": 6,
+      "domain": "podium.com",
+      "url": "https://www.podium.com/article/home-service-seo",
+      "title": "Home Service SEO: Your Complete Guide to 2025 SEO",
+      "snippet": "Unlock the potential of your home service business with effective SEO strategies. Learn how to optimize your online presence, attract more ...",
+      "displayed_link": "https://www.podium.com \u203a article \u203a home-service-seo"
+    },
+    {
+      "position": 7,
+      "domain": "servicetitan.com",
+      "url": "https://www.servicetitan.com/blog/seo-for-home-service-businesses",
+      "title": "Home Service SEO Strategy: 5 Tips to Show Up Online",
+      "snippet": "An actionable guide to home services SEO. Discover everything you need to know to boost your online visibility and attract more customers ...",
+      "displayed_link": "https://www.servicetitan.com \u203a Toolbox \u203a Blog"
+    },
+    {
+      "position": 8,
+      "domain": "hookagency.com",
+      "url": "https://hookagency.com/blog/home-services-seo-tips/",
+      "title": "Home Services SEO Tips You Need To Know",
+      "snippet": "Get powerful SEO tactics tailored for home services businesses, boost your online visibility, ranking, and leads.",
+      "displayed_link": "https://hookagency.com \u203a Articles"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "Is SEO dead or evolving in 2026?",
+      "What is the 80/20 rule for SEO?",
+      "What is homepage SEO?",
+      "Can I do SEO by myself?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": false
+    }
+  }
+}

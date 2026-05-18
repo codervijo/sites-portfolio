@@ -1,0 +1,100 @@
+{
+  "schema": "serp-query-v1",
+  "query": "how to improve home SEO",
+  "fetched_at": "2026-05-18T03:56:51.759722+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "succeedingsmall.co",
+      "url": "https://succeedingsmall.co/seo-tips-for-home-improvement-companies/",
+      "title": "Simple SEO Tips for Home Improvement Companies",
+      "snippet": "Simple SEO Tips for Home Improvement Companies \u00b7 1. Select the right home improvement keywords for your business \u00b7 2. Optimize your content for SEO \u00b7 3. Don't ...",
+      "displayed_link": "https://succeedingsmall.co \u203a Blog"
+    },
+    {
+      "position": 2,
+      "domain": "jsmmtech.com",
+      "url": "https://jsmmtech.com/how-to-improve-real-estate-seo-10-proven-strategies/",
+      "title": "How to Improve Real Estate SEO: 10 Proven Strategies - JSMM",
+      "snippet": "Explore 10 key strategies on how to improve real estate SEO. These strategies, which we'll delve into in this blog, will help you attract high-net-worth buyers.",
+      "displayed_link": "https://jsmmtech.com \u203a how-to-improve-real-estate-seo-..."
+    },
+    {
+      "position": 3,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/SEO/comments/1h0d4bs/i_need_help_on_how_to_optimize_a_homepage_of_a/",
+      "title": "I NEED HELP ON HOW TO OPTIMIZE A HOMEPAGE OF ...",
+      "snippet": "If there is any homepage, try to understand what sort of heading format, content, images, metadata, etc., they're using on their page. And try ...",
+      "displayed_link": "20+ comments \u00b7 1 year ago"
+    },
+    {
+      "position": 4,
+      "domain": "orhp.com",
+      "url": "https://www.orhp.com/blog/5-seo-best-practices-for-real-estate-professionals",
+      "title": "5 SEO Best Practices for Real Estate Professionals",
+      "snippet": "Search engines favor fresh, new content, so keep posting to your blog and keep updating those listings. New content will keep your audience engaged and promote ...",
+      "displayed_link": "https://www.orhp.com \u203a blog \u203a 5-seo-best-practices-for..."
+    },
+    {
+      "position": 5,
+      "domain": "outpaceseo.com",
+      "url": "https://outpaceseo.com/article/seo-strategies-for-home-improvement-renovation-companies/",
+      "title": "15 SEO Strategies for Home Improvement & Renovation ...",
+      "snippet": "15 SEO Strategies for Your Home Improvement Service Business \u00b7 1. Optimize Your Google Business Profile \u00b7 2. Use Location-Based Keywords on Your ...",
+      "displayed_link": "https://outpaceseo.com \u203a Blog"
+    },
+    {
+      "position": 6,
+      "domain": "siteimprove.com",
+      "url": "https://www.siteimprove.com/glossary/real-estate-seo/",
+      "title": "SEO for real estate",
+      "snippet": "1. Analyze your SEO competitors \u00b7 2. Do your keyword research \u00b7 3. Look for long-tail keywords opportunities \u00b7 4. Create good quality content with your clients in ...",
+      "displayed_link": "https://www.siteimprove.com \u203a glossary \u203a real-estate-seo"
+    },
+    {
+      "position": 7,
+      "domain": "kitchendev.com",
+      "url": "https://www.kitchendev.com/marketing/seo-for-remodelers/",
+      "title": "SEO for Remodelers: Ultimate 2023 Tactics Guide",
+      "snippet": "SEO for remodelers, home builders, and contractors with 2023 tactics that will take you to success, fast. Read and start implementing now.",
+      "displayed_link": "https://www.kitchendev.com \u203a marketing \u203a seo-for-rem..."
+    },
+    {
+      "position": 8,
+      "domain": "diib.com",
+      "url": "https://diib.com/learn/seo-for-home-remodeling/",
+      "title": "SEO for Home Remodeling: Build the Best Strategy",
+      "snippet": "Here are a few: 1) Improve user experience. 2) Optimize for voice search. 3) Make sure you design for mobile first. 4) Do your keyword research.",
+      "displayed_link": "https://diib.com \u203a learn \u203a seo-for-home-remodeling"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "What is the 80 20 rule of SEO?",
+      "Is SEO dead or evolving in 2026?",
+      "How to SEO optimize your homepage?",
+      "What are the 3 C's of SEO?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 3
+    }
+  }
+}
