@@ -1,0 +1,110 @@
+{
+  "schema": "serp-query-v1",
+  "query": "how to remove popcorn ceiling",
+  "fetched_at": "2026-05-18T18:15:45.196776+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/playlist?list=PLCrazHylAOEnc06BFyXEpNX_SapMYj_g3",
+      "title": "Removing Popcorn Ceiling Texture Or repairing it",
+      "snippet": "29:19 Removing Popcorn Texture? Here's the Step by Step method of removing it RIGHT in 2022! That Kilted Guy DIY Home Improvement",
+      "displayed_link": "352K+ followers"
+    },
+    {
+      "position": 2,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/drywall/comments/15gc23w/best_way_to_remove_popcorn_ceilings/",
+      "title": "Best way to remove popcorn ceilings : r/drywall",
+      "snippet": "Use an 18\" floor scraper to scrape 99% of the ceiling onto the floor. Someone on stilts using a 6\" knife for details and corners. All the popcorn falls on the ...",
+      "displayed_link": "30+ comments \u00b7 2 years ago"
+    },
+    {
+      "position": 3,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/HGTV/videos/ceiling-refresh/1541294803604158/",
+      "title": "Popcorn ceiling be gone! \ud83c\udf7f\u274c | HGTV",
+      "snippet": "There is asbestos in popcorn ceilings! Do not do this; or you will get an incurable cancer called mesothelioma. Removal should be done by ...",
+      "displayed_link": "1.5K+ reactions \u00b7 2 months ago"
+    },
+    {
+      "position": 4,
+      "domain": "tiktok.com",
+      "url": "https://www.tiktok.com/@lukescorno/video/7613911644925725982",
+      "title": "How to Safely Remove Popcorn Ceilings: A DIY Guide",
+      "snippet": "Here's a comprehensive guide to safely removing popcorn ceilings and updating your home d\u00e9cor. Before you begin, it's important to test for ...",
+      "displayed_link": "9.7M+ views \u00b7 2 months ago"
+    },
+    {
+      "position": 5,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/TheFamilyHandyman/posts/11-tips-on-how-to-remove-a-popcorn-ceiling-faster-and-easier-read-more-at-the-li/1248085264033910/",
+      "title": "11 Tips on How to Remove a Popcorn Ceiling Faster and ...",
+      "snippet": "Fill sprayer with water. Spray onto popcorn ceiling and let sit 3-5 min, use scraper to scrape off. We just did 2 bedrooms in less than 30 min.",
+      "displayed_link": "430+ reactions \u00b7 6 months ago"
+    },
+    {
+      "position": 6,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/DIY/comments/11zwppf/best_way_to_handle_popcorn_ceilings_remove_or/",
+      "title": "Best way to handle popcorn ceilings - remove or drywall ...",
+      "snippet": "Hey all, I just closed on a home and I want to get the place ready for my family to move-in. The problem is there\u2019s nasty popcorn ceiling - even worse, ...",
+      "displayed_link": "340+ comments \u00b7 3 years ago"
+    },
+    {
+      "position": 7,
+      "domain": "centsationalstyle.com",
+      "url": "https://centsationalstyle.com/2014/07/how-to-remove-popcorn-ceiling/",
+      "title": "The Joy of Popcorn Ceiling Removal",
+      "snippet": "I used a large spray bottle to mist water onto the ceiling, let it sit for a few minutes and then scraped with a plastic putty knife. I was able ...",
+      "displayed_link": "https://centsationalstyle.com \u203a Blog \u203a DIY"
+    },
+    {
+      "position": 8,
+      "domain": "hanashappyhome.com",
+      "url": "https://hanashappyhome.com/diy/beginner-projects/tips-and-tricks-for-diy-popcorn-ceiling-removal/",
+      "title": "Tips and Tricks for DIY Popcorn Ceiling Removal",
+      "snippet": "To remove the popcorn ceiling, use a large 12 inch drywall knife and with some medium pressure scrape the ceiling. Scrape at a 45 degree angle.",
+      "displayed_link": "https://hanashappyhome.com \u203a diy \u203a beginner-projects"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": [
+        "andersonspaintingllc.com",
+        "bestpickreports.com",
+        "diy.stackexchange.com",
+        "doityourself.com",
+        "facebook.com",
+        "google.com",
+        "reddit.com",
+        "shopping.yahoo.com",
+        "youtube.com"
+      ]
+    },
+    "people_also_ask": [
+      "What is the easiest way to remove popcorn ceilings?",
+      "How can I cover my popcorn ceiling without removing it?",
+      "Is it safe to remove popcorn from the ceiling yourself?",
+      "Is it cheaper to remove popcorn ceiling or replace drywall?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 2
+    }
+  }
+}

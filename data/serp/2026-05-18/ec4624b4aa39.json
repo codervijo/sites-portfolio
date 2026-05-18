@@ -1,0 +1,99 @@
+{
+  "schema": "serp-query-v1",
+  "query": "popcorn ceiling removal DIY",
+  "fetched_at": "2026-05-18T18:15:49.727101+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=6-5TM07MI50",
+      "title": "How To Remove Popcorn Ceiling | How To Anything",
+      "snippet": "Dealing with a painted popcorn ceiling? Take the putty knife and drag it and scrape it over the popcorn as to knock off the tops of each popcorn ...",
+      "displayed_link": "257.1K+ views \u00b7 1 year ago"
+    },
+    {
+      "position": 2,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/playlist?list=PLCrazHylAOEnc06BFyXEpNX_SapMYj_g3",
+      "title": "Removing Popcorn Ceiling Texture Or repairing it",
+      "snippet": "29:19 Removing Popcorn Texture? Here's the Step by Step method of removing it RIGHT in 2022! That Kilted Guy DIY Home Improvement",
+      "displayed_link": "352K+ followers"
+    },
+    {
+      "position": 3,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/drywall/comments/15gc23w/best_way_to_remove_popcorn_ceilings/",
+      "title": "Best way to remove popcorn ceilings : r/drywall",
+      "snippet": "Use an 18\" floor scraper to scrape 99% of the ceiling onto the floor. Someone on stilts using a 6\" knife for details and corners. All the popcorn falls on the ...",
+      "displayed_link": "30+ comments \u00b7 2 years ago"
+    },
+    {
+      "position": 4,
+      "domain": "hanashappyhome.com",
+      "url": "https://hanashappyhome.com/diy/beginner-projects/tips-and-tricks-for-diy-popcorn-ceiling-removal/",
+      "title": "Tips and Tricks for DIY Popcorn Ceiling Removal",
+      "snippet": "To remove the popcorn ceiling, use a large 12 inch drywall knife and with some medium pressure scrape the ceiling. Scrape at a 45 degree angle.",
+      "displayed_link": "https://hanashappyhome.com \u203a diy \u203a beginner-projects"
+    },
+    {
+      "position": 5,
+      "domain": "tiktok.com",
+      "url": "https://www.tiktok.com/@lukescorno/video/7613911644925725982",
+      "title": "How to Safely Remove Popcorn Ceilings: A DIY Guide",
+      "snippet": "Here's a comprehensive guide to safely removing popcorn ceilings and updating your home d\u00e9cor. Before you begin, it's important to test for ...",
+      "displayed_link": "9.7M+ views \u00b7 2 months ago"
+    },
+    {
+      "position": 6,
+      "domain": "youtube.com",
+      "url": "https://www.youtube.com/watch?v=RS-8dmoF68M",
+      "title": "How to Remove a Popcorn Ceiling",
+      "snippet": "Simply misting it with water and using a large drywall taping knife easily removes a popcorn ceiling.",
+      "displayed_link": "58.7K+ views \u00b7 1 year ago"
+    },
+    {
+      "position": 7,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/HGTV/videos/ceiling-refresh/1541294803604158/",
+      "title": "Popcorn ceiling be gone! \ud83c\udf7f\u274c | HGTV",
+      "snippet": "I filled up a garden sprayer pump with warm water and misted it onto a small section of the ceiling. It needs to sit for a few minutes before ...",
+      "displayed_link": "1.5K+ reactions \u00b7 2 months ago"
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": [
+        "diy.stackexchange.com",
+        "doityourself.com",
+        "facebook.com",
+        "instructables.com",
+        "reddit.com",
+        "youtube.com"
+      ]
+    },
+    "people_also_ask": [
+      "Can I remove my popcorn ceiling myself?",
+      "How much does it cost to remove a popcorn ceiling from a 1500 sq ft house?",
+      "How to remove popcorn ceilings in 30 minutes DIY?",
+      "How can I cover my popcorn ceiling without removing it?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 3
+    }
+  }
+}

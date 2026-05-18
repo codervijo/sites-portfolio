@@ -1,0 +1,92 @@
+{
+  "schema": "serp-query-v1",
+  "query": "popcorn ceiling removal safety tips",
+  "fetched_at": "2026-05-18T18:15:51.265728+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "biorestore.org",
+      "url": "https://biorestore.org/popcorn-ceiling-removal-diy-safety-tips/",
+      "title": "Popcorn Ceiling Removal: DIY Safety Tips",
+      "snippet": "When tackling popcorn ceiling removal, prioritize safety by using the wet scraping method and ensuring proper ventilation to minimize dust.",
+      "displayed_link": "https://biorestore.org \u203a popcorn-ceiling-removal-diy-safe..."
+    },
+    {
+      "position": 2,
+      "domain": "culverspainting.com",
+      "url": "https://culverspainting.com/blog/guide-to-popcorn-ceiling-removal/",
+      "title": "The Best Guide To Popcorn Ceiling Removal: Steps And Tips",
+      "snippet": "Wear gear like goggles, a dust mask, and gloves, especially if dealing with an existing ceiling that hasn't been tested for asbestos. Popcorn Ceiling Removal ...",
+      "displayed_link": "https://culverspainting.com \u203a blog \u203a guide-to-popcorn-..."
+    },
+    {
+      "position": 3,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/HomeImprovement/comments/f5j6rs/removing_popcorn_ceiling_asbestos_advice/",
+      "title": "Removing popcorn ceiling asbestos advice",
+      "snippet": "Get throw away coveralls, true HEPA masks, and plastic everything. Spray it wet and get to work. Make sure you empty your water pipes after you ...",
+      "displayed_link": "30+ comments \u00b7 6 years ago"
+    },
+    {
+      "position": 4,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/NikandLiv.DIY/videos/here-are-all-my-diy-tips-for-popcorn-ceiling-removal1-safety-first-popcorn-ceili/2288083245050668/",
+      "title": "Here are all my #DIY tips for popcorn ceiling removal! 1 ...",
+      "snippet": "Cover everything with plastic, or if possible, do the removal when you move in! 3) if the popcorn ceilings are painted over, the paint prevents ...",
+      "displayed_link": "30+ reactions \u00b7 2 months ago"
+    },
+    {
+      "position": 5,
+      "domain": "painterblythewoodsc.com",
+      "url": "https://painterblythewoodsc.com/blog/safety-tips-for-handling-popcorn-ceiling-removal-projects/",
+      "title": "Safety Tips for Handling Popcorn Ceiling Removal Projects",
+      "snippet": "A successful popcorn ceiling removal project requires the right tools. You'll need protective gear such as goggles, masks, and gloves to ...",
+      "displayed_link": "https://painterblythewoodsc.com \u203a blog \u203a safety-tips-for-..."
+    },
+    {
+      "position": 6,
+      "domain": "yakimacleanair.org",
+      "url": "https://www.yakimacleanair.org/site/files/file_manager/page/shared/Asbestos_Popcorn_10_01_08.pdf",
+      "title": "How to Properly Remove Spray-on \u201c Popcorn \u201d Ceilings",
+      "snippet": "This publication details the steps necessary for the safe removal of an asbestos-containing. \u201cpopcorn\u201d ceiling from an owner-occupied, single-family home.",
+      "displayed_link": "https://www.yakimacleanair.org \u203a page \u203a shared"
+    },
+    {
+      "position": 7,
+      "domain": "swcleanair.gov",
+      "url": "https://www.swcleanair.gov/docs/misc/asbestos_popcorn_ceiling.pdf",
+      "title": "How to Properly Remove Spray-on \u201cPopcorn\u201d Ceilings",
+      "snippet": "You assume all risks involved. Before You Begin. Page 3. 3. Basic Rules. \u25a1 Worker protection: During removal, you will need to protect yourself from breathing ...",
+      "displayed_link": "https://www.swcleanair.gov \u203a docs \u203a misc \u203a asbest..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": []
+    },
+    "people_also_ask": [
+      "What are the safety precautions for removing a popcorn ceiling?",
+      "How to protect yourself from asbestos when removing a popcorn ceiling?",
+      "What do you have to do after you remove the popcorn ceiling?",
+      "How likely is asbestos in a popcorn ceiling?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": true
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 3
+    }
+  }
+}

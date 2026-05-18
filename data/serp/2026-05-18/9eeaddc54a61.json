@@ -1,0 +1,118 @@
+{
+  "schema": "serp-query-v1",
+  "query": "cost of popcorn ceiling removal",
+  "fetched_at": "2026-05-18T18:15:48.141442+00:00",
+  "source": "serpapi",
+  "organic_results": [
+    {
+      "position": 1,
+      "domain": "reddit.com",
+      "url": "https://www.reddit.com/r/drywall/comments/1geftjl/whats_everyones_rate_for_popcorn_ceiling_removal/",
+      "title": "Whats everyone's rate for popcorn ceiling removal and ...",
+      "snippet": "Im quoting 2000sqft of popcorn ceiling removal, oil prime, repair, and two coats of finish paint Popcorn ceiling removal and finish quote help.",
+      "displayed_link": "40+ comments \u00b7 1 year ago"
+    },
+    {
+      "position": 2,
+      "domain": "angi.com",
+      "url": "https://www.angi.com/articles/how-much-does-popcorn-ceiling-removal-cost.htm",
+      "title": "How Much Does Popcorn Ceiling Removal Cost? [2026 ...",
+      "snippet": "You can expect to pay around $2,003 for popcorn ceiling removal costs, or around $6 per square foot. Most homeowners spend between $932 and ...",
+      "displayed_link": "https://www.angi.com \u203a ... \u203a Ceiling \u203a Popcorn Ceiling"
+    },
+    {
+      "position": 3,
+      "domain": "facebook.com",
+      "url": "https://www.facebook.com/groups/983295315800436/posts/2027622694701021/",
+      "title": "How much would I be looking at to remove popcorn ceiling?",
+      "snippet": "How much would I be looking at to remove popcorn ceiling?",
+      "displayed_link": "90+ comments \u00b7 6 months ago"
+    },
+    {
+      "position": 4,
+      "domain": "homewyse.com",
+      "url": "https://www.homewyse.com/services/cost_to_remove_popcorn_ceiling.html",
+      "title": "Cost to Remove Popcorn Ceiling",
+      "snippet": "The basic cost to Remove a Popcorn Ceiling is $1.84 - $3.46 per square foot in May 2026, but can vary significantly with site conditions and options.",
+      "displayed_link": "https://www.homewyse.com \u203a services \u203a cost_to_remove..."
+    },
+    {
+      "position": 5,
+      "domain": "fastpatchdrywallcompany.com",
+      "url": "https://fastpatchdrywallcompany.com/blog/popcorn-ceiling-removal-cost-seattle",
+      "title": "Popcorn Ceiling Removal Cost Seattle | Pricing & Finish ...",
+      "snippet": "Seattle popcorn ceiling removal averages ~$3.50 per sq ft, with finishes priced separately. Asbestos testing is mandatory; abatement can raise ...",
+      "displayed_link": "https://fastpatchdrywallcompany.com \u203a blog \u203a popcorn..."
+    },
+    {
+      "position": 6,
+      "domain": "houzz.com",
+      "url": "https://www.houzz.com/discussions/4855936/worth-the-cost-to-get-rid-of-popcorn-ceiling",
+      "title": "Worth the cost to get rid of popcorn ceiling???",
+      "snippet": "We called for estimates to get rid of our popcorn ceilings in just this area, and the cost came in at $6,000. That is a lot of money! My ...",
+      "displayed_link": "https://www.houzz.com \u203a discussions \u203a worth-the-cost-t..."
+    },
+    {
+      "position": 7,
+      "domain": "nerdwallet.com",
+      "url": "https://www.nerdwallet.com/home-ownership/home-improvement/learn/cost-to-remove-popcorn-ceiling",
+      "title": "Cost to Remove Popcorn Ceiling",
+      "snippet": "Removing a popcorn ceiling costs about $900 to $3000, depending on the ceiling condition, square footage and how you choose to resurface it.",
+      "displayed_link": "https://www.nerdwallet.com \u203a Home Ownership"
+    },
+    {
+      "position": 8,
+      "domain": "thespruce.com",
+      "url": "https://www.thespruce.com/popcorn-ceiling-removal-cost-8597875",
+      "title": "How Much Does Popcorn Ceiling Removal Really Cost?",
+      "snippet": "The greater the size of the ceiling, the more time and effort it will take to completely remove the popcorn ceiling, leading to higher labor ...",
+      "displayed_link": "https://www.thespruce.com \u203a ... \u203a Walls & Ceilings"
+    },
+    {
+      "position": 9,
+      "domain": "thumbtack.com",
+      "url": "https://www.thumbtack.com/p/popcorn-ceiling-removal-cost",
+      "title": "2025 Popcorn Ceiling Removal Cost | Get Estimates",
+      "snippet": "The national average cost to remove a popcorn ceiling ranges from around $1,525-$3,945, and most people pay around $2,454, according to ...",
+      "displayed_link": "https://www.thumbtack.com \u203a popcorn-ceiling-removal..."
+    }
+  ],
+  "features": {
+    "ai_overview": {
+      "present": true,
+      "cited_domains": [
+        "angi.com",
+        "bluepainting.com",
+        "facebook.com",
+        "homewyse.com",
+        "klappenbergerandson.com",
+        "nerdwallet.com",
+        "ondemandpainters.com",
+        "reddit.com",
+        "thumbtack.com"
+      ]
+    },
+    "people_also_ask": [
+      "How much does it cost to remove a popcorn ceiling from a 1500 sq ft house?",
+      "Is removing popcorn ceilings worth it?",
+      "What is the least expensive way to get rid of popcorn ceiling?",
+      "Is it cheaper to remove popcorn ceiling or replace drywall?"
+    ],
+    "featured_snippet": {
+      "present": false
+    },
+    "image_pack": {
+      "present": false
+    },
+    "video_pack": {
+      "present": false
+    },
+    "local_pack": {
+      "present": false
+    },
+    "reddit_card": {
+      "present": true,
+      "position": 1
+    }
+  }
+}

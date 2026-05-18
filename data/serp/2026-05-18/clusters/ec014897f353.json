@@ -1,0 +1,778 @@
+{
+  "schema": "research-cluster-v2",
+  "topic": "popcorn ceiling removal",
+  "topic_normalized": "popcorn ceiling removal",
+  "topic_hash": "ec014897f353",
+  "fetched_at": "2026-05-18T18:15:51.266028+00:00",
+  "source": "serpapi",
+  "cluster_queries": [
+    "popcorn ceiling removal",
+    "how to remove popcorn ceiling",
+    "cost of popcorn ceiling removal",
+    "popcorn ceiling removal DIY",
+    "popcorn ceiling removal safety tips"
+  ],
+  "per_query_files": [
+    "2026-05-18/ec014897f353.json",
+    "2026-05-18/a32fe9690f5f.json",
+    "2026-05-18/9eeaddc54a61.json",
+    "2026-05-18/ec4624b4aa39.json",
+    "2026-05-18/3786d4477b1c.json"
+  ],
+  "per_query_results": [
+    {
+      "schema": "serp-query-v1",
+      "query": "popcorn ceiling removal",
+      "fetched_at": "2026-05-18T18:15:40.932692+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/playlist?list=PLCrazHylAOEnc06BFyXEpNX_SapMYj_g3",
+          "title": "Removing Popcorn Ceiling Texture Or repairing it",
+          "snippet": "29:19 Removing Popcorn Texture? Here's the Step by Step method of removing it RIGHT in 2022! That Kilted Guy DIY Home Improvement",
+          "displayed_link": "352K+ followers"
+        },
+        {
+          "position": 2,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=6-5TM07MI50",
+          "title": "How To Remove Popcorn Ceiling | How To Anything",
+          "snippet": "Take the putty knife and drag it and scrape it over the popcorn as to knock off the tops of each popcorn. This exposes a small area for the warm water and ...",
+          "displayed_link": "257.1K+ views \u00b7 1 year ago"
+        },
+        {
+          "position": 3,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/DIY/comments/11zwppf/best_way_to_handle_popcorn_ceilings_remove_or/",
+          "title": "Best way to handle popcorn ceilings - remove or drywall ...",
+          "snippet": "Hey all, I just closed on a home and I want to get the place ready for my family to move-in. The problem is there\u2019s nasty popcorn ceiling - even worse, ...",
+          "displayed_link": "340+ comments \u00b7 3 years ago"
+        },
+        {
+          "position": 4,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/HGTV/videos/ceiling-refresh/1541294803604158/",
+          "title": "Popcorn ceiling be gone! \ud83c\udf7f\u274c | HGTV",
+          "snippet": "I filled up a garden sprayer pump with warm water and misted it onto a small section of the ceiling. It needs to sit for a few minutes before ...",
+          "displayed_link": "1.5K+ reactions \u00b7 2 months ago"
+        },
+        {
+          "position": 5,
+          "domain": "tiktok.com",
+          "url": "https://www.tiktok.com/@lukescorno/video/7613911644925725982",
+          "title": "How to Safely Remove Popcorn Ceilings: A DIY Guide",
+          "snippet": "Here's a comprehensive guide to safely removing popcorn ceilings and updating your home d\u00e9cor. Before you begin, it's important to test for ...",
+          "displayed_link": "9.7M+ views \u00b7 2 months ago"
+        },
+        {
+          "position": 6,
+          "domain": "hanashappyhome.com",
+          "url": "https://hanashappyhome.com/diy/beginner-projects/tips-and-tricks-for-diy-popcorn-ceiling-removal/",
+          "title": "Tips and Tricks for DIY Popcorn Ceiling Removal",
+          "snippet": "To remove the popcorn ceiling, use a large 12 inch drywall knife and with some medium pressure scrape the ceiling. Scrape at a 45 degree angle.",
+          "displayed_link": "https://hanashappyhome.com \u203a diy \u203a beginner-projects"
+        },
+        {
+          "position": 7,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/NikandLiv.DIY/videos/here-are-all-my-diy-tips-for-popcorn-ceiling-removal1-safety-first-popcorn-ceili/857050600275070/",
+          "title": "Here are all my #DIY tips for popcorn ceiling removal!1- Safety ...",
+          "snippet": "It should slide off easily with a drywall knife at anangle (6 inch or 8-12inch are all fine) if it isn't coming off smoothly, you either ...",
+          "displayed_link": "530+ reactions \u00b7 4 months ago"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": [
+            "andersonspaintingllc.com",
+            "bestpickreports.com",
+            "diy.stackexchange.com",
+            "doityourself.com",
+            "facebook.com",
+            "google.com",
+            "reddit.com",
+            "shopping.yahoo.com",
+            "youtube.com"
+          ]
+        },
+        "people_also_ask": [
+          "What is the easiest way to get rid of popcorn ceiling?",
+          "Can you remove a popcorn ceiling if it's been painted?",
+          "How much does it cost to remove a popcorn ceiling from a 1500 sq ft house?",
+          "How can I cover my popcorn ceiling without removing it?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": true
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 3
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "how to remove popcorn ceiling",
+      "fetched_at": "2026-05-18T18:15:45.196776+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/playlist?list=PLCrazHylAOEnc06BFyXEpNX_SapMYj_g3",
+          "title": "Removing Popcorn Ceiling Texture Or repairing it",
+          "snippet": "29:19 Removing Popcorn Texture? Here's the Step by Step method of removing it RIGHT in 2022! That Kilted Guy DIY Home Improvement",
+          "displayed_link": "352K+ followers"
+        },
+        {
+          "position": 2,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/drywall/comments/15gc23w/best_way_to_remove_popcorn_ceilings/",
+          "title": "Best way to remove popcorn ceilings : r/drywall",
+          "snippet": "Use an 18\" floor scraper to scrape 99% of the ceiling onto the floor. Someone on stilts using a 6\" knife for details and corners. All the popcorn falls on the ...",
+          "displayed_link": "30+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 3,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/HGTV/videos/ceiling-refresh/1541294803604158/",
+          "title": "Popcorn ceiling be gone! \ud83c\udf7f\u274c | HGTV",
+          "snippet": "There is asbestos in popcorn ceilings! Do not do this; or you will get an incurable cancer called mesothelioma. Removal should be done by ...",
+          "displayed_link": "1.5K+ reactions \u00b7 2 months ago"
+        },
+        {
+          "position": 4,
+          "domain": "tiktok.com",
+          "url": "https://www.tiktok.com/@lukescorno/video/7613911644925725982",
+          "title": "How to Safely Remove Popcorn Ceilings: A DIY Guide",
+          "snippet": "Here's a comprehensive guide to safely removing popcorn ceilings and updating your home d\u00e9cor. Before you begin, it's important to test for ...",
+          "displayed_link": "9.7M+ views \u00b7 2 months ago"
+        },
+        {
+          "position": 5,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/TheFamilyHandyman/posts/11-tips-on-how-to-remove-a-popcorn-ceiling-faster-and-easier-read-more-at-the-li/1248085264033910/",
+          "title": "11 Tips on How to Remove a Popcorn Ceiling Faster and ...",
+          "snippet": "Fill sprayer with water. Spray onto popcorn ceiling and let sit 3-5 min, use scraper to scrape off. We just did 2 bedrooms in less than 30 min.",
+          "displayed_link": "430+ reactions \u00b7 6 months ago"
+        },
+        {
+          "position": 6,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/DIY/comments/11zwppf/best_way_to_handle_popcorn_ceilings_remove_or/",
+          "title": "Best way to handle popcorn ceilings - remove or drywall ...",
+          "snippet": "Hey all, I just closed on a home and I want to get the place ready for my family to move-in. The problem is there\u2019s nasty popcorn ceiling - even worse, ...",
+          "displayed_link": "340+ comments \u00b7 3 years ago"
+        },
+        {
+          "position": 7,
+          "domain": "centsationalstyle.com",
+          "url": "https://centsationalstyle.com/2014/07/how-to-remove-popcorn-ceiling/",
+          "title": "The Joy of Popcorn Ceiling Removal",
+          "snippet": "I used a large spray bottle to mist water onto the ceiling, let it sit for a few minutes and then scraped with a plastic putty knife. I was able ...",
+          "displayed_link": "https://centsationalstyle.com \u203a Blog \u203a DIY"
+        },
+        {
+          "position": 8,
+          "domain": "hanashappyhome.com",
+          "url": "https://hanashappyhome.com/diy/beginner-projects/tips-and-tricks-for-diy-popcorn-ceiling-removal/",
+          "title": "Tips and Tricks for DIY Popcorn Ceiling Removal",
+          "snippet": "To remove the popcorn ceiling, use a large 12 inch drywall knife and with some medium pressure scrape the ceiling. Scrape at a 45 degree angle.",
+          "displayed_link": "https://hanashappyhome.com \u203a diy \u203a beginner-projects"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": [
+            "andersonspaintingllc.com",
+            "bestpickreports.com",
+            "diy.stackexchange.com",
+            "doityourself.com",
+            "facebook.com",
+            "google.com",
+            "reddit.com",
+            "shopping.yahoo.com",
+            "youtube.com"
+          ]
+        },
+        "people_also_ask": [
+          "What is the easiest way to remove popcorn ceilings?",
+          "How can I cover my popcorn ceiling without removing it?",
+          "Is it safe to remove popcorn from the ceiling yourself?",
+          "Is it cheaper to remove popcorn ceiling or replace drywall?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 2
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "cost of popcorn ceiling removal",
+      "fetched_at": "2026-05-18T18:15:48.141442+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/drywall/comments/1geftjl/whats_everyones_rate_for_popcorn_ceiling_removal/",
+          "title": "Whats everyone's rate for popcorn ceiling removal and ...",
+          "snippet": "Im quoting 2000sqft of popcorn ceiling removal, oil prime, repair, and two coats of finish paint Popcorn ceiling removal and finish quote help.",
+          "displayed_link": "40+ comments \u00b7 1 year ago"
+        },
+        {
+          "position": 2,
+          "domain": "angi.com",
+          "url": "https://www.angi.com/articles/how-much-does-popcorn-ceiling-removal-cost.htm",
+          "title": "How Much Does Popcorn Ceiling Removal Cost? [2026 ...",
+          "snippet": "You can expect to pay around $2,003 for popcorn ceiling removal costs, or around $6 per square foot. Most homeowners spend between $932 and ...",
+          "displayed_link": "https://www.angi.com \u203a ... \u203a Ceiling \u203a Popcorn Ceiling"
+        },
+        {
+          "position": 3,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/groups/983295315800436/posts/2027622694701021/",
+          "title": "How much would I be looking at to remove popcorn ceiling?",
+          "snippet": "How much would I be looking at to remove popcorn ceiling?",
+          "displayed_link": "90+ comments \u00b7 6 months ago"
+        },
+        {
+          "position": 4,
+          "domain": "homewyse.com",
+          "url": "https://www.homewyse.com/services/cost_to_remove_popcorn_ceiling.html",
+          "title": "Cost to Remove Popcorn Ceiling",
+          "snippet": "The basic cost to Remove a Popcorn Ceiling is $1.84 - $3.46 per square foot in May 2026, but can vary significantly with site conditions and options.",
+          "displayed_link": "https://www.homewyse.com \u203a services \u203a cost_to_remove..."
+        },
+        {
+          "position": 5,
+          "domain": "fastpatchdrywallcompany.com",
+          "url": "https://fastpatchdrywallcompany.com/blog/popcorn-ceiling-removal-cost-seattle",
+          "title": "Popcorn Ceiling Removal Cost Seattle | Pricing & Finish ...",
+          "snippet": "Seattle popcorn ceiling removal averages ~$3.50 per sq ft, with finishes priced separately. Asbestos testing is mandatory; abatement can raise ...",
+          "displayed_link": "https://fastpatchdrywallcompany.com \u203a blog \u203a popcorn..."
+        },
+        {
+          "position": 6,
+          "domain": "houzz.com",
+          "url": "https://www.houzz.com/discussions/4855936/worth-the-cost-to-get-rid-of-popcorn-ceiling",
+          "title": "Worth the cost to get rid of popcorn ceiling???",
+          "snippet": "We called for estimates to get rid of our popcorn ceilings in just this area, and the cost came in at $6,000. That is a lot of money! My ...",
+          "displayed_link": "https://www.houzz.com \u203a discussions \u203a worth-the-cost-t..."
+        },
+        {
+          "position": 7,
+          "domain": "nerdwallet.com",
+          "url": "https://www.nerdwallet.com/home-ownership/home-improvement/learn/cost-to-remove-popcorn-ceiling",
+          "title": "Cost to Remove Popcorn Ceiling",
+          "snippet": "Removing a popcorn ceiling costs about $900 to $3000, depending on the ceiling condition, square footage and how you choose to resurface it.",
+          "displayed_link": "https://www.nerdwallet.com \u203a Home Ownership"
+        },
+        {
+          "position": 8,
+          "domain": "thespruce.com",
+          "url": "https://www.thespruce.com/popcorn-ceiling-removal-cost-8597875",
+          "title": "How Much Does Popcorn Ceiling Removal Really Cost?",
+          "snippet": "The greater the size of the ceiling, the more time and effort it will take to completely remove the popcorn ceiling, leading to higher labor ...",
+          "displayed_link": "https://www.thespruce.com \u203a ... \u203a Walls & Ceilings"
+        },
+        {
+          "position": 9,
+          "domain": "thumbtack.com",
+          "url": "https://www.thumbtack.com/p/popcorn-ceiling-removal-cost",
+          "title": "2025 Popcorn Ceiling Removal Cost | Get Estimates",
+          "snippet": "The national average cost to remove a popcorn ceiling ranges from around $1,525-$3,945, and most people pay around $2,454, according to ...",
+          "displayed_link": "https://www.thumbtack.com \u203a popcorn-ceiling-removal..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": [
+            "angi.com",
+            "bluepainting.com",
+            "facebook.com",
+            "homewyse.com",
+            "klappenbergerandson.com",
+            "nerdwallet.com",
+            "ondemandpainters.com",
+            "reddit.com",
+            "thumbtack.com"
+          ]
+        },
+        "people_also_ask": [
+          "How much does it cost to remove a popcorn ceiling from a 1500 sq ft house?",
+          "Is removing popcorn ceilings worth it?",
+          "What is the least expensive way to get rid of popcorn ceiling?",
+          "Is it cheaper to remove popcorn ceiling or replace drywall?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 1
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "popcorn ceiling removal DIY",
+      "fetched_at": "2026-05-18T18:15:49.727101+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=6-5TM07MI50",
+          "title": "How To Remove Popcorn Ceiling | How To Anything",
+          "snippet": "Dealing with a painted popcorn ceiling? Take the putty knife and drag it and scrape it over the popcorn as to knock off the tops of each popcorn ...",
+          "displayed_link": "257.1K+ views \u00b7 1 year ago"
+        },
+        {
+          "position": 2,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/playlist?list=PLCrazHylAOEnc06BFyXEpNX_SapMYj_g3",
+          "title": "Removing Popcorn Ceiling Texture Or repairing it",
+          "snippet": "29:19 Removing Popcorn Texture? Here's the Step by Step method of removing it RIGHT in 2022! That Kilted Guy DIY Home Improvement",
+          "displayed_link": "352K+ followers"
+        },
+        {
+          "position": 3,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/drywall/comments/15gc23w/best_way_to_remove_popcorn_ceilings/",
+          "title": "Best way to remove popcorn ceilings : r/drywall",
+          "snippet": "Use an 18\" floor scraper to scrape 99% of the ceiling onto the floor. Someone on stilts using a 6\" knife for details and corners. All the popcorn falls on the ...",
+          "displayed_link": "30+ comments \u00b7 2 years ago"
+        },
+        {
+          "position": 4,
+          "domain": "hanashappyhome.com",
+          "url": "https://hanashappyhome.com/diy/beginner-projects/tips-and-tricks-for-diy-popcorn-ceiling-removal/",
+          "title": "Tips and Tricks for DIY Popcorn Ceiling Removal",
+          "snippet": "To remove the popcorn ceiling, use a large 12 inch drywall knife and with some medium pressure scrape the ceiling. Scrape at a 45 degree angle.",
+          "displayed_link": "https://hanashappyhome.com \u203a diy \u203a beginner-projects"
+        },
+        {
+          "position": 5,
+          "domain": "tiktok.com",
+          "url": "https://www.tiktok.com/@lukescorno/video/7613911644925725982",
+          "title": "How to Safely Remove Popcorn Ceilings: A DIY Guide",
+          "snippet": "Here's a comprehensive guide to safely removing popcorn ceilings and updating your home d\u00e9cor. Before you begin, it's important to test for ...",
+          "displayed_link": "9.7M+ views \u00b7 2 months ago"
+        },
+        {
+          "position": 6,
+          "domain": "youtube.com",
+          "url": "https://www.youtube.com/watch?v=RS-8dmoF68M",
+          "title": "How to Remove a Popcorn Ceiling",
+          "snippet": "Simply misting it with water and using a large drywall taping knife easily removes a popcorn ceiling.",
+          "displayed_link": "58.7K+ views \u00b7 1 year ago"
+        },
+        {
+          "position": 7,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/HGTV/videos/ceiling-refresh/1541294803604158/",
+          "title": "Popcorn ceiling be gone! \ud83c\udf7f\u274c | HGTV",
+          "snippet": "I filled up a garden sprayer pump with warm water and misted it onto a small section of the ceiling. It needs to sit for a few minutes before ...",
+          "displayed_link": "1.5K+ reactions \u00b7 2 months ago"
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": [
+            "diy.stackexchange.com",
+            "doityourself.com",
+            "facebook.com",
+            "instructables.com",
+            "reddit.com",
+            "youtube.com"
+          ]
+        },
+        "people_also_ask": [
+          "Can I remove my popcorn ceiling myself?",
+          "How much does it cost to remove a popcorn ceiling from a 1500 sq ft house?",
+          "How to remove popcorn ceilings in 30 minutes DIY?",
+          "How can I cover my popcorn ceiling without removing it?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": false
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 3
+        }
+      }
+    },
+    {
+      "schema": "serp-query-v1",
+      "query": "popcorn ceiling removal safety tips",
+      "fetched_at": "2026-05-18T18:15:51.265728+00:00",
+      "source": "serpapi",
+      "organic_results": [
+        {
+          "position": 1,
+          "domain": "biorestore.org",
+          "url": "https://biorestore.org/popcorn-ceiling-removal-diy-safety-tips/",
+          "title": "Popcorn Ceiling Removal: DIY Safety Tips",
+          "snippet": "When tackling popcorn ceiling removal, prioritize safety by using the wet scraping method and ensuring proper ventilation to minimize dust.",
+          "displayed_link": "https://biorestore.org \u203a popcorn-ceiling-removal-diy-safe..."
+        },
+        {
+          "position": 2,
+          "domain": "culverspainting.com",
+          "url": "https://culverspainting.com/blog/guide-to-popcorn-ceiling-removal/",
+          "title": "The Best Guide To Popcorn Ceiling Removal: Steps And Tips",
+          "snippet": "Wear gear like goggles, a dust mask, and gloves, especially if dealing with an existing ceiling that hasn't been tested for asbestos. Popcorn Ceiling Removal ...",
+          "displayed_link": "https://culverspainting.com \u203a blog \u203a guide-to-popcorn-..."
+        },
+        {
+          "position": 3,
+          "domain": "reddit.com",
+          "url": "https://www.reddit.com/r/HomeImprovement/comments/f5j6rs/removing_popcorn_ceiling_asbestos_advice/",
+          "title": "Removing popcorn ceiling asbestos advice",
+          "snippet": "Get throw away coveralls, true HEPA masks, and plastic everything. Spray it wet and get to work. Make sure you empty your water pipes after you ...",
+          "displayed_link": "30+ comments \u00b7 6 years ago"
+        },
+        {
+          "position": 4,
+          "domain": "facebook.com",
+          "url": "https://www.facebook.com/NikandLiv.DIY/videos/here-are-all-my-diy-tips-for-popcorn-ceiling-removal1-safety-first-popcorn-ceili/2288083245050668/",
+          "title": "Here are all my #DIY tips for popcorn ceiling removal! 1 ...",
+          "snippet": "Cover everything with plastic, or if possible, do the removal when you move in! 3) if the popcorn ceilings are painted over, the paint prevents ...",
+          "displayed_link": "30+ reactions \u00b7 2 months ago"
+        },
+        {
+          "position": 5,
+          "domain": "painterblythewoodsc.com",
+          "url": "https://painterblythewoodsc.com/blog/safety-tips-for-handling-popcorn-ceiling-removal-projects/",
+          "title": "Safety Tips for Handling Popcorn Ceiling Removal Projects",
+          "snippet": "A successful popcorn ceiling removal project requires the right tools. You'll need protective gear such as goggles, masks, and gloves to ...",
+          "displayed_link": "https://painterblythewoodsc.com \u203a blog \u203a safety-tips-for-..."
+        },
+        {
+          "position": 6,
+          "domain": "yakimacleanair.org",
+          "url": "https://www.yakimacleanair.org/site/files/file_manager/page/shared/Asbestos_Popcorn_10_01_08.pdf",
+          "title": "How to Properly Remove Spray-on \u201c Popcorn \u201d Ceilings",
+          "snippet": "This publication details the steps necessary for the safe removal of an asbestos-containing. \u201cpopcorn\u201d ceiling from an owner-occupied, single-family home.",
+          "displayed_link": "https://www.yakimacleanair.org \u203a page \u203a shared"
+        },
+        {
+          "position": 7,
+          "domain": "swcleanair.gov",
+          "url": "https://www.swcleanair.gov/docs/misc/asbestos_popcorn_ceiling.pdf",
+          "title": "How to Properly Remove Spray-on \u201cPopcorn\u201d Ceilings",
+          "snippet": "You assume all risks involved. Before You Begin. Page 3. 3. Basic Rules. \u25a1 Worker protection: During removal, you will need to protect yourself from breathing ...",
+          "displayed_link": "https://www.swcleanair.gov \u203a docs \u203a misc \u203a asbest..."
+        }
+      ],
+      "features": {
+        "ai_overview": {
+          "present": true,
+          "cited_domains": []
+        },
+        "people_also_ask": [
+          "What are the safety precautions for removing a popcorn ceiling?",
+          "How to protect yourself from asbestos when removing a popcorn ceiling?",
+          "What do you have to do after you remove the popcorn ceiling?",
+          "How likely is asbestos in a popcorn ceiling?"
+        ],
+        "featured_snippet": {
+          "present": false
+        },
+        "image_pack": {
+          "present": false
+        },
+        "video_pack": {
+          "present": true
+        },
+        "local_pack": {
+          "present": false
+        },
+        "reddit_card": {
+          "present": true,
+          "position": 3
+        }
+      }
+    }
+  ],
+  "fetch_errors": [],
+  "from_cache": false,
+  "gates": {
+    "gate_1_market": {
+      "passed": true,
+      "label": "PASS",
+      "findings": [
+        "6,900 SV/month after pollution adjustment (LLM estimate, low-confidence)"
+      ],
+      "raw": {
+        "pollution_adjusted_volume": 6900,
+        "total_volume": 6900,
+        "polluted_queries": [],
+        "unpolluted_queries": [
+          "popcorn ceiling removal",
+          "how to remove popcorn ceiling",
+          "cost of popcorn ceiling removal",
+          "popcorn ceiling removal DIY",
+          "popcorn ceiling removal safety tips"
+        ],
+        "per_query_volumes": {
+          "popcorn ceiling removal": 2400,
+          "how to remove popcorn ceiling": 1900,
+          "cost of popcorn ceiling removal": 800,
+          "popcorn ceiling removal DIY": 1200,
+          "popcorn ceiling removal safety tips": 600
+        },
+        "topic_stems": [
+          "ceil",
+          "popcorn",
+          "removal"
+        ],
+        "threshold": 5000,
+        "synthesis_only": false
+      }
+    },
+    "gate_2_serp": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "specialty incumbent: centsationalstyle.com (1 queries, programmatic URLs)",
+        "programmatic at scale: youtube.com (3/5 queries)",
+        "programmatic at scale: reddit.com (5/5 queries)",
+        "programmatic at scale: facebook.com (5/5 queries)",
+        "programmatic at scale: tiktok.com (3/5 queries)",
+        "programmatic at scale: hanashappyhome.com (3/5 queries)",
+        "AI Overview dominant: 5/5 queries",
+        "Reddit present: 5/5 queries (discussion intent locked)",
+        "10 potentially beatable results"
+      ],
+      "raw": {
+        "classifications": {
+          "specialty_incumbent": {
+            "present": true,
+            "incumbents": {
+              "centsationalstyle.com": [
+                "how to remove popcorn ceiling"
+              ]
+            }
+          },
+          "programmatic_at_scale": {
+            "present": true,
+            "incumbents": {
+              "youtube.com": [
+                "how to remove popcorn ceiling",
+                "popcorn ceiling removal",
+                "popcorn ceiling removal DIY"
+              ],
+              "reddit.com": [
+                "cost of popcorn ceiling removal",
+                "how to remove popcorn ceiling",
+                "popcorn ceiling removal",
+                "popcorn ceiling removal DIY",
+                "popcorn ceiling removal safety tips"
+              ],
+              "facebook.com": [
+                "cost of popcorn ceiling removal",
+                "how to remove popcorn ceiling",
+                "popcorn ceiling removal",
+                "popcorn ceiling removal DIY",
+                "popcorn ceiling removal safety tips"
+              ],
+              "tiktok.com": [
+                "how to remove popcorn ceiling",
+                "popcorn ceiling removal",
+                "popcorn ceiling removal DIY"
+              ],
+              "hanashappyhome.com": [
+                "how to remove popcorn ceiling",
+                "popcorn ceiling removal",
+                "popcorn ceiling removal DIY"
+              ]
+            }
+          },
+          "ai_overview_dominant": {
+            "dominant": true,
+            "queries": [
+              "popcorn ceiling removal",
+              "how to remove popcorn ceiling",
+              "cost of popcorn ceiling removal",
+              "popcorn ceiling removal DIY",
+              "popcorn ceiling removal safety tips"
+            ],
+            "count": 5
+          },
+          "media_locked": {
+            "locked": false,
+            "queries": {
+              "cost of popcorn ceiling removal": [
+                "nerdwallet.com",
+                "thespruce.com"
+              ]
+            },
+            "count": 1,
+            "verticals": [
+              "finance",
+              "home"
+            ]
+          },
+          "reddit_present": {
+            "present": true,
+            "queries": [
+              "popcorn ceiling removal",
+              "how to remove popcorn ceiling",
+              "cost of popcorn ceiling removal",
+              "popcorn ceiling removal DIY",
+              "popcorn ceiling removal safety tips"
+            ]
+          },
+          "potentially_beatable": {
+            "count": 10,
+            "domains": [
+              {
+                "domain": "angi.com",
+                "query": "cost of popcorn ceiling removal",
+                "title": "How Much Does Popcorn Ceiling Removal Cost? [2026 ..."
+              },
+              {
+                "domain": "homewyse.com",
+                "query": "cost of popcorn ceiling removal",
+                "title": "Cost to Remove Popcorn Ceiling"
+              },
+              {
+                "domain": "fastpatchdrywallcompany.com",
+                "query": "cost of popcorn ceiling removal",
+                "title": "Popcorn Ceiling Removal Cost Seattle | Pricing & Finish ..."
+              },
+              {
+                "domain": "houzz.com",
+                "query": "cost of popcorn ceiling removal",
+                "title": "Worth the cost to get rid of popcorn ceiling???"
+              },
+              {
+                "domain": "thumbtack.com",
+                "query": "cost of popcorn ceiling removal",
+                "title": "2025 Popcorn Ceiling Removal Cost | Get Estimates"
+              },
+              {
+                "domain": "biorestore.org",
+                "query": "popcorn ceiling removal safety tips",
+                "title": "Popcorn Ceiling Removal: DIY Safety Tips"
+              },
+              {
+                "domain": "culverspainting.com",
+                "query": "popcorn ceiling removal safety tips",
+                "title": "The Best Guide To Popcorn Ceiling Removal: Steps And Tips"
+              },
+              {
+                "domain": "painterblythewoodsc.com",
+                "query": "popcorn ceiling removal safety tips",
+                "title": "Safety Tips for Handling Popcorn Ceiling Removal Projects"
+              },
+              {
+                "domain": "yakimacleanair.org",
+                "query": "popcorn ceiling removal safety tips",
+                "title": "How to Properly Remove Spray-on \u201c Popcorn \u201d Ceilings"
+              },
+              {
+                "domain": "swcleanair.gov",
+                "query": "popcorn ceiling removal safety tips",
+                "title": "How to Properly Remove Spray-on \u201cPopcorn\u201d Ceilings"
+              }
+            ]
+          }
+        },
+        "kill_tier_reasons": [
+          "specialty_incumbent",
+          "programmatic_at_scale"
+        ],
+        "synthesis_only": false
+      }
+    },
+    "gate_3_moat": {
+      "passed": false,
+      "label": "FAIL",
+      "findings": [
+        "no moat provided"
+      ],
+      "raw": {
+        "required": true,
+        "moat_sentence": null
+      }
+    }
+  },
+  "operator_fit": {
+    "warnings": [],
+    "auto_fail_gate_2": false
+  },
+  "verdict": "NO-GO",
+  "suggested_reductions": [],
+  "moat_required": true,
+  "moat_provided": null,
+  "primary_verdict": {
+    "verdict": "NO-GO",
+    "confidence": "HIGH",
+    "reasoning": "The SERP is structurally hostile on every axis the gates measure and on several they don't. AI Overview is present on 5/5 queries, Reddit cards sit in the top-3 of 5/5 queries (positions 1, 2, 3, 3, 3), and the organic top-10 is wallpapered with UGC platforms \u2014 YouTube on 3/5, Reddit on 5/5, Facebook on 5/5, TikTok on 3/5. The \"popcorn ceiling removal\" head term also surfaces a **local_pack**, which the gates didn't call out but is a kill signal on its own: Google is interpreting this query as a local-service-business intent (find me a contractor), not as a content intent. A static content site cannot win local pack. The \"cost\" query is owned by calculator/aggregator programmatic at scale (Angi, Homewyse, Thumbtack, NerdWallet, TheSpruce) \u2014 exactly the shape a builder-operator might try to attack with a calculator, but those incumbents already have backlink moats and Google-trusted brand signals. And the \"safety tips\" query is owned by .gov clean-air agencies (yakimacleanair.org, swcleanair.gov) because of the asbestos angle \u2014 that's authority-locked, not content-locked.\n\nOperator fit makes this worse, not better. The operator's expertise is SEO/programmatic content, Python CLI tooling, and domain portfolio management \u2014 **zero overlap** with home improvement, contractor services, or asbestos remediation. A builder-workflow operator's natural wedge would be a tool (cost calculator, asbestos-risk classifier, square-footage estimator), but Homewyse and Thumbtack already occupy the calculator slot programmatically, and the operator has no contractor pricing data feed to beat them with. The weekly motivation cadence is the final problem: this is settled-knowledge evergreen content. Rankings on \"how to remove popcorn ceiling\" don't move week-to-week \u2014 they move quarter-to-quarter at best. A weekly-cadence operator will check GSC, see flat numbers for 8 weeks, and abandon.\n\nThe Gate 1 PASS is also softer than it looks: the 6,900 SV figure is an LLM low-confidence estimate, not Ahrefs/Semrush data, and the cluster is small (5 queries). Even if the SV is correct, AIO dominance compresses CTR severely \u2014 published research puts AIO-page organic CTR at 30-60% of non-AIO CTR. Realistic addressable traffic here is probably 2-3k/month spread across an authority-locked SERP. This is the textbook profile the operator's compass ([[project_30_sites_seo_goal]]) tells you to walk away from: not commercial-intent enough to justify the moat-required execution, and no realistic path to \"real Google traffic\" given AIO + Reddit + local pack.",
+    "moat_required": false,
+    "moat_prompt": "",
+    "reductions": [],
+    "operator_fit_warnings": [
+      "Expertise mismatch: home improvement / contractor services is fully outside SEO+CLI+domain-portfolio expertise; no domain knowledge advantage to compound.",
+      "Cadence mismatch: evergreen home-improvement reference content moves on a quarterly+ timescale, but operator's weekly motivation cadence will burn out before any signal appears.",
+      "Workflow mismatch: builder workflow's natural wedge here would be a cost calculator, but Homewyse/Angi/Thumbtack already own that slot programmatically with backlink moats the operator can't replicate."
+    ],
+    "blind_spot_self_report": "I dismissed the asbestos/.gov sub-niche on \"safety tips\" quickly \u2014 there may be a regulated-information angle (state-by-state asbestos disclosure laws, EPA NESHAP compliance lookup) where a Python-CLI-built tool could carve a defensible slot, since .gov sites are notoriously bad at search UX. I also took the LLM SV estimate at face value and didn't sanity-check whether real Ahrefs data would show this cluster materially larger or smaller \u2014 if it's actually ~20k/mo, the calculus on the calculator-wedge sub-strategy shifts slightly. Finally, I treated the local_pack signal as a kill, but for an operator willing to build a *contractor-directory* programmatic site (different business model than content), local intent is the asset, not the obstacle \u2014 I didn't seriously evaluate that pivot."
+  },
+  "primary_pass_meta": {
+    "prompt_version": "v1",
+    "model_id": "claude-cli",
+    "rendered_prompt": "You are a niche analyst evaluating a SERP cluster for a personal\nportfolio operator deciding whether to ship a new site. You are not a\nflattering assistant. You read the gate outputs (mechanical\nclassification produced by deterministic rules), AND you read the raw\nSERP results, AND you produce a qualitative verdict.\n\nThe mechanical gates are usually right. But they catch known patterns\nonly \u2014 they blow on edge cases. Your job is to use the raw SERP data\nto spot what the rules missed: programmatic URL patterns that don't\nquite match the regex library, intent misclassification when SERP\nfeatures contradict the surface signal, KD traps where keyword\ndifficulty looks low but the top-3 is structurally owned, moats that\nsound clever but are unfalsifiable.\n\nYou are evaluating for this operator:\n\n- Expertise: SEO and programmatic content, Python CLI tooling, Domain portfolio management\n- Workflow preference: builder\n- Motivation cadence: weekly\n\nWeight these constraints in your verdict. Examples:\n\n- A `builder` operator + a niche where SERP rewards listicle content\n  \u2192 NICHE-DOWN to the tool/data wedge, not GO on the content angle.\n- A `weekly` cadence + an evergreen-reference cluster (informational\n  intent, AI-Overview-dominant) \u2192 either NICHE-DOWN to a faster-\n  moving sub-niche or NO-GO. Niche metrics on settled-knowledge\n  topics move monthly+, and `weekly` motivation will die before\n  results show.\n- The expertise list is hard signal \u2014 if the cluster's primary topic\n  terms don't overlap with the operator's expertise and the SERP\n  rewards authority (institutional + media-publisher domains in\n  top-10), NICHE-DOWN is the correct call. GO on a no-overlap +\n  authority-rewarded cluster is almost always wrong.\n\nThe user message will carry a structured payload:\n\n```\n{\n  \"topic\": str,\n  \"cluster_queries\": list[str],\n  \"gates\": {\n    \"gate_1_market\": {...},\n    \"gate_2_serp\": {...},\n    \"gate_3_moat\": {...}\n  },\n  \"operator_fit\": {\n    \"warnings\": list[str],\n    \"auto_fail_gate_2\": bool\n  },\n  \"raw_top_10_per_query\": list[{\"query\": str, \"results\": list[{...}]}],\n  \"serp_features_per_query\": list[{\"query\": str, \"features\": {...}}]\n}\n```\n\nRead all of it. Don't skim. The gates summarize patterns; the raw\ntop-10 reveals what the gates couldn't classify.\n\nReturn your verdict in this exact markdown shape. Every required\nsection must be present. Missing the verdict, confidence, or reasoning\nfields is a hard parse error.\n\n### verdict\nGO | NICHE-DOWN | NO-GO\n\n### confidence\nHIGH | MEDIUM | LOW\n\n### reasoning\n2-4 paragraphs. Reference specific data from the payload \u2014 the\nSERPs, the gate findings, the operator profile. Don't be generic.\nConcrete observations beat abstract reasoning.\n\n### moat_required\ntrue | false\n\nSet true when Gate 2's SERP classification revealed a specialty\nincumbent or programmatic-at-scale competitor that needs an unfair-\nadvantage answer to overcome. Set false when the SERP is genuinely\nbeatable on execution.\n\n### moat_prompt\n[text shown to the operator if moat_required is true; the\noperator types a moat sentence next, which becomes Gate 3 input.\nLeave blank if moat_required is false. Format example:\n\"What's your unfair advantage over <incumbent>? Be specific \u2014\n'better content' is unfalsifiable, 'real-time pricing the\nincumbent's static templates can't match' is testable.\"]\n\n### reductions\n- [reduction 1: how to narrow this niche to make it shippable]\n- [reduction 2]\n- [reduction 3]\n\nOnly populate when verdict is NICHE-DOWN. Otherwise leave the list\nempty. Each reduction should be a concrete narrowing axis \u2014 drop a\nsub-segment, restrict to a geography, target a specific persona, focus\non one use-case, change depth (tool vs content, data vs explanation),\nor change moment (triggered vs evergreen).\n\n### operator_fit_warnings\n- [conflict 1 with operator profile, if any]\n- [conflict 2]\n\nPass through any operator-profile conflicts that contributed to your\nverdict \u2014 expertise mismatch, workflow mismatch, cadence mismatch.\nLeave empty when no conflicts apply.\n\n### blind_spot_self_report\n[1-3 sentences on what YOU might be missing. The audit pass will use\nthis against you, so be honest. Examples: \"I weighted Gate 2's PASS\nheavily, but didn't deeply verify the POTENTIALLY_BEATABLE domains\naren't templated.\" \"I assumed informational intent from query\nphrasing, but didn't cross-check SERP features.\"]\n\n\n---\n\nINPUT PAYLOAD (JSON):\n\n```json\n{\n  \"topic\": \"popcorn ceiling removal\",\n  \"cluster_queries\": [\n    \"popcorn ceiling removal\",\n    \"how to remove popcorn ceiling\",\n    \"cost of popcorn ceiling removal\",\n    \"popcorn ceiling removal DIY\",\n    \"popcorn ceiling removal safety tips\"\n  ],\n  \"gates\": {\n    \"gate_1_market\": {\n      \"passed\": true,\n      \"label\": \"PASS\",\n      \"findings\": [\n        \"6,900 SV/month after pollution adjustment (LLM estimate, low-confidence)\"\n      ],\n      \"raw\": {\n        \"pollution_adjusted_volume\": 6900,\n        \"total_volume\": 6900,\n        \"polluted_queries\": [],\n        \"unpolluted_queries\": [\n          \"popcorn ceiling removal\",\n          \"how to remove popcorn ceiling\",\n          \"cost of popcorn ceiling removal\",\n          \"popcorn ceiling removal DIY\",\n          \"popcorn ceiling removal safety tips\"\n        ],\n        \"per_query_volumes\": {\n          \"popcorn ceiling removal\": 2400,\n          \"how to remove popcorn ceiling\": 1900,\n          \"cost of popcorn ceiling removal\": 800,\n          \"popcorn ceiling removal DIY\": 1200,\n          \"popcorn ceiling removal safety tips\": 600\n        },\n        \"topic_stems\": [\n          \"ceil\",\n          \"popcorn\",\n          \"removal\"\n        ],\n        \"threshold\": 5000,\n        \"synthesis_only\": false\n      }\n    },\n    \"gate_2_serp\": {\n      \"passed\": false,\n      \"label\": \"FAIL\",\n      \"findings\": [\n        \"specialty incumbent: centsationalstyle.com (1 queries, programmatic URLs)\",\n        \"programmatic at scale: youtube.com (3/5 queries)\",\n        \"programmatic at scale: reddit.com (5/5 queries)\",\n        \"programmatic at scale: facebook.com (5/5 queries)\",\n        \"programmatic at scale: tiktok.com (3/5 queries)\",\n        \"programmatic at scale: hanashappyhome.com (3/5 queries)\",\n        \"AI Overview dominant: 5/5 queries\",\n        \"Reddit present: 5/5 queries (discussion intent locked)\",\n        \"10 potentially beatable results\"\n      ],\n      \"raw\": {\n        \"classifications\": {\n          \"specialty_incumbent\": {\n            \"present\": true,\n            \"incumbents\": {\n              \"centsationalstyle.com\": [\n                \"how to remove popcorn ceiling\"\n              ]\n            }\n          },\n          \"programmatic_at_scale\": {\n            \"present\": true,\n            \"incumbents\": {\n              \"youtube.com\": [\n                \"how to remove popcorn ceiling\",\n                \"popcorn ceiling removal\",\n                \"popcorn ceiling removal DIY\"\n              ],\n              \"reddit.com\": [\n                \"cost of popcorn ceiling removal\",\n                \"how to remove popcorn ceiling\",\n                \"popcorn ceiling removal\",\n                \"popcorn ceiling removal DIY\",\n                \"popcorn ceiling removal safety tips\"\n              ],\n              \"facebook.com\": [\n                \"cost of popcorn ceiling removal\",\n                \"how to remove popcorn ceiling\",\n                \"popcorn ceiling removal\",\n                \"popcorn ceiling removal DIY\",\n                \"popcorn ceiling removal safety tips\"\n              ],\n              \"tiktok.com\": [\n                \"how to remove popcorn ceiling\",\n                \"popcorn ceiling removal\",\n                \"popcorn ceiling removal DIY\"\n              ],\n              \"hanashappyhome.com\": [\n                \"how to remove popcorn ceiling\",\n                \"popcorn ceiling removal\",\n                \"popcorn ceiling removal DIY\"\n              ]\n            }\n          },\n          \"ai_overview_dominant\": {\n            \"dominant\": true,\n            \"queries\": [\n              \"popcorn ceiling removal\",\n              \"how to remove popcorn ceiling\",\n              \"cost of popcorn ceiling removal\",\n              \"popcorn ceiling removal DIY\",\n              \"popcorn ceiling removal safety tips\"\n            ],\n            \"count\": 5\n          },\n          \"media_locked\": {\n            \"locked\": false,\n            \"queries\": {\n              \"cost of popcorn ceiling removal\": [\n                \"nerdwallet.com\",\n                \"thespruce.com\"\n              ]\n            },\n            \"count\": 1,\n            \"verticals\": [\n              \"finance\",\n              \"home\"\n            ]\n          },\n          \"reddit_present\": {\n            \"present\": true,\n            \"queries\": [\n              \"popcorn ceiling removal\",\n              \"how to remove popcorn ceiling\",\n              \"cost of popcorn ceiling removal\",\n              \"popcorn ceiling removal DIY\",\n              \"popcorn ceiling removal safety tips\"\n            ]\n          },\n          \"potentially_beatable\": {\n            \"count\": 10,\n            \"domains\": [\n              {\n                \"domain\": \"angi.com\",\n                \"query\": \"cost of popcorn ceiling removal\",\n                \"title\": \"How Much Does Popcorn Ceiling Removal Cost? [2026 ...\"\n              },\n              {\n                \"domain\": \"homewyse.com\",\n                \"query\": \"cost of popcorn ceiling removal\",\n                \"title\": \"Cost to Remove Popcorn Ceiling\"\n              },\n              {\n                \"domain\": \"fastpatchdrywallcompany.com\",\n                \"query\": \"cost of popcorn ceiling removal\",\n                \"title\": \"Popcorn Ceiling Removal Cost Seattle | Pricing & Finish ...\"\n              },\n              {\n                \"domain\": \"houzz.com\",\n                \"query\": \"cost of popcorn ceiling removal\",\n                \"title\": \"Worth the cost to get rid of popcorn ceiling???\"\n              },\n              {\n                \"domain\": \"thumbtack.com\",\n                \"query\": \"cost of popcorn ceiling removal\",\n                \"title\": \"2025 Popcorn Ceiling Removal Cost | Get Estimates\"\n              },\n              {\n                \"domain\": \"biorestore.org\",\n                \"query\": \"popcorn ceiling removal safety tips\",\n                \"title\": \"Popcorn Ceiling Removal: DIY Safety Tips\"\n              },\n              {\n                \"domain\": \"culverspainting.com\",\n                \"query\": \"popcorn ceiling removal safety tips\",\n                \"title\": \"The Best Guide To Popcorn Ceiling Removal: Steps And Tips\"\n              },\n              {\n                \"domain\": \"painterblythewoodsc.com\",\n                \"query\": \"popcorn ceiling removal safety tips\",\n                \"title\": \"Safety Tips for Handling Popcorn Ceiling Removal Projects\"\n              },\n              {\n                \"domain\": \"yakimacleanair.org\",\n                \"query\": \"popcorn ceiling removal safety tips\",\n                \"title\": \"How to Properly Remove Spray-on \\u201c Popcorn \\u201d Ceilings\"\n              },\n              {\n                \"domain\": \"swcleanair.gov\",\n                \"query\": \"popcorn ceiling removal safety tips\",\n                \"title\": \"How to Properly Remove Spray-on \\u201cPopcorn\\u201d Ceilings\"\n              }\n            ]\n          }\n        },\n        \"kill_tier_reasons\": [\n          \"specialty_incumbent\",\n          \"programmatic_at_scale\"\n        ],\n        \"synthesis_only\": false\n      }\n    },\n    \"gate_3_moat\": {\n      \"passed\": false,\n      \"label\": \"FAIL\",\n      \"findings\": [\n        \"no moat provided\"\n      ],\n      \"raw\": {\n        \"required\": true,\n        \"moat_sentence\": null\n      }\n    }\n  },\n  \"operator_fit\": {\n    \"warnings\": [],\n    \"auto_fail_gate_2\": false\n  },\n  \"operator_profile_summary\": \"Expertise: SEO and programmatic content, Python CLI tooling, Domain portfolio management. Workflow preference: builder. Motivation cadence: weekly.\",\n  \"raw_top_10_per_query\": [\n    {\n      \"query\": \"popcorn ceiling removal\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"youtube.com\",\n          \"url\": \"https://www.youtube.com/playlist?list=PLCrazHylAOEnc06BFyXEpNX_SapMYj_g3\",\n          \"title\": \"Removing Popcorn Ceiling Texture Or repairing it\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"youtube.com\",\n          \"url\": \"https://www.youtube.com/watch?v=6-5TM07MI50\",\n          \"title\": \"How To Remove Popcorn Ceiling | How To Anything\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/DIY/comments/11zwppf/best_way_to_handle_popcorn_ceilings_remove_or/\",\n          \"title\": \"Best way to handle popcorn ceilings - remove or drywall ...\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"facebook.com\",\n          \"url\": \"https://www.facebook.com/HGTV/videos/ceiling-refresh/1541294803604158/\",\n          \"title\": \"Popcorn ceiling be gone! \\ud83c\\udf7f\\u274c | HGTV\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"tiktok.com\",\n          \"url\": \"https://www.tiktok.com/@lukescorno/video/7613911644925725982\",\n          \"title\": \"How to Safely Remove Popcorn Ceilings: A DIY Guide\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"hanashappyhome.com\",\n          \"url\": \"https://hanashappyhome.com/diy/beginner-projects/tips-and-tricks-for-diy-popcorn-ceiling-removal/\",\n          \"title\": \"Tips and Tricks for DIY Popcorn Ceiling Removal\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"facebook.com\",\n          \"url\": \"https://www.facebook.com/NikandLiv.DIY/videos/here-are-all-my-diy-tips-for-popcorn-ceiling-removal1-safety-first-popcorn-ceili/857050600275070/\",\n          \"title\": \"Here are all my #DIY tips for popcorn ceiling removal!1- Safety ...\"\n        }\n      ]\n    },\n    {\n      \"query\": \"how to remove popcorn ceiling\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"youtube.com\",\n          \"url\": \"https://www.youtube.com/playlist?list=PLCrazHylAOEnc06BFyXEpNX_SapMYj_g3\",\n          \"title\": \"Removing Popcorn Ceiling Texture Or repairing it\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/drywall/comments/15gc23w/best_way_to_remove_popcorn_ceilings/\",\n          \"title\": \"Best way to remove popcorn ceilings : r/drywall\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"facebook.com\",\n          \"url\": \"https://www.facebook.com/HGTV/videos/ceiling-refresh/1541294803604158/\",\n          \"title\": \"Popcorn ceiling be gone! \\ud83c\\udf7f\\u274c | HGTV\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"tiktok.com\",\n          \"url\": \"https://www.tiktok.com/@lukescorno/video/7613911644925725982\",\n          \"title\": \"How to Safely Remove Popcorn Ceilings: A DIY Guide\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"facebook.com\",\n          \"url\": \"https://www.facebook.com/TheFamilyHandyman/posts/11-tips-on-how-to-remove-a-popcorn-ceiling-faster-and-easier-read-more-at-the-li/1248085264033910/\",\n          \"title\": \"11 Tips on How to Remove a Popcorn Ceiling Faster and ...\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/DIY/comments/11zwppf/best_way_to_handle_popcorn_ceilings_remove_or/\",\n          \"title\": \"Best way to handle popcorn ceilings - remove or drywall ...\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"centsationalstyle.com\",\n          \"url\": \"https://centsationalstyle.com/2014/07/how-to-remove-popcorn-ceiling/\",\n          \"title\": \"The Joy of Popcorn Ceiling Removal\"\n        },\n        {\n          \"position\": 8,\n          \"domain\": \"hanashappyhome.com\",\n          \"url\": \"https://hanashappyhome.com/diy/beginner-projects/tips-and-tricks-for-diy-popcorn-ceiling-removal/\",\n          \"title\": \"Tips and Tricks for DIY Popcorn Ceiling Removal\"\n        }\n      ]\n    },\n    {\n      \"query\": \"cost of popcorn ceiling removal\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/drywall/comments/1geftjl/whats_everyones_rate_for_popcorn_ceiling_removal/\",\n          \"title\": \"Whats everyone's rate for popcorn ceiling removal and ...\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"angi.com\",\n          \"url\": \"https://www.angi.com/articles/how-much-does-popcorn-ceiling-removal-cost.htm\",\n          \"title\": \"How Much Does Popcorn Ceiling Removal Cost? [2026 ...\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"facebook.com\",\n          \"url\": \"https://www.facebook.com/groups/983295315800436/posts/2027622694701021/\",\n          \"title\": \"How much would I be looking at to remove popcorn ceiling?\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"homewyse.com\",\n          \"url\": \"https://www.homewyse.com/services/cost_to_remove_popcorn_ceiling.html\",\n          \"title\": \"Cost to Remove Popcorn Ceiling\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"fastpatchdrywallcompany.com\",\n          \"url\": \"https://fastpatchdrywallcompany.com/blog/popcorn-ceiling-removal-cost-seattle\",\n          \"title\": \"Popcorn Ceiling Removal Cost Seattle | Pricing & Finish ...\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"houzz.com\",\n          \"url\": \"https://www.houzz.com/discussions/4855936/worth-the-cost-to-get-rid-of-popcorn-ceiling\",\n          \"title\": \"Worth the cost to get rid of popcorn ceiling???\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"nerdwallet.com\",\n          \"url\": \"https://www.nerdwallet.com/home-ownership/home-improvement/learn/cost-to-remove-popcorn-ceiling\",\n          \"title\": \"Cost to Remove Popcorn Ceiling\"\n        },\n        {\n          \"position\": 8,\n          \"domain\": \"thespruce.com\",\n          \"url\": \"https://www.thespruce.com/popcorn-ceiling-removal-cost-8597875\",\n          \"title\": \"How Much Does Popcorn Ceiling Removal Really Cost?\"\n        },\n        {\n          \"position\": 9,\n          \"domain\": \"thumbtack.com\",\n          \"url\": \"https://www.thumbtack.com/p/popcorn-ceiling-removal-cost\",\n          \"title\": \"2025 Popcorn Ceiling Removal Cost | Get Estimates\"\n        }\n      ]\n    },\n    {\n      \"query\": \"popcorn ceiling removal DIY\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"youtube.com\",\n          \"url\": \"https://www.youtube.com/watch?v=6-5TM07MI50\",\n          \"title\": \"How To Remove Popcorn Ceiling | How To Anything\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"youtube.com\",\n          \"url\": \"https://www.youtube.com/playlist?list=PLCrazHylAOEnc06BFyXEpNX_SapMYj_g3\",\n          \"title\": \"Removing Popcorn Ceiling Texture Or repairing it\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/drywall/comments/15gc23w/best_way_to_remove_popcorn_ceilings/\",\n          \"title\": \"Best way to remove popcorn ceilings : r/drywall\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"hanashappyhome.com\",\n          \"url\": \"https://hanashappyhome.com/diy/beginner-projects/tips-and-tricks-for-diy-popcorn-ceiling-removal/\",\n          \"title\": \"Tips and Tricks for DIY Popcorn Ceiling Removal\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"tiktok.com\",\n          \"url\": \"https://www.tiktok.com/@lukescorno/video/7613911644925725982\",\n          \"title\": \"How to Safely Remove Popcorn Ceilings: A DIY Guide\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"youtube.com\",\n          \"url\": \"https://www.youtube.com/watch?v=RS-8dmoF68M\",\n          \"title\": \"How to Remove a Popcorn Ceiling\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"facebook.com\",\n          \"url\": \"https://www.facebook.com/HGTV/videos/ceiling-refresh/1541294803604158/\",\n          \"title\": \"Popcorn ceiling be gone! \\ud83c\\udf7f\\u274c | HGTV\"\n        }\n      ]\n    },\n    {\n      \"query\": \"popcorn ceiling removal safety tips\",\n      \"results\": [\n        {\n          \"position\": 1,\n          \"domain\": \"biorestore.org\",\n          \"url\": \"https://biorestore.org/popcorn-ceiling-removal-diy-safety-tips/\",\n          \"title\": \"Popcorn Ceiling Removal: DIY Safety Tips\"\n        },\n        {\n          \"position\": 2,\n          \"domain\": \"culverspainting.com\",\n          \"url\": \"https://culverspainting.com/blog/guide-to-popcorn-ceiling-removal/\",\n          \"title\": \"The Best Guide To Popcorn Ceiling Removal: Steps And Tips\"\n        },\n        {\n          \"position\": 3,\n          \"domain\": \"reddit.com\",\n          \"url\": \"https://www.reddit.com/r/HomeImprovement/comments/f5j6rs/removing_popcorn_ceiling_asbestos_advice/\",\n          \"title\": \"Removing popcorn ceiling asbestos advice\"\n        },\n        {\n          \"position\": 4,\n          \"domain\": \"facebook.com\",\n          \"url\": \"https://www.facebook.com/NikandLiv.DIY/videos/here-are-all-my-diy-tips-for-popcorn-ceiling-removal1-safety-first-popcorn-ceili/2288083245050668/\",\n          \"title\": \"Here are all my #DIY tips for popcorn ceiling removal! 1 ...\"\n        },\n        {\n          \"position\": 5,\n          \"domain\": \"painterblythewoodsc.com\",\n          \"url\": \"https://painterblythewoodsc.com/blog/safety-tips-for-handling-popcorn-ceiling-removal-projects/\",\n          \"title\": \"Safety Tips for Handling Popcorn Ceiling Removal Projects\"\n        },\n        {\n          \"position\": 6,\n          \"domain\": \"yakimacleanair.org\",\n          \"url\": \"https://www.yakimacleanair.org/site/files/file_manager/page/shared/Asbestos_Popcorn_10_01_08.pdf\",\n          \"title\": \"How to Properly Remove Spray-on \\u201c Popcorn \\u201d Ceilings\"\n        },\n        {\n          \"position\": 7,\n          \"domain\": \"swcleanair.gov\",\n          \"url\": \"https://www.swcleanair.gov/docs/misc/asbestos_popcorn_ceiling.pdf\",\n          \"title\": \"How to Properly Remove Spray-on \\u201cPopcorn\\u201d Ceilings\"\n        }\n      ]\n    }\n  ],\n  \"serp_features_per_query\": [\n    {\n      \"query\": \"popcorn ceiling removal\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": [\n            \"andersonspaintingllc.com\",\n            \"bestpickreports.com\",\n            \"diy.stackexchange.com\",\n            \"doityourself.com\",\n            \"facebook.com\",\n            \"google.com\",\n            \"reddit.com\",\n            \"shopping.yahoo.com\",\n            \"youtube.com\"\n          ]\n        },\n        \"local_pack\": {\n          \"present\": true\n        },\n        \"reddit_card\": {\n          \"present\": true,\n          \"position\": 3\n        }\n      }\n    },\n    {\n      \"query\": \"how to remove popcorn ceiling\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": [\n            \"andersonspaintingllc.com\",\n            \"bestpickreports.com\",\n            \"diy.stackexchange.com\",\n            \"doityourself.com\",\n            \"facebook.com\",\n            \"google.com\",\n            \"reddit.com\",\n            \"shopping.yahoo.com\",\n            \"youtube.com\"\n          ]\n        },\n        \"video_pack\": {\n          \"present\": true\n        },\n        \"reddit_card\": {\n          \"present\": true,\n          \"position\": 2\n        }\n      }\n    },\n    {\n      \"query\": \"cost of popcorn ceiling removal\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": [\n            \"angi.com\",\n            \"bluepainting.com\",\n            \"facebook.com\",\n            \"homewyse.com\",\n            \"klappenbergerandson.com\",\n            \"nerdwallet.com\",\n            \"ondemandpainters.com\",\n            \"reddit.com\",\n            \"thumbtack.com\"\n          ]\n        },\n        \"reddit_card\": {\n          \"present\": true,\n          \"position\": 1\n        }\n      }\n    },\n    {\n      \"query\": \"popcorn ceiling removal DIY\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": [\n            \"diy.stackexchange.com\",\n            \"doityourself.com\",\n            \"facebook.com\",\n            \"instructables.com\",\n            \"reddit.com\",\n            \"youtube.com\"\n          ]\n        },\n        \"reddit_card\": {\n          \"present\": true,\n          \"position\": 3\n        }\n      }\n    },\n    {\n      \"query\": \"popcorn ceiling removal safety tips\",\n      \"features\": {\n        \"ai_overview\": {\n          \"present\": true,\n          \"cited_domains\": []\n        },\n        \"video_pack\": {\n          \"present\": true\n        },\n        \"reddit_card\": {\n          \"present\": true,\n          \"position\": 3\n        }\n      }\n    }\n  ]\n}\n```",
+    "cost_usd": 0.22698000000000002,
+    "duration_s": 53.585
+  }
+}
