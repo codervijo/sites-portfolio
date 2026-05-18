@@ -1,24 +1,29 @@
-"""v8.J onward — adversarial audit pass primitives.
+"""v8.J + v12.A onward — adversarial audit pass primitives.
 
 Mirrors `interpretive_pass.py`'s shape but for the audit-pass leg of
-v8.E-series. The audit pass reads the same cluster snapshot the
-primary pass saw plus the primary's response, then steel-mans the
-opposite verdict — surfacing risks the primary missed.
+the research-module interpretive layer. The audit pass reads the
+same cluster snapshot the primary pass saw plus the primary's
+response, then steel-mans the opposite verdict — surfacing risks
+the primary missed.
 
 This module currently exposes:
   - `build_audit_payload(cluster, *, primary_verdict,
     operator_profile) -> dict` — the structured user-message body
-    the audit prompt consumes.
+    the audit prompt consumes. (v8.J)
+  - `render_audit_prompt(payload, *, prompt_name) -> str` —
+    assembles the final prompt string to send to the audit-model
+    LLM. (v12.A)
 
 Subsequent commits add:
-  - audit prompt rendering (load adversarial_audit_v1.md +
-    substitute, parallel to render_primary_prompt)
   - audit response parser (different schema than primary —
     agreement_level / confidence / specific_concerns /
-    counter_verdict / audit_self_check)
+    counter_verdict / audit_self_check) — v12.B
   - audit-pass runner (orchestrates payload → render → OpenAI →
-    parse; uses the existing OPENAI_API_KEY pathway in serp.py)
-  - CLI `--verify` wiring + render integration in `new research`
+    parse; uses the existing OPENAI_API_KEY pathway in serp.py) —
+    v12.C
+  - reconciliation + REVIEW_REQUIRED first-class verdict — v12.D
+  - CLI `--verify` wiring + render integration in `new research` —
+    v12.E
 
 Why a separate module from `interpretive_pass.py`: the prompts are
 different (niche_evaluation vs adversarial_audit), the response
@@ -31,11 +36,16 @@ artificially aligned.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
 from .interpretive_pass import build_payload
 from .operator_profile import OperatorProfile
+from .prompt_loader import load_prompt, render_prompt
+
+AUDIT_PROMPT_NAME = "adversarial_audit_v1"
+AUDIT_PROMPT_VERSION = "v1"   # matches the suffix on the prompt filename
 
 
 def _reconstruct_primary_markdown(verdict: dict, *,
@@ -132,3 +142,50 @@ def build_audit_payload(cluster: dict, *,
         primary_verdict, strip_blind_spot=True,
     )
     return base
+
+
+# ---------- prompt rendering ----------
+
+
+def render_audit_prompt(payload: dict, *,
+                        prompt_name: str = AUDIT_PROMPT_NAME) -> str:
+    """Assemble the final audit-pass prompt string.
+
+    Parallel to `interpretive_pass.render_primary_prompt`:
+
+      1. Load `prompts/<prompt_name>.md` (H1 stripped by load_prompt).
+      2. Run it through `render_prompt(template)` with **no
+         substitutions**. The audit prompt today carries no `{{var}}`
+         placeholders (operator context flows through the payload's
+         `operator_profile_summary` and `operator_fit` fields rather
+         than via prompt-level template vars — the audit doesn't tailor
+         instructions to operator type, just reasons about the data).
+         The render-call is defensive: if a future prompt edit adds a
+         `{{var}}`, `render_prompt` raises `UnfilledPlaceholderError`
+         at the rendering boundary BEFORE the LLM call burns a token
+         budget. Better to fail loud at prompt assembly than to ship
+         `{{operator_expertise}}` text to the model.
+      3. Append a clear `---` delimiter line.
+      4. Append the structured payload (from `build_audit_payload`)
+         JSON-encoded inside a ```json``` fence — same shape the
+         primary uses, so debug snapshots between the two passes are
+         visually consistent.
+
+    The payload's `primary_response_markdown` field carries the
+    primary's verdict reconstructed (with `blind_spot_self_report`
+    stripped — anti-anchoring per the audit prompt's instruction); the
+    audit prompt reads it from the JSON, not from a separate section.
+
+    Raises `UnfilledPlaceholderError` if the prompt template
+    introduces unsubstituted placeholders (see step 2 above for the
+    drift-detection rationale).
+    """
+    template = load_prompt(prompt_name)
+    system_part = render_prompt(template)  # no substitutions — drift guard
+    payload_json = json.dumps(payload, indent=2, default=str)
+    return (
+        f"{system_part}\n\n"
+        f"---\n\n"
+        f"INPUT PAYLOAD (JSON):\n\n"
+        f"```json\n{payload_json}\n```"
+    )
