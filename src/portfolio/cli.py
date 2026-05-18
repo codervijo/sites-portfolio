@@ -3464,6 +3464,13 @@ def new_bootstrap(
         "", "--registrar",
         help="porkbun | godaddy | namecheap | other  (skips the prompt)",
     ),
+    # v9.D — growth-hypothesis prompt that seeds docs/growth.md.
+    growth_hypothesis: str = typer.Option(
+        "", "--growth-hypothesis",
+        help="One paragraph: what's your bet for how this site reaches "
+             "its audience? Written into docs/growth.md as the first "
+             "dated H2 entry. (skips the prompt)",
+    ),
 ) -> None:
     """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A).
 
@@ -3477,6 +3484,12 @@ def new_bootstrap(
     appends a row to data/portfolio.json so `project check <domain>`
     resolves immediately. Bypass with `--registered` / `--not-registered`
     + `--registrar <name>` flags, or `--non-interactive`.
+
+    v9.D — bootstrap also prompts for an initial growth hypothesis
+    (one paragraph: "what's your bet for how this site reaches its
+    audience?") and writes it as the first dated H2 entry in
+    `docs/growth.md`. Skip with `--growth-hypothesis "X"` flag or
+    `--non-interactive`.
     """
     from .bootstrap import BootstrapError, bootstrap as run_bootstrap
 
@@ -3492,6 +3505,12 @@ def new_bootstrap(
         domain=domain, registered=registered, registrar=registrar,
         non_interactive=non_interactive,
     )
+    # v9.D — growth hypothesis. Same flag-or-prompt pattern; empty
+    # value renders the pre-v9.D "site scaffolded; growth log started"
+    # docs/growth.md.
+    growth_hypothesis_resolved = _resolve_growth_hypothesis(
+        flag_value=growth_hypothesis, non_interactive=non_interactive,
+    )
 
     try:
         result = run_bootstrap(
@@ -3502,6 +3521,7 @@ def new_bootstrap(
             with_ingester=with_ingester,
             topic=topic,
             operator_inputs=operator_inputs,
+            growth_hypothesis=growth_hypothesis_resolved,
         )
     except BootstrapError as e:
         console.print(f"[red]bootstrap failed:[/] {e}")
@@ -3519,6 +3539,39 @@ def new_bootstrap(
 # sections are operator-input; this helper iterates that list so
 # adding a new operator section in v9.E doesn't require touching
 # CLI code.
+
+
+# v9.D — growth-hypothesis prompt. Single prompt for one paragraph
+# that seeds docs/growth.md's first dated entry.
+
+
+def _resolve_growth_hypothesis(*, flag_value: str,
+                               non_interactive: bool) -> str:
+    """Return the operator's growth hypothesis as a single string
+    (possibly empty).
+
+    Resolution order:
+      1. `--growth-hypothesis "X"` flag (whitespace stripped) → no
+         prompt.
+      2. `--non-interactive` → empty (docs/growth.md gets the
+         pre-v9.D default first entry).
+      3. Else: interactive prompt. Empty answer → empty result.
+    """
+    if flag_value.strip():
+        return flag_value.strip()
+    if non_interactive:
+        return ""
+    console.print(
+        "\n[bold]Growth hypothesis[/]"
+        " [dim](v9.D — seeds docs/growth.md's first dated entry)[/]"
+    )
+    console.print(
+        "  [dim]One paragraph: what's your bet for how this site reaches "
+        "its audience? Press Enter to skip — growth.md will get the "
+        "default \"site scaffolded\" first entry.[/]"
+    )
+    answer = typer.prompt("  >", default="", show_default=False).strip()
+    return answer
 
 
 # v9.C — domain-registration prompt + portfolio.json auto-update.

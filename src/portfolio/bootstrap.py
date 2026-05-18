@@ -359,11 +359,55 @@ Two-level versioning convention (canonical: `sites/portfolio/AI_AGENTS.md`):
 """
 
 
-def _docs_growth_md(domain: str, today: str) -> str:
+def _docs_growth_md(domain: str, today: str,
+                    growth_hypothesis: str = "") -> str:
+    """Render docs/growth.md.
+
+    v9.D — when `growth_hypothesis` is non-empty, the first dated H2
+    entry carries the operator's stated bet under a new `Hypothesis:`
+    field, and the entry's title is a short summary of that bet
+    (rather than the generic "site scaffolded; growth log started").
+    Empty `growth_hypothesis` reproduces the pre-v9.D template
+    exactly — every entry-template field stays the same, so existing
+    operator workflows around the format aren't disturbed.
+    """
     try:
         review_date = (date.fromisoformat(today) + timedelta(days=28)).isoformat()
     except ValueError:
         review_date = "<today + 28 days>"
+
+    hypothesis = (growth_hypothesis or "").strip()
+    if hypothesis:
+        # Short title — first ~70 chars, stopped at the first sentence-
+        # ending punctuation so the H2 reads as a single intelligible
+        # claim rather than a truncated fragment.
+        title = _shorten_hypothesis_for_title(hypothesis)
+        first_entry = (
+            f"## {today} — {title}\n"
+            "- **Status:** active\n"
+            f"- **Hypothesis:** {hypothesis}\n"
+            "- **KPI:** any GSC traffic — clicks, impressions, indexed-page count\n"
+            "- **Baseline:** 0 clicks / 0 impressions (just deployed)\n"
+            "- **Action:** project scaffolded via `portfolio new bootstrap`; "
+            "first deploy pending. After deploy: verify in GSC as "
+            f"`sc-domain:{domain}` and submit the sitemap.\n"
+            f"- **Result:** TBD — review {review_date}\n"
+            "- **Learning:** TBD\n"
+        )
+    else:
+        first_entry = (
+            f"## {today} — site scaffolded; growth log started\n"
+            "- **Status:** active\n"
+            "- **KPI:** any GSC traffic — clicks, impressions, indexed-page count\n"
+            "- **Baseline:** 0 clicks / 0 impressions (just deployed)\n"
+            "- **Action:** project scaffolded via `portfolio new bootstrap`; "
+            "first deploy\n"
+            f"  pending. After deploy: verify in GSC as `sc-domain:{domain}` and submit\n"
+            "  the sitemap.\n"
+            f"- **Result:** TBD — review {review_date}\n"
+            "- **Learning:** TBD\n"
+        )
+
     return f"""# Growth Log — {domain}
 
 > **What this file is for:** an honest, append-only log of growth experiments
@@ -412,6 +456,7 @@ https://search.google.com/search-console directly.
 ```
 ## YYYY-MM-DD — <one-line hypothesis or action>
 - **Status:** active | testing | shipped | failed | abandoned
+- **Hypothesis:** <what you're betting will work — only on initial / new-bet entries>
 - **KPI:** <what GSC metric / query / page>
 - **Baseline:** <numbers at start>
 - **Action:** <what was done; 1-2 lines>
@@ -421,16 +466,33 @@ https://search.google.com/search-console directly.
 
 ---
 
-## {today} — site scaffolded; growth log started
-- **Status:** active
-- **KPI:** any GSC traffic — clicks, impressions, indexed-page count
-- **Baseline:** 0 clicks / 0 impressions (just deployed)
-- **Action:** project scaffolded via `portfolio new bootstrap`; first deploy
-  pending. After deploy: verify in GSC as `sc-domain:{domain}` and submit
-  the sitemap.
-- **Result:** TBD — review {review_date}
-- **Learning:** TBD
-"""
+{first_entry}"""
+
+
+def _shorten_hypothesis_for_title(hypothesis: str, max_chars: int = 70) -> str:
+    """Trim an operator's hypothesis paragraph to a one-liner usable
+    as an H2 title.
+
+    Prefers cutting at the first sentence end (period, question mark,
+    exclamation) under `max_chars` so the title reads cleanly. Falls
+    back to a word-boundary cut + ellipsis when no sentence-ending
+    punctuation appears in range. Multi-line input is flattened to
+    a single line.
+    """
+    flat = " ".join(hypothesis.split())   # collapse newlines + extra spaces
+    if len(flat) <= max_chars:
+        return flat
+    # Look for the first sentence end within max_chars.
+    window = flat[:max_chars]
+    for terminator in (". ", "! ", "? "):
+        idx = window.rfind(terminator)
+        if idx > 0:
+            return flat[:idx + 1]
+    # Fall back to a word boundary.
+    space = window.rfind(" ")
+    if space > 0:
+        return flat[:space] + "…"
+    return window + "…"
 
 
 def _docs_prompts_md(domain: str, today: str) -> str:
@@ -1141,7 +1203,8 @@ INGESTER_FILES = [
 
 
 def _render(key: str, domain: str, stack: str, topic: str, today: str,
-            operator_inputs: dict[str, str] | None = None) -> str:
+            operator_inputs: dict[str, str] | None = None,
+            growth_hypothesis: str = "") -> str:
     if key == "ai_agents":
         return _ai_agents_md(domain, stack, topic, operator_inputs)
     if key == "readme":
@@ -1155,7 +1218,7 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str,
     if key == "prompts":
         return _docs_prompts_md(domain, today)
     if key == "growth":
-        return _docs_growth_md(domain, today)
+        return _docs_growth_md(domain, today, growth_hypothesis)
     if key == "claude":
         # v6.A.1: write docs/CLAUDE.md to satisfy CHECK_006 + CHECK_026 day-zero.
         from . import templates as _templates
@@ -1216,6 +1279,7 @@ def _write_files(
     today: str,
     skip_existing: bool,
     operator_inputs: dict[str, str] | None = None,
+    growth_hypothesis: str = "",
 ) -> tuple[list[str], list[str]]:
     """Write spec files to project_dir. Returns (written, skipped) relative paths."""
     written: list[str] = []
@@ -1226,7 +1290,8 @@ def _write_files(
             skipped.append(rel)
             continue
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_render(key, domain, stack, topic, today, operator_inputs))
+        path.write_text(_render(key, domain, stack, topic, today,
+                                operator_inputs, growth_hypothesis))
         written.append(rel)
     return written, skipped
 
@@ -1479,6 +1544,7 @@ def bootstrap(
     sites_root: Path | None = None,
     today_iso: str | None = None,
     operator_inputs: dict[str, str] | None = None,
+    growth_hypothesis: str = "",
 ) -> BootstrapResult:
     """Top-level orchestration. Always called with already-validated domain.
 
@@ -1493,6 +1559,13 @@ def bootstrap(
     Content strategy). Sections with non-empty content land in the
     rendered file; empty values keep the `(to be filled in)`
     placeholder. None = no operator input (all placeholders).
+
+    `growth_hypothesis` (v9.D) is the operator's stated bet for how
+    the site reaches its audience — gets embedded as the first dated
+    H2 entry in `docs/growth.md` under a new `Hypothesis:` field
+    (and the entry's H2 title becomes a short summary of that bet).
+    Empty string → docs/growth.md ships with the pre-v9.D "site
+    scaffolded; growth log started" entry.
     """
     domain = validate_domain(domain)
     sites = sites_root or SITES_ROOT
@@ -1536,7 +1609,7 @@ def bootstrap(
         stack_spec = ASTRO_FILES if stack == "astro" else VITE_FILES if stack == "vite" else None
         if stack_spec is None:
             raise BootstrapError(f"unsupported --stack: {stack!r}. Use 'astro' or 'vite'.")
-        written, _skipped = _write_files(project_dir, stack_spec, domain, stack, topic, today, skip_existing=False, operator_inputs=operator_inputs)
+        written, _skipped = _write_files(project_dir, stack_spec, domain, stack, topic, today, skip_existing=False, operator_inputs=operator_inputs, growth_hypothesis=growth_hypothesis)
         result = BootstrapResult(
             project_dir=project_dir,
             stack=stack,
@@ -1549,6 +1622,7 @@ def bootstrap(
     common_written, common_skipped = _write_files(
         project_dir, COMMON_FILES, domain, stack, topic, today,
         skip_existing=skip_existing, operator_inputs=operator_inputs,
+        growth_hypothesis=growth_hypothesis,
     )
     result.files_written.extend(common_written)
     if common_skipped:
