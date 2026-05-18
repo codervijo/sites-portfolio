@@ -394,3 +394,77 @@ def _atomic_write(target: Path, content: str) -> None:
         except OSError:
             pass
         raise
+
+
+# ---- inference from existing platform-config files ------------------
+
+
+def _wrangler_platform(repo_path: Path) -> str | None:
+    """CF Pages vs Workers from a wrangler config file.
+
+    The Pages-mode signal is the `pages_build_output_dir` key — Pages
+    config carries it, Workers config doesn't. Looks at
+    `wrangler.jsonc` first, then `wrangler.toml`. Returns `None` if
+    no wrangler file is present.
+
+    Comment-aware enough for the fleet's actual files — text-search
+    on the raw bytes. A `pages_build_output_dir` inside a JSONC
+    comment is a theoretical false positive but the operator almost
+    never writes such a comment.
+    """
+    for fname in ("wrangler.jsonc", "wrangler.toml"):
+        path = repo_path / fname
+        if path.is_file():
+            try:
+                text = path.read_text(errors="replace")
+            except OSError:
+                continue
+            return (
+                "cf-pages"
+                if "pages_build_output_dir" in text
+                else "cf-workers"
+            )
+    return None
+
+
+def detect_platform_signals(repo_path: Path) -> dict[str, bool]:
+    """Per-platform presence map from on-disk config files.
+
+    Lets a caller differentiate "no signals" from "multiple
+    signals" — the v10.A migration command surfaces the latter case
+    for manual review. For the common "what platform is this?" use,
+    prefer `infer_from_existing_configs()` which collapses to
+    `DeployBlock | None`.
+
+    Keys are platform values from `PLATFORM_VALUES`. Platforms
+    without a canonical config file (`hostgator`, `custom`,
+    `github-pages`, `none`) are omitted — those are inferrable only
+    via the operator declaring intent.
+    """
+    wrangler_mode = _wrangler_platform(repo_path)
+    return {
+        "cf-pages": wrangler_mode == "cf-pages",
+        "cf-workers": wrangler_mode == "cf-workers",
+        "vercel": (repo_path / "vercel.json").is_file(),
+        "netlify": (repo_path / "netlify.toml").is_file(),
+    }
+
+
+def infer_from_existing_configs(repo_path: Path) -> DeployBlock | None:
+    """Best-guess `DeployBlock` from filesystem markers.
+
+    Returns a `DeployBlock` with `platform` set when exactly one
+    platform signal is detected. Returns `None` when no signals are
+    found OR when multiple conflicting signals exist — the migration
+    command (v10.A's later slice) uses `detect_platform_signals()`
+    to differentiate those two cases.
+
+    All other `DeployBlock` fields stay at their defaults; the
+    caller fills `account` / `custom_domains` / etc. interactively
+    or from the operator profile.
+    """
+    signals = detect_platform_signals(repo_path)
+    present = [p for p, found in signals.items() if found]
+    if len(present) != 1:
+        return None
+    return DeployBlock(platform=present[0])

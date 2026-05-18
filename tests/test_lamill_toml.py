@@ -24,6 +24,8 @@ from portfolio.lamill_toml import (
     HostingBlock,
     LamillToml,
     ParseError,
+    detect_platform_signals,
+    infer_from_existing_configs,
     load,
     write,
 )
@@ -523,3 +525,140 @@ def test_write_load_write_byte_for_byte_determinism(tmp_path: Path):
     write(tmp_path, reloaded)
     second_bytes = (tmp_path / LAMILL_TOML_FILENAME).read_bytes()
     assert first_bytes == second_bytes
+
+
+# ---------- infer_from_existing_configs ----------
+
+
+def test_detect_platform_signals_all_false_when_empty(tmp_path: Path):
+    s = detect_platform_signals(tmp_path)
+    assert s == {
+        "cf-pages": False,
+        "cf-workers": False,
+        "vercel": False,
+        "netlify": False,
+    }
+
+
+def test_detect_cf_pages_from_wrangler_jsonc(tmp_path: Path):
+    (tmp_path / "wrangler.jsonc").write_text(
+        '{\n  "name": "example",\n  "pages_build_output_dir": "./dist"\n}\n'
+    )
+    s = detect_platform_signals(tmp_path)
+    assert s["cf-pages"] is True
+    assert s["cf-workers"] is False
+
+
+def test_detect_cf_workers_from_wrangler_jsonc(tmp_path: Path):
+    (tmp_path / "wrangler.jsonc").write_text(
+        '{\n  "name": "example",\n  "main": "src/index.ts"\n}\n'
+    )
+    s = detect_platform_signals(tmp_path)
+    assert s["cf-workers"] is True
+    assert s["cf-pages"] is False
+
+
+def test_detect_cf_pages_from_wrangler_toml(tmp_path: Path):
+    (tmp_path / "wrangler.toml").write_text(
+        'name = "example"\npages_build_output_dir = "./dist"\n'
+    )
+    s = detect_platform_signals(tmp_path)
+    assert s["cf-pages"] is True
+    assert s["cf-workers"] is False
+
+
+def test_detect_cf_workers_from_wrangler_toml(tmp_path: Path):
+    (tmp_path / "wrangler.toml").write_text(
+        'name = "example"\nmain = "src/worker.ts"\n'
+    )
+    s = detect_platform_signals(tmp_path)
+    assert s["cf-workers"] is True
+    assert s["cf-pages"] is False
+
+
+def test_detect_vercel_from_vercel_json(tmp_path: Path):
+    (tmp_path / "vercel.json").write_text('{"version": 2}\n')
+    s = detect_platform_signals(tmp_path)
+    assert s["vercel"] is True
+
+
+def test_detect_netlify_from_netlify_toml(tmp_path: Path):
+    (tmp_path / "netlify.toml").write_text(
+        '[build]\npublish = "dist"\ncommand = "npm run build"\n'
+    )
+    s = detect_platform_signals(tmp_path)
+    assert s["netlify"] is True
+
+
+def test_infer_returns_none_when_no_configs(tmp_path: Path):
+    assert infer_from_existing_configs(tmp_path) is None
+
+
+def test_infer_cf_pages_from_wrangler_jsonc(tmp_path: Path):
+    (tmp_path / "wrangler.jsonc").write_text(
+        '{"name":"x","pages_build_output_dir":"./dist"}\n'
+    )
+    block = infer_from_existing_configs(tmp_path)
+    assert block is not None
+    assert block.platform == "cf-pages"
+    # All other fields stay at defaults; operator/caller fills.
+    assert block.account is None
+    assert block.production_branch == "main"
+    assert block.auto_deploy is None
+    assert block.custom_domains == []
+
+
+def test_infer_cf_workers_from_wrangler_jsonc(tmp_path: Path):
+    (tmp_path / "wrangler.jsonc").write_text(
+        '{"name":"x","main":"src/worker.ts"}\n'
+    )
+    block = infer_from_existing_configs(tmp_path)
+    assert block is not None
+    assert block.platform == "cf-workers"
+
+
+def test_infer_vercel_from_vercel_json(tmp_path: Path):
+    (tmp_path / "vercel.json").write_text('{"version": 2}\n')
+    block = infer_from_existing_configs(tmp_path)
+    assert block is not None
+    assert block.platform == "vercel"
+
+
+def test_infer_netlify_from_netlify_toml(tmp_path: Path):
+    (tmp_path / "netlify.toml").write_text('[build]\npublish = "dist"\n')
+    block = infer_from_existing_configs(tmp_path)
+    assert block is not None
+    assert block.platform == "netlify"
+
+
+def test_infer_returns_none_on_wrangler_plus_vercel(tmp_path: Path):
+    # The drift case — lamill.io-style: wrangler.jsonc + vercel.json
+    # both present. Migration must surface manually.
+    (tmp_path / "wrangler.jsonc").write_text(
+        '{"name":"x","pages_build_output_dir":"./dist"}\n'
+    )
+    (tmp_path / "vercel.json").write_text('{"version": 2}\n')
+    assert infer_from_existing_configs(tmp_path) is None
+    # The signals dict differentiates this from the "no configs" case.
+    s = detect_platform_signals(tmp_path)
+    assert sum(s.values()) == 2
+
+
+def test_infer_returns_none_on_vercel_plus_netlify(tmp_path: Path):
+    (tmp_path / "vercel.json").write_text('{"version": 2}\n')
+    (tmp_path / "netlify.toml").write_text('[build]\npublish = "dist"\n')
+    assert infer_from_existing_configs(tmp_path) is None
+
+
+def test_infer_jsonc_with_line_comments(tmp_path: Path):
+    # Real-world wrangler.jsonc files often have // comments.
+    (tmp_path / "wrangler.jsonc").write_text(
+        '// CF Pages config for example.com\n'
+        '{\n'
+        '  "name": "example",\n'
+        '  "pages_build_output_dir": "./dist"  // build output\n'
+        '}\n'
+    )
+    block = infer_from_existing_configs(tmp_path)
+    assert block is not None
+    assert block.platform == "cf-pages"

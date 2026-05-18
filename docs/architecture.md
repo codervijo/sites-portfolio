@@ -544,8 +544,9 @@ Module API:
 class ParseError(Exception): ...
 
 def load(repo_path: Path) -> LamillToml | None: ...
-def write(repo_path: Path, payload: LamillToml) -> None: ...           # planned
-def infer_from_existing_configs(repo_path: Path) -> DeployBlock | None: ...  # planned
+def write(repo_path: Path, payload: LamillToml) -> None: ...
+def infer_from_existing_configs(repo_path: Path) -> DeployBlock | None: ...
+def detect_platform_signals(repo_path: Path) -> dict[str, bool]: ...
 ```
 
 `load()` returns `None` if `<repo_path>/lamill.toml` doesn't exist;
@@ -556,6 +557,29 @@ types (`auto_deploy` non-bool, `custom_domains` non-list, etc.), or
 missing `[hosting]` when `platform ∈ {hostgator, custom}`. The
 `[operator]` section is silently ignored — owned by
 `operator_profile.py`.
+
+`write()` is atomic (tmpfile + `shutil.move`); `production_branch`
+is always written, other None/empty fields are omitted; `[hosting]`
+/ `[backend]` / `[notes]` blocks only appear when the corresponding
+`LamillToml` field is non-None. Round-trip determinism: `write →
+load → write` produces byte-identical output.
+
+`infer_from_existing_configs()` returns a `DeployBlock | None` from
+filesystem markers. Detection rules:
+
+| Marker | Inferred platform |
+|---|---|
+| `wrangler.jsonc` or `wrangler.toml` with `pages_build_output_dir` | `cf-pages` |
+| `wrangler.jsonc` or `wrangler.toml` without `pages_build_output_dir` | `cf-workers` |
+| `vercel.json` present | `vercel` |
+| `netlify.toml` present | `netlify` |
+
+Returns `None` when zero markers match OR when multiple platforms
+conflict (the drift case — e.g. `wrangler.jsonc + vercel.json`
+co-existing). `detect_platform_signals()` returns the underlying
+per-platform presence dict so the migration command (later v10.A
+slice) can differentiate "no signals" (manual entry required) from
+"multiple signals" (manual review required).
 
 Format: TOML via stdlib `tomllib`. Round-trip write via `tomli-w`
 (small dep, no transitive deps). **No comment preservation on
