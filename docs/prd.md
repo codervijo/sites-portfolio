@@ -60,12 +60,13 @@ Sole user: Vijo. No multi-tenancy, no permissions, no public surface. CLI-only.
 | **v9** | bootstrap UX — canonical AI_AGENTS + interactive prompts *(new 2026-05-17, highest-priority tier)* | Standardize AI_AGENTS.md on 10 canonical sections (4 operator-input — Summary / Audience / ICP / Goals / Content strategy — and 6 template-driven); interactive `new bootstrap` prompts for the operator sections; domain-registration prompt that auto-updates `portfolio.json` (closes the agesdk.dev gap); growth-hypothesis prompt seeding `docs/growth.md`. New conformance check enforces the 10-section canonical schema with a tier-1 fix that injects missing sections. |
 | **v10** | per-site deploy declarations *(renumbered 2026-05-17; was v9; pre-2026-05-16 was v11)* | `lamill.toml` at each `sites/<domain>/` root declaring deploy target; drift detection; HostGator cPanel integration; SFTP deploy abstraction. Foundation for multi-host fleet ops. **Scope expanded 2026-05-17** to include a `[backend]` section for non-JS-rendering server stacks (DB + server framework + backend hosting target). |
 | **v11** | fleet hosting view *(renumbered 2026-05-17; was v10; pre-2026-05-16 was v12.A)* | `lamill fleet hosting` — fleet-wide Vercel/CF deploy state. Walks both APIs; matches projects to fleet domains by configured custom domain. Per-site deploy status + last-success-at + consecutive-failures, cached snapshot. |
-| **v12** | analytical roll-ups *(renumbered 2026-05-17; was v11; pre-2026-05-16 was v9)* | GSC trend correlation over PERSISTED snapshots (week-over-week deltas); `project list` aggregate verdict-counts view; optional LLM content seeding (still postponed indefinitely). All read-only / informational. |
-| **v13** | deploy verification *(renumbered 2026-05-17, deprioritized; was v12; pre-2026-05-16 was v10)* | build-time stamping convention + HEAD vs deployed SHA + Pages/Vercel API integration. Heavy overlap with v11's `fleet hosting`; revisit scope when this tier's slot comes up. |
+| **v12** | adversarial audit pass + reconciliation *(new 2026-05-17 PM; audit work split out from v8.E-series)* | Continuation of v8's research-module interpretive layer. GPT-4o adversarial audit pass against `prompts/adversarial_audit_v1.md`, REVIEW_REQUIRED first-class verdict when the two models disagree, `--verify` opt-in flag, cost ledger + granular cache invalidation. v8.E-I shipped the primary interpretive pass + integration into `new research`; v8.J shipped the audit payload builder. v12.A onward picks up from there. |
+| **v13** | analytical roll-ups *(renumbered 2026-05-17 PM; was v12; pre-2026-05-17 was v11; pre-2026-05-16 was v9)* | GSC trend correlation over PERSISTED snapshots (week-over-week deltas); `project list` aggregate verdict-counts view; optional LLM content seeding (still postponed indefinitely). All read-only / informational. |
+| **v14** | deploy verification *(renumbered 2026-05-17 PM, deprioritized; was v13; pre-2026-05-17 was v12; pre-2026-05-16 was v10)* | build-time stamping convention + HEAD vs deployed SHA + Pages/Vercel API integration. Heavy overlap with v11's `fleet hosting`; revisit scope when this tier's slot comes up. |
 
 ## 5. Phases
 
-Strict sequence (option a). **Renumbered 2026-05-16** — v9 was per-site deploy declarations, v10 fleet hosting, v11 analytical roll-ups, v12 deploy verification. **v8.E split 2026-05-17** into v8.E–v8.M (see note below). **Shifted right 2026-05-17** — a new highest-priority **v9** holds bootstrap UX work (canonical AI_AGENTS sections + interactive prompts + auto-update of portfolio.json on bootstrap). Everything from old v9 onward shifts right by one major tier: old v9 → v10, old v10 → v11, old v11 → v12, old v12 → v13. Working order = strict numerical: **v8.I → v8.J → v8.K → v8.L → v8.M → v9.A → v9.B → v9.C → v9.D → v9.E → v10.A–D → v11.A → v12.A–C → v13.A–D**. **v8.D shipped in full as of 2026-05-15. v8.E–v8.H shipped 2026-05-16/17 (payload builder, prompt renderer, response parser, primary-pass runner — all the data-path primitives for the interpretive verdict). v8.I is the active queue: wire the primary pass into `new research`'s orchestrator + persist the verdict in the cluster snapshot — first user-visible v8.E-series output.** v8.A and v8.B were absorbed by v8.D before any code was written; v8.C was originally a `--research` flag on `new suggest`, dismissed as not needed (research and suggest stay as separate composable steps).
+Strict sequence (option a). **Renumbered 2026-05-16** — v9 was per-site deploy declarations, v10 fleet hosting, v11 analytical roll-ups, v12 deploy verification. **v8.E split 2026-05-17** into v8.E–v8.J + v12.A–G (see notes below). **Shifted right 2026-05-17** — a new highest-priority **v9** holds bootstrap UX work (canonical AI_AGENTS sections + interactive prompts + auto-update of portfolio.json on bootstrap). Everything from old v9 onward shifts right by one major tier: old v9 → v10, old v10 → v11, old v11 → v12, old v12 → v13. **Further reshuffle 2026-05-17 PM**: the audit-pass arc was promoted out of v8 into a new dedicated **v12** tier (v12.A–G); old v12 → v13, old v13 → v14 (see "v12 audit-pass tier creation" note below). Working order = strict numerical: **v10.A–D → v11.A → v12.A → v12.B → v12.C → v12.D → v12.E → v12.F → v12.G → v13.A–C → v14.A–D**. (v8, v9 done — v8 ends at v8.J (audit payload builder shipped 2026-05-17); the audit-pass arc that continues from there is now v12.A onward.) **v8.D shipped in full as of 2026-05-15. v8.E–v8.I shipped 2026-05-16/17 (payload builder, prompt renderer, response parser, primary-pass runner, wire-into-`new-research` — the full primary interpretive pass). v8.J shipped 2026-05-17 (audit payload builder — first piece of the audit pass).** v8.A and v8.B were absorbed by v8.D before any code was written; v8.C was originally a `--research` flag on `new suggest`, dismissed as not needed (research and suggest stay as separate composable steps).
 
 Note on read/write surfaces: portfolio is **read-only** through v2 (domain suggest). **v3 (bootstrap) is the first write surface** — it creates new project dirs, runs `git init`, scaffolds files. **v4 is read-only** (validation-mode domain suggest only prints info and a manual-checkout URL — domain registration is gated behind a Y/n confirmation that calls Porkbun's `/domain/create`; no project-dir writes). **v5 is read-only** (universal check catalog + check flags; v5.D writes only to OAuth token + `data/gsc/` snapshots, not project dirs). **v6.D (remediation) is the second project-dir write surface** — it modifies existing project dirs to fix conformance gaps. **v8.D (domain-list refresh tooling)** writes to `data/domains/*.csv` + `data/portfolio.json` (already user-mutable), not project dirs. Everything else (v6.A–C, v6.E–G, v7, v8.A–C) is read-only.
 
@@ -189,8 +190,10 @@ Note on v9 insertion + tier shift (2026-05-17 PM):
   per operator direction — Audience is the broad demo, ICP is the
   specific ideal customer (more detail; supports niche-down decisions
   the operator-fit logic depends on).
-- Working order preserved: v8.I–v8.M (the interpretive verdict /
-  audit / reconciliation queue) still ship before the new v9.A–D.
+- Working order preserved: v8.I–v8.J shipped within v8 (primary-pass
+  wire-in + audit payload builder); the remaining audit-pass arc
+  later promoted to v12.A–G — see "v12 audit-pass tier creation
+  (2026-05-17 PM)" note below — and still ships before the new v9.A–D.
 - Phase identifier lineage markers preserved on every shifted row
   (`*(renumbered 2026-05-17 — was vN.X)*`) so commit-message archeology
   still resolves.
@@ -201,6 +204,52 @@ Note on v8.E split (2026-05-17):
 - Original **v8.E** is now split into **v8.E–v8.M** (9 rows). E–H ✅ already shipped (the four data-path primitives commits — `a6b6c95`, `1287e91`, `febf82e`, `977c5af`); I–M planned (wiring, audit pass, reconciliation, polish, docs).
 - Going forward, the same rule applies to every tier. No `vN.X` row in the table covers >1 shippable commit. Multi-commit work → multiple letters.
 - Rationale: keeps the phase table 1:1 with the actual ship cadence; makes commit subjects honest (`portfolio: v8.H — primary interpretive pass runner` not `portfolio: v8.E — runner [wedge 4 of 5]`); preserves the canonical two-level rule in the only place it really matters — the readable history.
+
+Note on v12 audit-pass tier creation (2026-05-17 PM):
+
+- The original v8.E split note (above) listed v8.E–v8.M as one
+  contiguous arc — five primary-pass commits (E–I) plus four
+  audit-pass commits (J–M). E–I ✅ shipped, plus v8.J (audit
+  payload builder). At that point a re-read of the work ahead
+  surfaced that the remaining audit-pass slices (was v8.K–v8.Q,
+  7 commits) aren't a minor tail on v8 — they introduce: a
+  second LLM provider (OpenAI alongside Claude), a different
+  prompt schema (`adversarial_audit_v1.md` vs
+  `niche_evaluation_v1.md`), a separate response parser, and
+  reconciliation as a first-class verdict (REVIEW_REQUIRED).
+  Cramming all that under v8 hides the scope — a downstream
+  reader expects a v8.X row to be the same shape as v8.E–v8.J.
+- **Decision 2026-05-17 PM**: promote the audit-pass arc to its
+  own major tier. v8 now ends at v8.J (audit payload builder
+  shipped). The former v8.K–v8.Q rows become **v12.A–v12.G**:
+  prompt rendering · response parser · OpenAI runner ·
+  reconciliation + REVIEW_REQUIRED · CLI `--verify` wiring ·
+  polish (cost ledger + `verify_by_default` + granular cache
+  invalidation) · docs.
+- Everything from the old v12 onward shifts right by one major
+  tier:
+  - **old v12 → v13** (analytical roll-ups: GSC trend / Roll-up
+    / LLM seeding-still-postponed).
+  - **old v13 → v14** (deploy verification: build-time stamping
+    / HEAD vs deployed / Build status / Domain-list refresh).
+- Working order = strict numerical: v10.A–D → v11.A → v12.A–G →
+  v13.A–C → v14.A–D. The audit-pass arc continues from v8.J
+  uninterrupted in terms of code (the next commit on
+  `audit_pass.py` is v12.A's prompt rendering); the tier label
+  changes but the chronology doesn't.
+- Phase identifier lineage markers preserved on every shifted row
+  (`*(renumbered 2026-05-17 PM — was vN.X → vM.Y)*`) so commit-message
+  archeology still resolves.
+- §6 conformance rules table updated: `has-version-stamp` v13.A →
+  v14.A; `deploy-fresh` v13.B → v14.B; `last-build-success` v13.C →
+  v14.C.
+- §8.2 detailed-PRD section now spans v8.E–v8.J + v12.A–G (the
+  arc design is a single contiguous narrative — the audit pass is
+  meaningless without the primary pass — but the phase numbering
+  reflects the formal tier split).
+- Net row count change: the 7 audit-pass rows previously planned
+  under v8 are now under v12 — pure relocation, no add/remove.
+  Other tiers renumbered only (v12 → v13; v13 → v14).
 
 Note on v7.H addition (2026-05-16):
 
@@ -273,13 +322,20 @@ Note on v7.H addition (2026-05-16):
 | **v10.C** | HostGator cPanel integration *(deferred; full PRD TBD; renumbered 2026-05-17 — was v9.C)* | API pull of domains / WordPress installs / disk usage via cPanel API. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
 | **v10.D** | SFTP deploy abstraction *(deferred; full PRD TBD; renumbered 2026-05-17 — was v9.D)* | `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
 | **v11.A** | `fleet hosting` — fleet-wide Vercel/CF deploy state *(planned 2026-05-15, full PRD inlined in §8.4; renumbered 2026-05-17 — was v10.A)* | Read-only fleet view: walks Vercel + Cloudflare Pages APIs, matches each fleet domain to a project by configured custom domain, reports `latest_deploy_status` / `last_successful_deploy_at` / `consecutive_failures`. Cached snapshot at `data/hosting/<date>.json` mirroring `data/seo/` shape; `--refresh` re-walks. Status emoji table (✓ / ⚠ / ✗ / 💤 / —). Three phases: P1 walkers + cache, P2 renderer + CLI, P3 dashboard + diagnose integration. ~12-17h. 10 open questions. |
-| **v12.A** | GSC trend correlation *(renumbered 2026-05-17 — was v11.A; was v7.B pre-2026-05-13; was v7.H pre-2026-05-13-pm)* | GSC trend per project (28d clicks/imp/pos, w/w delta) over PERSISTED `data/gsc/` snapshots. **Distinct from v5.D** — v5.D is the runtime live check (one query, current state); v12.A is the longitudinal analytical layer (week-over-week deltas, trend lines). |
-| **v12.B** | Roll-up *(renumbered 2026-05-17 — was v11.B; was v7.C pre-2026-05-13; was v7.I pre-2026-05-13-pm)* | `portfolio project list` · `--stale N` filter · `--json` · aggregate verdict counts |
-| **v12.C** | Optional LLM content seeding *(renumbered 2026-05-17 — was v11.C; was v3.D pre-2026-05-07; was v9.A pre-2026-05-09; was v7.A pre-2026-05-10; was v7.D pre-2026-05-13; was v7.J pre-2026-05-13-pm; postponed indefinitely)* | `--seed-content` flag on `portfolio new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1–2 supporting pages from the topic (similar prompt pipeline to v2.A's brainstorm) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style (no narrative content) · *postponed indefinitely (2026-05-04 user call); v3.D built first* |
-| **v13.A** | Build-time stamping *(renumbered 2026-05-17 — was v12.A; was v10.A pre-2026-05-09; was v8.A pre-2026-05-13-pm)* | convention: every sites/* project writes `version.json` at build (commit + built_at) · new conformance check: has-version-stamp |
-| **v13.B** | HEAD vs deployed *(renumbered 2026-05-17 — was v12.B; was v10.B pre-2026-05-09; was v8.B pre-2026-05-13-pm)* | deploy-freshness signal · deploy-fresh conformance check · reads `version.json` from live URL |
-| **v13.C** | Build status + deploy lag *(renumbered 2026-05-17 — was v12.C; was v10.C pre-2026-05-09; was v8.C pre-2026-05-13-pm)* | deploy lag (push → live) · last build status via Cloudflare/Vercel API · last-build-success conformance · *requires platform tokens — major new infra* |
-| **v13.D** | Domain-list refresh tooling *(renumbered 2026-05-17 — was v12.D; new 2026-05-09; last-priority; was v8.D pre-2026-05-13-pm)* | Flag-only enhancements to existing `cleanup` (no new commands per user direction): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct $EDITOR on `data/portfolio.json` is documented in AI_AGENTS.md as the no-tooling path. |
+| **v12.A** | Adversarial audit prompt rendering *(new 2026-05-17 PM — moved out of v8.K)* | `audit_pass.render_audit_prompt(payload)` — load `prompts/adversarial_audit_v1.md`, append the audit payload JSON (already built by v8.J) in a fenced block. No operator-var placeholders in the audit prompt (operator context flows through the payload's `operator_profile_summary` field); the renderer runs `render_prompt()` anyway as drift protection — if a future prompt edit adds a `{{var}}`, the renderer fails loud at the prompt-assembly boundary rather than shipping `{{var}}` text to the LLM. Parallel to v8.F's `render_primary_prompt`. ~1h. |
+| **v12.B** | Adversarial audit response parser *(new 2026-05-17 PM — moved out of v8.L)* | `audit_pass.parse_audit(markdown) → ParsedAudit` + `AuditParseError`. Different schema from `parse_verdict`: required `### agreement_level` ∈ {full, partial, disagree}, `### confidence` ∈ {HIGH, MEDIUM, LOW}, `### specific_concerns` (≥1 bullet). Optional `### counter_verdict` (only present on `disagree`), `### audit_self_check`. Same tolerances as parse_verdict (case-insensitive headers, bullet markers, trailing punctuation). Parallel to v8.G's `parse_verdict`. ~2h. |
+| **v12.C** | Adversarial audit pass runner *(new 2026-05-17 PM — moved out of v8.M)* | `audit_pass.run_audit_pass(cluster, *, primary_verdict, operator_profile, ...)`. Orchestrates build_audit_payload → render_audit_prompt → OpenAI chat-completions call → parse_audit. Uses the existing OpenAI client path (`OPENAI_API_KEY` already configured); default model `gpt-4o`, override via `--audit-model`. Returns `AuditPassResult` with parsed audit + rendered prompt + model id + cost + duration. `AuditPassError` wraps HTTP / parse failures. Parallel to v8.H's `run_primary_pass`. ~3h. |
+| **v12.D** | Reconciliation + REVIEW_REQUIRED first-class verdict *(new 2026-05-17 PM — moved out of v8.N)* | New `reconciliation.py` module: pure logic per PRD §4 reconciliation spec. Full-agree → confident final verdict (mechanical + primary + audit aligned). Partial → caveats list. Disagree → `REVIEW_REQUIRED` banner — intentionally NO auto-resolution (manufacturing false certainty defeats the audit purpose). No LLM calls. ~2h. |
+| **v12.E** | CLI `--verify` flag + wire audit pass into `new research` orchestrator *(new 2026-05-17 PM — moved out of v8.O)* | First user-visible audit-pass output. Default-off: `new research` continues to emit just the mechanical verdict + primary interpretive verdict (current v8.I behavior). `--verify` opt-in adds the audit pass + reconciliation block. Same-model rejection: errors when `--model X --audit-model X` resolve to the same model id (correlated-blind-spot rationale per PRD §10.B). Persists audit + reconciliation into the cluster snapshot. ~3h. |
+| **v12.F** | Polish — cost ledger + `verify_by_default` + granular cache invalidation *(new 2026-05-17 PM — moved out of v8.P)* | (a) Cost-estimate fields aggregated in the snapshot (primary + audit + cumulative). (b) `verify_by_default` operator-profile flag honored from `sites/portfolio/lamill.toml [operator]` (resolved PRD §10.D); `--no-verify` overrides. (c) `--no-cache=interpretive` / `--no-cache=audit` granular flags to re-run individual passes against cached SERP data without re-fetching. ~3h. |
+| **v12.G** | Docs *(new 2026-05-17 PM — moved out of v8.Q)* | Update operator-facing docs (`docs/CLAUDE.md`, `AI_AGENTS.md`, `docs/Prompts.md`, `lamill new research --help`) to reflect v12.A–F capabilities. Add "when to use `--verify`" guidance to the help text. Dated H2 entry in `docs/Prompts.md`. ~1h. |
+| **v13.A** | GSC trend correlation *(renumbered 2026-05-17 PM — was v12.A; was v11.A pre-2026-05-17; was v7.B pre-2026-05-13; was v7.H pre-2026-05-13-pm)* | GSC trend per project (28d clicks/imp/pos, w/w delta) over PERSISTED `data/gsc/` snapshots. **Distinct from v5.D** — v5.D is the runtime live check (one query, current state); v13.A is the longitudinal analytical layer (week-over-week deltas, trend lines). |
+| **v13.B** | Roll-up *(renumbered 2026-05-17 PM — was v12.B; was v11.B pre-2026-05-17; was v7.C pre-2026-05-13; was v7.I pre-2026-05-13-pm)* | `portfolio project list` · `--stale N` filter · `--json` · aggregate verdict counts |
+| **v13.C** | Optional LLM content seeding *(renumbered 2026-05-17 PM — was v12.C; was v11.C pre-2026-05-17; was v3.D pre-2026-05-07; was v9.A pre-2026-05-09; was v7.A pre-2026-05-10; was v7.D pre-2026-05-13; was v7.J pre-2026-05-13-pm; postponed indefinitely)* | `--seed-content` flag on `portfolio new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1–2 supporting pages from the topic (similar prompt pipeline to v2.A's brainstorm) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style (no narrative content) · *postponed indefinitely (2026-05-04 user call); v3.D built first* |
+| **v14.A** | Build-time stamping *(renumbered 2026-05-17 PM — was v13.A; was v12.A pre-2026-05-17; was v10.A pre-2026-05-09; was v8.A pre-2026-05-13-pm)* | convention: every sites/* project writes `version.json` at build (commit + built_at) · new conformance check: has-version-stamp |
+| **v14.B** | HEAD vs deployed *(renumbered 2026-05-17 PM — was v13.B; was v12.B pre-2026-05-17; was v10.B pre-2026-05-09; was v8.B pre-2026-05-13-pm)* | deploy-freshness signal · deploy-fresh conformance check · reads `version.json` from live URL |
+| **v14.C** | Build status + deploy lag *(renumbered 2026-05-17 PM — was v13.C; was v12.C pre-2026-05-17; was v10.C pre-2026-05-09; was v8.C pre-2026-05-13-pm)* | deploy lag (push → live) · last build status via Cloudflare/Vercel API · last-build-success conformance · *requires platform tokens — major new infra* |
+| **v14.D** | Domain-list refresh tooling *(renumbered 2026-05-17 PM — was v13.D; was v12.D pre-2026-05-17; new 2026-05-09; last-priority; was v8.D pre-2026-05-13-pm)* | Flag-only enhancements to existing `cleanup` (no new commands per user direction): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct $EDITOR on `data/portfolio.json` is documented in AI_AGENTS.md as the no-tooling path. |
 
 ## 6. Conformance rules
 
@@ -305,9 +361,9 @@ portfolio enforces these on sibling sites/* projects via `project status`. Failu
 | `cf-pages-deployable` | frozen-lockfile install OK; no stray gitlinks; no `_redirects` SPA fallback | v8.A |
 | `domain-dir-match` | dir name matches a plan.md domain (or in override map) | v8.A |
 | `gsc-verified` | dir's eTLD is a verified GSC property | v10.B *(renumbered 2026-05-17 — was v9.B)* |
-| `has-version-stamp` | project writes `version.json` at build time | v13.A *(renumbered 2026-05-17 — was v10.A → v12.A)* |
-| `deploy-fresh` | HEAD SHA matches deployed SHA | v13.B *(renumbered 2026-05-17 — was v10.B → v12.B)* |
-| `last-build-success` | last Cloudflare/Vercel build succeeded | v13.C *(renumbered 2026-05-17 — was v10.C → v12.C)* |
+| `has-version-stamp` | project writes `version.json` at build time | v14.A *(renumbered 2026-05-17 PM — was v13.A → v12.A → v10.A)* |
+| `deploy-fresh` | HEAD SHA matches deployed SHA | v14.B *(renumbered 2026-05-17 PM — was v13.B → v12.B → v10.B)* |
+| `last-build-success` | last Cloudflare/Vercel build succeeded | v14.C *(renumbered 2026-05-17 PM — was v13.C → v12.C → v10.C)* |
 | `ai-agents-md-has-canonical-sections` | AI_AGENTS.md has all 10 canonical H2 sections | v9.A *(new 2026-05-17)* |
 
 ## 7. Open questions
@@ -318,7 +374,7 @@ Append-only log. Questions get answered (with date) but never deleted.
 
 ## 8. Detailed PRDs
 
-The phase rows above (v8.D / v8.E–v8.M / v10.A / v11.A) reference detailed designs.
+The phase rows above (v8.D / v8.E–v8.J / v10.A / v11.A / v12.A–G) reference detailed designs.
 Inlined here rather than living as separate files in docs/prd/.
 Each retains its own structure (problem statement → goals → requirements
 → open questions → effort estimate → approval).
@@ -1307,7 +1363,19 @@ Sign off below when reviewed:
 
 ---
 
-### 8.2 — v8.E–v8.M · Interpretive verdict + adversarial audit
+### 8.2 — v8.E–v8.J + v12.A–G · Interpretive verdict + adversarial audit
+
+*(Renumbered 2026-05-17 PM: the primary interpretive-pass arc stays
+as v8.E–v8.J — five data-path commits shipped (E payload builder,
+F prompt renderer, G response parser, H runner, I wire-into-`new-research`)
+plus v8.J's audit payload builder. The adversarial-audit arc — originally
+v8.K–v8.Q — was promoted to a dedicated **v12** tier (v12.A–G) on
+2026-05-17 PM to reflect its scope: a separate LLM provider, a
+separate prompt, a separate parser, plus reconciliation as a
+first-class verdict. The detailed design below covers both arcs as a
+single contiguous narrative — the audit pass is meaningless without
+the primary pass that produces the verdict it audits — but the phase
+numbering reflects the formal tier split.)*
 
 
 ## 1. Problem statement
