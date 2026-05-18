@@ -1,5 +1,5 @@
 {
-  "fetched_at": "2026-05-18T19:54:40.855480+00:00",
+  "fetched_at": "2026-05-18T21:26:17.023044+00:00",
   "days": 28,
   "rows": [
     {
@@ -163,11 +163,21 @@
       "gsc_impressions": 0,
       "gsc_ctr": 0.0,
       "gsc_position": null,
-      "gsc_sitemap_count": 0,
+      "gsc_sitemap_count": 1,
       "gsc_sitemap_errors": 0,
       "gsc_sitemap_warnings": 0,
       "gsc_sitemap_pending": 0,
-      "gsc_sitemap_details": [],
+      "gsc_sitemap_details": [
+        {
+          "path": "https://cricketfansite.com/sitemap.xml",
+          "errors": 0,
+          "warnings": 0,
+          "is_pending": false,
+          "last_downloaded": "2026-05-18T21:12:21.301Z",
+          "last_submitted": "2026-05-18T21:11:52.408Z",
+          "property": "sc-domain:cricketfansite.com"
+        }
+      ],
       "crux_status": "no-data",
       "crux_lcp_p75": null,
       "crux_inp_p75": null,
@@ -388,11 +398,21 @@
       "gsc_impressions": 0,
       "gsc_ctr": 0.0,
       "gsc_position": null,
-      "gsc_sitemap_count": 0,
+      "gsc_sitemap_count": 1,
       "gsc_sitemap_errors": 0,
       "gsc_sitemap_warnings": 0,
-      "gsc_sitemap_pending": 0,
-      "gsc_sitemap_details": [],
+      "gsc_sitemap_pending": 1,
+      "gsc_sitemap_details": [
+        {
+          "path": "https://kwizicle.com/sitemap.xml",
+          "errors": 0,
+          "warnings": 0,
+          "is_pending": true,
+          "last_downloaded": null,
+          "last_submitted": "2026-05-18T21:12:43.790Z",
+          "property": "sc-domain:kwizicle.com"
+        }
+      ],
       "crux_status": "no-data",
       "crux_lcp_p75": null,
       "crux_inp_p75": null,
