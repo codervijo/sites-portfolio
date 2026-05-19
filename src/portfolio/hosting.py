@@ -1519,3 +1519,185 @@ def hosting_footer_summary(
     suffix = f" ({', '.join(suffix_bits)})" if suffix_bits else ""
     return " · ".join(parts) + suffix
 
+# ---- --apply-declarations writer (v11.J) ---------------------------
+#
+# For HG sites returned by the walker, write `lamill.toml` when:
+#   - sites/<domain>/ directory exists locally
+#   - the file isn't already there
+#   - the site isn't archived
+#
+# Scoped missing-only per resolution 11.N — never overwrites an
+# existing declaration. Drift between declared and live state stays
+# the operator's call (surface via CHECK_143; remediate via
+# `lamill settings project set-deploy`).
+#
+# CF Pages / Vercel sites don't need this — v10.C's filesystem
+# inference (`fleet repos --add-deploy-declarations`) already
+# captures them via `wrangler.jsonc` / `vercel.json` markers. HG
+# is the gap: no in-repo config file to infer from, so we needed
+# the walker's view of cPanel reality to populate the declaration.
+
+
+@dataclass
+class HgApplyRow:
+    """One row of the `fleet hosting --apply-declarations` report."""
+
+    domain: str
+    hg_account_id: str
+    install_path: str | None = None
+    wp_version: str | None = None
+    # Verb describing the migration's intent / action. Mirrors
+    # `MigrationRow.action` semantics from `project_deploy.py`:
+    #   - `would_write` / `wrote` — the happy path; dry-run vs apply
+    #   - `skipped_already` — sites/<domain>/lamill.toml exists
+    #   - `skipped_no_site_dir` — sites/<domain>/ directory missing
+    #   - `skipped_archived` — TOMBSTONE.md or portfolio.json category
+    action: str = ""
+    notes: str | None = None
+
+
+# Categories from `portfolio.json` that mean "this site is retiring".
+# Mirrors `project_deploy._ARCHIVED_CATEGORIES` /
+# `fleet_repos.ARCHIVED_CATEGORIES`.
+_APPLY_ARCHIVED_CATEGORIES: frozenset[str] = frozenset({
+    "to be deleted immediately",
+    "archived",
+    "tombstoned",
+})
+
+_APPLY_TOMBSTONE_MARKER = "TOMBSTONE.md"
+
+
+def _apply_is_archived(site_dir, domain: str, plan: dict) -> bool:
+    """True when the site is archived per the same rules `project_deploy`
+    uses — TOMBSTONE.md marker OR portfolio.json category in the
+    archived set."""
+    from pathlib import Path
+
+    if (Path(site_dir) / _APPLY_TOMBSTONE_MARKER).exists():
+        return True
+    category = (plan.get(domain) or "").strip().lower()
+    return category in _APPLY_ARCHIVED_CATEGORIES
+
+
+def _build_hg_lamill_toml(row: HostingRow) -> "object":
+    """Construct a `LamillToml` for one HG HostingRow. Lazy import of
+    `lamill_toml` so this module stays importable even when v10.A's
+    dependency chain isn't set up (e.g., older Python envs running
+    test discovery)."""
+    from .lamill_toml import DeployBlock, HostingBlock, LamillToml
+
+    account_id = row.hg_account_id or ""
+    cpanel_host = (
+        f"https://{account_id}.hostgator.com:2083" if account_id else None
+    )
+    ftp_host = f"{account_id}.hostgator.com" if account_id else None
+
+    return LamillToml(
+        deploy=DeployBlock(
+            platform="hostgator",
+            account=account_id or None,
+            custom_domains=[row.domain],
+            auto_deploy=False,
+        ),
+        hosting=HostingBlock(
+            cpanel_user=account_id or None,
+            cpanel_url=cpanel_host,
+            ftp_host=ftp_host,
+            ftp_user=account_id or None,
+            public_html_path=row.install_path,
+        ),
+    )
+
+
+def apply_hg_declarations(
+    rows: list[HostingRow],
+    *,
+    dry_run: bool = True,
+    sites_root=None,
+    plan: dict | None = None,
+) -> list[HgApplyRow]:
+    """For each HG `HostingRow`, decide whether to write `lamill.toml`.
+
+    Scoped missing-only (resolution 11.N) — never overwrites an
+    existing file, never edits a declared platform.
+
+    `rows` is the walker output; only entries with
+    `provider == PROVIDER_HOSTGATOR` are considered. CF Pages /
+    Vercel / unowned rows are ignored — v10.C's filesystem-inference
+    migration already handles those.
+
+    `sites_root` and `plan` are test injection points; production
+    callers leave them None.
+    """
+    from pathlib import Path
+
+    from .lamill_toml import LAMILL_TOML_FILENAME, write
+
+    # Lazy import — `fleet_repos.SITES_ROOT` is the production default
+    # but accepting `sites_root` makes the function testable without
+    # touching the real filesystem.
+    if sites_root is None:
+        from .fleet_repos import SITES_ROOT
+        sites_root = SITES_ROOT
+    sites_root = Path(sites_root)
+
+    if plan is None:
+        from .data import load_plan
+        plan = load_plan()
+
+    out: list[HgApplyRow] = []
+    for row in rows:
+        if row.provider != PROVIDER_HOSTGATOR:
+            continue
+        if not row.hg_account_id:
+            # Defensive — every HG row from the walker carries an
+            # account_id, but skip anyway if somehow malformed.
+            continue
+        site_dir = sites_root / row.domain
+        apply_row = HgApplyRow(
+            domain=row.domain,
+            hg_account_id=row.hg_account_id,
+            install_path=row.install_path,
+            wp_version=row.wp_version,
+        )
+
+        if not site_dir.is_dir():
+            apply_row.action = "skipped_no_site_dir"
+            apply_row.notes = (
+                f"sites/{row.domain}/ missing — bootstrap or check the "
+                f"directory name before applying"
+            )
+            out.append(apply_row)
+            continue
+
+        if _apply_is_archived(site_dir, row.domain, plan):
+            apply_row.action = "skipped_archived"
+            apply_row.notes = "TOMBSTONE.md or portfolio.json category marks archived"
+            out.append(apply_row)
+            continue
+
+        if (site_dir / LAMILL_TOML_FILENAME).exists():
+            apply_row.action = "skipped_already"
+            apply_row.notes = "lamill.toml already exists; left alone"
+            out.append(apply_row)
+            continue
+
+        # Build the payload + either preview or write.
+        payload = _build_hg_lamill_toml(row)
+        if dry_run:
+            apply_row.action = "would_write"
+            apply_row.notes = (
+                f"would write platform=hostgator account={row.hg_account_id}"
+                + (f" public_html_path={row.install_path}" if row.install_path else "")
+            )
+        else:
+            write(site_dir, payload)
+            apply_row.action = "wrote"
+            apply_row.notes = (
+                f"wrote platform=hostgator account={row.hg_account_id}"
+                + (f" public_html_path={row.install_path}" if row.install_path else "")
+            )
+        out.append(apply_row)
+
+    return out

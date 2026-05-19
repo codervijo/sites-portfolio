@@ -5457,25 +5457,44 @@ def fleet_hosting(
     only_domain: str = typer.Option("", "--only",
                                     help="Single-domain probe; bypasses snapshot cache."),
     provider: str = typer.Option("", "--provider",
-                                 help="Filter rows: vercel | cloudflare-pages | hostgator."),
+                                 help="Filter rows: vercel | cloudflare-pages | cloudflare-workers | hostgator."),
     json_out: bool = typer.Option(False, "--json",
                                   help="Emit JSON instead of the table."),
+    apply_declarations: bool = typer.Option(
+        False, "--apply-declarations",
+        help="Write lamill.toml for HG sites that lack one (HG-only; CF/Vercel already inferable via v10.C migration sweep).",
+    ),
+    apply: bool = typer.Option(
+        False, "--apply",
+        help="With --apply-declarations: actually write the files. Dry-run by default.",
+    ),
 ) -> None:
-    """Unified Vercel + Cloudflare Pages + HostGator hosting view."""
+    """Unified Vercel + Cloudflare Pages + Cloudflare Workers + HostGator hosting view."""
     _fleet_hosting_impl(
         refresh=refresh, only_domain=only_domain,
         provider=provider, json_out=json_out,
+        apply_declarations=apply_declarations, apply=apply,
     )
 
 
 def _fleet_hosting_impl(
     *, refresh: bool, only_domain: str, provider: str, json_out: bool,
+    apply_declarations: bool = False, apply: bool = False,
 ) -> None:
     """Body of `fleet hosting`. Carved out for testability — the Typer
-    command surface is a thin shell over this."""
+    command surface is a thin shell over this.
+
+    Two render modes:
+      - Default — read/walk and render the status table (v11.G/I).
+      - `apply_declarations=True` — branch into v11.J flow: collect HG
+        rows, call `apply_hg_declarations()`, render the migration
+        summary instead of the table. `apply=False` (default) is
+        dry-run; `apply=True` writes the files.
+    """
     from . import hosting_cache
     from .hosting import (
         PROVIDER_HOSTGATOR, PROVIDERS,
+        apply_hg_declarations,
         hosting_footer_summary, hosting_provider_counts,
         hosting_status_emoji, run_hosting,
     )
@@ -5518,6 +5537,15 @@ def _fleet_hosting_impl(
             source = f"fresh walk → {written.name}"
         else:
             source = f"single-domain probe ({only_domain})"
+
+    # `--apply-declarations` branches before any filtering — the
+    # apply path needs HG rows only and uses its own renderer.
+    if apply_declarations:
+        _fleet_hosting_apply_declarations(
+            result=result, dry_run=not apply, json_out=json_out,
+            source=source,
+        )
+        return
 
     # Apply --provider filter after collection so the cache stays
     # full-fidelity for subsequent unfiltered invocations.
@@ -5610,6 +5638,88 @@ def _fleet_hosting_impl(
     # (bug 2026-05-19: missing summary footer).
     console.print(f"[dim]  {hosting_footer_summary(rows, result.skipped)}[/]")
     _print_skipped_footer(result.skipped)
+
+
+def _fleet_hosting_apply_declarations(
+    *, result, dry_run: bool, json_out: bool, source: str,
+) -> None:
+    """v11.J — render the `--apply-declarations` migration summary.
+
+    Calls `hosting.apply_hg_declarations()` with the HG rows from
+    the walker output. Reports per-domain actions:
+      - `would_write` (dry-run) / `wrote` (apply) — the happy paths
+      - `skipped_already` — lamill.toml already exists
+      - `skipped_no_site_dir` — no local `sites/<domain>/` directory
+      - `skipped_archived` — site marked archived
+    """
+    from .hosting import apply_hg_declarations
+
+    apply_rows = apply_hg_declarations(result.rows, dry_run=dry_run)
+
+    if json_out:
+        import json as _json
+        from dataclasses import asdict
+        payload = {
+            "source": source,
+            "dry_run": dry_run,
+            "rows": [asdict(r) for r in apply_rows],
+        }
+        typer.echo(_json.dumps(payload, indent=2))
+        return
+
+    console.print(f"[dim]Source: {source}[/]")
+    mode = "[yellow]dry-run[/]" if dry_run else "[green]apply[/]"
+    console.print(f"[bold]--apply-declarations[/] ({mode})\n")
+
+    if not apply_rows:
+        console.print(
+            "[dim]No HG rows in the walker output — nothing to apply. "
+            "(Are your HG tokens / users set in portfolio.env?)[/]"
+        )
+        return
+
+    # Group + render by action, most-actionable-first.
+    by_action: dict[str, list] = {}
+    for r in apply_rows:
+        by_action.setdefault(r.action, []).append(r)
+
+    action_order = [
+        ("would_write", "[green]Would write[/]"),
+        ("wrote", "[green]Wrote[/]"),
+        ("skipped_no_site_dir", "[cyan]Skipped — no local sites/<domain>/[/]"),
+        ("skipped_already", "[dim]Skipped — lamill.toml already exists[/]"),
+        ("skipped_archived", "[dim]Skipped — archived[/]"),
+    ]
+
+    for action, header in action_order:
+        action_rows = by_action.get(action, [])
+        if not action_rows:
+            continue
+        console.print(f"\n{header}: {len(action_rows)}")
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("domain", style="bold", no_wrap=True)
+        table.add_column("account", style="dim", no_wrap=True)
+        table.add_column("notes")
+        for r in action_rows:
+            table.add_row(r.domain, r.hg_account_id, r.notes or "")
+        console.print(table)
+
+    # Footer summary + next-step hint.
+    n_would = len(by_action.get("would_write", []))
+    n_wrote = len(by_action.get("wrote", []))
+    n_skipped = sum(
+        len(by_action.get(k, []))
+        for k in ("skipped_no_site_dir", "skipped_already", "skipped_archived")
+    )
+    console.print(
+        f"\n[dim]{len(apply_rows)} HG rows · "
+        f"{n_would} would-write · {n_wrote} wrote · "
+        f"{n_skipped} skipped[/]"
+    )
+    if dry_run and n_would:
+        console.print(
+            "  [dim]Re-run with [bold]--apply[/bold] to actually write the files.[/]"
+        )
 
 
 def _print_skipped_footer(skipped: dict[str, str]) -> None:

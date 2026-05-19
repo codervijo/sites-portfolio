@@ -217,6 +217,140 @@ synthesized row).
 
 ---
 
+### 2026-05-19 — HG walker `install_path` empty for every row despite addon-domain doc-roots existing
+
+**Repro**
+    lamill fleet hosting --refresh
+    # Operator has 10 HG rows; all show disk usage in HG-extra column
+    # but no install_path appended.
+
+**Expected**
+For addon domains, the walker's `_hg_list_domains` should extract
+the `documentroot` field from each entry and pass it as
+`install_path` to the HostingRow. v11.D/E/I rendering changes
+already added `install_path` to the HG-extra display.
+
+**Actual**
+HG rows render `disk 4959MB` but no install_path. Walker's
+extraction returns `None` for every addon entry.
+
+**Where (guess)**
+`src/portfolio/hosting.py:_hg_list_domains` reads
+`entry.get("documentroot")`. Same lesson as the `megabytes_used`
+fix from 2026-05-19 — the cPanel field name is likely
+`document_root` (with underscore) or `path`. Real cPanel response
+shape needs to be checked via curl on
+`/execute/DomainInfo/list_domains`. Once the right field name is
+confirmed, walker reads both (preferred name first, legacy fallback).
+
+**Severity**
+minor — table renders correctly otherwise; install_path is a nice
+addition to operator visibility. Fix is one-line once the field
+name is confirmed.
+
+**Notes**
+Diagnostic curl:
+
+```bash
+ACCOUNT="gator3164"
+USER=$(grep "^HOSTGATOR_USER_GATOR3164=" portfolio.env | cut -d= -f2-)
+TOKEN=$(grep "^HOSTGATOR_TOKEN_GATOR3164=" portfolio.env | cut -d= -f2-)
+curl -s -H "Authorization: cpanel ${USER}:${TOKEN}" \
+  "https://${ACCOUNT}.hostgator.com:2083/execute/DomainInfo/list_domains" \
+  | python3 -m json.tool | head -40
+```
+
+---
+
+### 2026-05-19 — HG-extra `disk N MB` is account-level total, looks per-domain
+
+**Repro**
+    lamill fleet hosting --refresh
+    # Every row from gator4216 shows `disk 4959MB`.
+    # Every row from gator3164 shows `disk 500MB`.
+
+**Expected**
+Either rename the field to make it clear it's the ACCOUNT total
+(e.g., `acct disk 4959MB`), or move the disk info to a footer
+note ("HG account gator4216: 4959/N MB used") so it's not
+duplicated per row, or actually fetch per-domain disk usage if
+cPanel exposes that.
+
+**Actual**
+Every HG row shows the same disk number for sites on the same
+account. Operator reading the table sees "every site uses 4959MB"
+which is misleading — it's the SHARED account quota.
+
+**Where (guess)**
+`Quota/get_quota_info` is account-scoped (no per-domain breakdown
+in standard cPanel). Per-domain disk usage would need
+`Fileman/list_files --include-size` or similar — heavier query,
+arguably out of scope for v11.
+
+**Severity**
+cosmetic — data is correct, presentation is misleading. Two paths
+to resolve:
+1. Rename column or per-row text: `disk(acct) 4959MB` or move
+   into the renderer as `acct=gator4216 disk=4959MB`.
+2. Move disk usage to a footer block: "HG accounts: gator3164
+   500MB used, gator4216 4959MB used."
+
+Option 2 is cleaner — drops per-row duplication. Folds into
+v11.I-followup or a separate polish commit.
+
+---
+
+### 2026-05-19 — HG walker reports no `wp_version` for any row (WP detection blind)
+
+**Repro**
+    lamill fleet hosting --refresh
+    # 10 HG rows; none show `WP <version>` in HG-extra column.
+
+**Expected**
+For WordPress installs on the HG fleet (operator's known
+WP-on-HG sites are `hybridautopart.com` + `streamsgalaxy.com`),
+v11.D should report `WP <version>` in HG-extra.
+
+**Actual**
+No WP version surfaces. `wp_version` is `None` on every HG row.
+
+**Where (guess)**
+`src/portfolio/hosting.py:_hg_list_wp_installs` calls
+`WordPressManager/list_installations`. Walker is 404-tolerant — if
+the module isn't available (older cPanel, no Softaculous/WP Manager
+addon), the function returns `{}` silently. Three possible causes:
+
+1. WordPressManager UAPI module isn't installed on operator's
+   cPanel builds — walker correctly reports nothing.
+2. Module is available but returns a different response shape
+   than the walker expects (look for `installations` array vs
+   top-level array, vs `installation_path` vs `path` field).
+3. The doc_root match between `WordPressManager` response and
+   `DomainInfo` response is failing (different path formats).
+
+**Severity**
+minor — table renders correctly; WP version is a nice-to-have
+operator signal. Could fix with a different detection path —
+e.g., scan `<doc_root>/wp-includes/version.php` via
+`Fileman/list_files` or `Fileman/get_file_information`.
+
+**Notes**
+Diagnostic curl:
+
+```bash
+ACCOUNT="gator3164"
+USER=$(grep "^HOSTGATOR_USER_GATOR3164=" portfolio.env | cut -d= -f2-)
+TOKEN=$(grep "^HOSTGATOR_TOKEN_GATOR3164=" portfolio.env | cut -d= -f2-)
+curl -s -H "Authorization: cpanel ${USER}:${TOKEN}" \
+  "https://${ACCOUNT}.hostgator.com:2083/execute/WordPressManager/list_installations" \
+  | python3 -m json.tool | head -40
+```
+
+If returns 404 → option 3 (alt detection path). If returns JSON
+with installations → option 2 (field-name mismatch, fix walker).
+
+---
+
 ### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
 
 **Repro**
