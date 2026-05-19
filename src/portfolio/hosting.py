@@ -1061,9 +1061,16 @@ def _hg_get_disk_used_mb(
     if body is None:
         return None
     data = body.get("data") or {}
-    # cPanel reports disk_used in MB. Some versions ship the field as
-    # a string; coerce to int.
-    raw = data.get("disk_used")
+    # cPanel returns disk usage under different keys depending on the
+    # cPanel version. Real-fleet hand test 2026-05-19 showed
+    # `megabytes_used` for the operator's HG accounts. Legacy
+    # `disk_used` (also common) is accepted as a fallback. Some
+    # versions ship the value as a string; coerce to int.
+    raw = (
+        data.get("megabytes_used")
+        if data.get("megabytes_used") is not None
+        else data.get("disk_used")
+    )
     if raw is None:
         return None
     try:
@@ -1229,27 +1236,34 @@ class HostingResult:
 
 
 def _flag_provider_conflicts(rows: list[HostingRow]) -> None:
-    """Per resolution 11.F: when the same fleet domain shows up under
-    multiple providers (e.g. apex on CF Pages + an addon-domain entry
-    on HostGator), flag every affected row with
-    `provider_conflict=True`. Mutates `rows` in place — caller has
-    already collected the cross-walker result list.
+    """Resolution 11.F (expanded 2026-05-19): when the same fleet
+    domain shows up in two or more walker rows — regardless of whether
+    the duplication is across providers or within one — flag every
+    affected row with `provider_conflict=True`.
 
-    Conflict semantics: rows ARE emitted per-provider (two-row drift
-    surface, not collapsed). The flag just lets the renderer highlight
-    the conflict without changing the row count.
+    The original implementation only fired on cross-PROVIDER duplicates
+    (apex on CF Pages + an addon entry on HostGator). Real-fleet hand
+    test 2026-05-19 surfaced a within-provider case the operator wants
+    to see too: `hybridautopart.com` registered as an addon on both
+    HG accounts `gator3164` and `gator4216`. Both rows carry
+    `provider="hostgator"` so the size-of-providers-set check missed
+    them. New rule — flag when there are ≥2 rows for the same domain,
+    however arranged.
+
+    Conflict semantics: rows ARE emitted per-walker (multi-row drift
+    surface, not collapsed). The flag tells the renderer to mark
+    them with 🤐 in the status column without changing the row count.
+    Rows with `provider=None` (unowned) don't trigger conflicts on
+    their own but DO get flagged if they share a domain with any
+    walked row.
     """
-    providers_by_domain: dict[str, set[str]] = {}
+    rows_by_domain: dict[str, list[HostingRow]] = {}
     for r in rows:
-        if r.provider is None:
-            continue
-        providers_by_domain.setdefault(r.domain, set()).add(r.provider)
-    conflicting = {d for d, ps in providers_by_domain.items() if len(ps) > 1}
-    if not conflicting:
-        return
-    for r in rows:
-        if r.domain in conflicting:
-            r.provider_conflict = True
+        rows_by_domain.setdefault(r.domain, []).append(r)
+    for group in rows_by_domain.values():
+        if len(group) > 1:
+            for r in group:
+                r.provider_conflict = True
 
 
 def _hg_account_ids_from_apikeys() -> list[str]:

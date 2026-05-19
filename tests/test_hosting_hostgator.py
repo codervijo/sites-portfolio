@@ -377,6 +377,34 @@ def test_walk_hostgator_uses_cpanel_auth_header():
     assert client.calls[0]["headers"]["Authorization"] == "cpanel gator3164:hg-token-abc"
 
 
+def test_walk_hostgator_parses_megabytes_used_from_real_cpanel_response():
+    """Real-fleet hand test 2026-05-19 — cPanel returns disk usage
+    under `megabytes_used` (not `disk_used` as I'd assumed). Walker
+    must accept either field name so existing fixtures keep working
+    AND the real-API shape parses correctly."""
+    client = _FakeClient({
+        "DomainInfo/list_domains": {"status": 200, "body": _uapi_ok({
+            "main_domain": "hybridautopart.com",
+            "addon_domains": [], "parked_domains": [], "sub_domains": [],
+        })},
+        # cPanel's real key name — surfaced by the operator's curl.
+        "Quota/get_quota_info": {"status": 200, "body": _uapi_ok({
+            "megabytes_used": "1430.5", "megabyte_limit": "102400",
+            "under_quota": True,
+        })},
+        "WordPressManager/list_installations": {
+            "status": 200, "body": _uapi_ok([]),
+        },
+    })
+    rows = walk_hostgator(
+        "hg-token", "gator3164",
+        fleet_domains={"hybridautopart.com"}, client=client,
+    )
+    assert len(rows) == 1
+    # Float-shaped string parses cleanly.
+    assert rows[0].disk_used_mb == 1430
+
+
 def test_walk_hostgator_cpanel_user_override_changes_auth_header():
     """v11.A patch 2026-05-19 — operator's cPanel username can differ
     from the server hostname slug. When `cpanel_user=` is passed, the

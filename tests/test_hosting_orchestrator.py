@@ -43,24 +43,40 @@ def test_flag_provider_conflicts_marks_cross_provider_drift():
     assert rows[2].provider_conflict is False
 
 
-def test_flag_provider_conflicts_ignores_provider_none_rows():
-    """Rows with provider=None (unowned domain) don't trigger conflict
-    flagging even if there's another row for the same name."""
+def test_flag_provider_conflicts_flags_when_unowned_shares_domain_with_walked_row():
+    """Updated 2026-05-19 — flag fires when ≥2 rows share a domain,
+    regardless of provider identity. Includes provider=None rows."""
     rows = [
         HostingRow(domain="x.com", provider=None),
         HostingRow(domain="x.com", provider=PROVIDER_VERCEL),
     ]
     _flag_provider_conflicts(rows)
-    # Only one ACTUAL provider — not a conflict.
-    assert all(not r.provider_conflict for r in rows)
+    assert all(r.provider_conflict for r in rows)
 
 
-def test_flag_provider_conflicts_same_provider_repeated_not_a_conflict():
-    """Two Vercel rows for the same domain (shouldn't happen in practice,
-    but defensive) aren't a cross-provider conflict."""
+def test_flag_provider_conflicts_flags_same_provider_duplicate():
+    """v11.D hand test 2026-05-19 — `hybridautopart.com` showed up
+    as an addon on both gator3164 AND gator4216 (one site, two
+    HG accounts). Both rows carry `provider="hostgator"`, so the
+    original cross-provider check missed them. Updated rule flags
+    any duplicate domain — same-provider counts."""
     rows = [
-        HostingRow(domain="x.com", provider=PROVIDER_VERCEL),
-        HostingRow(domain="x.com", provider=PROVIDER_VERCEL),
+        HostingRow(domain="hybridautopart.com", provider=PROVIDER_HOSTGATOR,
+                   hg_account_id="gator3164"),
+        HostingRow(domain="hybridautopart.com", provider=PROVIDER_HOSTGATOR,
+                   hg_account_id="gator4216"),
+    ]
+    _flag_provider_conflicts(rows)
+    assert all(r.provider_conflict for r in rows)
+
+
+def test_flag_provider_conflicts_no_op_when_each_domain_unique():
+    """Negative — single row per domain → no flag set."""
+    rows = [
+        HostingRow(domain="a.com", provider=PROVIDER_VERCEL),
+        HostingRow(domain="b.com", provider=PROVIDER_CF_PAGES),
+        HostingRow(domain="c.com", provider=PROVIDER_HOSTGATOR,
+                   hg_account_id="gator3164"),
     ]
     _flag_provider_conflicts(rows)
     assert all(not r.provider_conflict for r in rows)

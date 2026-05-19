@@ -5592,6 +5592,15 @@ def _fleet_hosting_impl(
                     parts.append(f"disk {r.disk_used_mb}MB")
                 if r.wp_version:
                     parts.append(f"WP {r.wp_version}")
+                if r.install_path:
+                    # Truncate long doc-roots so they don't blow up
+                    # the column width. `…<last 28 chars>` keeps the
+                    # tail (which contains the domain segment of the
+                    # path — the operator-relevant bit).
+                    p = r.install_path
+                    if len(p) > 30:
+                        p = "…" + p[-29:]
+                    parts.append(p)
                 hg_extra = " · ".join(parts)
             row_cells.append(hg_extra)
         table.add_row(*row_cells)
