@@ -972,3 +972,168 @@ def walk_hostgator(
             client.close()
 
     return rows
+
+
+# ---- Orchestrator (v11.E) ------------------------------------------
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+@dataclass
+class HostingResult:
+    """Output of `run_hosting()`. Carries the row list plus per-provider
+    skip annotations so the renderer can footer "<provider> skipped:
+    <reason>" (resolution 11.H — cleaner than rendering N empty rows
+    from an auth-failed walker)."""
+
+    rows: list[HostingRow] = field(default_factory=list)
+    skipped: dict[str, str] = field(default_factory=dict)
+
+
+def _flag_provider_conflicts(rows: list[HostingRow]) -> None:
+    """Per resolution 11.F: when the same fleet domain shows up under
+    multiple providers (e.g. apex on CF Pages + an addon-domain entry
+    on HostGator), flag every affected row with
+    `provider_conflict=True`. Mutates `rows` in place — caller has
+    already collected the cross-walker result list.
+
+    Conflict semantics: rows ARE emitted per-provider (two-row drift
+    surface, not collapsed). The flag just lets the renderer highlight
+    the conflict without changing the row count.
+    """
+    providers_by_domain: dict[str, set[str]] = {}
+    for r in rows:
+        if r.provider is None:
+            continue
+        providers_by_domain.setdefault(r.domain, set()).add(r.provider)
+    conflicting = {d for d, ps in providers_by_domain.items() if len(ps) > 1}
+    if not conflicting:
+        return
+    for r in rows:
+        if r.domain in conflicting:
+            r.provider_conflict = True
+
+
+def _hg_account_ids_from_apikeys() -> list[str]:
+    """Enumerate every `HOSTGATOR_TOKEN_<ACCOUNT_ID>` env var that's
+    actually set, return the lowercased account IDs. Drives the
+    orchestrator's per-account HG walker fan-out — picks up
+    automatically when the operator adds a third HG account via
+    `lamill settings apikeys set HOSTGATOR_TOKEN_GATOR<NNNN> <token>`.
+    """
+    # Local import — orchestrator is the first hosting-module caller
+    # that needs apikeys lookup, and pulling it at module top would
+    # circular-import on the apikeys side (which depends on .suggest).
+    from . import apikeys
+
+    out: list[str] = []
+    for keyname in apikeys.KNOWN_KEYS:
+        if not keyname.startswith(apikeys.HOSTGATOR_TOKEN_PREFIX):
+            continue
+        if not apikeys.get_key(keyname):
+            continue
+        account_id = apikeys._hg_account_from_keyname(keyname)
+        if account_id:
+            out.append(account_id)
+    return out
+
+
+def run_hosting(
+    fleet_domains: set[str],
+    *,
+    only_domain: str | None = None,
+) -> HostingResult:
+    """Walk every configured hosting provider in parallel; collect
+    rows for matched fleet domains.
+
+    Reads tokens from `apikeys.get_key` (the `portfolio.env` file):
+      - `VERCEL_TOKEN` → Vercel walker
+      - `CF_API_TOKEN` + `CF_ACCOUNT_ID` → Cloudflare Pages walker
+      - `HOSTGATOR_TOKEN_GATOR<NNNN>` → one HG walker task per
+        configured account
+
+    Auth failures (missing token, 401) are RECORDED — not raised —
+    so a misconfigured single provider doesn't crash the whole
+    `fleet hosting` invocation. The other walkers still run; their
+    rows still come back; the renderer footers the skipped ones.
+
+    Provider-conflict flagging (resolution 11.F) runs after all
+    walkers complete: any domain matched by multiple providers
+    gets `provider_conflict=True` on every row that bears it.
+
+    `only_domain` short-circuits emission to one fleet domain;
+    walkers still walk all projects per-provider since none of them
+    have domain-keyed lookups.
+    """
+    from . import apikeys
+
+    result = HostingResult()
+
+    vercel_token = apikeys.get_key("VERCEL_TOKEN") or ""
+    cf_token = apikeys.get_key("CF_API_TOKEN") or ""
+    cf_account = apikeys.get_key("CF_ACCOUNT_ID") or ""
+    hg_accounts = _hg_account_ids_from_apikeys()
+
+    # Build the task plan — one future per provider walker, plus one
+    # per HG account. Skip-on-missing pre-checked so the
+    # `WalkError` exit path stays for unrecoverable mid-walk failures.
+    tasks: list[tuple[str, callable]] = []
+    if vercel_token:
+        tasks.append((
+            "vercel",
+            lambda: walk_vercel(vercel_token, fleet_domains, only_domain=only_domain),
+        ))
+    else:
+        result.skipped["vercel"] = "VERCEL_TOKEN not set"
+
+    if cf_token and cf_account:
+        tasks.append((
+            "cloudflare-pages",
+            lambda: walk_cf_pages(
+                cf_token, cf_account, fleet_domains, only_domain=only_domain,
+            ),
+        ))
+    else:
+        missing: list[str] = []
+        if not cf_token:
+            missing.append("CF_API_TOKEN")
+        if not cf_account:
+            missing.append("CF_ACCOUNT_ID")
+        result.skipped["cloudflare-pages"] = f"{' + '.join(missing)} not set"
+
+    if hg_accounts:
+        for account_id in hg_accounts:
+            # `account_id=account_id` in lambda binds the loop var by
+            # value — otherwise every task would capture the last one.
+            hg_token = apikeys.get_key(
+                f"{apikeys.HOSTGATOR_TOKEN_PREFIX}{account_id.upper()}"
+            ) or ""
+            tasks.append((
+                f"hostgator:{account_id}",
+                lambda token=hg_token, acct=account_id: walk_hostgator(
+                    token, acct, fleet_domains, only_domain=only_domain,
+                ),
+            ))
+    else:
+        result.skipped["hostgator"] = "no HOSTGATOR_TOKEN_<account> set"
+
+    if not tasks:
+        return result
+
+    max_workers = max(1, len(tasks))
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        future_to_label = {ex.submit(fn): label for label, fn in tasks}
+        for future in as_completed(future_to_label):
+            label = future_to_label[future]
+            try:
+                rows = future.result()
+            except (VercelAuthError, CFPagesAuthError, HostGatorAuthError) as e:
+                result.skipped[label] = f"auth — {e}"
+                continue
+            except (VercelWalkError, CFPagesWalkError, HostGatorWalkError) as e:
+                result.skipped[label] = f"walker — {e}"
+                continue
+            result.rows.extend(rows)
+
+    _flag_provider_conflicts(result.rows)
+    return result
