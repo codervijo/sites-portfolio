@@ -932,9 +932,11 @@ Module API documented in §4 Schemas → `LamillToml` above.
 - `c9d543b` atomic `write()` + round-trip determinism
 - `be10787` `infer_from_existing_configs()` + `detect_platform_signals()`
 
-When v10.D ships, the v10 Design notes move to
-`docs/shipping-history.md` and these slices land as a single
-`## v10.A · ... — shipped 2026-05-18` entry there.
+When the full v10 tier wraps (after v10.G ships), the tier's
+Design notes block in `prd.md` moves to `docs/shipping-history.md`
+and these slices land there as per-phase entries. Per-phase notes
+stay inline above for now — v10.F and v10.G are still planned, so
+the tier-level design context remains load-bearing in `prd.md`.
 
 ### v10.B — operator CLI surfaces ✅ (shipped 2026-05-18)
 
@@ -960,7 +962,8 @@ the `project` namespace is reserved for project-code ops
 (`check`/`fix`/`seo`/`diagnose`).
 
 Full design notes stay in `prd.md § 6 → v10 → Design notes` until
-v10.D ships and the whole tier moves to `shipping-history.md`.
+the full v10 tier wraps (post-v10.G) and the whole tier moves to
+`shipping-history.md`.
 
 ### v10.C — auto-write integration ✅ (shipped 2026-05-18)
 
@@ -1000,32 +1003,59 @@ Two slices delivered the auto-write half of `lamill.toml`:
   `render_migration_summary()` groups output by classification
   with footer counts.
 
-v10.D (validation phase) runs this against the actual fleet
-next; design notes stay in `prd.md` until v10.D ships and the
-whole tier moves to `shipping-history.md`.
+v10.D ran this against the actual fleet on 2026-05-18 — 22 of 23
+sites carry a `lamill.toml`; v10.E checks (above) now read those
+declarations. Design notes stay in `prd.md` until the full v10
+tier wraps (post-v10.G) and migrates to `shipping-history.md`.
 
-### v10.D — validation phase (planned)
+### v10.D — validation phase ✅ (shipped 2026-05-18)
 
-~2-3h. Real-fleet rollout. Operator-driven, not code-heavy:
+Real-fleet rollout. Operator-driven, not code-heavy:
 
-- Run `lamill fleet repos --add-deploy-declarations --dry-run`
-  against the actual 22-ish-domain fleet.
-- Review the plan; resolve any v10.A/B/C bugs that surface (real
-  config files in the wild often have edge cases the test fixtures
-  don't cover).
-- `--apply` the unambiguous cases.
-- For each ambiguous / manual-entry case, run `lamill project
-  set-deploy <name> <platform>` interactively.
-- Each sibling `sites/<domain>/` repo gets a `lamill.toml`
-  committed in (each repo's own commit, not bundled into
-  `sites/portfolio`).
-- End state: every applicable sibling repo carries a valid
-  `lamill.toml`; v10.E (drift detection) can now read declarations.
+- Ran `lamill fleet repos --add-deploy-declarations --dry-run`
+  against the actual fleet; reviewed plan; resolved edge cases
+  via `lamill settings project set-deploy` interactively.
+- 22 of 23 fleet sites now carry a `lamill.toml`. 17 of 22
+  committed in own-git-repos; 5 NO_GIT sites have the file in
+  working tree pending v6.F (own-git-repo guided migration).
+- See `docs/handoff.md` § v10.D scoreboard for the per-bucket
+  breakdown.
 
-Validation phase exit criterion: every sibling repo classified as
-`live-site` or `forwarder` in the latest `data/checks/<date>.json`
-has a committed `lamill.toml`. Archived / parked / dead sites
-skipped per the migration's archived-detection rules.
+### v10.E — drift detection + `lamill.toml` conformance ✅ (shipped 2026-05-18)
+
+Three deploy-category checks closed the v10.A-E loop:
+
+- *`CHECK_058 has-lamill-toml`* (severity: error). Fails when
+  `<repo>/lamill.toml` is missing. Skip on archived / tombstoned.
+  The 5 NO_GIT sibling repos baseline-fail this until v6.F runs —
+  known and accepted (see `docs/handoff.md`).
+- *`CHECK_059 lamill-toml-valid`* (severity: error). Round-trips
+  the file through `lamill_toml.load()`; surfaces TOML syntax
+  errors, missing `[deploy]`, unknown enum values, missing
+  `[hosting]` when platform requires it. Warn-skip when file
+  missing (CHECK_058 owns presence).
+- *`CHECK_143 deploy-drift`* (severity: warn). Compares declared
+  platform against best-effort classification of the latest
+  `data/checks/<date>.json` row. Classification heuristic:
+  WordPress generator-meta / `<title>WordPress*` /
+  `/wp-(includes|content|admin)/` URL paths → `hostgator`;
+  provider-suffix hostnames in `final_url` or `redirect_chain`
+  (`*.vercel.app` → `vercel`, `*.pages.dev` → `cf-pages`,
+  `*.netlify.app` → `netlify`, `*.workers.dev` → `cf-workers`).
+  Honest about uncertainty — `warn`s when no strong signal,
+  only `fail`s when declared ≠ classified-actual. Canonical
+  drift case `iotnews.today` (declared=vercel, classified=
+  hostgator via WP installer title) → fail. Site fingerprint
+  pattern catches the WP `<title>WordPress &rsaquo; Error</title>`
+  the install-incomplete server returns before any generator
+  meta is emitted.
+
+26 new tests (3 + 7 + 16). Suite at 1827 passed / 1 skipped.
+
+The classifier is inlined in `check_143_deploy_drift.py` rather
+than extracted — single call site, no current need for reuse.
+If v11.A's hosting walker needs a similar cross-check, extract
+then.
 
 ### v11.A — `fleet hosting` — fleet-wide Vercel/CF deploy state
 
