@@ -319,17 +319,22 @@ def test_walk_cf_pages_unmatched_project_dropped():
     assert rows == []
 
 
-def test_walk_cf_pages_paginates_until_total_pages():
+def test_walk_cf_pages_single_shot_no_pagination_params():
+    """CF Pages's `/projects` endpoint rejects `?page=N&per_page=N`
+    with API error 8000024 (resolution forced by the 2026-05-19 hand
+    test against operator's real CF account). Walker must NOT send
+    those params — single-shot fetch returns all projects.
+
+    All projects from one call → emit rows for every fleet match.
+    """
     client = _FakeClient([
         {"status": 200, "body": _cf_envelope([
             _cf_project(name="airsucks", domains=["airsucks.com"]),
-        ], total_pages=2)},
+            _cf_project(name="calcengine", domains=["calcengine.site"]),
+        ])},
         {"status": 200, "body": _cf_envelope([
             _cf_deploy(stage_name="deploy", stage_status="success"),
         ])},
-        {"status": 200, "body": _cf_envelope([
-            _cf_project(name="calcengine", domains=["calcengine.site"]),
-        ], total_pages=2)},
         {"status": 200, "body": _cf_envelope([
             _cf_deploy(stage_name="deploy", stage_status="success"),
         ])},
@@ -340,8 +345,11 @@ def test_walk_cf_pages_paginates_until_total_pages():
         client=client,
     )
     assert {r.domain for r in rows} == {"airsucks.com", "calcengine.site"}
-    # Second projects-list call used page=2.
-    assert client.calls[2]["params"]["page"] == 2
+    # First (projects-list) call carries NO pagination params.
+    projects_call = client.calls[0]
+    params = projects_call.get("params") or {}
+    assert "page" not in params, f"unexpected `page` param: {params}"
+    assert "per_page" not in params, f"unexpected `per_page` param: {params}"
 
 
 def test_walk_cf_pages_only_domain_filter():

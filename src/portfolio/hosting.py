@@ -524,21 +524,25 @@ def _classify_cf_deploys(deployments: list[dict]) -> tuple[str | None, str | Non
 
 
 def _list_cf_projects(
-    client: httpx.Client, token: str, account_id: str, *, page: int = 1
+    client: httpx.Client, token: str, account_id: str
 ) -> dict:
-    """One page of `/accounts/{account_id}/pages/projects`. Returns the
-    `result` array unwrapped from the CF envelope, plus pagination
-    metadata via the caller checking `len(result) < per_page`.
+    """Fetch `/accounts/{account_id}/pages/projects`. Returns the parsed
+    CF envelope dict (`{success, errors, messages, result, result_info}`).
 
-    CF's response envelope is `{success, errors, messages, result, result_info}`.
-    We raise on the same conditions as the Vercel equivalent — 401
-    becomes auth-error; 5xx / non-JSON / envelope-success=false becomes
-    walk-error.
+    CF Pages's projects-list endpoint returns ALL projects in a single
+    response — the `?page=N&per_page=N` params that work on the
+    Search Analytics / Zone listings are rejected here with API error
+    `8000024 "Invalid list options provided"`. Personal-portfolio-scale
+    fleets fit in one response; v11.C accepts that for now. If a future
+    operator hits the implicit list cap, we'll add cursor pagination
+    then.
+
+    Raises CFPagesAuthError on 401; CFPagesWalkError on 5xx / non-JSON
+    / envelope success=false.
     """
     url = f"{CF_API_BASE}/accounts/{account_id}/pages/projects"
-    params = {"page": page, "per_page": 25}
     try:
-        r = client.get(url, headers=_cf_headers(token), params=params)
+        r = client.get(url, headers=_cf_headers(token))
     except httpx.HTTPError as e:
         raise CFPagesWalkError(
             f"projects list network error: {type(e).__name__}: {e}"
@@ -641,9 +645,6 @@ def _walk_cf_project(
         )
 
 
-_CF_MAX_PAGES = 50
-
-
 def walk_cf_pages(
     token: str,
     account_id: str,
@@ -656,9 +657,14 @@ def walk_cf_pages(
     per matched fleet domain.
 
     Same contract as `walk_vercel`. Raises `CFPagesAuthError` on 401 /
-    empty inputs (orchestrator skips); `CFPagesWalkError` on
-    unrecoverable pagination failures. Per-project deploy failures
-    record on the row's `error` field.
+    empty inputs (orchestrator skips); `CFPagesWalkError` on 5xx /
+    envelope-success-false. Per-project deploy failures record on the
+    row's `error` field.
+
+    Single-shot — CF Pages's projects-list endpoint returns all
+    projects in one response. If a future operator hits an implicit
+    list cap (unlikely for personal-portfolio scale), revisit and
+    add cursor pagination.
     """
     if not token:
         raise CFPagesAuthError("CF_API_TOKEN not set")
@@ -674,33 +680,22 @@ def walk_cf_pages(
     seen_projects: set[str] = set()
 
     try:
-        for page in range(1, _CF_MAX_PAGES + 1):
-            body = _list_cf_projects(client, token, account_id, page=page)
-            projects = body.get("result") or []
-            if not isinstance(projects, list):
-                break
-            for project in projects:
-                if not isinstance(project, dict):
-                    continue
-                slug = project.get("name") or ""
-                if slug in seen_projects:
-                    continue
-                if slug:
-                    seen_projects.add(slug)
-                _walk_cf_project(
-                    project, client, token, account_id,
-                    fleet_domains, only_normalized, rows,
-                )
-            # Pagination: trust `result_info.total_pages` when present.
-            # Fall back to short-page heuristic only if CF doesn't ship
-            # that metadata (defensive — older API versions did omit it).
-            result_info = body.get("result_info") or {}
-            total_pages = result_info.get("total_pages") if isinstance(result_info, dict) else None
-            if isinstance(total_pages, int):
-                if page >= total_pages:
-                    break
-            elif len(projects) < 25:
-                break
+        body = _list_cf_projects(client, token, account_id)
+        projects = body.get("result") or []
+        if not isinstance(projects, list):
+            return rows
+        for project in projects:
+            if not isinstance(project, dict):
+                continue
+            slug = project.get("name") or ""
+            if slug in seen_projects:
+                continue
+            if slug:
+                seen_projects.add(slug)
+            _walk_cf_project(
+                project, client, token, account_id,
+                fleet_domains, only_normalized, rows,
+            )
     finally:
         if own_client:
             client.close()
