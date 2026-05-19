@@ -153,7 +153,7 @@ by the migration sweep. Fix is ~15 min: in `set_deploy()`, when
 
 ---
 
-### 2026-05-19 — `fleet hosting` walkers miss ~9 fleet sites declared as `vercel` / `cf-*`
+### 2026-05-19 — `fleet hosting` walkers miss ~9 fleet sites declared as `vercel` / `cf-*` *(diagnosed: data-quality, not walker bug — partial wontfix)*
 
 **Repro**
     lamill fleet hosting --refresh
@@ -168,55 +168,52 @@ the 2 HG ones currently skipped on the 403 issue).
 Only 11 rows came back (6 `cloudflare-workers` + 5 `vercel`).
 Missing: `agesdk.dev`, `calcengine.site`, `homeloom.app`,
 `iotbastion.com`, `iotnews.today`, `lamill.io`, `linkedcsi.live`,
-`thoralox.com`, `whizgraphs.com` — ~9 sites the operator declared
-as `vercel` (or `cf-pages`/`cf-workers` via wrangler config) in
-v10.D but that don't appear in the table.
+`thoralox.com`, `whizgraphs.com`.
 
-**Where (guess)**
-Most likely culprits:
+**Diagnosis (2026-05-19, via direct Vercel API query)**
 
-1. **Vercel walker matches via `targets.production.alias`** only.
-   Sites where the custom domain is configured via DNS-only (CNAME
-   to the project's `*.vercel.app` but not added as a project alias)
-   won't match. Operator commonly adds DNS first and forgets the
-   Vercel project's custom-domain pane. Walker should also pull
-   from `/v9/projects/{id}/domains` as a fallback.
-2. **Vercel pagination** — walker uses 20-per-page with
-   `pagination.next` cursor. If operator has > 20 projects, the
-   first page returns 20 + cursor; we paginate but the cursor
-   semantics differ between Vercel API versions. Worth verifying
-   against the operator's actual project count via
-   `curl /v9/projects?limit=1` and reading `pagination.total`.
-3. **Vercel-declared-but-actually-elsewhere** — `iotnews.today`
-   declared `vercel` but CHECK_143 caught it serving WordPress
-   from HG account 2 (the canonical drift case). Same diagnosis
-   may apply to others on the missing list — declarations may be
-   stale. Walker would correctly return 0 rows for those because
-   the Vercel project literally doesn't exist.
+Dumped `GET /v9/projects?limit=100` against operator's Vercel
+account (22 projects total). The 9 missing fleet sites split
+into three categories:
+
+| Category | Sites | Cause | Operator fix |
+|---|---|---|---|
+| **A. No Vercel project exists** | agesdk.dev · iotbastion.com · iotnews.today · lamill.io · thoralox.com · whizgraphs.com | Site declared `vercel` in `lamill.toml` but no project is registered in operator's Vercel account. iotnews.today is the canonical CHECK_143 drift case (declared vercel, actually serving WP on HG). The others are likely stale decls or sites never deployed to Vercel. | Either deploy the site to Vercel (then it'll surface), or fix the declaration via `lamill settings project set-deploy <name> <correct-platform>`. |
+| **B. Vercel project exists but custom domain not attached** | calcengine.site (project `calcengine-site` exists, `alias` = only `*.vercel.app` URLs) · linkedcsi.live (project `linkedcsi` exists, `alias` = only `linkedcsi.vercel.app`) | Project deployed to Vercel; custom domain CNAME'd via DNS but never bound at the Vercel project level via the dashboard's Domains pane. Vercel only populates `targets.production.alias` for project-bound domains. | Attach the custom domain in the Vercel dashboard (Project → Settings → Domains → Add) for each. |
+| **C. Project name mismatch** | homeloom.app (declared, but only `homeloop-app` exists in Vercel — typo? renamed?) | The Vercel project was either renamed, deleted, or has a different name than the operator's declaration assumes. | Confirm whether `homeloop-app` is the same project and rename in Vercel, OR fix the local declaration. |
+
+**Where**
+Not a walker bug — `walk_vercel` correctly reads
+`targets.production.alias`. The data reflects reality:
+operator has 6 sites with no Vercel project; 2 with project but
+no domain binding; 1 likely typo. The walker faithfully reports
+what Vercel says.
 
 **Severity**
-major — v11's core value prop is "see your whole fleet at a glance"
-and we're showing ~55% of it.
+~~major~~ → **minor (mostly wontfix)** — walker is doing the
+right thing. The hand-test "missing rows" is operator-side data
+cleanup, not a tool defect. Two small walker enhancements would
+help marginally:
+
+1. *(optional)* Add `/v9/projects/{id}/domains` fallback fetch
+   for projects whose `targets.production.alias` is empty —
+   would catch category B (custom domain attached but not yet
+   verified, so not in `alias`). Low priority — operator can
+   fix in the dashboard.
+2. *(optional)* When the walker can't find a Vercel project for a
+   declared `vercel` site, emit a row with `error="no Vercel
+   project for declared domain"` so it's visible. Useful for
+   surfacing category A in the table without re-running
+   diagnostics.
 
 **Notes**
-Diagnostic next steps:
+Folds these as future enhancements rather than blockers. Operator
+clean-up of stale declarations is the higher-value action.
 
-```bash
-ACCOUNT_ID=$(grep "^CF_ACCOUNT_ID=" portfolio.env | cut -d= -f2-)
-TOKEN=$(grep "^VERCEL_TOKEN=" portfolio.env | cut -d= -f2-)
-# How many Vercel projects in total?
-curl -s -H "Authorization: Bearer ${TOKEN}" \
-  "https://api.vercel.com/v9/projects?limit=100" \
-  | python3 -m json.tool | head -40
-# For one specific missing site, do they have a Vercel project?
-curl -s -H "Authorization: Bearer ${TOKEN}" \
-  "https://api.vercel.com/v9/projects?search=iotnews"
-```
-
-Once we know which of the three causes is in play, the fix is
-one of: (1) add `/v9/projects/{id}/domains` fallback fetch in
-walk_vercel, (2) fix pagination cursor handling, (3) accept that
-stale declarations need operator clean-up via `set-deploy`.
+If the optional enhancements are wanted, both could land as a
+small v11.B follow-up commit (the walker already has the right
+shape; just needs the fallback fetch + the missing-project
+synthesized row).
 
 ---
 

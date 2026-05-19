@@ -24,6 +24,136 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v11 read-only walker cluster (v11.A-H) — shipped 2026-05-18 to 2026-05-19
+
+The read-only half of v11 (active hosting layer) shipped across
+2026-05-18 → 2026-05-19. Multi-provider walker — Vercel + CF Pages +
+CF Workers + HostGator — feeding `data/hosting/<date>.json` via the
+new `lamill fleet hosting` command. v11.I-N (renderer polish, write
+surfaces, deploy verbs, docs) still planned.
+
+Architecture lives in `prd.md § 6 → v11 → Design notes`; the
+tier-level design block stays in prd.md until v11.N ships (then the
+whole tier moves here together).
+
+## v11.H · CF Workers walker — shipped 2026-05-19
+
+Net-new phase inserted 2026-05-19 after a real-fleet hand test
+showed operator's CF sites deploy as **Workers (Static Assets)**,
+not legacy CF Pages — `/accounts/{id}/pages/projects` returned
+`result: []` while `/workers/scripts` returned the actual sites
+(airsucks, cricketfansite, donready, isitholiday, kwizicle, voltloop).
+
+`walk_cf_workers()` hits two endpoints (both single-shot per
+v11.C's lesson — these CF endpoints reject `?page=N&per_page=N`):
+
+- `/accounts/{id}/workers/scripts` — script metadata, `modified_on`
+- `/accounts/{id}/workers/domains` — hostname → service mapping
+
+Filters to `environment="production"`. Workers deploys are atomic
+so `consecutive_failures=0` always and
+`last_successful_deploy_at == latest_deploy_at == script.modified_on`.
+
+Adds `PROVIDER_CF_WORKERS = "cloudflare-workers"` to the
+PROVIDERS tuple. Orchestrator (v11.E) spawns both `walk_cf_pages`
+and `walk_cf_workers` against the same CF account. Inserting v11.H
+shifted the planned v11.H-M to v11.I-N. Ref `570bcd5`. 19 tests.
+
+## v11.G · `lamill fleet hosting` CLI shell + cache eligibility — shipped 2026-05-18
+
+`fleet hosting` Typer command + `--refresh` / `--only DOMAIN` /
+`--provider {vercel|cloudflare-pages|cloudflare-workers|hostgator}`
+/ `--json` flags. Cache-eligibility: re-use latest snapshot if fresh
+(<24h) unless `--refresh` or `--only` is set; fleet-wide walks
+persist; single-domain probes never overwrite the fleet snapshot.
+Minimal renderer in place; v11.I upgrades it with status emoji +
+footer rollups. Ref `1e2c0d3`. 11 CliRunner tests.
+
+## v11.F · fleet hosting snapshot cache — shipped 2026-05-18
+
+`src/portfolio/hosting_cache.py` mirroring `seo_cache.py`. Writes
+`data/hosting/<UTC-today>.json` with rows + skipped + fetched_at;
+public `save_snapshot` / `list_snapshots` / `latest_snapshot` /
+`load_snapshot` / `result_from_snapshot` / `is_stale(path,
+max_age_hours=24)`. Forward-compat — unknown row keys dropped on
+load so a newer `HostingRow` field doesn't break older snapshots.
+Ref `edbbae1`. 14 tests.
+
+## v11.E · fleet hosting orchestrator + provider-conflict detection — shipped 2026-05-18
+
+`run_hosting(fleet_domains, *, only_domain) -> HostingResult`.
+ThreadPoolExecutor fan-out across all walker tasks. Reads tokens
+via `apikeys.get_key`; pre-checks each provider's required keys and
+records skip-reasons (`HostingResult.skipped`) when missing.
+Catches `*AuthError` / `*WalkError` per walker without crashing
+the run. `_flag_provider_conflicts` post-pass sets
+`provider_conflict=True` on every row whose domain matches under
+≥2 distinct providers (resolution 11.F). Ref `cb62027`. 15 tests.
+
+## v11.D · HostGator walker (cPanel UAPI) — shipped 2026-05-18
+
+`walk_hostgator(token, account_id, fleet_domains, *, only_domain)`.
+cPanel UAPI calls: `DomainInfo/list_domains` (main + addon + parked
++ sub with `documentroot` extraction), `Quota/get_quota_info`
+(account-level `disk_used_mb`), `WordPressManager/list_installations`
+(`wp_version` + `install_path`, 404-tolerant — WPM plugin isn't on
+every cPanel). Custom `cpanel <user>:<token>` auth scheme. Closes
+the v10.F use case. Ref `7158868`. 16 tests.
+
+(Note: hand test on 2026-05-19 surfaced a 403 on `DomainInfo/list_domains`
+for both operator HG accounts — token-scope / IP-whitelist / wrong-
+username unresolved. Diagnostic curl pending operator side. Not a
+v11.D walker bug; logged in `docs/bugs.md` for later pickup.)
+
+## v11.C · Cloudflare Pages walker — shipped 2026-05-18 *(post-ship fix: single-shot pagination 2026-05-19, ref cb5f4cf)*
+
+`walk_cf_pages(api_token, account_id, fleet_domains, *, only_domain)`.
+Mirrors v11.B's contract against CF Pages API
+(`/accounts/{id}/pages/projects` + `/.../deployments`). CF-specific
+deploy classification — SUCCESS only when `latest_stage =
+(deploy, success)`; FAILURE when `stage.status == failure`;
+everything else IN_PROGRESS. Single-shot — the projects-list
+endpoint doesn't accept `?page=N&per_page=N` (real-fleet hand test
+surfaced API error `8000024 "Invalid list options provided"` on
+2026-05-19; fixed in `cb5f4cf`). Ref `5048be0` + `cb5f4cf`. 25 tests.
+
+## v11.B · Vercel walker — shipped 2026-05-18
+
+`walk_vercel(token, fleet_domains, *, only_domain)`. Paginates
+`/v9/projects`, extracts `targets.production.alias` custom domains,
+bare-host-normalizes (resolution 11.E), matches against
+`fleet_domains`, walks deploy history via `/v6/deployments` up to
+`MAX_DEPLOY_LOOKBACK=10`. State classification: READY=success;
+ERROR/CANCELED=failure; BUILDING/INITIALIZING/QUEUED=in-flight
+(resolution 11.D). `VercelAuthError` on 401 (orchestrator skips);
+per-project deploy failures attach to row `error`. Ref `0cd3194`.
+25 tests.
+
+(Note: hand test 2026-05-19 surfaced ~9 fleet sites missing — see
+`docs/bugs.md`. Diagnosis: operator-side data-quality, not walker
+bug. Walker accurately reflects what Vercel's API reports.)
+
+## v11.A · foundation — apikeys plumbing + HostingRow dataclass + constants — shipped 2026-05-18
+
+Two slices under one phase letter (the "foundation" bundle):
+
+- Apikeys plumbing — added `VERCEL_TOKEN` +
+  `HOSTGATOR_TOKEN_GATOR3164` + `HOSTGATOR_TOKEN_GATOR4216` to
+  `apikeys.KNOWN_KEYS`; new `_probe_vercel()` (5s timeout, /v2/user)
+  and `_probe_hostgator()` (8s timeout, cPanel UAPI
+  Variables/get_user_information, cPanel custom auth scheme).
+  cPanel host auto-derived from env-var suffix (resolution 11.L).
+  Ref `139fb63`. 14 tests.
+
+- `HostingRow` dataclass + constants — typed optional fields
+  including HG-specific (`hg_account_id`, `disk_used_mb`,
+  `wp_version`, `install_path`) per resolution 11.M.
+  Constants: `PROVIDERS`, `RECENT_DAYS=30`, `STALE_DAYS=90`,
+  `MAX_DEPLOY_LOOKBACK=10`. New `src/portfolio/hosting.py` module.
+  Ref `1b59e85`. 11 tests.
+
+---
+
 ## v10 tier · per-site deploy declarations — wrapped 2026-05-18
 
 The full v10 tier (A-E) shipped on 2026-05-18 across the day. The

@@ -307,24 +307,33 @@ Tier-level design notes moved to `docs/shipping-history.md`. See
 | v10.F | ✅ *(absorbed by v11.A-L 2026-05-18)* | HostGator cPanel integration — folded into v11's unified hosting walker cluster (Vercel + CF Pages + CF Workers + HostGator). One `fleet hosting` command replaces two (`fleet hosting` + `fleet hostgator`); single rollup table; operator no longer has to remember which command surfaces which provider. HG-specific walker work lives in v11.D. See v11 below. |
 | v10.G | ✅ *(absorbed by v11.M-N 2026-05-18)* | SFTP deploy abstraction — split into v11.M (`new deploy` polymorphic dispatch for CF/Vercel/Workers) + v11.N (SFTP push for `hostgator`/`custom`). Different risk profiles: M reuses v3.C; N adds a third write surface and needs ADR-0009. See v11 below. |
 
-### v11 — active hosting layer *(renumbered 2026-05-17, was v10; scope expanded 2026-05-18 to absorb v10.F + v10.G; sub-phases re-split 2026-05-19 from 2 chunky phases into 13 granular ones)*
+### v11 — active hosting layer *(renumbered 2026-05-17, was v10; scope expanded 2026-05-18 to absorb v10.F + v10.G; sub-phases re-split 2026-05-19; v11.A-H read-only walker cluster ✅ shipped 2026-05-18 → 2026-05-19)*
 
 The hosting cluster — read-only inventory across every provider in
 the fleet, plus the active deploy verb that operates against those
-providers. v11.A-L cover the read-only inventory half (unified
-multi-provider walker — Vercel + Cloudflare Pages + Cloudflare
-Workers + HostGator UAPI); v11.M-N cover the active deploy verb
-half (polymorphic `new deploy` + SFTP push for HG/custom). **See
-`docs/architecture.md § 3
-Mechanisms / § 4 Schemas / § 9 Active implementation plans / § 10
-Risks` for the technical design.**
+providers. **v11.A-H ✅ shipped** — the walker cluster is live:
+`lamill fleet hosting` queries Vercel + Cloudflare Pages + Cloudflare
+Workers + HostGator UAPI in parallel and writes
+`data/hosting/<date>.json` snapshots. **v11.I-L** finish the
+read-only half (renderer polish, `--apply-declarations` writer,
+dashboard/diagnose integration, docs). **v11.M-N** cover the active
+deploy verb half (polymorphic `new deploy` + SFTP push for HG/custom).
+**See `docs/architecture.md § 3 Mechanisms / § 4 Schemas / § 9 Active
+implementation plans / § 10 Risks` for the technical design;
+per-phase shipping rationale in `docs/shipping-history.md § v11.A-H`.**
+
+Real-fleet hand test 2026-05-19 verified the cluster end-to-end:
+walked operator's actual Vercel + CF accounts; surfaced two
+post-ship bugs immediately patched (v11.C single-shot pagination,
+v11.H new CF Workers walker after `/pages/projects` returned
+`result: []`). 11 fleet rows populate against the live API.
 
 The original 2-phase split (v11.A read-only + v11.B deploy) bundled
 14 commits under v11.A — much chunkier than the v3 / v5 / v6 / v9
-norm of 1-3 commits per sub-phase. Re-split 2026-05-19 to give each
-shippable unit its own letter; commits `139fb63` (apikeys plumbing)
-and `1b59e85` (`HostingRow` dataclass + constants) stay correctly
-labeled `v11.A` and roll up as the foundation phase.
+norm of 1-3 commits per sub-phase. Re-split 2026-05-19 into 14
+granular phases (then 15 after v11.H insertion); commits `139fb63`
+(apikeys plumbing) and `1b59e85` (`HostingRow` dataclass + constants)
+stay correctly labeled `v11.A` and roll up as the foundation phase.
 
 #### Phases
 
