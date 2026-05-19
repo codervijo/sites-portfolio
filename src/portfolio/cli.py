@@ -5445,6 +5445,141 @@ def fleet_seo(
               concurrency=concurrency, sort_by=sort_by, refresh=refresh)
 
 
+# v11.G — `fleet hosting`. Read-only multi-provider hosting state
+# (Vercel + Cloudflare Pages + HostGator). Cached snapshot at
+# `data/hosting/<date>.json`; default behavior reads the cache if
+# fresh, otherwise re-walks. Pretty renderer is minimal in v11.G —
+# v11.H upgrades it with status emoji + walker error footers.
+@fleet_app.command("hosting")
+def fleet_hosting(
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="Re-walk providers even if a fresh snapshot exists."),
+    only_domain: str = typer.Option("", "--only",
+                                    help="Single-domain probe; bypasses snapshot cache."),
+    provider: str = typer.Option("", "--provider",
+                                 help="Filter rows: vercel | cloudflare-pages | hostgator."),
+    json_out: bool = typer.Option(False, "--json",
+                                  help="Emit JSON instead of the table."),
+) -> None:
+    """Unified Vercel + Cloudflare Pages + HostGator hosting view."""
+    _fleet_hosting_impl(
+        refresh=refresh, only_domain=only_domain,
+        provider=provider, json_out=json_out,
+    )
+
+
+def _fleet_hosting_impl(
+    *, refresh: bool, only_domain: str, provider: str, json_out: bool,
+) -> None:
+    """Body of `fleet hosting`. Carved out for testability — the Typer
+    command surface is a thin shell over this."""
+    from . import hosting_cache
+    from .hosting import PROVIDERS, run_hosting
+
+    # Provider-filter validation up front so the user gets a clean
+    # error before any network call.
+    if provider and provider not in PROVIDERS:
+        console.print(
+            f"[red]Unknown provider: {provider!r}. "
+            f"Expected one of: {', '.join(PROVIDERS)}.[/]"
+        )
+        raise typer.Exit(code=2)
+
+    # Fleet domains = every entry in portfolio.json. Walkers
+    # intersect-filter; non-fleet domains drop silently.
+    fleet_domains = {d.name.lower() for d in load_domains()}
+
+    # Cache eligibility: `--refresh` and `--only` both force a fresh
+    # walk. Otherwise, use the latest snapshot if it's < 24h old.
+    snapshot_path = hosting_cache.latest_snapshot()
+    cache_eligible = (
+        not refresh
+        and not only_domain
+        and snapshot_path is not None
+        and not hosting_cache.is_stale(snapshot_path)
+    )
+
+    if cache_eligible:
+        snap = hosting_cache.load_snapshot(snapshot_path)
+        result = hosting_cache.result_from_snapshot(snap)
+        source = f"snapshot {snapshot_path.name}"
+    else:
+        result = run_hosting(
+            fleet_domains, only_domain=only_domain or None,
+        )
+        # Only persist when this is a fleet-wide refresh — single-domain
+        # probes shouldn't overwrite the snapshot with a one-row result.
+        if not only_domain:
+            written = hosting_cache.save_snapshot(result)
+            source = f"fresh walk → {written.name}"
+        else:
+            source = f"single-domain probe ({only_domain})"
+
+    # Apply --provider filter after collection so the cache stays
+    # full-fidelity for subsequent unfiltered invocations.
+    rows = list(result.rows)
+    if provider:
+        rows = [r for r in rows if r.provider == provider]
+    rows.sort(key=lambda r: (r.domain, r.provider or ""))
+
+    if json_out:
+        import json as _json
+        from dataclasses import asdict
+        payload = {
+            "source": source,
+            "rows": [asdict(r) for r in rows],
+            "skipped": dict(result.skipped),
+        }
+        typer.echo(_json.dumps(payload, indent=2))
+        return
+
+    # Minimal table (v11.G); v11.H upgrades with status emoji + footers.
+    console.print(f"[dim]Source: {source}[/]")
+    if not rows:
+        console.print("[yellow]No hosting rows.[/]")
+        _print_skipped_footer(result.skipped)
+        return
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Domain")
+    table.add_column("Provider")
+    table.add_column("Status")
+    table.add_column("Last Success")
+    table.add_column("Failures", justify="right")
+    table.add_column("HG-extra")
+    for r in rows:
+        hg_extra = ""
+        if r.provider == "hostgator":
+            parts: list[str] = []
+            if r.disk_used_mb is not None:
+                parts.append(f"disk {r.disk_used_mb}MB")
+            if r.wp_version:
+                parts.append(f"WP {r.wp_version}")
+            hg_extra = " · ".join(parts)
+        flag = " ⚠" if r.provider_conflict else ""
+        table.add_row(
+            f"{r.domain}{flag}",
+            r.provider or "—",
+            r.latest_deploy_status or "—",
+            (r.last_successful_deploy_at or "—")[:19],   # YYYY-MM-DDTHH:MM:SS slice
+            str(r.consecutive_failures) if r.consecutive_failures else "0",
+            hg_extra,
+        )
+    console.print(table)
+    _print_skipped_footer(result.skipped)
+
+
+def _print_skipped_footer(skipped: dict[str, str]) -> None:
+    """Per resolution 11.H — each skipped provider/account gets a
+    one-line footer so the operator sees why a known provider isn't
+    in the table."""
+    if not skipped:
+        return
+    console.print("")
+    for label, reason in sorted(skipped.items()):
+        console.print(f"  [dim]{label} skipped: {reason}[/]")
+
+
 @fleet_app.command("check")
 def fleet_check(
     detail: bool = typer.Option(False, "--detail"),
