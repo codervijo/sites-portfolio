@@ -1,5 +1,5 @@
 {
-  "fetched_at": "2026-05-18T21:26:17.023044+00:00",
+  "fetched_at": "2026-05-18T23:47:13.684987+00:00",
   "days": 28,
   "rows": [
     {
@@ -401,14 +401,14 @@
       "gsc_sitemap_count": 1,
       "gsc_sitemap_errors": 0,
       "gsc_sitemap_warnings": 0,
-      "gsc_sitemap_pending": 1,
+      "gsc_sitemap_pending": 0,
       "gsc_sitemap_details": [
         {
           "path": "https://kwizicle.com/sitemap.xml",
           "errors": 0,
           "warnings": 0,
-          "is_pending": true,
-          "last_downloaded": null,
+          "is_pending": false,
+          "last_downloaded": "2026-05-18T21:47:37.945Z",
           "last_submitted": "2026-05-18T21:12:43.790Z",
           "property": "sc-domain:kwizicle.com"
         }
@@ -443,7 +443,7 @@
           "errors": 0,
           "warnings": 0,
           "is_pending": false,
-          "last_downloaded": "2026-05-14T23:43:46.267Z",
+          "last_downloaded": "2026-05-18T22:27:14.596Z",
           "last_submitted": "2026-05-11T23:04:37.879Z",
           "property": "sc-domain:lamill.io"
         }
@@ -638,11 +638,21 @@
       "gsc_impressions": 5,
       "gsc_ctr": 0.0,
       "gsc_position": 32.6,
-      "gsc_sitemap_count": 0,
+      "gsc_sitemap_count": 1,
       "gsc_sitemap_errors": 0,
       "gsc_sitemap_warnings": 0,
       "gsc_sitemap_pending": 0,
-      "gsc_sitemap_details": [],
+      "gsc_sitemap_details": [
+        {
+          "path": "https://voltloop.site/sitemap.xml",
+          "errors": 0,
+          "warnings": 0,
+          "is_pending": false,
+          "last_downloaded": "2026-05-18T22:16:17.751Z",
+          "last_submitted": "2026-05-18T22:16:16.786Z",
+          "property": "sc-domain:voltloop.site"
+        }
+      ],
       "crux_status": "no-data",
       "crux_lcp_p75": null,
       "crux_inp_p75": null,
