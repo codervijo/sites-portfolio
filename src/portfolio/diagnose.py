@@ -120,6 +120,20 @@ class InventoryLayer:
 
 
 @dataclass
+class HostingLayer:
+    """v11.K — joined from `data/hosting/<date>.json` snapshot.
+
+    Reads-only — never re-walks the provider APIs during diagnose
+    (snapshot freshness is the operator's call via
+    `lamill fleet hosting --refresh`). Carries one row per matching
+    walker entry; cross-walker conflicts (resolution 11.F) expose
+    via `>= 2` rows.
+    """
+    snapshot_path: str | None = None  # filename, for the "Sources:" footer parity
+    rows: list = field(default_factory=list)  # list[HostingRow] — kept loose to avoid circular import
+
+
+@dataclass
 class Diagnosis:
     domain: str
     dns: DnsLayer
@@ -127,6 +141,7 @@ class Diagnosis:
     tls: TlsLayer
     repo: RepoLayer
     inventory: InventoryLayer
+    hosting: HostingLayer = field(default_factory=HostingLayer)
     root_cause: str = ""
     fix_steps: list[str] = field(default_factory=list)
 
@@ -306,6 +321,34 @@ def probe_inventory(domain: str) -> InventoryLayer:
     return out
 
 
+def probe_hosting(domain: str) -> HostingLayer:
+    """v11.K — pull every walker row matching `domain` from the
+    latest `data/hosting/<date>.json` snapshot.
+
+    Read-only — diagnose never triggers a fresh walk (snapshot
+    freshness is the operator's responsibility via
+    `lamill fleet hosting --refresh`). Returns a `HostingLayer`
+    with one row per matching walker entry; cross-walker conflicts
+    (resolution 11.F) expose naturally as `len(rows) >= 2`.
+    """
+    out = HostingLayer()
+    try:
+        from . import hosting_cache
+
+        snap = hosting_cache.latest_snapshot()
+        if snap is None:
+            return out
+        out.snapshot_path = snap.name
+        data = hosting_cache.load_snapshot(snap)
+        result = hosting_cache.result_from_snapshot(data)
+        for r in result.rows:
+            if r.domain.lower() == domain.lower():
+                out.rows.append(r)
+    except Exception:
+        pass
+    return out
+
+
 # ---------- Synthesis ----------
 
 
@@ -469,7 +512,12 @@ def synthesize(d: Diagnosis) -> None:
 
 
 def diagnose(domain: str) -> Diagnosis:
-    """Run all five probes + the synthesis pass. Read-only."""
+    """Run all probes + the synthesis pass. Read-only.
+
+    Five live probes (DNS / HTTP / TLS / Repo / Inventory) plus a
+    sixth snapshot-read layer (Hosting, v11.K) that joins
+    `data/hosting/<date>.json` without re-walking provider APIs.
+    """
     d = Diagnosis(
         domain=domain,
         dns=probe_dns(domain),
@@ -477,6 +525,7 @@ def diagnose(domain: str) -> Diagnosis:
         tls=probe_tls(domain),
         repo=probe_repo(domain),
         inventory=probe_inventory(domain),
+        hosting=probe_hosting(domain),
     )
     synthesize(d)
     return d
@@ -551,6 +600,45 @@ def render(d: Diagnosis, console) -> None:
         f"  [cyan]Inventory[/]  portfolio.json {in_portfolio}{cat}  ·  "
         f"live class: {cls}  ·  {gsc}"
     )
+
+    # Hosting (v11.K) — sixth layer, snapshot-read only.
+    host = d.hosting
+    if host.snapshot_path is None:
+        console.print(
+            f"  [cyan]Hosting[/]    [dim]no snapshot — run `lamill fleet "
+            f"hosting --refresh`[/]"
+        )
+    elif not host.rows:
+        console.print(
+            f"  [cyan]Hosting[/]    [dim]no row for {d.domain} in "
+            f"{host.snapshot_path}[/]"
+        )
+    else:
+        for i, r in enumerate(host.rows):
+            prefix = "  [cyan]Hosting[/]   " if i == 0 else "             "
+            conflict = " [yellow]🤐 conflict[/]" if r.provider_conflict else ""
+            extras: list[str] = []
+            if r.project_slug:
+                extras.append(f"project={r.project_slug}")
+            if r.hg_account_id:
+                extras.append(f"acct={r.hg_account_id}")
+            if r.latest_deploy_status:
+                extras.append(f"status={r.latest_deploy_status}")
+            if r.last_successful_deploy_at:
+                extras.append(f"last_ok={r.last_successful_deploy_at[:10]}")
+            if r.consecutive_failures:
+                extras.append(f"failures={r.consecutive_failures}")
+            if r.disk_used_mb is not None:
+                extras.append(f"disk={r.disk_used_mb}MB")
+            if r.wp_version:
+                extras.append(f"WP={r.wp_version}")
+            if r.error:
+                extras.append(f"[red]err={r.error}[/]")
+            tail = "  ·  ".join(extras) if extras else ""
+            console.print(
+                f"{prefix} provider={r.provider or '—'}{conflict}"
+                + (f"  ·  {tail}" if tail else "")
+            )
 
     # Verdict
     console.print(f"\n[bold]Root cause:[/]")

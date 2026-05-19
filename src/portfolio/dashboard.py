@@ -74,10 +74,14 @@ class DashRow:
     gsc_impressions: int | None = None
     gsc_clicks: int | None = None
     gsc_position: float | None = None
+    # Hosting (v11.K integration — joins data/hosting/<date>.json)
+    host_provider: str | None = None  # "vercel" | "cloudflare-pages" | "cloudflare-workers" | "hostgator" | None
+    host_conflict: bool = False
+    host_dot: str = _GREY
     # Age signals (site = first-commit / manual; domain = RDAP registration)
     site_age_days: int | None = None
     domain_age_days: int | None = None
-    # Worst rollup across all three (None for "no data anywhere")
+    # Worst rollup across all four (None for "no data anywhere")
     rollup_dot: str = _GREY
 
 
@@ -150,6 +154,86 @@ def _load_seo_index() -> tuple[Path | None, dict[str, SEORow]]:
     return snap, {r.domain: r for r in rows_from_snapshot(data)}
 
 
+def _load_hosting_index() -> tuple[Path | None, dict[str, list]]:
+    """v11.K — read the latest `data/hosting/<date>.json` snapshot.
+    Returns `(snapshot_path, {domain → list-of-HostingRow})`. The
+    value is a LIST not a single row because a domain can appear
+    under multiple providers (cross-walker conflict per resolution
+    11.F, e.g. addon on both HG accounts). Dashboard reads the list
+    to surface conflicts; collapses to first row when no conflict."""
+    from . import hosting_cache
+
+    snap = hosting_cache.latest_snapshot()
+    if snap is None:
+        return None, {}
+    try:
+        data = hosting_cache.load_snapshot(snap)
+        result = hosting_cache.result_from_snapshot(data)
+    except (OSError, ValueError):
+        return snap, {}
+    out: dict[str, list] = {}
+    for r in result.rows:
+        out.setdefault(r.domain, []).append(r)
+    return snap, out
+
+
+def _host_dot(host_rows: list) -> tuple[str, str | None, bool]:
+    """Map a per-domain list of HostingRows to a (dot, provider_label,
+    conflict_flag) tuple for the dashboard.
+
+    Resolution 11.C age thresholds + the conflict / runaway-failure /
+    unowned overrides — same priority cascade as
+    `hosting.hosting_status_emoji` but maps to the dashboard's
+    color-dot vocabulary (🟢 / 🟡 / 🔴 / —) rather than the rich
+    status-emoji set.
+
+    Conflict precedence: when multiple walker rows match a domain
+    (cross-provider or same-provider duplicate), the dot is 🔴 and
+    the conflict flag is set. The provider label shows the first row's
+    provider, suffixed with `…+` when there are more.
+    """
+    from .hosting import (
+        MAX_DEPLOY_LOOKBACK, RECENT_DAYS, STALE_DAYS,
+    )
+    from datetime import datetime, timezone
+
+    if not host_rows:
+        return _GREY, None, False
+
+    # Cross-walker conflict — flag red regardless of provider state.
+    if len(host_rows) > 1 or any(r.provider_conflict for r in host_rows):
+        primary = host_rows[0].provider or "—"
+        if len(host_rows) > 1:
+            primary = f"{primary}+"
+        return _RED, primary, True
+
+    row = host_rows[0]
+    provider = row.provider
+
+    if row.consecutive_failures >= MAX_DEPLOY_LOOKBACK:
+        return _RED, provider, False
+
+    last_ok = row.last_successful_deploy_at
+    if not last_ok:
+        # HG has no build pipeline → green (presence is good enough).
+        # Other providers with no last_successful means walker found
+        # the project but it hasn't shipped — yellow.
+        if provider == "hostgator":
+            return _GREEN, provider, False
+        return _YELLOW, provider, False
+
+    try:
+        ts = datetime.fromisoformat(last_ok.replace("Z", "+00:00"))
+    except ValueError:
+        return _GREY, provider, False
+    age_days = (datetime.now(timezone.utc) - ts).total_seconds() / 86400
+    if age_days < RECENT_DAYS:
+        return _GREEN, provider, False
+    if age_days < STALE_DAYS:
+        return _YELLOW, provider, False
+    return _RED, provider, False
+
+
 def _git_summary_for(domain: str) -> dict:
     """Run the v5.E catalog and the v1 git pulse for a single domain.
     Pure local-FS — no network. Slow path is the catalog (~50ms per project).
@@ -202,6 +286,7 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
     domains = _domains_for_scope(scope)
     live_path, live_index = _load_live_index()
     seo_path, seo_index = _load_seo_index()
+    host_path, host_index = _load_hosting_index()
 
     # portfolio.json metadata: launched + domain_created (RDAP age).
     meta_by_name = {dom.name: dom for dom in load_domains()}
@@ -232,7 +317,10 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
         if seo_dot == "⚪":
             seo_dot = _GREY
 
-        rollup = _rollup(live_dot, git_dot, seo_dot)
+        host_rows = host_index.get(d, [])
+        host_dot, host_provider, host_conflict = _host_dot(host_rows)
+
+        rollup = _rollup(live_dot, git_dot, seo_dot, host_dot)
 
         rows.append(DashRow(
             domain=d,
@@ -249,6 +337,9 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
             gsc_impressions=seo.gsc_impressions if seo else None,
             gsc_clicks=seo.gsc_clicks if seo else None,
             gsc_position=seo.gsc_position if seo else None,
+            host_provider=host_provider,
+            host_conflict=host_conflict,
+            host_dot=host_dot,
             site_age_days=site_age,
             domain_age_days=dom_age,
             rollup_dot=rollup,
@@ -257,6 +348,7 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
     freshness = {
         "live_snapshot": live_path.name if live_path else None,
         "seo_snapshot": seo_path.name if seo_path else None,
+        "hosting_snapshot": host_path.name if host_path else None,
         "scope": scope,
     }
     return rows, freshness
@@ -331,11 +423,28 @@ def _fmt_conf(pass_n: int, total: int) -> str:
     return f"{int(pct * 100)}%"
 
 
+def _provider_short(provider: str | None) -> str:
+    """Compact provider label for the dashboard's narrow Host column.
+    Maps `hosting.PROVIDERS` strings to 2-letter codes so the column
+    stays scannable next to the colored dot."""
+    if not provider:
+        return _GREY
+    plain = provider.rstrip("+")
+    code = {
+        "vercel": "VC",
+        "cloudflare-pages": "CFP",
+        "cloudflare-workers": "CFW",
+        "hostgator": "HG",
+    }.get(plain, plain[:3].upper())
+    return code + ("+" if provider.endswith("+") else "")
+
+
 def render_dashboard(rows: list[DashRow], freshness: dict, *,
                      sort_key: str, console: Console) -> None:
     scope = freshness.get("scope", "?")
     live_snap = freshness.get("live_snapshot") or "—"
     seo_snap = freshness.get("seo_snapshot") or "—"
+    host_snap = freshness.get("hosting_snapshot") or "—"
 
     t = Table(box=None, padding=(0, 1), show_header=True,
               title=f"[bold]fleet dashboard · scope={scope} · {len(rows)} domains · sort={sort_key}[/]",
@@ -351,6 +460,8 @@ def render_dashboard(rows: list[DashRow], freshness: dict, *,
     t.add_column("Imp", justify="right")
     t.add_column("Clicks", justify="right")
     t.add_column("Pos", justify="right")
+    t.add_column("Host", justify="center")    # v11.K — hosting dot
+    t.add_column("Prov", justify="left")      # v11.K — provider code
     t.add_column("Site", justify="right")     # since launched
     t.add_column("Domain", justify="right")   # since RDAP creation
 
@@ -368,6 +479,8 @@ def render_dashboard(rows: list[DashRow], freshness: dict, *,
             _fmt_int(r.gsc_impressions),
             _fmt_int(r.gsc_clicks),
             _fmt_pos(r.gsc_position),
+            r.host_dot,
+            _provider_short(r.host_provider),
             _fmt_long_age(r.site_age_days),
             _fmt_long_age(r.domain_age_days),
         ]
@@ -385,7 +498,8 @@ def render_dashboard(rows: list[DashRow], freshness: dict, *,
     if parts:
         console.print("\n[dim]" + " · ".join(parts) + "[/]")
     console.print(
-        f"[dim]Sources: live={live_snap} · seo={seo_snap} · git=live (FS)[/]"
+        f"[dim]Sources: live={live_snap} · seo={seo_snap} · "
+        f"host={host_snap} · git=live (FS)[/]"
     )
 
 
