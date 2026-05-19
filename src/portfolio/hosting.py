@@ -404,3 +404,305 @@ def walk_vercel(
             client.close()
 
     return rows
+
+
+# ---- Cloudflare Pages walker (v11.C) -------------------------------
+
+CF_API_BASE = "https://api.cloudflare.com/client/v4"
+CF_HTTP_TIMEOUT = 10.0
+
+# CF Pages classifies a deployment via `latest_stage.{name,status}`:
+#   stage.name   in {queued, initialize, clone_repo, build, deploy}
+#   stage.status in {idle, active, success, failure, skipped}
+# A deploy is SUCCESS only when both the stage is `deploy` AND status
+# is `success`. Anything with status=failure (at any stage) is a
+# FAILURE. Everything else (active / queued / idle / skipped) is
+# IN-FLIGHT — same skipped-but-not-counted semantics as Vercel's
+# BUILDING/INITIALIZING/QUEUED (resolution 11.D).
+_CF_SUCCESS_STAGE_NAME = "deploy"
+_CF_SUCCESS_STAGE_STATUS = "success"
+_CF_FAILURE_STAGE_STATUS = "failure"
+
+
+class CFPagesAuthError(Exception):
+    """401 from the Cloudflare API. Orchestrator skips the walker."""
+
+
+class CFPagesWalkError(Exception):
+    """Unrecoverable non-auth failure during CF Pages pagination."""
+
+
+def _cf_headers(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "lamill/v11.A fleet-hosting",
+    }
+
+
+def _cf_project_custom_domains(project: dict) -> list[str]:
+    """Pull custom-domain list from a CF Pages project payload. The
+    `domains` field is a list of fully-qualified hostnames the
+    project's production deployment is served from. Includes the
+    auto-assigned `<slug>.pages.dev` host — left in; bare-host
+    intersect with fleet_domains filters it out naturally."""
+    domains = project.get("domains") or []
+    if not isinstance(domains, list):
+        return []
+    return [d for d in domains if isinstance(d, str) and d]
+
+
+def _cf_deploy_created_iso(deploy: dict) -> str | None:
+    """CF returns `created_on` as ISO 8601 already — pass through, but
+    normalize to UTC `Z` form for snapshot parity. Returns None for
+    malformed entries rather than raising — keeps the walker robust."""
+    raw = deploy.get("created_on")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        # CF's ISO timestamps end in `Z`; datetime.fromisoformat handles
+        # `+00:00` but not `Z` until 3.11 — this codebase requires 3.11+.
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return ts.astimezone(timezone.utc).isoformat()
+
+
+def _cf_deploy_state(deploy: dict) -> tuple[str, str]:
+    """Return `(stage_name, stage_status)` from a CF Pages deployment.
+    Defensive against missing keys — unknowns map to empty strings so
+    the classifier counts them as in-flight (won't bump
+    consecutive_failures, won't anchor last_successful_deploy_at)."""
+    stage = deploy.get("latest_stage") or {}
+    name = stage.get("name") if isinstance(stage, dict) else None
+    status = stage.get("status") if isinstance(stage, dict) else None
+    return (
+        name if isinstance(name, str) else "",
+        status if isinstance(status, str) else "",
+    )
+
+
+def _cf_deploy_summary_status(deploy: dict) -> str:
+    """One-token summary for `HostingRow.latest_deploy_status` — uses
+    the CF stage name + status to derive a string the renderer (v11.H)
+    can map to an emoji. Output vocabulary: `SUCCESS` / `FAILURE` /
+    `IN_PROGRESS` (parallels Vercel's READY / ERROR / BUILDING)."""
+    stage_name, stage_status = _cf_deploy_state(deploy)
+    if stage_status == _CF_FAILURE_STAGE_STATUS:
+        return "FAILURE"
+    if stage_name == _CF_SUCCESS_STAGE_NAME and stage_status == _CF_SUCCESS_STAGE_STATUS:
+        return "SUCCESS"
+    return "IN_PROGRESS"
+
+
+def _classify_cf_deploys(deployments: list[dict]) -> tuple[str | None, str | None, str | None, int]:
+    """CF Pages variant of `_classify_deploys`. Returns the same shape
+    `(latest_status, latest_at_iso, last_successful_at_iso, consecutive_failures)`.
+
+    A deploy is SUCCESS only when its `latest_stage` is
+    `(deploy, success)`. Anything with `stage.status == failure` is
+    a FAILURE. Everything else (active / queued / skipped / idle) is
+    IN-FLIGHT — skipped but not counted.
+    """
+    if not deployments:
+        return None, None, None, 0
+    latest = deployments[0]
+    latest_status = _cf_deploy_summary_status(latest)
+    latest_at = _cf_deploy_created_iso(latest)
+
+    last_success: str | None = None
+    consecutive_failures = 0
+    for d in deployments:
+        stage_name, stage_status = _cf_deploy_state(d)
+        if stage_name == _CF_SUCCESS_STAGE_NAME and stage_status == _CF_SUCCESS_STAGE_STATUS:
+            last_success = _cf_deploy_created_iso(d)
+            break
+        if stage_status == _CF_FAILURE_STAGE_STATUS:
+            consecutive_failures += 1
+        # else: in-flight; don't bump, keep walking.
+
+    return latest_status, latest_at, last_success, consecutive_failures
+
+
+def _list_cf_projects(
+    client: httpx.Client, token: str, account_id: str, *, page: int = 1
+) -> dict:
+    """One page of `/accounts/{account_id}/pages/projects`. Returns the
+    `result` array unwrapped from the CF envelope, plus pagination
+    metadata via the caller checking `len(result) < per_page`.
+
+    CF's response envelope is `{success, errors, messages, result, result_info}`.
+    We raise on the same conditions as the Vercel equivalent — 401
+    becomes auth-error; 5xx / non-JSON / envelope-success=false becomes
+    walk-error.
+    """
+    url = f"{CF_API_BASE}/accounts/{account_id}/pages/projects"
+    params = {"page": page, "per_page": 25}
+    try:
+        r = client.get(url, headers=_cf_headers(token), params=params)
+    except httpx.HTTPError as e:
+        raise CFPagesWalkError(
+            f"projects list network error: {type(e).__name__}: {e}"
+        ) from e
+    if r.status_code == 401:
+        raise CFPagesAuthError("Cloudflare API returned 401 — CF_API_TOKEN missing or invalid")
+    if r.status_code != 200:
+        raise CFPagesWalkError(f"projects list http {r.status_code}")
+    try:
+        body = r.json()
+    except ValueError as e:
+        raise CFPagesWalkError("projects list response not JSON") from e
+    if not isinstance(body, dict) or not body.get("success"):
+        errs = body.get("errors") if isinstance(body, dict) else None
+        raise CFPagesWalkError(f"CF API success=false (errors={errs})")
+    return body
+
+
+def _list_cf_deployments(
+    client: httpx.Client, token: str, account_id: str, project_name: str
+) -> tuple[list[dict], str | None]:
+    """Latest N production deploys for one project. Capped at
+    `MAX_DEPLOY_LOOKBACK` per resolution 11.D. Per-project failures
+    return `([], <reason>)` so the caller attaches `error=` to the
+    row instead of raising upward."""
+    url = (
+        f"{CF_API_BASE}/accounts/{account_id}/pages/projects/"
+        f"{project_name}/deployments"
+    )
+    params = {"env": "production", "per_page": MAX_DEPLOY_LOOKBACK}
+    try:
+        r = client.get(url, headers=_cf_headers(token), params=params)
+    except httpx.HTTPError as e:
+        return [], f"deployments list error: {type(e).__name__}"
+    if r.status_code == 429:
+        return [], "deployments list rate-limited (429)"
+    if r.status_code >= 500:
+        return [], f"deployments list http {r.status_code}"
+    if r.status_code != 200:
+        return [], f"deployments list http {r.status_code}"
+    try:
+        body = r.json()
+    except ValueError:
+        return [], "deployments list response not JSON"
+    if not isinstance(body, dict) or not body.get("success"):
+        return [], "CF API success=false on deployments list"
+    result = body.get("result") or []
+    if not isinstance(result, list):
+        return [], "deployments list malformed"
+    return result, None
+
+
+def _walk_cf_project(
+    project: dict,
+    client: httpx.Client,
+    token: str,
+    account_id: str,
+    fleet_domains: set[str],
+    only_normalized: str | None,
+    rows: list[HostingRow],
+) -> None:
+    project_id = project.get("id") or ""
+    project_slug = project.get("name") or ""
+    if not project_slug:
+        return
+
+    matched: list[str] = []
+    seen: set[str] = set()
+    for d in _cf_project_custom_domains(project):
+        normalized = _bare_host(d)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        if only_normalized and normalized != only_normalized:
+            continue
+        if normalized in fleet_domains:
+            matched.append(normalized)
+
+    if not matched:
+        return
+
+    deployments, deploy_err = _list_cf_deployments(
+        client, token, account_id, project_slug
+    )
+    latest_status, latest_at, last_success, consec = _classify_cf_deploys(deployments)
+
+    for domain in matched:
+        rows.append(
+            HostingRow(
+                domain=domain,
+                provider=PROVIDER_CF_PAGES,
+                project_slug=project_slug,
+                project_id=project_id,
+                latest_deploy_status=latest_status,
+                latest_deploy_at=latest_at,
+                last_successful_deploy_at=last_success,
+                consecutive_failures=consec,
+                error=deploy_err,
+            )
+        )
+
+
+_CF_MAX_PAGES = 50
+
+
+def walk_cf_pages(
+    token: str,
+    account_id: str,
+    fleet_domains: set[str],
+    *,
+    only_domain: str | None = None,
+    client: httpx.Client | None = None,
+) -> list[HostingRow]:
+    """Walk every CF Pages project in `account_id`; emit one HostingRow
+    per matched fleet domain.
+
+    Same contract as `walk_vercel`. Raises `CFPagesAuthError` on 401 /
+    empty inputs (orchestrator skips); `CFPagesWalkError` on
+    unrecoverable pagination failures. Per-project deploy failures
+    record on the row's `error` field.
+    """
+    if not token:
+        raise CFPagesAuthError("CF_API_TOKEN not set")
+    if not account_id:
+        raise CFPagesAuthError("CF_ACCOUNT_ID not set")
+
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=CF_HTTP_TIMEOUT)
+
+    rows: list[HostingRow] = []
+    only_normalized = _bare_host(only_domain) if only_domain else None
+    seen_projects: set[str] = set()
+
+    try:
+        for page in range(1, _CF_MAX_PAGES + 1):
+            body = _list_cf_projects(client, token, account_id, page=page)
+            projects = body.get("result") or []
+            if not isinstance(projects, list):
+                break
+            for project in projects:
+                if not isinstance(project, dict):
+                    continue
+                slug = project.get("name") or ""
+                if slug in seen_projects:
+                    continue
+                if slug:
+                    seen_projects.add(slug)
+                _walk_cf_project(
+                    project, client, token, account_id,
+                    fleet_domains, only_normalized, rows,
+                )
+            # Pagination: trust `result_info.total_pages` when present.
+            # Fall back to short-page heuristic only if CF doesn't ship
+            # that metadata (defensive — older API versions did omit it).
+            result_info = body.get("result_info") or {}
+            total_pages = result_info.get("total_pages") if isinstance(result_info, dict) else None
+            if isinstance(total_pages, int):
+                if page >= total_pages:
+                    break
+            elif len(projects) < 25:
+                break
+    finally:
+        if own_client:
+            client.close()
+
+    return rows
