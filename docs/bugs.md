@@ -65,6 +65,94 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-18 — `settings project set-deploy` fails for sites/ dirs missing from portfolio.json
+
+**Repro**
+    # Site has sites/<domain>/ directory but no entry in portfolio.json:
+    uv run lamill settings project set-deploy hostkit.app vercel --domain hostkit.app --non-interactive
+
+**Expected**
+Writes `sites/hostkit.app/lamill.toml`. The site dir exists; the
+operator's intent is clear. Drift between sites/ and portfolio.json
+is its own concern (`fleet info cleanup` / `fleet drift`), not a
+blocker for declaring a deploy target.
+
+**Actual**
+Errors with `Domain not found in portfolio.json: 'hostkit.app'`
+and exits 1. No file written.
+
+This is a behavior discrepancy with the v10.C migration sweep
+(`fleet repos --add-deploy-declarations`), which walks
+`list_site_dirs()` and writes for any dir regardless of
+portfolio.json membership. Both code paths produce a
+`lamill.toml`; only one of them requires inventory presence.
+
+**Where (guess)**
+`src/portfolio/project_deploy.py:set_deploy` — uses
+`resolve_project(name)` which is portfolio.json-keyed. The
+migration sweep in the same module bypasses
+`resolve_project` and walks the filesystem directly. Make
+`set_deploy` either (a) fall back to the dir-name match when
+portfolio.json lookup fails, (b) print a warning + proceed
+anyway, or (c) suggest `fleet info cleanup` and exit.
+
+**Severity**
+minor — workaround is `fleet info cleanup` to reconcile
+portfolio.json first, or hand-edit the JSON. Surfaces real drift
+(sites/ dirs without inventory entries) which is useful, but the
+hard-block on a write-only command is friction.
+
+**Notes**
+Discovered during v10.D walk 2026-05-18 — hostkit.app exists on
+disk (has sites/hostkit.app/) but never got added to
+portfolio.json. The fix conversation can include "should this
+drift be treated as bug vs feature" — surfacing the drift early
+might be the right behavior; just needs a clearer error.
+
+---
+
+### 2026-05-18 — `settings project set-deploy` doesn't auto-populate `custom_domains` from dir name
+
+**Repro**
+    uv run lamill settings project set-deploy <domain> cf-pages --non-interactive
+    cat sites/<domain>/lamill.toml
+
+**Expected**
+The resulting `lamill.toml` includes
+`custom_domains = ["<domain>"]` — matching the convention the v10.C
+migration sweep uses (`_execute_write` in `project_deploy.py`
+auto-populates from the directory name).
+
+**Actual**
+Without explicit `--domain <X>` flag, `set-deploy` writes no
+`custom_domains` entry. Operator has to remember to pass
+`--domain <domain>` to match the migration sweep's output.
+Inconsistency: `fleet repos --add-deploy-declarations` and
+`settings project set-deploy <name>` produce different
+`lamill.toml` shapes for the same input domain.
+
+**Where (guess)**
+`src/portfolio/project_deploy.py:set_deploy` —
+`_resolve_domain_list()` returns `[]` when no flag and no
+existing entry. Default could be `[name]` (the canonical domain
+the operator just typed) when the prompt is skipped via
+`--non-interactive`.
+
+**Severity**
+minor — workaround is one extra flag (`--domain <name>`); files
+written without it are still valid `lamill.toml`, just under-
+populated. Worth fixing before the v10.D walk gets serious.
+
+**Notes**
+Surfaced during v10.D dry-run apply (2026-05-18). Three
+`set-deploy` calls (cricketfansite / isitholiday / voltloop) had
+to be re-run with `--domain <name>` for parity with the 9 written
+by the migration sweep. Fix is ~15 min: in `set_deploy()`, when
+`custom_domains` flag is empty AND no existing entry, default to
+`[name]`. Tests need updating to expect the auto-populated value.
+
+---
+
 ### 2026-05-18 — `fleet seo --refresh` and `fleet domains` show different domain counts
 
 **Repro**
