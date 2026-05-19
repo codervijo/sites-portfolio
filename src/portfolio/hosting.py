@@ -706,3 +706,269 @@ def walk_cf_pages(
             client.close()
 
     return rows
+
+
+# ---- HostGator walker (v11.D) --------------------------------------
+
+HG_HTTP_TIMEOUT = 12.0  # cPanel UAPI is slower than CF/Vercel
+HG_PORT = 2083
+
+
+class HostGatorAuthError(Exception):
+    """401 from cPanel UAPI, or empty token/account_id."""
+
+
+class HostGatorWalkError(Exception):
+    """Unrecoverable failure during HG walker (5xx on list_domains)."""
+
+
+def _hg_url(account_id: str, module: str, function: str) -> str:
+    """cPanel UAPI endpoint URL — host auto-derived from account_id per
+    resolution 11.L (no separate HOSTGATOR_HOST_<account> env var)."""
+    return f"https://{account_id}.hostgator.com:{HG_PORT}/execute/{module}/{function}"
+
+
+def _hg_headers(token: str, account_id: str) -> dict[str, str]:
+    """cPanel API tokens use a custom auth scheme — `cpanel <user>:<token>`
+    NOT HTTP Basic. Same as `_probe_hostgator` in apikeys.py."""
+    return {
+        "Authorization": f"cpanel {account_id}:{token}",
+        "User-Agent": "lamill/v11.A fleet-hosting",
+    }
+
+
+def _call_hg_uapi(
+    client: httpx.Client,
+    token: str,
+    account_id: str,
+    module: str,
+    function: str,
+    *,
+    params: dict | None = None,
+) -> tuple[dict | None, str | None, bool]:
+    """One UAPI call. Returns `(body_dict, error_message, is_auth_error)`.
+
+    `body_dict` is the parsed top-level JSON (status / data / errors)
+    when status=1 and HTTP is 200. Otherwise None + error string.
+    `is_auth_error` is True on 401 only — caller can elevate to
+    `HostGatorAuthError`.
+    """
+    url = _hg_url(account_id, module, function)
+    try:
+        r = client.get(
+            url, headers=_hg_headers(token, account_id), params=params,
+        )
+    except httpx.HTTPError as e:
+        return None, f"{module}/{function} network error: {type(e).__name__}", False
+    if r.status_code == 401:
+        return None, f"{module}/{function} http 401", True
+    if r.status_code == 404:
+        return None, f"{module}/{function} not available (404)", False
+    if r.status_code >= 500:
+        return None, f"{module}/{function} http {r.status_code}", False
+    if r.status_code != 200:
+        return None, f"{module}/{function} http {r.status_code}", False
+    try:
+        body = r.json()
+    except ValueError:
+        return None, f"{module}/{function} non-JSON response", False
+    if not isinstance(body, dict):
+        return None, f"{module}/{function} malformed envelope", False
+    if body.get("status") != 1:
+        errors = body.get("errors") or []
+        first = errors[0] if errors else "status=0"
+        return None, f"{module}/{function} UAPI {first}", False
+    return body, None, False
+
+
+def _hg_list_domains(
+    client: httpx.Client, token: str, account_id: str
+) -> tuple[list[tuple[str, str | None]], str | None]:
+    """Returns `[(domain, document_root)]` for every domain on the
+    account (main + addon + parked + sub), plus an error string.
+
+    The UAPI `DomainInfo/list_domains` shape:
+      data = {
+        "main_domain": "...",
+        "addon_domains": [{"domain": "...", "documentroot": "..."}, ...]
+                          OR a list of strings on older cPanel versions,
+        "parked_domains": [...],
+        "sub_domains": [...],
+      }
+    Tolerant of both shapes — older cPanel versions return strings,
+    newer return dicts with documentroot.
+    """
+    body, err, is_auth = _call_hg_uapi(
+        client, token, account_id, "DomainInfo", "list_domains",
+    )
+    if is_auth:
+        raise HostGatorAuthError(f"DomainInfo/list_domains 401 for {account_id}")
+    if err is not None or body is None:
+        return [], err
+    data = body.get("data") or {}
+    out: list[tuple[str, str | None]] = []
+
+    main = data.get("main_domain")
+    if isinstance(main, str) and main:
+        out.append((main, None))
+
+    for key in ("addon_domains", "parked_domains", "sub_domains"):
+        entries = data.get(key) or []
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if isinstance(entry, str):
+                out.append((entry, None))
+            elif isinstance(entry, dict):
+                d = entry.get("domain")
+                dr = entry.get("documentroot")
+                if isinstance(d, str) and d:
+                    out.append((d, dr if isinstance(dr, str) else None))
+    return out, None
+
+
+def _hg_get_disk_used_mb(
+    client: httpx.Client, token: str, account_id: str
+) -> int | None:
+    """Account-level disk usage from `Quota/get_quota_info`. Returns MB
+    rounded down. None on any failure — the walker still emits rows;
+    `disk_used_mb` stays None on the affected rows."""
+    body, _err, is_auth = _call_hg_uapi(
+        client, token, account_id, "Quota", "get_quota_info",
+    )
+    if is_auth:
+        raise HostGatorAuthError(f"Quota/get_quota_info 401 for {account_id}")
+    if body is None:
+        return None
+    data = body.get("data") or {}
+    # cPanel reports disk_used in MB. Some versions ship the field as
+    # a string; coerce to int.
+    raw = data.get("disk_used")
+    if raw is None:
+        return None
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return None
+
+
+def _hg_list_wp_installs(
+    client: httpx.Client, token: str, account_id: str
+) -> dict[str, str]:
+    """Map of `document_root → wp_version` from `WordPressManager/
+    list_installations`. Returns `{}` on any failure (the module
+    isn't always available — older cPanel versions, accounts without
+    the WPM plugin). Walker rows just get `wp_version=None` in that
+    case; no crash."""
+    body, _err, is_auth = _call_hg_uapi(
+        client, token, account_id, "WordPressManager", "list_installations",
+    )
+    if is_auth:
+        raise HostGatorAuthError(
+            f"WordPressManager/list_installations 401 for {account_id}"
+        )
+    if body is None:
+        return {}
+    data = body.get("data")
+    # Shape: data is usually a list of install dicts with `installation_path`
+    # + `version` fields, but versions vary. Be defensive.
+    installs: list[dict] = []
+    if isinstance(data, list):
+        installs = [e for e in data if isinstance(e, dict)]
+    elif isinstance(data, dict):
+        # Some plugin builds nest under `installations`.
+        nested = data.get("installations")
+        if isinstance(nested, list):
+            installs = [e for e in nested if isinstance(e, dict)]
+    out: dict[str, str] = {}
+    for inst in installs:
+        path = inst.get("installation_path") or inst.get("install_path") or inst.get("path")
+        version = inst.get("version") or inst.get("wp_version")
+        if isinstance(path, str) and isinstance(version, str) and path and version:
+            out[path] = version
+    return out
+
+
+def walk_hostgator(
+    token: str,
+    account_id: str,
+    fleet_domains: set[str],
+    *,
+    only_domain: str | None = None,
+    client: httpx.Client | None = None,
+) -> list[HostingRow]:
+    """Enumerate domains hosted under cPanel account `account_id`;
+    emit one HostingRow per matched fleet domain. HG has no build
+    pipeline so build-pipeline fields stay None; HG-specific fields
+    (`hg_account_id`, `disk_used_mb`, `wp_version`, `install_path`)
+    carry the operator-relevant signal.
+
+    Raises `HostGatorAuthError` if the token/account_id is missing or
+    rejected by UAPI on any required call (orchestrator skips this
+    account per resolution 11.H). `HostGatorWalkError` on
+    unrecoverable failures during domain enumeration.
+
+    Note that HG's UAPI is rigid about which modules each cPanel build
+    exposes — `WordPressManager` may be missing on some accounts.
+    That's treated as "WP info unavailable" (rows still emit with
+    `wp_version=None` / `install_path` from `DomainInfo` if present).
+    """
+    if not token:
+        raise HostGatorAuthError("HG token not set")
+    if not account_id:
+        raise HostGatorAuthError("HG account_id not set")
+
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=HG_HTTP_TIMEOUT)
+
+    rows: list[HostingRow] = []
+    only_normalized = _bare_host(only_domain) if only_domain else None
+
+    try:
+        domains, list_err = _hg_list_domains(client, token, account_id)
+        if list_err is not None and not domains:
+            raise HostGatorWalkError(
+                f"list_domains failed for {account_id}: {list_err}"
+            )
+
+        disk_used = _hg_get_disk_used_mb(client, token, account_id)
+        wp_map = _hg_list_wp_installs(client, token, account_id)
+
+        # Dedup by bare-host normalize, preferring the entry that
+        # actually carries a `documentroot` — main_domain sometimes
+        # appears twice in cPanel responses (once at top level without
+        # a doc_root, once as an addon entry with one), and we want
+        # the doc_root version so WP detection can match.
+        best_doc_root: dict[str, str | None] = {}
+        for domain, doc_root in domains:
+            normalized = _bare_host(domain)
+            if not normalized:
+                continue
+            if normalized in best_doc_root:
+                if best_doc_root[normalized] is None and doc_root is not None:
+                    best_doc_root[normalized] = doc_root
+            else:
+                best_doc_root[normalized] = doc_root
+
+        for normalized, doc_root in best_doc_root.items():
+            if only_normalized and normalized != only_normalized:
+                continue
+            if normalized not in fleet_domains:
+                continue
+            wp_version = wp_map.get(doc_root) if doc_root else None
+            rows.append(
+                HostingRow(
+                    domain=normalized,
+                    provider=PROVIDER_HOSTGATOR,
+                    hg_account_id=account_id,
+                    disk_used_mb=disk_used,
+                    wp_version=wp_version,
+                    install_path=doc_root,
+                )
+            )
+    finally:
+        if own_client:
+            client.close()
+
+    return rows
