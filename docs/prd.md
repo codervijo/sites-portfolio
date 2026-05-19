@@ -630,18 +630,19 @@ polish ~3h, v12.G docs ~1h. (v12.A audit prompt rendering shipped
 v8.D shipped 2026-05-15; v8.E-J shipped 2026-05-16/17 (full primary
 interpretive pass + audit payload builder); v12.A shipped 2026-05-17.
 
-### v13 — analytical roll-ups *(renumbered 2026-05-17 PM)*
+### v13 — analytical roll-ups *(renumbered 2026-05-17 PM; v13.A absorbed by v15.C 2026-05-19)*
 
-GSC trend correlation over PERSISTED snapshots (week-over-week
-deltas); `project list` aggregate verdict-counts view; optional LLM
-content seeding (still postponed indefinitely). All read-only /
-informational.
+`project list` aggregate verdict-counts view + optional LLM content
+seeding (postponed indefinitely). All read-only / informational.
+v13.A (GSC trend correlation) was folded into v15.C on 2026-05-19 —
+the trend view is one section in a richer compositional `project seo`
+view, sharing the per-project GSC cache with the other v15 sections.
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v13.A | ⏳ | GSC trend correlation. GSC trend per project (28d clicks/imp/pos, w/w delta) over PERSISTED `data/gsc/` snapshots. **Distinct from v5.D** — v5.D is the runtime live check (one query, current state); v13.A is the longitudinal analytical layer (week-over-week deltas, trend lines). |
+| v13.A | ✅ *(absorbed by v15.C 2026-05-19)* | GSC trend correlation — folded into v15.C `project seo --trend`. Same scope (PERSISTED `data/gsc/` snapshots, w/w deltas) but lives with its peer GSC-detail flags rather than alone in a separate analytical tier. |
 | v13.B | ⏳ | Roll-up. `portfolio project list` · `--stale N` filter · `--json` · aggregate verdict counts. |
 | v13.C | ⏸ | Optional LLM content seeding. `--seed-content` flag on `portfolio new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1-2 supporting pages from the topic (similar prompt pipeline to v2.A) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style. *Postponed indefinitely (2026-05-04 user call); v3.D built first.* |
 
@@ -659,6 +660,156 @@ scope when this tier's slot comes up.
 | v14.B | ⏳ | HEAD vs deployed. Deploy-freshness signal · `deploy-fresh` conformance check · reads `version.json` from live URL. |
 | v14.C | ⏳ | Build status + deploy lag. Deploy lag (push → live) · last build status via Cloudflare/Vercel API · `last-build-success` conformance · *requires platform tokens — major new infra*. |
 | v14.D | ⏳ | Domain-list refresh tooling. Flag-only enhancements to existing `cleanup` (no new commands): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct `$EDITOR` on `data/portfolio.json` is the no-tooling path. |
+
+### v15 — rich GSC `project seo` view *(new 2026-05-19; absorbs v13.A)*
+
+`lamill project seo <domain>` today renders a one-row 28-day aggregate
+(impressions / clicks / CTR / position). v15 layers compositional
+section flags on the same command so the operator can drill into top
+queries / top pages / device split / weekly trend / coverage / derived
+opportunities — *one flag per section*, all of them additive. The
+default no-flag invocation stays exactly as it shipped in v5.D — no
+behavior change for any current consumer. **See `docs/architecture.md
+§ 5 CLI surface` for the planned flag tree (post-implementation).**
+
+Section flags chosen over sub-verbs (Shape C) after operator pick
+2026-05-19. Composability beats per-section command discoverability
+for this workflow — the operator is reading one project's signals at
+a time, not scripting cross-project aggregations.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v15.A | ⏳ | Foundation — `gsc.py` dimension-aware query helpers (`query_with_dims(property, days, dimensions, row_limit)`) + per-project cache module `gsc_detail_cache.py` writing `data/gsc/<domain>/<UTC-today>.json`. Persists all v15-fetched dim-rows together so subsequent section flags read from cache without re-burning GSC quota. `--refresh` re-fetches; `is_stale` default 24h (matches `hosting_cache`/`seo_cache` conventions). Heavy reuse of existing OAuth + retry plumbing in `gsc.py`. |
+| v15.B | ⏳ | `--queries` + `--pages` + `--devices` section flags. Each adds one rich-table section to the `project seo` output keyed by dimension (`query` / `page` / `device`). Default `--top 10` for `--queries` and `--pages`; `--devices` is a flat 3-row table (mobile / desktop / tablet). Per-query / per-page columns: Imp · Clicks · CTR · Pos. Sort by impressions desc. Pos < 10 marked `✓ top-10`; pos 11-30 marked `⚠ page-2`. |
+| v15.C | ⏳ | `--trend` section flag (was v13.A). Renders 4 weekly buckets by default (`--weeks N` overrides). Columns: Week of · Imp · Clicks · Pos · Δimp · Δpos. w/w deltas use the same persisted `data/gsc/<domain>/` snapshots — gracefully degrades when fewer than 2 weeks of history exist (shows "—" in delta columns). |
+| v15.D | ⏳ | URL Inspection API wrapper + `--coverage` section flag. `gsc.inspect_url(property, url)` calls `urlInspection.index:inspect`, returns `(indexed, last_crawl_at, mobile_usability_verdict)`. Capped at top-N pages from the `--pages` section's output (default 10) so a 100+ page site doesn't burn the URL Inspection daily quota. `--coverage --refresh` re-inspects; default 7-day TTL on coverage rows (longer than the 24h for analytics since coverage state changes less often). |
+| v15.E | ⏳ | Derived opportunities + `--opportunities` + `--full` composite flag. New `project_seo_detail.py` module — pure derivation over the persisted cache. Four signal kinds: page-2 wins (pos 11-30, imp ≥50), CTR underperformers (page CTR < site-median × 0.5), content gaps (CTR > 10% AND imp < 50), cannibalisation (same query → ≥2 pages with overlapping intent). Surfaced as a bulleted block at the end. `--full` is a composite flag — renders every section in a fixed order (`trend / queries / pages / devices / coverage / opportunities`). Tests cover the derived-signal thresholds + the composite flag's section ordering. |
+
+#### Design notes
+
+**Problem statement.** `lamill project seo lamillrentals.com` today
+shows a 28-day aggregate (466 imp · 12 clicks · 2.6% CTR · pos 16.5)
+and that's it. The operator can see that the site *is* getting search
+traffic, but not the next-action-worthy detail: *which* queries bring
+the traffic, *which* pages those queries land on, *whether the
+position is trending up or down*, *which queries are close to top-10
+but not there yet*, *which pages have high impressions but anemic
+CTR* (title/meta-rewrite candidates), *whether Google has even
+indexed every page submitted via sitemap*. All of that data sits one
+or two GSC API calls away.
+
+The current single-row view is the right *headline*. v15 doesn't
+change that. It adds layers underneath, one per `--<section>` flag,
+so the operator can pull just the slice they want without an
+all-or-nothing dump.
+
+**Goals.**
+
+- Compositional section flags on the existing `project seo <domain>`
+  command. Each flag adds one section to the output; multiple flags
+  stack (`--queries --opportunities` renders both).
+- All sections read from one shared per-project GSC cache at
+  `data/gsc/<domain>/<UTC-today>.json` so back-to-back invocations
+  don't re-burn GSC quota.
+- `--refresh` re-fetches every section's underlying GSC call (mirrors
+  `fleet seo --refresh` / `fleet hosting --refresh` posture).
+- Default no-flag output unchanged from v5.D — backwards-compatible
+  for any existing scripts.
+- `--full` composite flag for "give me everything" — fixed section
+  order; operator-readable end-to-end.
+- Derived opportunities turn raw data into next-action signal. Not
+  just "show me the numbers" but "here's what to work on next."
+
+**Non-goals.**
+
+- Cross-project aggregation (that's v13.B's `project list` view).
+- Persistent trend storage beyond the 24h cache + the existing
+  `data/gsc/<date>.json` snapshots (long-horizon analytics is a
+  different tier).
+- GSC property-management ops (already covered by `settings gsc
+  auth` / `settings gsc status` in v7.A).
+- Writing back to GSC (URL Inspection is read-only; we never POST
+  reindex requests from this command — that's an `apply` write
+  surface and would need an ADR).
+- Multi-property sites — when `data/portfolio.json` lists multiple
+  GSC properties for one domain (apex + `sc-domain:` form), v15
+  aggregates the same way `fleet seo` does today.
+
+**User journey scenarios.**
+
+```text
+# Default — unchanged from v5.D
+$ lamill project seo lamillrentals.com
+<the existing one-row table>
+
+# Pull one section
+$ lamill project seo lamillrentals.com --queries
+<existing one-row table>
+🔎 Top queries (28d)
+ #  Query                              Imp   Clicks  CTR    Pos
+ 1  rv rental washington              156      4    2.6%   8.2  ✓ top-10
+ 2  motorhome hire seattle             89      3    3.4%  12.1  ⚠ page-2
+ 3  rv hire bellevue                   54      2    3.7%  14.8  ⚠ page-2
+ …
+
+# Pull two sections — stack in flag order
+$ lamill project seo lamillrentals.com --trend --opportunities
+<existing one-row table>
+📈 Trend (4 weekly buckets)
+ Week of   Imp  Clicks  Pos    Δimp  Δpos
+ May 12    142    5    14.2    +18   ↑0.8
+ May 5     124    4    15.0    -22   ↓0.3
+ …
+
+💡 Opportunities
+ • 2 page-2 queries with ≥50 imp — "motorhome hire seattle" (12.1),
+   "rv hire bellevue" (14.8).
+ • 1 high-imp / low-CTR page — / (2.9% vs site median 3.4%) — title
+   /meta rewrite candidate.
+ • Index coverage — 7 URLs submitted, 6 indexed, 1 crawled-not-
+   indexed (/pricing).
+
+# Full dump
+$ lamill project seo lamillrentals.com --full
+<every section in fixed order>
+
+# Re-fetch underlying GSC calls (bypasses 24h cache)
+$ lamill project seo lamillrentals.com --queries --refresh
+```
+
+**Open questions (most answered inline 2026-05-19; few open).**
+
+| # | Question | Resolution |
+|---|---|---|
+| 15.A | `--top N` default for `--queries` / `--pages`? | **10**, with `--top N` override. Matches GSC dashboard's default tablet view; fits one screen. |
+| 15.B | URL Inspection cap — how to bound the per-day quota burn? | **Top N pages from the `--pages` section** (default 10). A 100-page site at one inspect call each would chew the daily quota; capping at top-N keeps it bounded. Operator can `--top 50 --coverage` if they want more. |
+| 15.C | Per-project GSC cache TTL? | **24h default**, configurable via `is_stale(max_age_hours=N)` like `hosting_cache`. GSC search data has a 2-3 day publishing lag anyway; 24h matches the daily-run cadence. |
+| 15.D | CTR underperformer threshold? | **Page CTR < site-median × 0.5.** Aggressive enough to surface real wins; not so aggressive it floods with marginal hits. Hardcoded constant; revisit if real data shows it wrong. |
+| 15.E | "Page-2" position window? | **Pos 11-30.** GSC actually exposes positions out to ~50, but 30+ is rarely actionable from a content tweak. Hardcoded. |
+| 15.F | `--full` section order? | **`trend → queries → pages → devices → coverage → opportunities`.** Headline (existing) always first; then biggest-context-first (trend); then dimension drilldowns; then the derived-signal block at the end. Fixed — no operator override. |
+| 15.G | Cache directory shape — `data/gsc/<domain>/<date>.json` (per-domain subdir) vs flat `data/gsc/<domain>-<date>.json`? | **Per-domain subdir.** Matches how `data/seo/` would scale if we ever wanted per-domain history. Cleaner `ls` output. |
+| 15.H | Cannibalisation signal — how to detect "overlapping intent"? | **OPEN.** Naive approach: same query maps to ≥2 pages with combined impressions > one-page-dominant threshold. Smarter: cosine similarity on page titles. Decide at v15.E kickoff. |
+| 15.I | What if `--coverage` runs on a site with 0 indexed URLs? | **OPEN.** Likely render a single "0 of N indexed" row + a "check sitemap submission" hint. Decide at v15.D kickoff. |
+
+**Effort estimate.** ~6-9h total across 5 sub-phases:
+
+| Phase | Scope | Effort |
+|---|---|---|
+| v15.A | `gsc.py` dim-aware queries + cache module | ~2h |
+| v15.B | `--queries` + `--pages` + `--devices` + renderer | ~1-2h |
+| v15.C | `--trend` weekly buckets + w/w deltas (replaces v13.A) | ~1h |
+| v15.D | URL Inspection wrapper + `--coverage` | ~1-2h |
+| v15.E | Derived opportunities + `--opportunities` + `--full` | ~1-2h |
+
+Real GSC API quirks (paging behavior on filtered queries, rate-limit
+edges, URL Inspection quota math) surface only on first run against
+the operator's actual properties.
+
+**Approval.** Shape C (compositional section flags) + v15 tier
+assignment approved 2026-05-19. Implementation queued behind v11.H-K
+(read-only walker cluster wrap-up) unless operator queue-jumps it.
 
 ## 7. Conformance rules for all websites
 
