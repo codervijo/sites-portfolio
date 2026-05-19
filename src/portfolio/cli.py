@@ -4671,27 +4671,99 @@ def _render_serp_json(payload: dict) -> None:
 @new_app.command("deploy")
 def new_deploy(
     domain: str = typer.Argument(..., help="Domain whose sites/<domain>/ project to deploy (e.g. kwizicle.com)"),
-    gh_owner: str = typer.Option("", "--gh-owner", help="GitHub username/org for the new repo (auto-detected via `gh api user` if empty)"),
-    private: bool = typer.Option(False, "--private", help="Create the GitHub repo as private (default: public)"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen; don't actually call APIs or create resources"),
-    skip_verify: bool = typer.Option(False, "--skip-verify", help="Skip the local-config sanity check"),
-    skip_repo: bool = typer.Option(False, "--skip-repo", help="Skip GitHub repo creation (use if repo already exists)"),
-    skip_pages: bool = typer.Option(False, "--skip-pages", help="Skip Cloudflare Pages project creation"),
+    gh_owner: str = typer.Option("", "--gh-owner", help="GitHub username/org for the new repo (cf-pages only; auto-detected via `gh api user` if empty)"),
+    private: bool = typer.Option(False, "--private", help="Create the GitHub repo as private (cf-pages only; default: public)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen; don't actually call APIs or run deploy commands"),
+    skip_verify: bool = typer.Option(False, "--skip-verify", help="Skip the local-config sanity check (cf-pages only)"),
+    skip_repo: bool = typer.Option(False, "--skip-repo", help="Skip GitHub repo creation (cf-pages only)"),
+    skip_pages: bool = typer.Option(False, "--skip-pages", help="Skip Cloudflare Pages project creation (cf-pages only)"),
 ) -> None:
-    """Set up the GitHub repo + Cloudflare Pages project for a sites/<domain>/ project (v3.C)."""
+    """Deploy a sites/<domain>/ project. Dispatches by lamill.toml platform (v11.M)."""
+    from .data import ROOT as DATA_ROOT
+    from . import lamill_toml as _lt
+
+    project_dir = DATA_ROOT.parent / domain
+    if not project_dir.exists():
+        console.print(f"[red]Project dir not found:[/] {project_dir}")
+        console.print("[dim]Run `lamill new bootstrap <domain>` first, or check the domain spelling.[/]")
+        raise typer.Exit(1)
+
+    try:
+        decl = _lt.load(project_dir)
+    except _lt.ParseError as e:
+        console.print(f"[red]lamill.toml invalid:[/] {e}")
+        raise typer.Exit(2)
+
+    platform = decl.deploy.platform if decl else "cf-pages"
+    if decl is None:
+        console.print(
+            "[dim]No lamill.toml found — assuming platform=cf-pages "
+            "(legacy default). Run `lamill settings project set-deploy "
+            f"{domain} <platform>` to declare explicitly.[/]"
+        )
+
+    if platform == "none":
+        console.print(
+            f"[red]Platform is `none` for {domain}.[/]\n"
+            f"[dim]Run `lamill settings project set-deploy {domain} <platform>` "
+            "to choose a deploy target first.[/]"
+        )
+        raise typer.Exit(2)
+
+    if platform == "cf-pages":
+        _deploy_cf_pages_v3c(
+            domain=domain,
+            project_dir=project_dir,
+            gh_owner=gh_owner,
+            private=private,
+            dry_run=dry_run,
+            skip_verify=skip_verify,
+            skip_repo=skip_repo,
+            skip_pages=skip_pages,
+        )
+        return
+
+    if platform == "cf-workers":
+        _deploy_cf_workers(domain=domain, project_dir=project_dir, dry_run=dry_run)
+        return
+
+    if platform == "vercel":
+        _deploy_vercel(domain=domain, project_dir=project_dir, dry_run=dry_run)
+        return
+
+    if platform in ("hostgator", "custom"):
+        _deploy_hostgator_placeholder(domain=domain, platform=platform)
+        return
+
+    # netlify / github-pages — declared in PLATFORM_VALUES but not yet
+    # implemented end-to-end. Surface a clear "not implemented" rather
+    # than silently routing into cf-pages or shelling something wrong.
+    console.print(
+        f"[yellow]platform={platform!r} is declared but `new deploy` "
+        f"doesn't implement it yet.[/]\n"
+        f"[dim]Tracked for a future v11.X. For now, deploy {domain} "
+        "manually via the platform's own tooling.[/]"
+    )
+    raise typer.Exit(2)
+
+
+def _deploy_cf_pages_v3c(
+    *,
+    domain: str,
+    project_dir,
+    gh_owner: str,
+    private: bool,
+    dry_run: bool,
+    skip_verify: bool,
+    skip_repo: bool,
+    skip_pages: bool,
+) -> None:
+    """First-time CF Pages plumbing (extracted from v3.C, dispatched by v11.M)."""
     from .bootstrap import _project_name
     from .deploy import CloudflarePagesDeploy, detect_gh_owner
     from .suggest import PORTFOLIO_ENV, load_env
 
-    from .data import ROOT as DATA_ROOT
-
     env = load_env()
-    project_dir = DATA_ROOT.parent / domain
-    if not project_dir.exists():
-        console.print(f"[red]Project dir not found:[/] {project_dir}")
-        console.print("[dim]Run `portfolio new bootstrap <domain>` first, or check the domain spelling.[/]")
-        raise typer.Exit(1)
-
     cf_token = env.get("CF_API_TOKEN", "").strip()
     cf_account = env.get("CF_ACCOUNT_ID", "").strip()
     if not cf_token or not cf_account:
@@ -4708,7 +4780,7 @@ def new_deploy(
     slug = f"{gh_owner}/{_project_name(domain)}"
     target = CloudflarePagesDeploy(api_token=cf_token, account_id=cf_account, dry_run=dry_run)
 
-    console.print(f"[bold]Deploy plan for[/] [cyan]{domain}[/]")
+    console.print(f"[bold]Deploy plan for[/] [cyan]{domain}[/]  [dim](platform=cf-pages)[/]")
     console.print(f"  project dir:  {project_dir}")
     console.print(f"  gh slug:      {slug}")
     console.print(f"  cf project:   {_project_name(domain)}  [dim](from wrangler.jsonc, falling back to domain base)[/]")
@@ -4768,6 +4840,55 @@ def new_deploy(
     console.print("\n[green]Deploy plumbing complete.[/]")
     console.print("[dim]Next: CF auto-builds on each push to main. Watch the dashboard for the first build.[/]")
     console.print(f"[dim]To add the custom domain, do it in the CF Pages dashboard for now (deferred from v3.C).[/]")
+
+
+def _deploy_cf_workers(*, domain: str, project_dir, dry_run: bool) -> None:
+    """v11.M cf-workers path: shell out to `pnpm run deploy` (wrangler)."""
+    from .deploy import deploy_cf_workers_via_shell
+
+    console.print(f"[bold]Deploy[/] [cyan]{domain}[/]  [dim](platform=cf-workers · wrangler via pnpm)[/]")
+    console.print(f"  project dir:  {project_dir}")
+    console.print(f"  dry-run:      {dry_run}")
+    result = deploy_cf_workers_via_shell(project_dir, dry_run=dry_run)
+    if result.skipped:
+        console.print(f"\n  [yellow]↷[/] {result.detail}")
+        return
+    if result.ok:
+        console.print(f"\n  [green]✓[/] {result.detail}")
+        console.print("[green]Deploy complete.[/]")
+        return
+    console.print(f"\n  [red]✗[/] {result.detail}")
+    raise typer.Exit(6)
+
+
+def _deploy_vercel(*, domain: str, project_dir, dry_run: bool) -> None:
+    """v11.M vercel path: shell out to `vercel deploy --prod`."""
+    from .deploy import deploy_vercel_via_shell
+
+    console.print(f"[bold]Deploy[/] [cyan]{domain}[/]  [dim](platform=vercel · vercel CLI)[/]")
+    console.print(f"  project dir:  {project_dir}")
+    console.print(f"  dry-run:      {dry_run}")
+    result = deploy_vercel_via_shell(project_dir, dry_run=dry_run)
+    if result.skipped:
+        console.print(f"\n  [yellow]↷[/] {result.detail}")
+        return
+    if result.ok:
+        console.print(f"\n  [green]✓[/] {result.detail}")
+        console.print("[green]Deploy complete.[/]")
+        return
+    console.print(f"\n  [red]✗[/] {result.detail}")
+    raise typer.Exit(6)
+
+
+def _deploy_hostgator_placeholder(*, domain: str, platform: str) -> None:
+    """v11.M placeholder: hostgator/custom routes here until v11.N lands."""
+    console.print(
+        f"[yellow]platform={platform!r} for {domain} routes through v11.N "
+        "(UAPI file-upload deploy), which isn't shipped yet.[/]\n"
+        "[dim]Coming in v11.N — for now, deploy manually via cPanel File "
+        "Manager or your usual SFTP client.[/]"
+    )
+    raise typer.Exit(2)
 
 
 # `project` namespace — per-project ops (check, fix, seo, diagnose, set-launched).

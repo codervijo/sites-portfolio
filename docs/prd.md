@@ -351,8 +351,8 @@ stay correctly labeled `v11.A` and roll up as the foundation phase.
 | v11.J | ✅ *(renumbered 2026-05-19 — was v11.I)* | `--apply-declarations` writer — `apply_hg_declarations(rows, *, dry_run, sites_root, plan)` data-layer function + `fleet hosting --apply-declarations [--apply]` CLI flag. For HG rows from the walker, writes `lamill.toml` via v10.A's `lamill_toml.write()` when the local `sites/<domain>/` exists, the site isn't archived (TOMBSTONE.md / portfolio.json category), and no `lamill.toml` already exists. Mirrors v10.C's migration-sweep dry-run/apply convention. Scoped "missing-only" per resolution 11.N — never overwrites. Render breaks down per-action (would_write / wrote / skipped_no_site_dir / skipped_already / skipped_archived) plus footer + `--apply` next-step hint. 15 tests. |
 | v11.K | ✅ *(renumbered 2026-05-19 — was v11.J)* | `fleet dashboard` + `project diagnose` integration. Dashboard gains Host (🟢/🟡/🔴/—) + Prov (VC/CFP/CFW/HG, `+` suffix on conflict) columns plus a `host=` entry in the freshness footer; rollup widens to 4 dimensions. Diagnose gains a sixth `HostingLayer` (snapshot-read only — never re-walks); renders provider / project_slug / hg_account_id / status / last_ok date / failures / disk / WP per matching row; surfaces 🤐 conflict on multi-row drift. Both reuse v11.F's `hosting_cache.result_from_snapshot()`. New `_host_dot()` cascade mirrors `hosting_status_emoji` but maps to the dashboard's 🟢/🟡/🔴/— vocabulary. 19 tests. |
 | v11.L | ✅ *(renumbered 2026-05-19 — was v11.K)* | Docs sync closing the v11.A-K read-only walker cluster. Per-phase entries for v11.I (renderer upgrade), v11.J (`--apply-declarations` writer), v11.K (dashboard + diagnose integrations) added to `shipping-history.md`. v11.D entry expanded with post-ship-fix notes (`42bb98b` HG auth username decoupling + `d3bae51` megabytes_used / conflict-detection / install_path). v11 tier-level design notes stay in `prd.md` until v11.M-N (deploy verb) ships — partial migration would split tier context awkwardly. Operator hand-test verified all integrations 2026-05-19 (dashboard `HG+` conflict flag, diagnose `🤐 conflict` rows for hybridautopart, diagnose `provider=hostgator` for declared-vercel iotnews.today). |
-| v11.M | ⏳ *(renumbered 2026-05-19 — was v11.L)* | `new deploy` polymorphic dispatch — reads `lamill.toml`, dispatches `cf-pages` → existing v3.C logic; `cf-workers` → existing wrangler-deploy path; `vercel` → existing-equivalent (verify v3.C actually shipped a Vercel path; backfill if it didn't); `hostgator` / `custom` → routes into v11.N; `none` → reject with `set-deploy` hint. No new write surface; pure dispatcher refactor on top of v3.C. |
-| v11.N | ⏳ *(renumbered 2026-05-19 — was v11.M)* | SFTP push for `hostgator` / `custom` — walks the `[hosting]` block in `lamill.toml`, pushes the configured source dir to `public_html_path`. Adds a third write surface; gated on **ADR-0009** (reverse or refine ADR-0003's "two write surfaces only" rule). **Design open** — gating questions 11.O-T below must be answered before code lands. |
+| v11.M | ✅ | `new deploy` polymorphic dispatch — reads `lamill.toml`, dispatches `cf-pages` → existing v3.C `CloudflarePagesDeploy` (extracted into private `_deploy_cf_pages_v3c()`); `cf-workers` → `deploy_cf_workers_via_shell()` which runs `pnpm run deploy` in the project dir (delegates to wrangler — replicating the assets-upload pipeline against raw HTTP is non-trivial maintenance burden); `vercel` → `deploy_vercel_via_shell()` which runs `vercel deploy --prod`; `hostgator` / `custom` → v11.N placeholder (until that ships); `netlify` / `github-pages` → "not implemented yet" with a clear hint; `none` → reject with `set-deploy` hint; missing `lamill.toml` → assumes `cf-pages` (legacy default) with a notice. `--dry-run` propagates to every branch. Shell helpers use a `runner=` injection seam for tests (no real subprocesses). 22 new tests (8 shell-helper + 14 CLI dispatcher). |
+| v11.N | ⏳ *(renumbered 2026-05-19 — was v11.M)* | UAPI file-upload deploy for `hostgator` / `custom` — adds `deploy_source` to `[hosting]` (default `dist/`); new `hosting.py` helpers `_hg_upload_file` / `_hg_rename` / `_hg_delete_dir` via existing `_call_hg_uapi`; orchestrator `deploy_hg_files(rows, *, dry_run, sites_root, plan)` mirroring `apply_hg_declarations` shape; stage-then-rename atomicity via cPanel Fileman/rename (upload → `public_html_path.next/` → rename current to `.prev/` → rename `.next/` to current → delete `.prev/`); WP-skip footer per resolution 11.R; dry-run default, `--apply` required. Adds the third deploy verb surface; gated on **ADR-0011** (PRD originally said ADR-0009 but that slot is taken — corrected). Per resolutions 11.P-T below. |
 
 #### Design notes
 
@@ -480,16 +480,16 @@ Done. Verify: lamill project diagnose iotnews.today
 | 11.M | `HostingRow` schema — typed optional fields vs `extra: dict` blob? | **Typed optional fields.** `disk_used_mb: int \| None`, `wp_version: str \| None`, `install_path: str \| None`. Matches every other dataclass in the codebase. |
 | 11.N | `--apply-declarations` scope — only fix missing, or also rewrite drift? | **Only fix missing.** Matches `fleet repos --add-deploy-declarations` (v10.C) safety posture. Drift remediation stays manual via CHECK_143 + `settings project set-deploy`. |
 
-**Open questions (v11.M-N deploy — gating code).**
+**Open questions (v11.M-N deploy — answered 2026-05-19, gate-cleared).**
 
-| # | Question |
-|---|---|
-| 11.O | Verb split — keep one `new deploy` (polymorphic dispatch) or split into `new deploy <domain>` (first-time setup) + `project push <domain>` (recurring SFTP push)? CF Pages git-auto-deploys after initial setup; SFTP needs an explicit push every time. |
-| 11.P | What gets pushed — `dist/` (CF-Pages parity), source files, or operator-configured path in a new `[deploy].source_dir` / `[hosting].deploy_source` field? |
-| 11.Q | Auth — SSH key (read from `~/.ssh/id_*` or operator-configured path), cPanel password (stored in `portfolio.env`), or cPanel UAPI file-upload (avoids SFTP libraries entirely; UAPI has an upload endpoint)? |
-| 11.R | WordPress in or out for v11.M — `hybridautopart.com` + `streamsgalaxy.com` are WP-on-HG; theme/plugin/uploads deploy is fundamentally different from a static `dist/` push. Static-SFTP-only is the simpler scope. |
-| 11.S | ADR-0009 — third write surface. Reverse ADR-0003, or argue external-host writes are a different category from local-FS writes? |
-| 11.T | Atomicity — SFTP overwrites file-by-file; failed push = partial state. Stage-then-rename, maintenance-mode toggle, or accept best-effort and document? |
+| # | Question | Resolution |
+|---|---|---|
+| 11.O | Verb split — keep one `new deploy` (polymorphic dispatch) or split into `new deploy <domain>` + `project push <domain>`? | **One polymorphic `new deploy <domain>`** (shipped v11.M). Reads `lamill.toml` and dispatches by platform. CF/Vercel/Workers paths are first-time-or-redeploy as the underlying tooling dictates; SFTP path runs every time. |
+| 11.P | What gets pushed — `dist/`, source files, or configured path? | **`[hosting].deploy_source` (default `dist/`)** — operator-configurable per site so a static-build site (`dist/`), a raw-PHP site (`.`), or a WP child theme (`wp-content/themes/<x>`) can each declare what to upload without inventing three verbs. |
+| 11.Q | Auth — SSH key, cPanel password, or UAPI upload? | **cPanel UAPI `Fileman/upload_file`** — reuses v11.D's `HOSTGATOR_TOKEN_<account>` + `HOSTGATOR_USER_<account>` auth. No new auth surface, no SFTP library dependency. Tradeoff: per-file POST is slower than batch SFTP for many small files; acceptable for static-site payloads. |
+| 11.R | WordPress in or out for v11.N? | **Static-only.** WP-on-HG sites (`hybridautopart.com`, `streamsgalaxy.com`) get a `WP — deploy not supported in v11` skip with a clear footer. WP-aware deploy (theme/plugin sync) lands as a later phase. |
+| 11.S | Third write surface — reverse or refine ADR-0003? | **Write new ADR-0011** (next available — ADR-0009 / ADR-0010 already taken; PRD's original "ADR-0009" reference was stale). Establishes remote-host writes as a separate category from ADR-0003's local-FS write scope, with its own constraints (idempotent, dry-run default, per-site allowlist via `[hosting]` block). ADR-0003 stays intact. |
+| 11.T | Atomicity — file-by-file, stage-then-rename, or maintenance mode? | **Stage-then-rename pair via cPanel Fileman/rename.** Upload to `public_html_path.next/` → rename current to `.prev/` → rename `.next/` to current → delete `.prev/`. Brief downtime window (ms) between renames — fine for static sites (WP excluded per 11.R). Failed upload leaves prod untouched. |
 
 **Effort estimate.** Read-only walker (v11.A-K) ≈ 16-22h total, now
 spread across 11 phases instead of one chunky v11.A:
@@ -508,12 +508,14 @@ spread across 11 phases instead of one chunky v11.A:
 | v11.J | Dashboard + diagnose | ~2h |
 | v11.K | Docs update | ~1h |
 
-Active deploy (v11.L-M) ≈ 14-20h once 11.O-T are answered. Real API
-quirks surface only on first run against the fleet.
+Active deploy (v11.M-N) ≈ 14-20h once 11.O-T are answered. v11.M
+shipped 2026-05-19 (~4h, well under estimate — shell-out choice for
+cf-workers/vercel kept scope tight). v11.N still pending.
 
 **Approval.** v11.A-K CLI shape + 11.K-N answers approved 2026-05-18 —
-code may proceed; v11.A shipped same day. v11.L-M design open;
-11.O-T gate code.
+code may proceed; v11.A shipped same day. v11.M dispatcher answers
+approved 2026-05-19, shipped same day. v11.N gates remain on
+11.P-T resolutions above (now answered) plus ADR-0011 land.
 
 ### v12 — adversarial audit pass + reconciliation *(new 2026-05-17 PM)*
 

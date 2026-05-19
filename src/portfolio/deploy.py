@@ -327,3 +327,89 @@ def detect_gh_owner() -> str | None:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
     return None
+
+
+# ---------- v11.M shell-out deployers ----------
+#
+# CF Workers + Vercel deploys re-use the operator's installed tooling
+# (wrangler via `pnpm run deploy`; `vercel` CLI). Replicating either
+# pipeline against raw HTTP APIs reasonably means reproducing wrangler's
+# asset-upload flow or vercel's file-hashing pipeline — both nontrivial
+# and a maintenance burden the operator does not need.
+#
+# Returns `StepResult` so the CLI renderer can treat each deploy
+# uniformly (ok=True on subprocess returncode 0).
+
+
+def deploy_cf_workers_via_shell(
+    project_dir: Path,
+    *,
+    dry_run: bool = False,
+    runner=None,
+) -> StepResult:
+    """Run `pnpm run deploy` in `project_dir` for CF Workers deploys.
+
+    Assumes `package.json` has a `deploy` script wired to wrangler.
+    `runner` is an injection seam for tests (defaults to
+    `subprocess.run`).
+    """
+    cmd = ["pnpm", "run", "deploy"]
+    if dry_run:
+        return StepResult(
+            step="cf-workers-shell",
+            ok=True,
+            detail=f"DRY-RUN — would run: {' '.join(cmd)} (cwd={project_dir})",
+            skipped=True,
+        )
+    return _run_shell_deploy(cmd, project_dir, step="cf-workers-shell", runner=runner)
+
+
+def deploy_vercel_via_shell(
+    project_dir: Path,
+    *,
+    dry_run: bool = False,
+    runner=None,
+) -> StepResult:
+    """Run `vercel deploy --prod` in `project_dir`.
+
+    Assumes the `vercel` CLI is installed and authenticated.
+    """
+    cmd = ["vercel", "deploy", "--prod"]
+    if dry_run:
+        return StepResult(
+            step="vercel-shell",
+            ok=True,
+            detail=f"DRY-RUN — would run: {' '.join(cmd)} (cwd={project_dir})",
+            skipped=True,
+        )
+    return _run_shell_deploy(cmd, project_dir, step="vercel-shell", runner=runner)
+
+
+def _run_shell_deploy(
+    cmd: list[str],
+    cwd: Path,
+    *,
+    step: str,
+    runner=None,
+) -> StepResult:
+    run = runner or subprocess.run
+    try:
+        result = run(cmd, cwd=str(cwd), check=False)
+    except FileNotFoundError:
+        return StepResult(
+            step=step,
+            ok=False,
+            detail=f"command not found: {cmd[0]} (install it and try again)",
+        )
+    rc = getattr(result, "returncode", 0)
+    if rc == 0:
+        return StepResult(
+            step=step,
+            ok=True,
+            detail=f"ran `{' '.join(cmd)}` in {cwd}",
+        )
+    return StepResult(
+        step=step,
+        ok=False,
+        detail=f"`{' '.join(cmd)}` exited with code {rc}",
+    )
