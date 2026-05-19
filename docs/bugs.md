@@ -153,44 +153,69 @@ by the migration sweep. Fix is ~15 min: in `set_deploy()`, when
 
 ---
 
-### 2026-05-18 — `domain suggest` menu shows option `s` between numbered options 7 and 8
+### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
 
 **Repro**
     uv run lamill domain suggest <topic>
     # interactive menu renders after first grid
 
 **Expected**
-Menu options sorted with numbered options (1-8) contiguous and any
-letter options (`m`, `q`, `s`) grouped separately — either before
-numbers (commands) or after (letters), but not interleaved. Reads
-left-to-right as one consistent ordering.
+Every menu option is keyed by a number (plus `q` for quit). Reads
+top-to-bottom as a single numeric sequence — no interleaved
+letters.
 
 **Actual**
-Option `s` appears positioned between numbered options 7 and 8 in
-the rendered menu, breaking the visual scan order. (Exact menu
-behavior unconfirmed; operator brief report 2026-05-18.)
+Option `s` ("Show marked names as full grid") is registered in
+`MENU_ITEMS` between numbered items 7 and 8, rendering as a
+visually out-of-place letter row between 7 (Decide from
+shortlist) and 8 (Show TLD reference). Was a deliberate v4.A
+choice — source comment says *"Letter key keeps numeric muscle-
+memory (1-9) intact while adding the new affordance next to its
+shortlist siblings."* Operator's directive 2026-05-18 reverses
+that call: *"s is wrong place, wrong name, it should have all
+been just numbers."*
 
-**Where (guess)**
-`src/portfolio/menu.py` or `src/portfolio/suggest.py` — the
-post-grid menu renderer assembled across v3.E (options 1, 2, 5,
-8, q) + v4.A (`m` mark, shortlist count) + v4.B (option 7) +
-v4.C (options 3, 4). An item registered with `s` is landing in
-sort order between 7 and 8 because the comparator is string-
-sorting rather than numeric-first-then-letters. Likely fix is a
-two-key sort: `(is_letter, value)` so all numerics group first.
+**Where**
+`src/portfolio/cli.py:2084` — `MENU_ITEMS` list. Dispatch chain
+at `cli.py:2994-3079` (4 branches affected by the renumber).
+`_render_menu` at `cli.py:2300` (the `key in ("6", "s")` count-
+suffix check). Tests at `tests/test_suggest_show_marked.py`
+(lines 147 / 151 / 156 / 167 reference `"s"`) and
+`tests/test_suggest.py` (lines ~1674 / 1681 / 1694 snapshot
+MENU_ITEMS keys).
 
 **Severity**
 cosmetic — menu still works; reading order is off. Not blocking
 any workflow.
 
+**Fix plan** (~20 min)
+
+Renumber `s` → `8`; bump existing `8` (TLD reference) → `9`; bump
+existing `9` (Rerun fresh) → `10`. Final order keeps "Show
+marked" adjacent to its shortlist siblings (6 Mark / 7 Decide /
+8 Show marked), which was the original placement rationale —
+just numbered:
+
+```
+ 1. Pick a row to register
+ 2. Expand a row (full-ladder detail)
+ 3. Ask AI about a name
+ 4. Widen search — more candidates
+ 5. Add my own names to the grid
+ 6. Mark / unmark for shortlist
+ 7. Decide from shortlist
+ 8. Show marked names as full grid       (was 's')
+ 9. Show TLD reference                   (was '8')
+10. Rerun fresh                          (was '9')
+ q. Quit
+```
+
 **Notes**
-Operator's report is terse: *"option s between 7 & 8"*. Need to
-confirm whether `s` is an existing menu option (and what it
-does) or whether this is a request to *add* an `s` option in a
-specific position. Pick this up after the v10/v11 restructure
-commit + read the menu source first; the bug headline assumes
-sort-order interpretation but the renderer code will tell us
-which.
+Operator clarified the directive 2026-05-18 mid-session after the
+v10 wrap + v11 restructure doc commit. Pick up between phases per
+[[feedback-bug-intake-workflow]]. Small commit; expected
+`portfolio: vN.X — domain suggest menu fully numbered (drop s key)`
+or just a docs-style commit if it doesn't fit a named phase.
 
 ---
 
