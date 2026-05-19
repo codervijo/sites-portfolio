@@ -13,11 +13,13 @@ This module currently exposes:
   - `render_audit_prompt(payload, *, prompt_name) -> str` —
     assembles the final prompt string to send to the audit-model
     LLM. (v12.A)
+  - `parse_audit(markdown_text) -> ParsedAudit` + `AuditParseError`
+    — parses the audit LLM's markdown response. Different schema
+    than primary: agreement_level / confidence / specific_concerns /
+    counter_verdict / audit_self_check. Reuses interpretive_pass's
+    section + bullet primitives. (v12.B)
 
 Subsequent commits add:
-  - audit response parser (different schema than primary —
-    agreement_level / confidence / specific_concerns /
-    counter_verdict / audit_self_check) — v12.B
   - audit-pass runner (orchestrates payload → render → OpenAI →
     parse; uses the existing OPENAI_API_KEY pathway in serp.py) —
     v12.C
@@ -38,9 +40,16 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from typing import Any
 
-from .interpretive_pass import build_payload
+from .interpretive_pass import (
+    _VALID_VERDICTS,
+    _normalize_verdict_token,
+    _parse_bullets,
+    _split_sections,
+    build_payload,
+)
 from .operator_profile import OperatorProfile
 from .prompt_loader import load_prompt, render_prompt
 
@@ -188,4 +197,163 @@ def render_audit_prompt(payload: dict, *,
         f"---\n\n"
         f"INPUT PAYLOAD (JSON):\n\n"
         f"```json\n{payload_json}\n```"
+    )
+
+
+# ---------- response parsing ----------
+
+
+# Canonical tokens per `prompts/adversarial_audit_v1.md`'s response-
+# format spec. Distinct from interpretive_pass's verdict set:
+# agreement_level captures the audit's relationship to the primary,
+# not its own GO/NICHE-DOWN/NO-GO call. The counter_verdict (used
+# only on `disagree`) reuses interpretive_pass._VALID_VERDICTS.
+_VALID_AGREEMENT = {"full", "partial", "disagree"}
+_VALID_AUDIT_CONFIDENCE = {"HIGH", "MEDIUM", "LOW"}
+
+
+@dataclass
+class ParsedAudit:
+    """Structured representation of the audit-pass LLM's markdown
+    response. Required fields (agreement_level / confidence /
+    specific_concerns) are validated at parse time; optional fields
+    default to empty when the LLM omits them per the prompt spec
+    (e.g., counter_verdict is required only on `disagree`)."""
+    agreement_level: str          # full | partial | disagree
+    confidence: str               # HIGH | MEDIUM | LOW (audit's own)
+    specific_concerns: list[str]  # ≥1 bullet — validated
+    counter_verdict_token: str = ""        # GO | NICHE-DOWN | NO-GO
+    counter_verdict_reasoning: str = ""    # 1-2 sentence explanation
+    audit_self_check: str = ""             # honest self-assessment
+
+
+class AuditParseError(ValueError):
+    """Raised when the audit LLM's response can't be parsed into a
+    ParsedAudit. The runner (v12.C) catches and surfaces — failing
+    loud beats shipping a half-parsed audit into reconciliation."""
+
+
+def _parse_counter_verdict(body: str) -> tuple[str, str]:
+    """Parse the counter_verdict section body into
+    (canonical_token, reasoning). Expected shape per the audit prompt:
+
+        <TOKEN>: <1-2 sentences why>
+
+    where TOKEN ∈ {GO, NICHE-DOWN, NO-GO}. The reasoning may span
+    multiple lines — everything after the first `:` is the reasoning.
+
+    Raises `AuditParseError` when the body is empty, lacks a colon,
+    or the token isn't in the canonical set (after the same
+    normalization `_normalize_verdict_token` applies to the primary).
+    """
+    text = body.strip()
+    if not text:
+        raise AuditParseError(
+            "counter_verdict section is empty — required when "
+            "agreement_level=disagree"
+        )
+    head, sep, rest = text.partition(":")
+    if not sep:
+        raise AuditParseError(
+            f"counter_verdict must follow `<TOKEN>: <reasoning>` shape "
+            f"(got: {text[:60]!r})"
+        )
+    token = _normalize_verdict_token(head)
+    if token not in _VALID_VERDICTS:
+        raise AuditParseError(
+            f"counter_verdict token {head!r} not in canonical set "
+            f"{sorted(_VALID_VERDICTS)} (normalized: {token!r})"
+        )
+    return token, rest.strip()
+
+
+def parse_audit(markdown_text: str) -> ParsedAudit:
+    """Parse the audit-pass LLM's markdown response into a `ParsedAudit`.
+
+    Raises `AuditParseError` when:
+      - Any of the three required sections is missing
+        (agreement_level / confidence / specific_concerns)
+      - The agreement_level token isn't in {full, partial, disagree}
+      - The confidence token isn't in {HIGH, MEDIUM, LOW}
+      - `specific_concerns` has no bullets (vague-concerns rejection
+        per the prompt's "concrete or omitted" instruction)
+      - `agreement_level=disagree` but `counter_verdict` is missing
+        or empty
+      - `counter_verdict` is present but malformed (no colon, or token
+        not in {GO, NICHE-DOWN, NO-GO}) — strict only when the
+        agreement_level requires it; permissive otherwise (see below)
+
+    Permissive on:
+      - Optional sections: absent → empty defaults
+      - Bullet marker style in specific_concerns (`-`, `*`, `+`, `N.`)
+      - Header case (`### Agreement_Level` and `### agreement_level`
+        both work)
+      - Trailing punctuation on tokens (`partial.`, `HIGH,`)
+      - Pre-section preamble chatter (discarded)
+      - `counter_verdict` present when agreement_level != disagree:
+        parsed if well-formed (stored), tolerated if malformed
+        (stored raw in `counter_verdict_reasoning`). Reconciliation
+        (v12.D) decides whether to surface it in non-disagree cases.
+    """
+    sections = _split_sections(markdown_text)
+
+    for required in ("agreement_level", "confidence", "specific_concerns"):
+        if required not in sections:
+            raise AuditParseError(
+                f"required section `### {required}` missing from response. "
+                f"Sections found: {sorted(sections.keys())}"
+            )
+
+    agreement = sections["agreement_level"].strip().lower().rstrip(".!,;:")
+    if agreement not in _VALID_AGREEMENT:
+        raise AuditParseError(
+            f"agreement_level {sections['agreement_level']!r} not in canonical "
+            f"set {sorted(_VALID_AGREEMENT)}"
+        )
+
+    confidence = sections["confidence"].strip().upper().rstrip(".!,;:")
+    if confidence not in _VALID_AUDIT_CONFIDENCE:
+        raise AuditParseError(
+            f"confidence {sections['confidence']!r} not in canonical set "
+            f"{sorted(_VALID_AUDIT_CONFIDENCE)}"
+        )
+
+    concerns = _parse_bullets(sections["specific_concerns"])
+    if not concerns:
+        raise AuditParseError(
+            "specific_concerns must contain at least one bullet — "
+            "the audit prompt rejects vague or empty concerns "
+            "(\"concrete or omitted\")"
+        )
+
+    counter_token = ""
+    counter_reasoning = ""
+    counter_body = sections.get("counter_verdict", "").strip()
+    if agreement == "disagree":
+        if not counter_body:
+            raise AuditParseError(
+                "agreement_level=disagree requires a non-empty "
+                "`### counter_verdict` section per the audit prompt"
+            )
+        counter_token, counter_reasoning = _parse_counter_verdict(counter_body)
+    elif counter_body:
+        # Permissive: LLM emitted a counter on full/partial against
+        # the prompt's instructions. Parse if well-formed so
+        # reconciliation can see it; otherwise store the raw body
+        # under reasoning and leave the token empty rather than
+        # raising — the audit's signal lives in the concerns list,
+        # not in an off-spec counter on a non-disagree audit.
+        try:
+            counter_token, counter_reasoning = _parse_counter_verdict(counter_body)
+        except AuditParseError:
+            counter_token = ""
+            counter_reasoning = counter_body
+
+    return ParsedAudit(
+        agreement_level=agreement,
+        confidence=confidence,
+        specific_concerns=concerns,
+        counter_verdict_token=counter_token,
+        counter_verdict_reasoning=counter_reasoning,
+        audit_self_check=sections.get("audit_self_check", "").strip(),
     )
