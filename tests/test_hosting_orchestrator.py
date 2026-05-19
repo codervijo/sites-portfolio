@@ -98,12 +98,19 @@ def test_hg_account_ids_skips_unset_tokens(monkeypatch):
 
 
 def _patch_walkers(monkeypatch, *, vercel_rows=None, cf_rows=None,
+                   cf_workers_rows=None,
                    hg_rows_by_account=None,
                    vercel_raises=None, cf_raises=None,
+                   cf_workers_raises=None,
                    hg_raises_by_account=None):
-    """Stub all three walkers with deterministic return values or
-    raised exceptions. Captures the call args for assertion."""
-    calls: dict[str, list[dict]] = {"vercel": [], "cf": [], "hg": []}
+    """Stub all four walkers with deterministic return values or
+    raised exceptions. Captures the call args for assertion.
+
+    v11.H added CF Workers — stubs default to empty rows so tests
+    that don't care about Workers don't have to set them up explicitly."""
+    calls: dict[str, list[dict]] = {
+        "vercel": [], "cf": [], "cf_workers": [], "hg": [],
+    }
 
     def _vercel(token, fleet_domains, *, only_domain=None, **kw):
         calls["vercel"].append({
@@ -123,6 +130,15 @@ def _patch_walkers(monkeypatch, *, vercel_rows=None, cf_rows=None,
             raise cf_raises
         return list(cf_rows or [])
 
+    def _cf_workers(token, account_id, fleet_domains, *, only_domain=None, **kw):
+        calls["cf_workers"].append({
+            "token": token, "account_id": account_id,
+            "fleet_domains": fleet_domains, "only_domain": only_domain,
+        })
+        if cf_workers_raises is not None:
+            raise cf_workers_raises
+        return list(cf_workers_rows or [])
+
     def _hg(token, account_id, fleet_domains, *, only_domain=None, **kw):
         calls["hg"].append({
             "token": token, "account_id": account_id,
@@ -135,6 +151,7 @@ def _patch_walkers(monkeypatch, *, vercel_rows=None, cf_rows=None,
 
     monkeypatch.setattr(hosting, "walk_vercel", _vercel)
     monkeypatch.setattr(hosting, "walk_cf_pages", _cf)
+    monkeypatch.setattr(hosting, "walk_cf_workers", _cf_workers)
     monkeypatch.setattr(hosting, "walk_hostgator", _hg)
     return calls
 
@@ -305,7 +322,9 @@ def test_run_hosting_empty_token_set_returns_empty(monkeypatch):
     calls = _patch_walkers(monkeypatch)
     result = run_hosting(fleet_domains={"x.com"})
     assert result.rows == []
-    assert set(result.skipped.keys()) == {"vercel", "cloudflare-pages", "hostgator"}
+    assert set(result.skipped.keys()) == {
+        "vercel", "cloudflare-pages", "cloudflare-workers", "hostgator",
+    }
     assert calls["vercel"] == []
     assert calls["cf"] == []
     assert calls["hg"] == []

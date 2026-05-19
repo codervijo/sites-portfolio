@@ -153,6 +153,166 @@ by the migration sweep. Fix is ~15 min: in `set_deploy()`, when
 
 ---
 
+### 2026-05-19 — `fleet hosting` walkers miss ~9 fleet sites declared as `vercel` / `cf-*`
+
+**Repro**
+    lamill fleet hosting --refresh
+
+**Expected**
+A row for every fleet site whose `lamill.toml` declares a
+v11-supported platform (`vercel` / `cf-pages` / `cf-workers` /
+`hostgator`). Per the v10.D scoreboard that's 20 sites (22 minus
+the 2 HG ones currently skipped on the 403 issue).
+
+**Actual**
+Only 11 rows came back (6 `cloudflare-workers` + 5 `vercel`).
+Missing: `agesdk.dev`, `calcengine.site`, `homeloom.app`,
+`iotbastion.com`, `iotnews.today`, `lamill.io`, `linkedcsi.live`,
+`thoralox.com`, `whizgraphs.com` — ~9 sites the operator declared
+as `vercel` (or `cf-pages`/`cf-workers` via wrangler config) in
+v10.D but that don't appear in the table.
+
+**Where (guess)**
+Most likely culprits:
+
+1. **Vercel walker matches via `targets.production.alias`** only.
+   Sites where the custom domain is configured via DNS-only (CNAME
+   to the project's `*.vercel.app` but not added as a project alias)
+   won't match. Operator commonly adds DNS first and forgets the
+   Vercel project's custom-domain pane. Walker should also pull
+   from `/v9/projects/{id}/domains` as a fallback.
+2. **Vercel pagination** — walker uses 20-per-page with
+   `pagination.next` cursor. If operator has > 20 projects, the
+   first page returns 20 + cursor; we paginate but the cursor
+   semantics differ between Vercel API versions. Worth verifying
+   against the operator's actual project count via
+   `curl /v9/projects?limit=1` and reading `pagination.total`.
+3. **Vercel-declared-but-actually-elsewhere** — `iotnews.today`
+   declared `vercel` but CHECK_143 caught it serving WordPress
+   from HG account 2 (the canonical drift case). Same diagnosis
+   may apply to others on the missing list — declarations may be
+   stale. Walker would correctly return 0 rows for those because
+   the Vercel project literally doesn't exist.
+
+**Severity**
+major — v11's core value prop is "see your whole fleet at a glance"
+and we're showing ~55% of it.
+
+**Notes**
+Diagnostic next steps:
+
+```bash
+ACCOUNT_ID=$(grep "^CF_ACCOUNT_ID=" portfolio.env | cut -d= -f2-)
+TOKEN=$(grep "^VERCEL_TOKEN=" portfolio.env | cut -d= -f2-)
+# How many Vercel projects in total?
+curl -s -H "Authorization: Bearer ${TOKEN}" \
+  "https://api.vercel.com/v9/projects?limit=100" \
+  | python3 -m json.tool | head -40
+# For one specific missing site, do they have a Vercel project?
+curl -s -H "Authorization: Bearer ${TOKEN}" \
+  "https://api.vercel.com/v9/projects?search=iotnews"
+```
+
+Once we know which of the three causes is in play, the fix is
+one of: (1) add `/v9/projects/{id}/domains` fallback fetch in
+walk_vercel, (2) fix pagination cursor handling, (3) accept that
+stale declarations need operator clean-up via `set-deploy`.
+
+---
+
+### 2026-05-19 — `fleet hosting` table has no summary footer
+
+**Repro**
+    lamill fleet hosting --refresh
+
+**Expected**
+Footer beneath the table showing per-provider row counts +
+skipped-provider count, like:
+
+    11 rows · 6 cloudflare-workers · 5 vercel · 0 cloudflare-pages · 0 hostgator (2 skipped)
+
+Matches the convention `fleet seo` / `fleet check` already follow.
+
+**Actual**
+Table renders, then only the per-skipped-provider lines below it.
+No row-count footer; no provider breakdown.
+
+**Where (guess)**
+`src/portfolio/cli.py:_fleet_hosting_impl` table-rendering block.
+Add a footer that aggregates `rows` by `provider` (using
+`collections.Counter`) and prints `len(rows)` + per-provider counts
++ `len(skipped)` skipped after the table, before the skipped-list
+detail.
+
+**Severity**
+minor — output is correct, just less scannable than peer commands.
+Pick up in v11.I (renderer upgrade) since that phase is already
+about table-rendering polish.
+
+---
+
+### 2026-05-19 — `lamill fleet hosting --provider=X` with 0 matches says only "No hosting rows."
+
+**Repro**
+    lamill fleet hosting --provider=cloudflare-pages --refresh
+
+**Expected**
+When `--provider <X>` filters every row out but the walker did
+return rows for OTHER providers, the message should make the
+filter cause obvious. Something like:
+
+    No `cloudflare-pages` rows. (Filtered from 11 total rows: 6
+    cloudflare-workers, 5 vercel. Drop the --provider flag to see all.)
+
+**Actual**
+
+    No hosting rows.
+
+…with the skipped-provider footer below. Looks like a zero-walk
+result, but it's actually a zero-after-filter result.
+
+**Where (guess)**
+`src/portfolio/cli.py:_fleet_hosting_impl` — the "No hosting rows"
+branch fires when the post-filter `rows` list is empty. Should
+distinguish between (a) `result.rows` was empty pre-filter ("no
+data"), (b) `result.rows` had entries but the `--provider` filter
+dropped them all ("filtered out"). The latter case should show the
+breakdown of what WAS available.
+
+**Severity**
+minor — operator can usually tell from the skipped footer + run
+again without the filter. But the message is technically
+misleading.
+
+---
+
+### 2026-05-19 — `HG-extra` column always rendered, even when no HG rows
+
+**Repro**
+    lamill fleet hosting --refresh
+    # operator has 0 HG rows (both accounts 403-skipped) — but the
+    # table still renders an empty HG-extra column for every row.
+
+**Expected**
+Hide the column when no row would populate it. OR: show it as a
+right-side column only when at least one HG row is present.
+
+**Actual**
+Every row renders an empty `HG-extra` cell, padding the table
+width and adding visual noise.
+
+**Where (guess)**
+`src/portfolio/cli.py:_fleet_hosting_impl` builds the table with
+a fixed set of columns. Make the `HG-extra` column conditional —
+only `table.add_column("HG-extra")` when `any(r.provider ==
+"hostgator" for r in rows)`.
+
+**Severity**
+cosmetic — table readable either way. Fix folds naturally into
+v11.I (renderer upgrade).
+
+---
+
 ### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
 
 **Repro**

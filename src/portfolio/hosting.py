@@ -35,10 +35,12 @@ import httpx
 # `--provider <X>` flag normalize against these.
 PROVIDER_VERCEL = "vercel"
 PROVIDER_CF_PAGES = "cloudflare-pages"
+PROVIDER_CF_WORKERS = "cloudflare-workers"
 PROVIDER_HOSTGATOR = "hostgator"
 PROVIDERS: tuple[str, ...] = (
     PROVIDER_VERCEL,
     PROVIDER_CF_PAGES,
+    PROVIDER_CF_WORKERS,
     PROVIDER_HOSTGATOR,
 )
 
@@ -703,6 +705,219 @@ def walk_cf_pages(
     return rows
 
 
+# ---- Cloudflare Workers walker (v11.H) -----------------------------
+#
+# Inserted 2026-05-19 after a real-fleet hand test surfaced that the
+# operator's CF-deployed sites are Workers (with `has_assets: true`),
+# not legacy CF Pages projects — `/accounts/{id}/pages/projects`
+# returned `result: []`. Modern wrangler deploys land here, not in
+# Pages. This walker queries the Workers surface and emits rows with
+# `provider="cloudflare-workers"`.
+#
+# Two endpoints, single-shot each (same lesson as v11.C — these CF
+# endpoints don't accept `?page=N&per_page=N`):
+#   /workers/scripts  → script metadata: id (slug), modified_on, etc.
+#   /workers/domains  → custom-domain → service mapping. THIS is the
+#                       matching layer — each entry pairs a hostname
+#                       with the script (`service` field) that handles
+#                       it. We intersect hostnames against fleet_domains.
+#
+# Workers don't have a build pipeline the way Pages does. Each
+# `wrangler deploy` either lands a new version atomically or fails
+# at the publish-API call (caught locally by wrangler). So
+# `consecutive_failures` stays 0 and `last_successful_deploy_at`
+# equals `script.modified_on`.
+
+
+class CFWorkersAuthError(Exception):
+    """401 from the Workers API or empty token/account_id."""
+
+
+class CFWorkersWalkError(Exception):
+    """Unrecoverable failure during the /workers/domains call.
+
+    Raised when the domains endpoint returns 5xx / envelope
+    success=false / non-JSON. Script-list failures are non-fatal
+    (rows still emit with `latest_deploy_at=None`).
+    """
+
+
+def _list_cf_workers_scripts(
+    client: httpx.Client, token: str, account_id: str
+) -> tuple[dict[str, dict], str | None]:
+    """Fetch `/accounts/{id}/workers/scripts`. Returns a
+    `{script_id: script_dict}` map keyed by the script's slug.
+
+    Non-critical for the walker — a failure here means we still emit
+    rows for matched domains but with `latest_deploy_at=None`. Returns
+    `({}, <error_message>)` on any failure so the caller can log without
+    aborting.
+    """
+    url = f"{CF_API_BASE}/accounts/{account_id}/workers/scripts"
+    try:
+        r = client.get(url, headers=_cf_headers(token))
+    except httpx.HTTPError as e:
+        return {}, f"scripts list network error: {type(e).__name__}"
+    if r.status_code == 401:
+        raise CFWorkersAuthError(
+            "Cloudflare Workers API returned 401 — CF_API_TOKEN missing or invalid"
+        )
+    if r.status_code != 200:
+        return {}, f"scripts list http {r.status_code}"
+    try:
+        body = r.json()
+    except ValueError:
+        return {}, "scripts list response not JSON"
+    if not isinstance(body, dict) or not body.get("success"):
+        return {}, "scripts list envelope success=false"
+    result = body.get("result") or []
+    if not isinstance(result, list):
+        return {}, "scripts list result malformed"
+    out: dict[str, dict] = {}
+    for script in result:
+        if not isinstance(script, dict):
+            continue
+        slug = script.get("id")
+        if isinstance(slug, str) and slug:
+            out[slug] = script
+    return out, None
+
+
+def _list_cf_workers_domains(
+    client: httpx.Client, token: str, account_id: str
+) -> list[dict]:
+    """Fetch `/accounts/{id}/workers/domains`. Each result entry maps
+    a hostname to a worker `service` (script slug).
+
+    Raises `CFWorkersAuthError` on 401; `CFWorkersWalkError` on any
+    other failure since this is the *matching* layer — without it
+    we can't emit any rows.
+    """
+    url = f"{CF_API_BASE}/accounts/{account_id}/workers/domains"
+    try:
+        r = client.get(url, headers=_cf_headers(token))
+    except httpx.HTTPError as e:
+        raise CFWorkersWalkError(
+            f"domains list network error: {type(e).__name__}: {e}"
+        ) from e
+    if r.status_code == 401:
+        raise CFWorkersAuthError(
+            "Cloudflare Workers API returned 401 — CF_API_TOKEN missing or invalid"
+        )
+    if r.status_code != 200:
+        raise CFWorkersWalkError(f"domains list http {r.status_code}")
+    try:
+        body = r.json()
+    except ValueError as e:
+        raise CFWorkersWalkError("domains list response not JSON") from e
+    if not isinstance(body, dict) or not body.get("success"):
+        errs = body.get("errors") if isinstance(body, dict) else None
+        raise CFWorkersWalkError(f"CF Workers API success=false (errors={errs})")
+    result = body.get("result") or []
+    if not isinstance(result, list):
+        return []
+    return [d for d in result if isinstance(d, dict)]
+
+
+def _cf_worker_script_modified_iso(script: dict) -> str | None:
+    """CF returns `modified_on` as ISO 8601 (Z suffix). Reuse the
+    Pages timestamp normalizer for consistency."""
+    return _cf_deploy_created_iso({"created_on": script.get("modified_on")})
+
+
+def walk_cf_workers(
+    token: str,
+    account_id: str,
+    fleet_domains: set[str],
+    *,
+    only_domain: str | None = None,
+    client: httpx.Client | None = None,
+) -> list[HostingRow]:
+    """Walk CF Workers (Static Assets) deployments in `account_id`;
+    emit one HostingRow per matched fleet domain.
+
+    Same contract as `walk_cf_pages`. Raises `CFWorkersAuthError` on
+    401 / empty inputs; `CFWorkersWalkError` on a non-recoverable
+    `/workers/domains` failure (that's the matching-layer call —
+    without it, nothing matches). Script-metadata failures degrade
+    gracefully — rows still emit with `latest_deploy_at=None` and
+    the per-row `error` field carrying the script-fetch reason.
+
+    Workers deploys are atomic — no `consecutive_failures` walk
+    needed. `latest_deploy_status="DEPLOYED"` and
+    `last_successful_deploy_at == latest_deploy_at == script.modified_on`
+    for every emitted row.
+    """
+    if not token:
+        raise CFWorkersAuthError("CF_API_TOKEN not set")
+    if not account_id:
+        raise CFWorkersAuthError("CF_ACCOUNT_ID not set")
+
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(timeout=CF_HTTP_TIMEOUT)
+
+    rows: list[HostingRow] = []
+    only_normalized = _bare_host(only_domain) if only_domain else None
+
+    try:
+        # Domain mapping first — if this fails, no point fetching scripts.
+        domains = _list_cf_workers_domains(client, token, account_id)
+        scripts_by_slug, scripts_err = _list_cf_workers_scripts(
+            client, token, account_id,
+        )
+
+        # Dedup by (normalized_host, script). Multiple /workers/domains
+        # entries can reference the same hostname under different
+        # environments (production / preview); we only want production
+        # for the headline row.
+        seen: set[tuple[str, str]] = set()
+        for entry in domains:
+            hostname = entry.get("hostname")
+            service = entry.get("service")
+            environment = entry.get("environment") or "production"
+            if not isinstance(hostname, str) or not hostname:
+                continue
+            if not isinstance(service, str) or not service:
+                continue
+            if environment != "production":
+                continue
+            normalized = _bare_host(hostname)
+            if not normalized:
+                continue
+            if only_normalized and normalized != only_normalized:
+                continue
+            if normalized not in fleet_domains:
+                continue
+            if (normalized, service) in seen:
+                continue
+            seen.add((normalized, service))
+
+            script = scripts_by_slug.get(service) or {}
+            modified_at = _cf_worker_script_modified_iso(script)
+            # Workers don't have a public per-deploy identifier we'd
+            # surface as project_id — the script tag is internal. Leave
+            # project_id as None and use the slug for project_slug.
+            rows.append(
+                HostingRow(
+                    domain=normalized,
+                    provider=PROVIDER_CF_WORKERS,
+                    project_slug=service,
+                    project_id=None,
+                    latest_deploy_status="DEPLOYED" if modified_at else None,
+                    latest_deploy_at=modified_at,
+                    last_successful_deploy_at=modified_at,
+                    consecutive_failures=0,
+                    error=scripts_err,
+                )
+            )
+    finally:
+        if own_client:
+            client.close()
+
+    return rows
+
+
 # ---- HostGator walker (v11.D) --------------------------------------
 
 HG_HTTP_TIMEOUT = 12.0  # cPanel UAPI is slower than CF/Vercel
@@ -1082,9 +1297,21 @@ def run_hosting(
         result.skipped["vercel"] = "VERCEL_TOKEN not set"
 
     if cf_token and cf_account:
+        # CF account drives two tasks — legacy Pages + modern Workers
+        # (Static Assets). Both share auth; results merge in
+        # `result.rows`. Workers walker was inserted 2026-05-19 (v11.H)
+        # after the hand test against operator's CF account returned
+        # zero Pages projects — modern wrangler deploys land in
+        # Workers, not Pages.
         tasks.append((
             "cloudflare-pages",
             lambda: walk_cf_pages(
+                cf_token, cf_account, fleet_domains, only_domain=only_domain,
+            ),
+        ))
+        tasks.append((
+            "cloudflare-workers",
+            lambda: walk_cf_workers(
                 cf_token, cf_account, fleet_domains, only_domain=only_domain,
             ),
         ))
@@ -1094,7 +1321,10 @@ def run_hosting(
             missing.append("CF_API_TOKEN")
         if not cf_account:
             missing.append("CF_ACCOUNT_ID")
+        # Same missing-credential message covers both CF walkers — they
+        # share auth, so they share the skip slot too.
         result.skipped["cloudflare-pages"] = f"{' + '.join(missing)} not set"
+        result.skipped["cloudflare-workers"] = f"{' + '.join(missing)} not set"
 
     if hg_accounts:
         for account_id in hg_accounts:
@@ -1122,10 +1352,16 @@ def run_hosting(
             label = future_to_label[future]
             try:
                 rows = future.result()
-            except (VercelAuthError, CFPagesAuthError, HostGatorAuthError) as e:
+            except (
+                VercelAuthError, CFPagesAuthError, CFWorkersAuthError,
+                HostGatorAuthError,
+            ) as e:
                 result.skipped[label] = f"auth — {e}"
                 continue
-            except (VercelWalkError, CFPagesWalkError, HostGatorWalkError) as e:
+            except (
+                VercelWalkError, CFPagesWalkError, CFWorkersWalkError,
+                HostGatorWalkError,
+            ) as e:
                 result.skipped[label] = f"walker — {e}"
                 continue
             result.rows.extend(rows)

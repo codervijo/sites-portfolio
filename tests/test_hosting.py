@@ -8,6 +8,7 @@ from __future__ import annotations
 from portfolio.hosting import (
     MAX_DEPLOY_LOOKBACK,
     PROVIDER_CF_PAGES,
+    PROVIDER_CF_WORKERS,
     PROVIDER_HOSTGATOR,
     PROVIDER_VERCEL,
     PROVIDERS,
@@ -22,11 +23,16 @@ from portfolio.hosting import (
 
 def test_provider_enum_values_match_spec():
     """Resolution 11.C / 11.F — provider strings are stable across the
-    walker + renderer + --provider flag normalization."""
+    walker + renderer + --provider flag normalization. v11.H added
+    `cloudflare-workers` after the real-fleet hand test showed modern
+    wrangler deploys land in Workers, not Pages."""
     assert PROVIDER_VERCEL == "vercel"
     assert PROVIDER_CF_PAGES == "cloudflare-pages"
+    assert PROVIDER_CF_WORKERS == "cloudflare-workers"
     assert PROVIDER_HOSTGATOR == "hostgator"
-    assert PROVIDERS == ("vercel", "cloudflare-pages", "hostgator")
+    assert PROVIDERS == (
+        "vercel", "cloudflare-pages", "cloudflare-workers", "hostgator",
+    )
 
 
 def test_age_thresholds_match_resolution_11c():

@@ -304,17 +304,18 @@ Tier-level design notes moved to `docs/shipping-history.md`. See
 | v10.C | ✅ | Auto-write integration — `new bootstrap` writes `lamill.toml` as part of scaffolding (platform priority: `--platform <X>` flag → infer-from-existing-configs → `cf-pages` default; `hostgator/custom` rejected at bootstrap, use `settings project set-deploy` instead). `fleet repos --add-deploy-declarations [--dry-run/--apply] [--include-ambiguous]` migration sweep walks every `sites/<dir>/`, classifies (unambiguous / ambiguous / manual / already-declared / archived), writes safe cases. Shipped 2026-05-18 across `fd725ff` + migration-sweep commit. v10.D validation phase next — runs this against the real fleet. |
 | v10.D | ✅ | **Validation phase** — real-fleet sweep. Run the migration against the actual ~22-domain fleet; review the dry-run plan; `--apply` the unambiguous cases; handle ambiguous + manual-entry cases interactively via `settings project set-deploy`. End state: every applicable sibling `sites/<domain>/` repo has a valid `lamill.toml` committed. Surfaces bugs / edge cases that only appear against real config files. ~2-3h (mostly running the tools, fixing edge cases that surface). |
 | v10.E | ✅ | Drift detection + lamill.toml conformance checks. Three deploy-category checks: `CHECK_058 has-lamill-toml`, `CHECK_059 lamill-toml-valid`, `CHECK_143 deploy-drift`. Drift compares declared platform against a best-effort classification of the live HTTP snapshot (WordPress generator / title / wp-includes paths → hostgator; `*.vercel.app` / `*.pages.dev` / `*.netlify.app` in final URL or redirect chain → that provider). Canonical drift case `iotnews.today` (declared=vercel, classified=hostgator via WP title) fires `fail`. 26 tests. |
-| v10.F | ✅ *(absorbed by v11.A-K 2026-05-18)* | HostGator cPanel integration — folded into v11's unified 3-provider hosting walker cluster (Vercel + CF Pages + HostGator). One `fleet hosting` command replaces two (`fleet hosting` + `fleet hostgator`); single rollup table; operator no longer has to remember which command surfaces which provider. HG-specific walker work lives in v11.D. See v11 below. |
-| v10.G | ✅ *(absorbed by v11.L-M 2026-05-18)* | SFTP deploy abstraction — split into v11.L (`new deploy` polymorphic dispatch for CF/Vercel) + v11.M (SFTP push for `hostgator`/`custom`). Different risk profiles: L reuses v3.C; M adds a third write surface and needs ADR-0009. See v11 below. |
+| v10.F | ✅ *(absorbed by v11.A-L 2026-05-18)* | HostGator cPanel integration — folded into v11's unified hosting walker cluster (Vercel + CF Pages + CF Workers + HostGator). One `fleet hosting` command replaces two (`fleet hosting` + `fleet hostgator`); single rollup table; operator no longer has to remember which command surfaces which provider. HG-specific walker work lives in v11.D. See v11 below. |
+| v10.G | ✅ *(absorbed by v11.M-N 2026-05-18)* | SFTP deploy abstraction — split into v11.M (`new deploy` polymorphic dispatch for CF/Vercel/Workers) + v11.N (SFTP push for `hostgator`/`custom`). Different risk profiles: M reuses v3.C; N adds a third write surface and needs ADR-0009. See v11 below. |
 
 ### v11 — active hosting layer *(renumbered 2026-05-17, was v10; scope expanded 2026-05-18 to absorb v10.F + v10.G; sub-phases re-split 2026-05-19 from 2 chunky phases into 13 granular ones)*
 
 The hosting cluster — read-only inventory across every provider in
 the fleet, plus the active deploy verb that operates against those
-providers. v11.A-K cover the read-only inventory half (unified
-3-provider walker — Vercel + Cloudflare Pages + HostGator UAPI);
-v11.L-M cover the active deploy verb half (polymorphic `new deploy`
-+ SFTP push for HG/custom). **See `docs/architecture.md § 3
+providers. v11.A-L cover the read-only inventory half (unified
+multi-provider walker — Vercel + Cloudflare Pages + Cloudflare
+Workers + HostGator UAPI); v11.M-N cover the active deploy verb
+half (polymorphic `new deploy` + SFTP push for HG/custom). **See
+`docs/architecture.md § 3
 Mechanisms / § 4 Schemas / § 9 Active implementation plans / § 10
 Risks` for the technical design.**
 
@@ -336,12 +337,13 @@ labeled `v11.A` and roll up as the foundation phase.
 | v11.E | ✅ | Orchestrator + match logic — `run_hosting(fleet_domains, *, only_domain) -> HostingResult`. ThreadPoolExecutor fan-out across Vercel + CF Pages + N per-account HG walkers. Reads tokens from `apikeys.get_key`; pre-checks each provider's required keys and records skip-reasons (`HostingResult.skipped`) when missing. Catches `*AuthError` / `*WalkError` per walker and records the failure without crashing the run. `_flag_provider_conflicts` post-pass sets `provider_conflict=True` on every row whose domain is matched by ≥2 distinct providers (resolution 11.F — two-row drift surface). 15 tests. |
 | v11.F | ✅ | Snapshot cache — `src/portfolio/hosting_cache.py` mirroring `seo_cache.py`. `save_snapshot(HostingResult)` writes `data/hosting/<UTC-today>.json` (rows + skipped + fetched_at); `list_snapshots()` / `latest_snapshot()` / `load_snapshot()` / `result_from_snapshot()` / `is_stale(path, max_age_hours=24)`. Forward-compat — unknown row keys dropped on load so a newer HostingRow field doesn't break older snapshots. One file per UTC date, overwrites same-day. Git-tracked, kept forever (11.I). 14 tests. |
 | v11.G | ✅ | CLI shell — `lamill fleet hosting` Typer command + `--refresh` / `--only DOMAIN` / `--provider {vercel\|cloudflare-pages\|hostgator}` / `--json` flags. Cache-eligibility: re-use latest snapshot if fresh (<24h) unless `--refresh` or `--only` is set; fleet-wide walks persist; single-domain probes don't overwrite the fleet snapshot. `--provider` validated against `PROVIDERS` (exit 2 on unknown). Minimal table renderer in place — v11.H upgrades with status emoji + walker error footers. 11 tests via Typer's CliRunner. |
-| v11.H | ⏳ | Table renderer + walker error surfaces — `_render_hosting_table()` + status-emoji helper (✓ recent / ⚠ stale / 💤 dormant / ✗ failures / 🤐 conflict / — unowned per the age thresholds in v11.A). Footer rollup counts. Per-row 5xx / rate-limit display + footer-level "<Provider> skipped: token missing" for 401 (resolution 11.H). |
-| v11.I | ⏳ | `--apply-declarations` writer — for HG sites that have a local `sites/<domain>/` directory but no committed `lamill.toml`, write via v10.A's `lamill_toml.write()` with `platform=hostgator` + `[hosting]` filled from the walker's cPanel-account context. Dry-run by default per the v10.C migration-sweep convention. Scoped "missing-only" per resolution 11.N — no drift remediation. |
-| v11.J | ⏳ | `fleet dashboard` + `project diagnose` integration — `dashboard.py` gains a Hosting column joining the latest snapshot; `diagnose.py` adds an optional "Hosting:" section when a snapshot covers the diagnosed domain. |
-| v11.K | ⏳ | Docs update — close the read-only half. `docs/CLAUDE.md` / `AI_AGENTS.md` / `docs/Prompts.md` references; prd v11.A-K row state → ✅; tier-level read-only design notes move to `shipping-history.md` (or stay if v11.L-M still pending). |
-| v11.L | ⏳ | `new deploy` polymorphic dispatch — reads `lamill.toml`, dispatches `cf-pages` → existing v3.C logic; `vercel` → existing-equivalent (verify v3.C actually shipped a Vercel path; backfill if it didn't); `hostgator` / `custom` → routes into v11.M; `none` → reject with `set-deploy` hint. No new write surface; pure dispatcher refactor on top of v3.C. |
-| v11.M | ⏳ | SFTP push for `hostgator` / `custom` — walks the `[hosting]` block in `lamill.toml`, pushes the configured source dir to `public_html_path`. Adds a third write surface; gated on **ADR-0009** (reverse or refine ADR-0003's "two write surfaces only" rule). **Design open** — gating questions 11.O-T below must be answered before code lands. |
+| v11.H | ✅ | Cloudflare Workers walker — `walk_cf_workers(token, account_id, fleet_domains, *, only_domain)`. Net-new phase inserted 2026-05-19 after the real-fleet hand test surfaced that operator's CF sites are deployed as **Workers (with static assets)**, not legacy Pages — `/accounts/{id}/pages/projects` returned `result: []` for these accounts. Hits `/workers/scripts` (script metadata + `modified_on`) and `/workers/domains` (hostname → script mapping — the matching layer). No per-script deploy-history walk: Workers deploys are atomic (success or wrangler-publish error caught locally), so `consecutive_failures` stays `0` and `last_successful_deploy_at == latest_deploy_at == script.modified_on`. Filters to `environment="production"`. Reuses `CF_API_TOKEN` / `CF_ACCOUNT_ID`. New `PROVIDER_CF_WORKERS = "cloudflare-workers"`; orchestrator (v11.E) calls both `walk_cf_pages` AND `walk_cf_workers` against the same CF account. Hand-test verification: 6 CF Workers rows populate against operator's real fleet (airsucks, cricketfansite, donready, isitholiday, kwizicle, voltloop). 19 tests. |
+| v11.I | ⏳ *(renumbered 2026-05-19 — was v11.H)* | Table renderer + walker error surfaces — `_render_hosting_table()` + status-emoji helper (✓ recent / ⚠ stale / 💤 dormant / ✗ failures / 🤐 conflict / — unowned per the age thresholds in v11.A). Footer rollup counts. Per-row 5xx / rate-limit display + footer-level "<Provider> skipped: token missing" for 401 (resolution 11.H). |
+| v11.J | ⏳ *(renumbered 2026-05-19 — was v11.I)* | `--apply-declarations` writer — for HG sites that have a local `sites/<domain>/` directory but no committed `lamill.toml`, write via v10.A's `lamill_toml.write()` with `platform=hostgator` + `[hosting]` filled from the walker's cPanel-account context. Dry-run by default per the v10.C migration-sweep convention. Scoped "missing-only" per resolution 11.N — no drift remediation. |
+| v11.K | ⏳ *(renumbered 2026-05-19 — was v11.J)* | `fleet dashboard` + `project diagnose` integration — `dashboard.py` gains a Hosting column joining the latest snapshot; `diagnose.py` adds an optional "Hosting:" section when a snapshot covers the diagnosed domain. |
+| v11.L | ⏳ *(renumbered 2026-05-19 — was v11.K)* | Docs update — close the read-only half. `docs/CLAUDE.md` / `AI_AGENTS.md` / `docs/Prompts.md` references; prd v11.A-L row state → ✅; tier-level read-only design notes move to `shipping-history.md` (or stay if v11.M-N still pending). |
+| v11.M | ⏳ *(renumbered 2026-05-19 — was v11.L)* | `new deploy` polymorphic dispatch — reads `lamill.toml`, dispatches `cf-pages` → existing v3.C logic; `cf-workers` → existing wrangler-deploy path; `vercel` → existing-equivalent (verify v3.C actually shipped a Vercel path; backfill if it didn't); `hostgator` / `custom` → routes into v11.N; `none` → reject with `set-deploy` hint. No new write surface; pure dispatcher refactor on top of v3.C. |
+| v11.N | ⏳ *(renumbered 2026-05-19 — was v11.M)* | SFTP push for `hostgator` / `custom` — walks the `[hosting]` block in `lamill.toml`, pushes the configured source dir to `public_html_path`. Adds a third write surface; gated on **ADR-0009** (reverse or refine ADR-0003's "two write surfaces only" rule). **Design open** — gating questions 11.O-T below must be answered before code lands. |
 
 #### Design notes
 
@@ -368,7 +370,7 @@ live reality). The active-hosting gap is still wide open:
 
 **Goals.**
 
-v11.A-K (read-only inventory):
+v11.A-L (read-only inventory):
 - `lamill fleet hosting` as a peer of `fleet seo` — same shape:
   read-only, cached, refreshable, emoji table.
 - Walk Vercel + Cloudflare Pages + HostGator UAPI using stored tokens.
@@ -385,12 +387,13 @@ v11.A-K (read-only inventory):
   `infer_from_existing_configs()` (v10.A) and were migrated by
   `fleet repos --add-deploy-declarations` (v10.C).
 
-v11.L-M (active deploy):
-- *v11.L* — `lamill new deploy <domain>` becomes a polymorphic
-  dispatch verb. `cf-pages` / `vercel` declarations reuse existing
-  v3.C logic; `hostgator` / `custom` route into v11.M. No new write
-  surface; pure dispatcher refactor on top of v3.C.
-- *v11.M* — SFTP push for `hostgator` / `custom`. Walks the
+v11.M-N (active deploy):
+- *v11.M* — `lamill new deploy <domain>` becomes a polymorphic
+  dispatch verb. `cf-pages` / `cf-workers` / `vercel` declarations
+  reuse existing v3.C-derived logic (wrangler-deploy for cf-pages
+  and cf-workers); `hostgator` / `custom` route into v11.N. No new
+  write surface; pure dispatcher refactor on top of v3.C.
+- *v11.N* — SFTP push for `hostgator` / `custom`. Walks the
   `[hosting]` block in `lamill.toml`, pushes the configured source
   to `public_html_path` via the chosen auth method (TBD — see open
   questions 11.O-T). Idempotent + dry-run-by-default per the v3.C
@@ -405,7 +408,7 @@ v11.L-M (active deploy):
 - Cost / pricing reports.
 - Auto-flagging consecutive failures as a `fleet focus` signal.
 - Real-time webhooks.
-- WordPress-specific deploy ops (theme/plugin/uploads). v11.M is
+- WordPress-specific deploy ops (theme/plugin/uploads). v11.N is
   static-SFTP-only; WP-aware deploy is a later phase.
 - Auto-rewriting drifted `lamill.toml` declarations.
   `--apply-declarations` is scoped to "site has no declaration yet"
@@ -449,7 +452,7 @@ Done. Verify: lamill project diagnose iotnews.today
 
 `--refresh` and `--only` follow existing `fleet seo` conventions.
 
-**Open questions (v11.A-K read-only walker — answered 2026-05-18, gate-cleared).**
+**Open questions (v11.A-L read-only walker — answered 2026-05-18, gate-cleared).**
 
 | # | Question | Resolution |
 |---|---|---|
@@ -468,7 +471,7 @@ Done. Verify: lamill project diagnose iotnews.today
 | 11.M | `HostingRow` schema — typed optional fields vs `extra: dict` blob? | **Typed optional fields.** `disk_used_mb: int \| None`, `wp_version: str \| None`, `install_path: str \| None`. Matches every other dataclass in the codebase. |
 | 11.N | `--apply-declarations` scope — only fix missing, or also rewrite drift? | **Only fix missing.** Matches `fleet repos --add-deploy-declarations` (v10.C) safety posture. Drift remediation stays manual via CHECK_143 + `settings project set-deploy`. |
 
-**Open questions (v11.L-M deploy — gating code).**
+**Open questions (v11.M-N deploy — gating code).**
 
 | # | Question |
 |---|---|
