@@ -160,16 +160,37 @@ similar cross-check, extract then.
 Operator-driven rollout against the actual fleet. Ran
 `lamill fleet repos --add-deploy-declarations` (dry-run → apply)
 against ~22 sibling repos; reviewed plan; resolved edge cases
-interactively via `lamill settings project set-deploy`. End
-state per `docs/handoff.md § v10.D scoreboard`:
+interactively via `lamill settings project set-deploy`.
 
-- 22 of 23 fleet sites carry `lamill.toml`.
-- 17 own-git-repos committed + pushed.
-- 2 own-git-repos committed locally, no remote yet (agesdk.dev,
-  iotbastion.com).
-- 5 NO_GIT sites have the file in working tree pending v6.F
-  (iotnews.today, linkedcsi.live, streamsgalaxy.com,
-  thoralox.com, whizgraphs.com).
+**Per-bucket end state** — 22 of 23 fleet sites carry `lamill.toml`:
+
+| Bucket | Count | Sites |
+|---|---|---|
+| Migration `--apply` (unambiguous via config) | 9 | agesdk.dev · airsucks.com · calcengine.site · donready.xyz · keralavotemap.site · kwizicle.com · lamill.io · lamillrentals.com · washcalc.app |
+| `set-deploy cf-pages` (CF dashboard, no wrangler config) | 3 | cricketfansite.com · isitholiday.today · voltloop.site |
+| `set-deploy vercel` (unclassified-but-vercel per operator) | 7 | civictools.app · csinorcal.church · iotbastion.com · iotnews.today · linkedcsi.live · thoralox.com · whizgraphs.com |
+| `set-deploy vercel` (resolved ambiguous) | 1 | homeloom.app |
+| `set-deploy hostgator` (full breadcrumbs) | 2 | hybridautopart.com · streamsgalaxy.com |
+
+**Per-sibling-repo commit state** (17 own-git-repo + 5 NO_GIT):
+
+- *Pushed:* 15 — airsucks · calcengine · civictools · cricketfansite ·
+  csinorcal · donready · homeloom · hybridautopart · isitholiday ·
+  keralavotemap · kwizicle · lamill.io · lamillrentals · voltloop ·
+  washcalc.
+- *Committed locally, no remote yet:* 2 — agesdk.dev · iotbastion.com
+  (need `origin` setup + push).
+- *NO_GIT (own `.git` missing) — `lamill.toml` untracked:* 5 —
+  iotnews.today · linkedcsi.live · streamsgalaxy.com · thoralox.com ·
+  whizgraphs.com. v6.F (own-git-repo guided migration) closes this;
+  these 5 baseline-fail `CHECK_058 has-lamill-toml` from v10.E until
+  v6.F runs — known and accepted.
+
+**Out of v10/v11 scope:** `hostkit.app` (unregistered domain; stale
+`sites/` dir), `carrepairsite.com` (HG account 1, no local repo —
+v11.D walker surfaces), `thakinaam.com` (HG account 2, no local repo
+— v11.D walker surfaces), `newiniot.com` (dead — invalid CF
+nameservers; `portfolio.json` cleanup pending).
 
 Two minor bugs surfaced and were logged to `docs/bugs.md`:
 `set-deploy` failing for sites/ dirs missing from portfolio.json,

@@ -1058,7 +1058,7 @@ Real-fleet rollout. Operator-driven, not code-heavy:
 - 22 of 23 fleet sites now carry a `lamill.toml`. 17 of 22
   committed in own-git-repos; 5 NO_GIT sites have the file in
   working tree pending v6.F (own-git-repo guided migration).
-- See `docs/handoff.md` § v10.D scoreboard for the per-bucket
+- See `docs/shipping-history.md § v10.D` for the per-bucket
   breakdown.
 
 ### v10.E — drift detection + `lamill.toml` conformance ✅ (shipped 2026-05-18)
@@ -1068,7 +1068,7 @@ Three deploy-category checks closed the v10.A-E loop:
 - *`CHECK_058 has-lamill-toml`* (severity: error). Fails when
   `<repo>/lamill.toml` is missing. Skip on archived / tombstoned.
   The 5 NO_GIT sibling repos baseline-fail this until v6.F runs —
-  known and accepted (see `docs/handoff.md`).
+  known and accepted (see `docs/shipping-history.md § v10.D`).
 - *`CHECK_059 lamill-toml-valid`* (severity: error). Round-trips
   the file through `lamill_toml.load()`; surfaces TOML syntax
   errors, missing `[deploy]`, unknown enum values, missing
