@@ -356,8 +356,9 @@ def test_walk_hostgator_bare_host_normalize_on_main_domain():
 
 
 def test_walk_hostgator_uses_cpanel_auth_header():
-    """cPanel custom auth scheme — NOT HTTP Basic. Same as the
-    `_probe_hostgator` plumbing in apikeys.py."""
+    """cPanel custom auth scheme — NOT HTTP Basic. Default cpanel_user
+    falls back to `account_id` when the kwarg isn't passed (back-compat
+    with shared-hosting where the username equals the server name)."""
     client = _FakeClient({
         "DomainInfo/list_domains": {"status": 200, "body": _uapi_ok({
             "main_domain": "x.com",
@@ -374,3 +375,30 @@ def test_walk_hostgator_uses_cpanel_auth_header():
         client=client,
     )
     assert client.calls[0]["headers"]["Authorization"] == "cpanel gator3164:hg-token-abc"
+
+
+def test_walk_hostgator_cpanel_user_override_changes_auth_header():
+    """v11.A patch 2026-05-19 — operator's cPanel username can differ
+    from the server hostname slug. When `cpanel_user=` is passed, the
+    Authorization header uses that, not `account_id`. URL stays
+    keyed on `account_id` (the server hostname)."""
+    client = _FakeClient({
+        "DomainInfo/list_domains": {"status": 200, "body": _uapi_ok({
+            "main_domain": "x.com",
+            "addon_domains": [], "parked_domains": [], "sub_domains": [],
+        })},
+        "Quota/get_quota_info": {"status": 200, "body": _uapi_ok({"disk_used": 50})},
+        "WordPressManager/list_installations": {
+            "status": 200, "body": _uapi_ok([]),
+        },
+    })
+    walk_hostgator(
+        "hg-token-abc", "gator3164",
+        fleet_domains=set(),
+        cpanel_user="foundervijo",
+        client=client,
+    )
+    # Server-hostname URL unchanged.
+    assert "gator3164.hostgator.com:2083" in client.calls[0]["url"]
+    # Auth header uses the override username.
+    assert client.calls[0]["headers"]["Authorization"] == "cpanel foundervijo:hg-token-abc"

@@ -206,7 +206,7 @@ def test_probe_all_returns_known_keys(monkeypatch, tmp_path):
     monkeypatch.setattr(apikeys, "_probe_vercel",
                         lambda _t: ProbeResult("missing", ""))
     monkeypatch.setattr(apikeys, "_probe_hostgator",
-                        lambda _t, _a: ProbeResult("missing", ""))
+                        lambda _t, _a, _u=None: ProbeResult("missing", ""))
 
     out = apikeys.probe_all()
     for key in apikeys.KNOWN_KEYS:
@@ -221,7 +221,9 @@ def test_known_keys_includes_canonical_set():
                 "SERPAPI_KEY",                # v8.D
                 "VERCEL_TOKEN",               # v11.A
                 "HOSTGATOR_TOKEN_GATOR3164",  # v11.A
-                "HOSTGATOR_TOKEN_GATOR4216"}  # v11.A
+                "HOSTGATOR_USER_GATOR3164",   # v11.A patch 2026-05-19
+                "HOSTGATOR_TOKEN_GATOR4216",  # v11.A
+                "HOSTGATOR_USER_GATOR4216"}   # v11.A patch 2026-05-19
     assert set(apikeys.KNOWN_KEYS) == expected
 
 
@@ -322,7 +324,9 @@ def test_probe_hostgator_invalid_when_empty_account_id():
 
 
 def test_probe_hostgator_uses_account_derived_url(monkeypatch):
-    """Resolution 11.L — cPanel host derives from account_id, not config."""
+    """Resolution 11.L — cPanel host derives from account_id, not config.
+    Username defaults to account_id when cpanel_user isn't passed
+    (back-compat with shared-hosting where username==server)."""
     captured = {}
     class _Resp:
         status_code = 200
@@ -337,8 +341,56 @@ def test_probe_hostgator_uses_account_derived_url(monkeypatch):
     apikeys._probe_hostgator("hg-token", "gator3164")
     assert "gator3164.hostgator.com:2083" in captured["url"]
     assert "Variables/get_user_information" in captured["url"]
-    # cPanel custom auth scheme — NOT HTTP Basic.
+    # cPanel custom auth scheme — NOT HTTP Basic. Username defaults
+    # to account_id when not explicitly passed.
     assert captured["auth"] == "cpanel gator3164:hg-token"
+
+
+def test_probe_hostgator_overrides_username_when_cpanel_user_passed(monkeypatch):
+    """v11.A patch 2026-05-19 — operator's cPanel username may differ
+    from server hostname (e.g. `foundervijo` on `gator3164` server).
+    `cpanel_user` argument overrides the default account_id-as-user."""
+    captured = {}
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"status": 1, "data": {"user": "foundervijo"}}
+    def _capture(url, **kw):
+        captured["url"] = url
+        captured["auth"] = kw.get("headers", {}).get("Authorization")
+        return _Resp()
+    monkeypatch.setattr(apikeys.httpx, "get", _capture)
+
+    apikeys._probe_hostgator("hg-token", "gator3164", cpanel_user="foundervijo")
+    # URL still uses server hostname.
+    assert "gator3164.hostgator.com:2083" in captured["url"]
+    # Auth header uses the override username, not the server slug.
+    assert captured["auth"] == "cpanel foundervijo:hg-token"
+
+
+def test_hg_user_for_account_returns_env_var_value(monkeypatch, tmp_path):
+    """`HOSTGATOR_USER_GATOR3164=foundervijo` in portfolio.env →
+    helper returns `foundervijo`."""
+    _patch_env_path(monkeypatch, tmp_path)
+    apikeys.set_key("HOSTGATOR_USER_GATOR3164", "foundervijo")
+    assert apikeys.hg_user_for_account("gator3164") == "foundervijo"
+
+
+def test_hg_user_for_account_falls_back_to_account_id_when_unset(
+    monkeypatch, tmp_path,
+):
+    """When `HOSTGATOR_USER_<account>` isn't set, fall back to
+    `account_id` — back-compat with shared-hosting where the cPanel
+    username equals the server hostname."""
+    _patch_env_path(monkeypatch, tmp_path)
+    assert apikeys.hg_user_for_account("gator3164") == "gator3164"
+
+
+def test_hg_user_for_account_empty_input_returns_empty(monkeypatch, tmp_path):
+    """Defensive — empty account_id in → empty out (no env-var lookup
+    to do)."""
+    _patch_env_path(monkeypatch, tmp_path)
+    assert apikeys.hg_user_for_account("") == ""
 
 
 def test_probe_hostgator_valid_on_uapi_status_1(monkeypatch):
@@ -411,11 +463,11 @@ def test_probe_all_dispatches_to_hg_accounts(monkeypatch, tmp_path):
                         lambda _k: ProbeResult("missing", ""))
     monkeypatch.setattr(apikeys, "_probe_vercel",
                         lambda _t: ProbeResult("missing", ""))
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, str]] = []
     monkeypatch.setattr(
         apikeys, "_probe_hostgator",
-        lambda token, account_id: (
-            calls.append((token, account_id))
+        lambda token, account_id, cpanel_user=None: (
+            calls.append((token, account_id, cpanel_user or ""))
             or ProbeResult("missing", "")
         ),
     )

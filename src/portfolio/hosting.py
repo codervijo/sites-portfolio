@@ -938,11 +938,15 @@ def _hg_url(account_id: str, module: str, function: str) -> str:
     return f"https://{account_id}.hostgator.com:{HG_PORT}/execute/{module}/{function}"
 
 
-def _hg_headers(token: str, account_id: str) -> dict[str, str]:
+def _hg_headers(token: str, cpanel_user: str) -> dict[str, str]:
     """cPanel API tokens use a custom auth scheme — `cpanel <user>:<token>`
-    NOT HTTP Basic. Same as `_probe_hostgator` in apikeys.py."""
+    NOT HTTP Basic. `cpanel_user` is the cPanel username on the
+    server, NOT necessarily the same as the server's hostname slug.
+    Resolution 11.L was patched 2026-05-19 to decouple the two after
+    the operator's 403 hand test showed `Current User: foundervijo`
+    on a `gator3164.hostgator.com` server."""
     return {
-        "Authorization": f"cpanel {account_id}:{token}",
+        "Authorization": f"cpanel {cpanel_user}:{token}",
         "User-Agent": "lamill/v11.A fleet-hosting",
     }
 
@@ -951,6 +955,7 @@ def _call_hg_uapi(
     client: httpx.Client,
     token: str,
     account_id: str,
+    cpanel_user: str,
     module: str,
     function: str,
     *,
@@ -962,11 +967,16 @@ def _call_hg_uapi(
     when status=1 and HTTP is 200. Otherwise None + error string.
     `is_auth_error` is True on 401 only — caller can elevate to
     `HostGatorAuthError`.
+
+    `cpanel_user` is the cPanel username; `account_id` is the server
+    hostname slug. They're often equal on unmanaged HG shared hosting
+    but can differ on accounts with a custom username (patched
+    2026-05-19 after the 403 hand test).
     """
     url = _hg_url(account_id, module, function)
     try:
         r = client.get(
-            url, headers=_hg_headers(token, account_id), params=params,
+            url, headers=_hg_headers(token, cpanel_user), params=params,
         )
     except httpx.HTTPError as e:
         return None, f"{module}/{function} network error: {type(e).__name__}", False
@@ -992,7 +1002,7 @@ def _call_hg_uapi(
 
 
 def _hg_list_domains(
-    client: httpx.Client, token: str, account_id: str
+    client: httpx.Client, token: str, account_id: str, cpanel_user: str,
 ) -> tuple[list[tuple[str, str | None]], str | None]:
     """Returns `[(domain, document_root)]` for every domain on the
     account (main + addon + parked + sub), plus an error string.
@@ -1009,7 +1019,7 @@ def _hg_list_domains(
     newer return dicts with documentroot.
     """
     body, err, is_auth = _call_hg_uapi(
-        client, token, account_id, "DomainInfo", "list_domains",
+        client, token, account_id, cpanel_user, "DomainInfo", "list_domains",
     )
     if is_auth:
         raise HostGatorAuthError(f"DomainInfo/list_domains 401 for {account_id}")
@@ -1038,13 +1048,13 @@ def _hg_list_domains(
 
 
 def _hg_get_disk_used_mb(
-    client: httpx.Client, token: str, account_id: str
+    client: httpx.Client, token: str, account_id: str, cpanel_user: str,
 ) -> int | None:
     """Account-level disk usage from `Quota/get_quota_info`. Returns MB
     rounded down. None on any failure — the walker still emits rows;
     `disk_used_mb` stays None on the affected rows."""
     body, _err, is_auth = _call_hg_uapi(
-        client, token, account_id, "Quota", "get_quota_info",
+        client, token, account_id, cpanel_user, "Quota", "get_quota_info",
     )
     if is_auth:
         raise HostGatorAuthError(f"Quota/get_quota_info 401 for {account_id}")
@@ -1063,7 +1073,7 @@ def _hg_get_disk_used_mb(
 
 
 def _hg_list_wp_installs(
-    client: httpx.Client, token: str, account_id: str
+    client: httpx.Client, token: str, account_id: str, cpanel_user: str,
 ) -> dict[str, str]:
     """Map of `document_root → wp_version` from `WordPressManager/
     list_installations`. Returns `{}` on any failure (the module
@@ -1071,7 +1081,8 @@ def _hg_list_wp_installs(
     the WPM plugin). Walker rows just get `wp_version=None` in that
     case; no crash."""
     body, _err, is_auth = _call_hg_uapi(
-        client, token, account_id, "WordPressManager", "list_installations",
+        client, token, account_id, cpanel_user,
+        "WordPressManager", "list_installations",
     )
     if is_auth:
         raise HostGatorAuthError(
@@ -1104,6 +1115,7 @@ def walk_hostgator(
     account_id: str,
     fleet_domains: set[str],
     *,
+    cpanel_user: str | None = None,
     only_domain: str | None = None,
     client: httpx.Client | None = None,
 ) -> list[HostingRow]:
@@ -1112,6 +1124,15 @@ def walk_hostgator(
     pipeline so build-pipeline fields stay None; HG-specific fields
     (`hg_account_id`, `disk_used_mb`, `wp_version`, `install_path`)
     carry the operator-relevant signal.
+
+    `cpanel_user` is the cPanel username on the server. Falls back to
+    `account_id` when None — works for unmanaged HG shared hosting
+    where username equals the server hostname. For accounts with a
+    custom username (set `HOSTGATOR_USER_<account_id>` in
+    `portfolio.env`), pass it through. Decoupled from `account_id`
+    on 2026-05-19 after the 403 hand test exposed the original
+    11.L assumption was wrong for the operator's account
+    (`gator3164.hostgator.com` server / `foundervijo` cPanel user).
 
     Raises `HostGatorAuthError` if the token/account_id is missing or
     rejected by UAPI on any required call (orchestrator skips this
@@ -1127,6 +1148,7 @@ def walk_hostgator(
         raise HostGatorAuthError("HG token not set")
     if not account_id:
         raise HostGatorAuthError("HG account_id not set")
+    effective_user = cpanel_user or account_id
 
     own_client = client is None
     if client is None:
@@ -1136,14 +1158,20 @@ def walk_hostgator(
     only_normalized = _bare_host(only_domain) if only_domain else None
 
     try:
-        domains, list_err = _hg_list_domains(client, token, account_id)
+        domains, list_err = _hg_list_domains(
+            client, token, account_id, effective_user,
+        )
         if list_err is not None and not domains:
             raise HostGatorWalkError(
                 f"list_domains failed for {account_id}: {list_err}"
             )
 
-        disk_used = _hg_get_disk_used_mb(client, token, account_id)
-        wp_map = _hg_list_wp_installs(client, token, account_id)
+        disk_used = _hg_get_disk_used_mb(
+            client, token, account_id, effective_user,
+        )
+        wp_map = _hg_list_wp_installs(
+            client, token, account_id, effective_user,
+        )
 
         # Dedup by bare-host normalize, preferring the entry that
         # actually carries a `documentroot` — main_domain sometimes
@@ -1333,11 +1361,17 @@ def run_hosting(
             hg_token = apikeys.get_key(
                 f"{apikeys.HOSTGATOR_TOKEN_PREFIX}{account_id.upper()}"
             ) or ""
+            # cPanel username is decoupled from server hostname per the
+            # 2026-05-19 patch; falls back to account_id when
+            # HOSTGATOR_USER_<...> isn't set.
+            cpanel_user = apikeys.hg_user_for_account(account_id)
             tasks.append((
                 f"hostgator:{account_id}",
-                lambda token=hg_token, acct=account_id: walk_hostgator(
-                    token, acct, fleet_domains, only_domain=only_domain,
-                ),
+                lambda token=hg_token, acct=account_id, user=cpanel_user:
+                    walk_hostgator(
+                        token, acct, fleet_domains,
+                        cpanel_user=user, only_domain=only_domain,
+                    ),
             ))
     else:
         result.skipped["hostgator"] = "no HOSTGATOR_TOKEN_<account> set"
@@ -1470,3 +1504,4 @@ def hosting_footer_summary(
         suffix_bits.append(f"{n_conflicts} conflicts")
     suffix = f" ({', '.join(suffix_bits)})" if suffix_bits else ""
     return " · ".join(parts) + suffix
+
