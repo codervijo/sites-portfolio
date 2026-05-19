@@ -217,99 +217,6 @@ synthesized row).
 
 ---
 
-### 2026-05-19 — `fleet hosting` table has no summary footer
-
-**Repro**
-    lamill fleet hosting --refresh
-
-**Expected**
-Footer beneath the table showing per-provider row counts +
-skipped-provider count, like:
-
-    11 rows · 6 cloudflare-workers · 5 vercel · 0 cloudflare-pages · 0 hostgator (2 skipped)
-
-Matches the convention `fleet seo` / `fleet check` already follow.
-
-**Actual**
-Table renders, then only the per-skipped-provider lines below it.
-No row-count footer; no provider breakdown.
-
-**Where (guess)**
-`src/portfolio/cli.py:_fleet_hosting_impl` table-rendering block.
-Add a footer that aggregates `rows` by `provider` (using
-`collections.Counter`) and prints `len(rows)` + per-provider counts
-+ `len(skipped)` skipped after the table, before the skipped-list
-detail.
-
-**Severity**
-minor — output is correct, just less scannable than peer commands.
-Pick up in v11.I (renderer upgrade) since that phase is already
-about table-rendering polish.
-
----
-
-### 2026-05-19 — `lamill fleet hosting --provider=X` with 0 matches says only "No hosting rows."
-
-**Repro**
-    lamill fleet hosting --provider=cloudflare-pages --refresh
-
-**Expected**
-When `--provider <X>` filters every row out but the walker did
-return rows for OTHER providers, the message should make the
-filter cause obvious. Something like:
-
-    No `cloudflare-pages` rows. (Filtered from 11 total rows: 6
-    cloudflare-workers, 5 vercel. Drop the --provider flag to see all.)
-
-**Actual**
-
-    No hosting rows.
-
-…with the skipped-provider footer below. Looks like a zero-walk
-result, but it's actually a zero-after-filter result.
-
-**Where (guess)**
-`src/portfolio/cli.py:_fleet_hosting_impl` — the "No hosting rows"
-branch fires when the post-filter `rows` list is empty. Should
-distinguish between (a) `result.rows` was empty pre-filter ("no
-data"), (b) `result.rows` had entries but the `--provider` filter
-dropped them all ("filtered out"). The latter case should show the
-breakdown of what WAS available.
-
-**Severity**
-minor — operator can usually tell from the skipped footer + run
-again without the filter. But the message is technically
-misleading.
-
----
-
-### 2026-05-19 — `HG-extra` column always rendered, even when no HG rows
-
-**Repro**
-    lamill fleet hosting --refresh
-    # operator has 0 HG rows (both accounts 403-skipped) — but the
-    # table still renders an empty HG-extra column for every row.
-
-**Expected**
-Hide the column when no row would populate it. OR: show it as a
-right-side column only when at least one HG row is present.
-
-**Actual**
-Every row renders an empty `HG-extra` cell, padding the table
-width and adding visual noise.
-
-**Where (guess)**
-`src/portfolio/cli.py:_fleet_hosting_impl` builds the table with
-a fixed set of columns. Make the `HG-extra` column conditional —
-only `table.add_column("HG-extra")` when `any(r.provider ==
-"hostgator" for r in rows)`.
-
-**Severity**
-cosmetic — table readable either way. Fix folds naturally into
-v11.I (renderer upgrade).
-
----
-
 ### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
 
 **Repro**
@@ -415,6 +322,77 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-19 — `fleet hosting` table has no summary footer
+
+**Repro**
+    lamill fleet hosting --refresh
+
+**Expected**
+Footer beneath the table showing per-provider row counts +
+skipped-provider count.
+
+**Actual**
+Table rendered, then only the per-skipped-provider lines below
+it. No row-count footer; no provider breakdown.
+
+**Fixed in** — v11.I commit (see git log). Renderer now prints a
+one-line summary via `hosting.hosting_footer_summary()` right
+under the table:
+
+    N rows · M cloudflare-workers · L vercel · K cloudflare-pages
+    · J hostgator (X skipped, Y conflicts)
+
+Zero counts surface — they're load-bearing for diagnostics
+(silent walkers no longer hide). Skipped + conflict tallies only
+appear when non-zero.
+
+---
+
+### 2026-05-19 — `lamill fleet hosting --provider=X` with 0 matches says only "No hosting rows."
+
+**Repro**
+    lamill fleet hosting --provider=cloudflare-pages --refresh
+
+**Expected**
+When `--provider` filters every row out, the message should
+distinguish "walker returned nothing" from "filtered out".
+
+**Actual**
+Always said "No hosting rows." regardless of which case applied.
+
+**Fixed in** — v11.I commit. Renderer now distinguishes the two
+cases. When `--provider` filters away non-empty pre-filter rows:
+
+    No `cloudflare-pages` rows. (Filtered from 11 total. Drop the
+    --provider flag to see all.)
+      Available: 11 rows · 6 cloudflare-workers · 5 vercel ·
+      0 cloudflare-pages · 0 hostgator
+
+When walker genuinely returned 0 rows, message stays
+"No hosting rows." (no filter to blame).
+
+---
+
+### 2026-05-19 — `HG-extra` column always rendered, even when no HG rows
+
+**Repro**
+    lamill fleet hosting --refresh  (with 0 HG rows)
+
+**Expected**
+Hide the column when no row would populate it.
+
+**Actual**
+Empty `HG-extra` cell rendered for every Vercel / CF row.
+
+**Fixed in** — v11.I commit. Renderer adds the HG-extra column
+only when `any(r.provider == "hostgator" for r in rows)`. Plus
+a status-emoji column at the left (✓ recent / ⚠ stale / 💤
+dormant / ✗ runaway / 🤐 conflict / — unowned per resolution
+11.C). 8 new CLI tests cover the column conditional + emoji
+priority cascade.
+
+---
 
 ### 2026-05-18 — `test_serp_fetch.py` not isolated from real `data/serp/_quota.json`
 

@@ -5474,7 +5474,11 @@ def _fleet_hosting_impl(
     """Body of `fleet hosting`. Carved out for testability — the Typer
     command surface is a thin shell over this."""
     from . import hosting_cache
-    from .hosting import PROVIDERS, run_hosting
+    from .hosting import (
+        PROVIDER_HOSTGATOR, PROVIDERS,
+        hosting_footer_summary, hosting_provider_counts,
+        hosting_status_emoji, run_hosting,
+    )
 
     # Provider-filter validation up front so the user gets a clean
     # error before any network call.
@@ -5517,7 +5521,8 @@ def _fleet_hosting_impl(
 
     # Apply --provider filter after collection so the cache stays
     # full-fidelity for subsequent unfiltered invocations.
-    rows = list(result.rows)
+    all_rows = list(result.rows)
+    rows = list(all_rows)
     if provider:
         rows = [r for r in rows if r.provider == provider]
     rows.sort(key=lambda r: (r.domain, r.provider or ""))
@@ -5533,39 +5538,68 @@ def _fleet_hosting_impl(
         typer.echo(_json.dumps(payload, indent=2))
         return
 
-    # Minimal table (v11.G); v11.H upgrades with status emoji + footers.
     console.print(f"[dim]Source: {source}[/]")
+
     if not rows:
-        console.print("[yellow]No hosting rows.[/]")
+        # Distinguish two zero-row cases (resolution from bug
+        # 2026-05-19): (a) walker returned nothing, (b) --provider
+        # filtered every row out. Show the pre-filter breakdown so
+        # the operator can see at a glance what WAS available.
+        if provider and all_rows:
+            console.print(
+                f"[yellow]No `{provider}` rows.[/] "
+                f"[dim](Filtered from {len(all_rows)} total. "
+                f"Drop the --provider flag to see all.)[/]"
+            )
+            console.print(
+                f"  [dim]Available: "
+                f"{hosting_footer_summary(all_rows, result.skipped)}[/]"
+            )
+        else:
+            console.print("[yellow]No hosting rows.[/]")
         _print_skipped_footer(result.skipped)
         return
 
+    # Conditional HG-extra column — only render when at least one
+    # HG row would populate it. Otherwise it'd be a wide empty column
+    # for every Vercel/CF row (bug 2026-05-19: cosmetic clutter).
+    has_hg = any(r.provider == PROVIDER_HOSTGATOR for r in rows)
+
     table = Table(show_header=True, header_style="bold")
+    table.add_column("", justify="center", width=2)   # status emoji
     table.add_column("Domain")
     table.add_column("Provider")
-    table.add_column("Status")
+    table.add_column("Deploy state")
     table.add_column("Last Success")
     table.add_column("Failures", justify="right")
-    table.add_column("HG-extra")
+    if has_hg:
+        table.add_column("HG-extra")
     for r in rows:
-        hg_extra = ""
-        if r.provider == "hostgator":
-            parts: list[str] = []
-            if r.disk_used_mb is not None:
-                parts.append(f"disk {r.disk_used_mb}MB")
-            if r.wp_version:
-                parts.append(f"WP {r.wp_version}")
-            hg_extra = " · ".join(parts)
-        flag = " ⚠" if r.provider_conflict else ""
-        table.add_row(
-            f"{r.domain}{flag}",
+        emoji = hosting_status_emoji(r)
+        row_cells = [
+            emoji,
+            r.domain,
             r.provider or "—",
             r.latest_deploy_status or "—",
-            (r.last_successful_deploy_at or "—")[:19],   # YYYY-MM-DDTHH:MM:SS slice
+            (r.last_successful_deploy_at or "—")[:19],
             str(r.consecutive_failures) if r.consecutive_failures else "0",
-            hg_extra,
-        )
+        ]
+        if has_hg:
+            hg_extra = ""
+            if r.provider == PROVIDER_HOSTGATOR:
+                parts: list[str] = []
+                if r.disk_used_mb is not None:
+                    parts.append(f"disk {r.disk_used_mb}MB")
+                if r.wp_version:
+                    parts.append(f"WP {r.wp_version}")
+                hg_extra = " · ".join(parts)
+            row_cells.append(hg_extra)
+        table.add_row(*row_cells)
     console.print(table)
+
+    # Footer rollup — counts per provider + skipped/conflicts tally
+    # (bug 2026-05-19: missing summary footer).
+    console.print(f"[dim]  {hosting_footer_summary(rows, result.skipped)}[/]")
     _print_skipped_footer(result.skipped)
 
 

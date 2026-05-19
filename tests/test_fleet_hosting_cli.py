@@ -23,6 +23,7 @@ from portfolio.hosting import (
     HostingResult,
     HostingRow,
     PROVIDER_CF_PAGES,
+    PROVIDER_CF_WORKERS,
     PROVIDER_HOSTGATOR,
     PROVIDER_VERCEL,
 )
@@ -264,3 +265,163 @@ def test_fleet_hosting_table_renders_with_no_rows(monkeypatch, tmp_path):
     assert out.exit_code == 0
     assert "No hosting rows" in out.output
     assert "VERCEL_TOKEN" in out.output
+
+
+# ---- v11.I renderer upgrades ------------------------------------
+
+
+def test_fleet_hosting_table_includes_status_emoji_column(monkeypatch, tmp_path):
+    """v11.I — first column is a single-glyph status. With a fresh
+    READY Vercel row the table contains ✓."""
+    from datetime import datetime, timezone
+    fresh_iso = datetime.now(timezone.utc).isoformat()
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["a.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
+        HostingRow(
+            domain="a.com", provider=PROVIDER_VERCEL,
+            latest_deploy_status="READY",
+            last_successful_deploy_at=fresh_iso,
+        ),
+    ]))
+    out = runner.invoke(cli.app, ["fleet", "hosting"])
+    assert out.exit_code == 0, out.output
+    assert "✓" in out.output
+
+
+def test_fleet_hosting_table_shows_conflict_glyph_for_conflict_row(
+    monkeypatch, tmp_path,
+):
+    """Provider-conflict rows render with 🤐 in the status column."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["x.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
+        HostingRow(domain="x.com", provider=PROVIDER_VERCEL,
+                   provider_conflict=True),
+        HostingRow(domain="x.com", provider=PROVIDER_CF_PAGES,
+                   provider_conflict=True),
+    ]))
+    out = runner.invoke(cli.app, ["fleet", "hosting"])
+    assert out.exit_code == 0
+    assert "🤐" in out.output
+
+
+def test_fleet_hosting_omits_hg_extra_column_when_no_hg_rows(
+    monkeypatch, tmp_path,
+):
+    """v11.I — HG-extra column hidden when zero HG rows.
+
+    Bug 2026-05-19 fix: empty column was visual noise. Now only
+    rendered when at least one row would populate it."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["a.com", "b.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
+        HostingRow(domain="a.com", provider=PROVIDER_VERCEL),
+        HostingRow(domain="b.com", provider=PROVIDER_CF_PAGES),
+    ]))
+    out = runner.invoke(cli.app, ["fleet", "hosting"])
+    assert out.exit_code == 0
+    assert "HG-extra" not in out.output
+
+
+def test_fleet_hosting_shows_hg_extra_column_when_hg_row_present(
+    monkeypatch, tmp_path,
+):
+    """Counter-test: column SHOWS when an HG row exists."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["a.com", "b.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
+        HostingRow(domain="a.com", provider=PROVIDER_VERCEL),
+        HostingRow(
+            domain="b.com", provider=PROVIDER_HOSTGATOR,
+            hg_account_id="gator3164",
+            disk_used_mb=1430, wp_version="6.7.1",
+        ),
+    ]))
+    out = runner.invoke(cli.app, ["fleet", "hosting"])
+    assert out.exit_code == 0
+    assert "HG-extra" in out.output
+    assert "disk 1430MB" in out.output
+    assert "WP 6.7.1" in out.output
+
+
+def test_fleet_hosting_footer_summary_line_shows_provider_counts(
+    monkeypatch, tmp_path,
+):
+    """v11.I bug-2 fix — footer aggregates row counts by provider."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["a.com", "b.com", "c.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
+        HostingRow(domain="a.com", provider=PROVIDER_VERCEL),
+        HostingRow(domain="b.com", provider=PROVIDER_CF_PAGES),
+        HostingRow(domain="c.com", provider=PROVIDER_CF_PAGES),
+    ]))
+    out = runner.invoke(cli.app, ["fleet", "hosting"])
+    assert out.exit_code == 0
+    assert "3 rows" in out.output
+    assert "1 vercel" in out.output
+    assert "2 cloudflare-pages" in out.output
+    assert "0 cloudflare-workers" in out.output
+    assert "0 hostgator" in out.output
+
+
+def test_fleet_hosting_footer_includes_skipped_count_when_present(
+    monkeypatch, tmp_path,
+):
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["a.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(
+        rows=[HostingRow(domain="a.com", provider=PROVIDER_VERCEL)],
+        skipped={
+            "hostgator:gator3164": "walker — 403",
+            "hostgator:gator4216": "walker — 403",
+        },
+    ))
+    out = runner.invoke(cli.app, ["fleet", "hosting"])
+    assert out.exit_code == 0
+    # Rich's word-wrap can split the footer across lines on a narrow
+    # terminal — normalize whitespace before asserting.
+    normalized = " ".join(out.output.split())
+    assert "2 skipped" in normalized
+    assert "hostgator:gator3164" in out.output
+
+
+def test_fleet_hosting_provider_filter_zero_rows_shows_pre_filter_breakdown(
+    monkeypatch, tmp_path,
+):
+    """v11.I bug-3 fix — filtering to a provider with 0 matches should
+    explain the filter caused it + show what WAS available.
+
+    Reproduces the operator's observation 2026-05-19 where
+    `--provider=cloudflare-pages` showed only "No hosting rows"
+    despite the walker returning 11 rows under other providers."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["a.com", "b.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
+        HostingRow(domain="a.com", provider=PROVIDER_VERCEL),
+        HostingRow(domain="b.com", provider=PROVIDER_CF_WORKERS),
+    ]))
+    out = runner.invoke(cli.app, ["fleet", "hosting",
+                                  "--provider", "cloudflare-pages"])
+    assert out.exit_code == 0
+    assert "No `cloudflare-pages` rows." in out.output
+    assert "Filtered from 2 total" in out.output
+    # Pre-filter breakdown surfaces the available providers.
+    assert "1 vercel" in out.output
+    assert "1 cloudflare-workers" in out.output
+
+
+def test_fleet_hosting_provider_filter_when_walker_returned_zero(
+    monkeypatch, tmp_path,
+):
+    """Distinguish from previous test — when walker genuinely returned
+    zero rows, the message stays "No hosting rows." (no filter to blame)."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, [])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[]))
+    out = runner.invoke(cli.app, ["fleet", "hosting",
+                                  "--provider", "cloudflare-pages"])
+    assert out.exit_code == 0
+    assert "No hosting rows" in out.output
+    # NO "Filtered from N total" since there was nothing to filter from.
+    assert "Filtered from" not in out.output

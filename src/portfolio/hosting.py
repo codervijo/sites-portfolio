@@ -1368,3 +1368,105 @@ def run_hosting(
 
     _flag_provider_conflicts(result.rows)
     return result
+
+
+# ---- Status emoji + footer helpers (v11.I) -------------------------
+
+
+# Priority order — first match wins. Documented here so v11.I tests
+# and the renderer agree without re-implementing the cascade.
+#
+#   provider=None                              → "—"  (unowned)
+#   provider_conflict=True                     → "🤐" (cross-provider drift)
+#   consecutive_failures ≥ MAX_DEPLOY_LOOKBACK → "✗"  (runaway failures)
+#   last_successful_deploy_at:
+#       <RECENT_DAYS  (default 30) → "✓"  (recent)
+#       <STALE_DAYS   (default 90) → "⚠"  (stale)
+#       ≥STALE_DAYS                → "💤" (dormant)
+#       None                       → "—"  (unknown — HG case; no build
+#                                          pipeline so no deploy timestamp)
+
+
+_STATUS_UNOWNED = "—"
+_STATUS_CONFLICT = "🤐"
+_STATUS_RUNAWAY = "✗"
+_STATUS_RECENT = "✓"
+_STATUS_STALE = "⚠"
+_STATUS_DORMANT = "💤"
+
+
+def hosting_status_emoji(
+    row: HostingRow, *, now: datetime | None = None,
+) -> str:
+    """Resolution 11.C — map a `HostingRow` to a single status glyph.
+
+    `now` is injectable for deterministic tests. Production callers
+    leave it default (`datetime.now(timezone.utc)`).
+    """
+    if row.provider is None:
+        return _STATUS_UNOWNED
+    if row.provider_conflict:
+        return _STATUS_CONFLICT
+    if row.consecutive_failures >= MAX_DEPLOY_LOOKBACK:
+        return _STATUS_RUNAWAY
+    last_ok = row.last_successful_deploy_at
+    if not last_ok:
+        return _STATUS_UNOWNED
+    try:
+        ts = datetime.fromisoformat(last_ok.replace("Z", "+00:00"))
+    except ValueError:
+        return _STATUS_UNOWNED
+    if now is None:
+        now = datetime.now(timezone.utc)
+    age_days = (now - ts).total_seconds() / 86400
+    if age_days < RECENT_DAYS:
+        return _STATUS_RECENT
+    if age_days < STALE_DAYS:
+        return _STATUS_STALE
+    return _STATUS_DORMANT
+
+
+def hosting_provider_counts(rows: list[HostingRow]) -> dict[str, int]:
+    """Count rows by `provider`. Includes every entry in `PROVIDERS`
+    (zero counts surface in the footer so the operator can see at a
+    glance that a configured provider walked but matched nothing —
+    useful diagnostic for the "missing fleet" bug class). `None`
+    providers (unowned rows) bucket under the literal key `"—"`."""
+    counts = {p: 0 for p in PROVIDERS}
+    for r in rows:
+        if r.provider is None:
+            counts[_STATUS_UNOWNED] = counts.get(_STATUS_UNOWNED, 0) + 1
+        elif r.provider in counts:
+            counts[r.provider] += 1
+        else:
+            # Unknown provider string (shouldn't happen — walkers all
+            # emit canonical names — but defensive).
+            counts[r.provider] = counts.get(r.provider, 0) + 1
+    return counts
+
+
+def hosting_footer_summary(
+    rows: list[HostingRow],
+    skipped: dict[str, str],
+) -> str:
+    """One-line footer summary for `fleet hosting`. Format:
+
+        N rows · M cloudflare-workers · L vercel · K cloudflare-pages
+        · J hostgator (X skipped, Y conflicts)
+
+    Zero counts surface — they're load-bearing for diagnostics.
+    Skipped + conflict tallies only appear when non-zero.
+    """
+    counts = hosting_provider_counts(rows)
+    total = sum(counts.values())
+    parts: list[str] = [f"{total} row{'s' if total != 1 else ''}"]
+    for provider in PROVIDERS:
+        parts.append(f"{counts.get(provider, 0)} {provider}")
+    suffix_bits: list[str] = []
+    if skipped:
+        suffix_bits.append(f"{len(skipped)} skipped")
+    n_conflicts = sum(1 for r in rows if r.provider_conflict)
+    if n_conflicts:
+        suffix_bits.append(f"{n_conflicts} conflicts")
+    suffix = f" ({', '.join(suffix_bits)})" if suffix_bits else ""
+    return " · ".join(parts) + suffix
