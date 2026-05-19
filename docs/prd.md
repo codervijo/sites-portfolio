@@ -276,22 +276,24 @@ read-only.
 | v9.D | ✅ | `new bootstrap` growth-hypothesis prompt → seeded `docs/growth.md`. Prompts for the initial growth hypothesis (one paragraph) and writes it as the first dated H2 entry in `docs/growth.md`. `--non-interactive` / `--growth-hypothesis "X"` flags for scripted use. |
 | v9.E | ✅ | Canonical-sections TOML-driven single source of truth. Refactor v9.A's in-code canonical-sections list to a TOML file. Loader module reads at runtime; conformance check, interactive prompts, and bootstrap template renderer all consume from the loader. |
 
-### v10 — per-site deploy declarations *(renumbered 2026-05-17; was v9)*
+### v10 — per-site deploy declarations ✅ *(wrapped 2026-05-18; renumbered 2026-05-17, was v9)*
 
 Visible TOML file at each `sites/<domain>/` repo root declaring where
 the site deploys. Closes the gap for hosts without canonical configs
 (HostGator, WordPress, custom VPS). Scope expanded 2026-05-17 to
 include a `[backend]` section for non-JS-rendering server stacks.
 
-The lamill.toml feature ships across **v10.A-D** (foundation → CLI →
-auto-write → real-fleet validation); **v10.E-G** are downstream
-follow-ons (drift detection, HostGator API, SFTP deploy). The
-v10.A-D split landed 2026-05-18 — the original v10.A row covered the
-whole umbrella; splitting per-concern keeps the phase table 1:1
-with actual ship cadence per the strict-two-level convention.
+The v10 tier shipped across **v10.A-E** (foundation → CLI → auto-write
+→ real-fleet validation → drift detection + conformance checks) on
+2026-05-18. The originally-planned **v10.F** (HostGator cPanel
+integration) was absorbed into v11.A — the unified 3-provider hosting
+walker is the more coherent home for inventory. **v10.G** (SFTP deploy
+abstraction) was renumbered **v11.B**; the active-hosting-operations
+cluster belongs in v11 alongside the read-only walker.
 
-**See `docs/architecture.md § 4 Schemas / § 9 Active implementation
-plans / § 10 Risks` for the technical design.**
+Tier-level design notes moved to `docs/shipping-history.md`. See
+`docs/architecture.md § 4 Schemas / § 9 Active implementation plans
+/ § 10 Risks` for the technical mechanism.
 
 #### Phases
 
@@ -302,189 +304,169 @@ plans / § 10 Risks` for the technical design.**
 | v10.C | ✅ | Auto-write integration — `new bootstrap` writes `lamill.toml` as part of scaffolding (platform priority: `--platform <X>` flag → infer-from-existing-configs → `cf-pages` default; `hostgator/custom` rejected at bootstrap, use `settings project set-deploy` instead). `fleet repos --add-deploy-declarations [--dry-run/--apply] [--include-ambiguous]` migration sweep walks every `sites/<dir>/`, classifies (unambiguous / ambiguous / manual / already-declared / archived), writes safe cases. Shipped 2026-05-18 across `fd725ff` + migration-sweep commit. v10.D validation phase next — runs this against the real fleet. |
 | v10.D | ✅ | **Validation phase** — real-fleet sweep. Run the migration against the actual ~22-domain fleet; review the dry-run plan; `--apply` the unambiguous cases; handle ambiguous + manual-entry cases interactively via `settings project set-deploy`. End state: every applicable sibling `sites/<domain>/` repo has a valid `lamill.toml` committed. Surfaces bugs / edge cases that only appear against real config files. ~2-3h (mostly running the tools, fixing edge cases that surface). |
 | v10.E | ✅ | Drift detection + lamill.toml conformance checks. Three deploy-category checks: `CHECK_058 has-lamill-toml`, `CHECK_059 lamill-toml-valid`, `CHECK_143 deploy-drift`. Drift compares declared platform against a best-effort classification of the live HTTP snapshot (WordPress generator / title / wp-includes paths → hostgator; `*.vercel.app` / `*.pages.dev` / `*.netlify.app` in final URL or redirect chain → that provider). Canonical drift case `iotnews.today` (declared=vercel, classified=hostgator via WP title) fires `fail`. 26 tests. |
-| v10.F | ⏳ *(renumbered 2026-05-18 — was v10.C)* | HostGator cPanel integration. API pull of domains / WordPress installs / disk usage. Auto-writes `lamill.toml` for HostGator-hosted sites. Inventory awareness only (no write surface yet). ~8-10h. |
-| v10.G | ⏳ *(renumbered 2026-05-18 — was v10.D)* | SFTP deploy abstraction. `lamill new deploy <domain>` reads `lamill.toml`, dispatches to existing CF Pages logic OR new SFTP target for HostGator/custom. Adds a write surface; needs careful design. ~10-12h. |
+| v10.F | ✅ *(absorbed by v11.A 2026-05-18)* | HostGator cPanel integration — folded into v11.A's unified 3-provider hosting walker (Vercel + CF Pages + HostGator). One `fleet hosting` command replaces two (`fleet hosting` + `fleet hostgator`); single rollup table; operator no longer has to remember which command surfaces which provider. See v11 below. |
+| v10.G | ✅ *(absorbed by v11.B 2026-05-18)* | SFTP deploy abstraction — renumbered v11.B. Active hosting operations cluster with v11.A; `new deploy <domain>` becomes polymorphic, reading `lamill.toml` to dispatch CF Pages / Vercel / SFTP-to-HG. See v11 below. |
 
-#### Design notes
+### v11 — active hosting layer *(renumbered 2026-05-17, was v10; scope expanded 2026-05-18 to absorb v10.F + v10.G)*
 
-**Problem statement.** Determining "what platform does this site deploy
-to?" today requires triangulating three separate signals — repo config
-files (`wrangler.jsonc` / `vercel.json` / `netlify.toml`), DNS lookup,
-HTTP probe — and reconciling disagreement manually. There's no
-declaration mechanism for HostGator, WordPress, custom VPS, or static
-FTP-deployed sites; drift between intent and actual is invisible until
-probed; cross-site queries ("show me all sites on Vercel") can't be
-answered. A canonical declaration in the repo closes all three gaps.
-
-**Goals.**
-- Schema for `lamill.toml` covering the common platforms + an
-  extension slot for HostGator / custom hosts (v10.A).
-- `LamillToml` parser/writer module reused by future tools (v10.A).
-- `lamill settings project set-deploy <name> <platform>` to manually
-  create or update on existing sites (v10.B).
-- `lamill settings project show-deploy <name>` to inspect (v10.B).
-- `lamill new bootstrap` writes the file as part of scaffolding —
-  inferred from `--stack` with a sensible default `cf-pages` (v10.C).
-- `lamill fleet repos --add-deploy-declarations` migration —
-  safe-by-default, refuses ambiguous cases (v10.C).
-- Real-fleet rollout: every applicable sibling repo carries a
-  committed `lamill.toml` (v10.D).
-
-**Non-goals** (deferred to v10.E-G or later): drift detection +
-conformance checks (v10.E), HostGator API integration (v10.F), deploy
-abstraction (v10.G), multi-platform site declarations, validation
-against live state.
-
-**User journey scenarios.**
-1. *Bootstrapping a new site* (v10.C) — `lamill new bootstrap
-   newdomain.com --stack astro` writes `lamill.toml` with
-   `platform=cf-pages` inferred from `--stack`. Operator can edit
-   before `new deploy`.
-2. *Manually setting deploy on an existing site* (v10.B) — `lamill
-   settings project set-deploy hybridautopart.com hostgator`
-   prompts for cPanel + FTP breadcrumbs, writes `lamill.toml`.
-   Tool writes to working tree only — operator commits when ready.
-3. *Reading the declaration* (v10.B) — `lamill settings project
-   show-deploy hybridautopart.com` renders platform / account /
-   branch / domains / hosting block as a human table.
-4. *Bulk migration of existing sites* (v10.C) — `lamill fleet repos
-   --add-deploy-declarations --dry-run` walks every `sites/<dir>/`,
-   classifies into unambiguous / manual-review / manual-entry /
-   archived, surfaces a plan. Re-run without `--dry-run` to write
-   the unambiguous cases.
-5. *Real-fleet rollout* (v10.D) — operator runs the migration
-   against all ~22 fleet domains; reviews the plan; applies the
-   safe cases; handles edge cases interactively via `settings
-   project set-deploy`. Each sibling repo gets a `lamill.toml`
-   committed
-   in. Validation phase surfaces real-world bugs that only show up
-   against actual platform-config files in the wild.
-
-**Open questions.**
-
-| # | Question | Resolution |
-|---|---|---|
-| 10.A | TOML writer library — `tomllib` (stdlib, read-only) + manual write, `tomli-w` (~15KB), or `tomlkit` (~80KB, full round-trip with comments)? | **`tomli-w`** — operator edits go through `$EDITOR`; tool-side writes happen on fresh files or full re-renders, so comment preservation isn't load-bearing. Tomlkit heavier than its value at personal scale. (Shipped v10.A.) |
-| 10.B | Inference priority when multiple platform configs exist (`wrangler.jsonc` + `vercel.json` co-exist) — refuse + manual review, prefer DNS-matching one, or fixed priority order? | **Refuse — surface for manual review** (option 1). Migration is a one-time operation; ~5 ambiguous cases manageable manually. `--include-ambiguous` lets the operator skip the manual step at the cost of a possibly-wrong default. (Shipped v10.A via `infer_from_existing_configs` returning None on multi-signal; `detect_platform_signals` lets the v10.C migration command differentiate "no signals" from "ambiguous".) |
-| 10.C | Bootstrap default platform — `cf-pages`, `vercel`, or no default? | **Keep `cf-pages` for now.** Current v3.C convention; existing bootstrap output stable. If the next 3-4 sites all end up on Vercel, that's the signal to switch. (Resolves v10.C.) |
-| 10.D | Should `set-deploy` commit + push automatically? | **Just write the file.** Same posture as `settings project set-launched`. Operator decides when to commit + push. (Resolves v10.B.) |
-| 10.E | Schema version handling on bumps (`lamill-toml-v1` → `v2`) — auto-migrate, reject loudly, or read-with-fallback / never-write-v1? | **Read-with-fallback / never-write-v1** (option 3). Operator-friendly without complex migration paths. Schema bumps should be rare. (Shipped v10.A.) |
-| 10.F | What about WordPress sites that have no project directory under `sites/`? | **Skip them in v10.C migration.** Sites without a local repo can't have a `lamill.toml` in the repo. v10.F (HostGator integration) will surface them differently. |
-| 10.G | Multi-deploy declarations (apex on platform A, `www.*` on platform B)? | **Not in v10.A-D.** YAGNI. If a multi-deploy case appears, write a follow-on PRD to extend the schema. |
-| 10.H | Where does `account` come from for new bootstraps? | **Leave blank for v10.C bootstrap integration.** Operator profile isn't shipped yet. When it is, `bootstrap` reads it and populates `account`. Blank with a `# TODO` comment in the generated file for now. |
-
-**Effort estimate.** v10.A-D total ≈ 12-17h, distributed across four
-shippable phases. v10.A (foundation) shipped 2026-05-18 — three
-commits, ~4-5h actual. v10.B (CLI) ≈ 3-4h. v10.C (auto-write) ≈ 4-5h.
-v10.D (real-fleet validation) ≈ 2-3h, mostly running tools + fixing
-edge cases that surface against actual platform configs in the wild.
-
-**Approval.** Approved 2026-05-18 (per session reorg). v10.A
-shipped; v10.B-D queued in strict numerical order.
-
-### v11 — fleet hosting view *(renumbered 2026-05-17; was v10)*
-
-Read-only fleet-wide deploy state. Walks Vercel + Cloudflare Pages
-APIs, matches projects to fleet domains by configured custom domain,
-reports per-domain `latest_deploy_status` / `last_successful_deploy_at`
-/ `consecutive_failures`. Mirrors `fleet seo` shape: read-only,
-cached, refreshable, emoji table. **See `docs/architecture.md § 3
-Mechanisms / § 4 Schemas / § 9 Active implementation plans / § 10
-Risks` for the technical design.**
+The hosting cluster — read-only inventory across every provider in
+the fleet, plus the active deploy verb that operates against those
+providers. v11.A is the unified 3-provider walker (Vercel +
+Cloudflare Pages + HostGator UAPI); v11.B is the polymorphic
+`new deploy` verb that adds an SFTP path for HostGator/custom
+declarations. **See `docs/architecture.md § 3 Mechanisms / § 4
+Schemas / § 9 Active implementation plans / § 10 Risks` for the
+technical design.**
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v11.A | ⏳ | `fleet hosting` — fleet-wide Vercel/CF deploy state. Walks both APIs; matches projects to fleet domains by configured custom domain. Per-site deploy status + last-success-at + consecutive-failures. Cached snapshot at `data/hosting/<date>.json` mirroring `data/seo/` shape; `--refresh` re-walks. Status emoji table (✓ / ⚠ / ✗ / 💤 / —). Three phases: P1 walkers + cache, P2 renderer + CLI, P3 dashboard + diagnose integration. ~12-17h, 12 commits. |
+| v11.A | ⏳ | `fleet hosting` — unified 3-provider walker (Vercel + CF Pages + HostGator UAPI). Per-site `provider` / `status` / `last_successful_deploy_at` / `consecutive_failures` plus HG-specific optional fields (`disk_used_mb` / `wp_version` / `install_path`). Cached snapshot at `data/hosting/<date>.json`; `--refresh` re-walks; `--only <domain>` single-row probe; `--provider {vercel\|cf-pages\|hostgator}` filter; `--apply-declarations` writes `lamill.toml` for HG sites that have a local repo but no declaration yet (CF/Vercel already inferable per v10.C). Two HG accounts authenticated via `HOSTGATOR_TOKEN_GATOR3164` + `HOSTGATOR_TOKEN_GATOR4216` known-keys; cPanel host auto-derived from env-var suffix. Three slices: P1 walkers + cache (HG walker is the net-new chunk), P2 renderer + CLI + apply-declarations, P3 dashboard + diagnose integration. ~16-22h, ~14 commits. |
+| v11.B | ⏳ | `new deploy <domain>` — polymorphic deploy verb. Reads `lamill.toml`, dispatches: `cf-pages` → existing v3.C logic; `vercel` → existing-equivalent; `hostgator` / `custom` → NEW SFTP push flow; `none` → reject. Adds a third write surface — needs ADR-0009 reversing or refining ADR-0003's "two write surfaces only". ~14-20h. **Design open** — see "Open questions for v11.B" below; gating questions 11.O-T need resolution before code lands. |
 
 #### Design notes
 
-**Problem statement.** The tool today infers each site's deploy
-platform from filesystem markers (`wrangler.toml` / `vercel.json` /
-package.json deps) and from DNS heuristics during `project diagnose`.
-It never asks Vercel or Cloudflare directly. That leaves three blind
-spots: stale deploys (a clean `vercel.json` checked in but a project
-that hasn't built successfully in months), forgotten projects (older
-sites consuming a Pages-project slot with invisible status), and
-build regressions (a push that breaks the build → platform quietly
-leaves the previous version live; latest deploy is `ERROR` but
-`project check` shows the local repo clean and a casual look at the
-live URL works fine).
+**Problem statement.** v10 closed the *declaration* gap (every
+applicable sibling repo now declares its deploy target in
+`lamill.toml`, and CHECK_143 surfaces drift between declaration and
+live reality). The active-hosting gap is still wide open:
+
+1. The tool can't ask Vercel / CF Pages / HostGator directly whether
+   a deploy succeeded — it infers from filesystem markers and DNS
+   heuristics in `project diagnose`, missing stale deploys, forgotten
+   projects, and build regressions (a clean `vercel.json` checked in,
+   but the project hasn't built successfully in months and platform
+   quietly leaves the previous version live).
+2. There's no programmatic inventory for HostGator-hosted sites —
+   the operator has to log into two cPanel accounts to enumerate
+   domains, disk usage, WordPress versions. The v10.E classifier can
+   tell when a site *is* HG-hosted; it can't enumerate the inverse
+   ("what's on this HG account that I haven't declared yet?").
+3. There's no `new deploy` path for HG/custom sites — bringing up a
+   new HG-hosted site means manual SFTP outside the tool, and
+   updating a deployed HG site requires the same manual workflow
+   each time.
 
 **Goals.**
-- Add `lamill fleet hosting` as a peer of `fleet seo` — same shape:
+
+v11.A (read-only inventory):
+- `lamill fleet hosting` as a peer of `fleet seo` — same shape:
   read-only, cached, refreshable, emoji table.
-- Walk both Vercel and Cloudflare Pages APIs using existing tokens
-  (`VERCEL_TOKEN` added to `apikeys.KNOWN_KEYS`).
-- Match each Vercel / CF Pages project to a fleet domain by the
-  project's configured custom domain — server-side truth, not
-  local-file inference.
-- Persist results to `data/hosting/<YYYY-MM-DD>.json` mirroring
+- Walk Vercel + Cloudflare Pages + HostGator UAPI using stored tokens.
+- Match each provider's project/account to a fleet domain by
+  configured custom domain (Vercel/CF) or cPanel addon-domain list
+  (HG) — server-side truth, not local-file inference.
+- Persist results to `data/hosting/<YYYY-MM-DD>.json` mirroring the
   `data/seo/` shape. Snapshot is git-tracked.
 - Surface a deploy-platform conflict signal when the same domain
-  appears on both providers (drift).
+  appears across providers (drift) — strengthens v10.E's CHECK_143.
+- `--apply-declarations` closes the original v10.F use case: writes
+  `lamill.toml` for HG sites that have a local repo but no
+  declaration yet. CF/Vercel sites are already inferable via
+  `infer_from_existing_configs()` (v10.A) and were migrated by
+  `fleet repos --add-deploy-declarations` (v10.C).
 
-**Non-goals** (deferred): triggering deploys, walkers for Netlify /
-GH Pages / direct-Worker / HostGator / Render, cost / pricing
-reports, auto-flagging consecutive failures as a `fleet focus`
-signal, integration with v10.A `lamill.toml` declarations (separate
-PRD once v10.A ships), real-time webhooks (Vercel / CF can both push
-deploy events but v11.A is pull-only).
+v11.B (active deploy):
+- `lamill new deploy <domain>` becomes a polymorphic dispatch verb.
+- `cf-pages` / `vercel` declarations: reuse existing v3.C logic.
+- `hostgator` / `custom` declarations: walk the `[hosting]` block in
+  `lamill.toml`, push the configured source to the configured
+  `public_html_path` via the chosen auth method (TBD — see open
+  questions 11.O-T).
+- Idempotent + dry-run-by-default per the v3.C convention.
+
+**Non-goals** (deferred):
+- Triggering deploys on CF Pages / Vercel (v11 reads their state but
+  never POSTs a redeploy — `git push` is the contract).
+- Walkers for Netlify / GH Pages / direct-Worker / Render —
+  everything outside Vercel + CF Pages + HostGator is "skip" with a
+  rendered "—" row.
+- Cost / pricing reports.
+- Auto-flagging consecutive failures as a `fleet focus` signal.
+- Real-time webhooks.
+- WordPress-specific deploy ops (theme/plugin/uploads). v11.B is
+  static-SFTP-only; WP-aware deploy is a later phase.
+- Auto-rewriting drifted `lamill.toml` declarations.
+  `--apply-declarations` is scoped to "site has no declaration yet"
+  per 11.N; drift remediation stays manual (operator runs
+  `lamill settings project set-deploy <domain> <correct-platform>`
+  after CHECK_143 fires).
 
 **User journey scenarios.**
 
 ```text
 $ lamill fleet hosting
-Reading data/hosting/2026-05-15.json (1.2h old · use --refresh to re-fetch)
+Reading data/hosting/2026-05-19.json (1.2h old · use --refresh to re-fetch)
 
 Domain                Provider          Status  Last Success           Failures
 airsucks.com          cloudflare-pages  ✓       2026-05-14 16:12 UTC   0
 calcengine.site       vercel            ✓       2026-05-13 09:44 UTC   0
-hybridautopart.com    vercel            ⚠       2026-05-09 11:00 UTC   2
+hybridautopart.com    hostgator         —       —                      —     [disk 1.4 GB · WP 6.7]
+iotnews.today         hostgator         —       —                      —     [disk 89 MB · WP 6.6 · drift!]
 linkedcsi.live        vercel            ✗       —                      5
 kwizicle.com          cloudflare-pages  💤      2026-02-08 22:01 UTC   0
-csinorcal.church      —                 —       —                      —
 
-  6 live-site/forwarder domains · 1 ERROR · 1 stale · 1 unowned
-  Run `lamill fleet hosting --refresh` to re-probe (Vercel + CF API).
+  22 live-site/forwarder domains · 1 ERROR · 1 stale · 1 drift
+  Run `lamill fleet hosting --refresh` to re-probe.
 
-$ lamill fleet hosting --refresh
-Walking Vercel (1 team, 14 projects)...
-Walking Cloudflare Pages (1 account, 8 projects)...
-Resolving 22 fleet domains against 22 projects...
-Snapshot: data/hosting/2026-05-15.json
-<same table as above, fresh data>
+$ lamill fleet hosting --provider hostgator
+<filtered to HG-only rows>
 
-$ lamill fleet hosting --only linkedcsi.live
-<single-row probe; bypasses snapshot>
+$ lamill fleet hosting --apply-declarations --dry-run
+Inspecting HG sites without lamill.toml declarations…
+Nothing to apply — every HG site with a local repo already declares.
+(carrepairsite.com / thakinaam.com detected on HG but no local repo;
+ skipped — `lamill new bootstrap <domain>` to create one first.)
+
+$ lamill new deploy iotnews.today    # post fixing declaration to hostgator
+Reading lamill.toml — platform=hostgator, ftp_host=gator4216.hostgator.com
+Connecting via SFTP (key auth — ~/.ssh/id_ed25519)…
+Pushing dist/ → /home3/<user>/public_html/iotnews.today/ …
+  Uploaded 47 files (2.3 MB). 0 deleted. 0 errors.
+Done. Verify: lamill project diagnose iotnews.today
 ```
 
-`--refresh` and `--only` follow the existing `fleet seo` conventions.
+`--refresh` and `--only` follow existing `fleet seo` conventions.
 
-**Open questions.**
+**Open questions (v11.A — answered 2026-05-18, gate-cleared).**
 
 | # | Question | Resolution |
 |---|---|---|
-| 11.A | `VERCEL_TOKEN` scope — personal token only, multi-token support (`VERCEL_TOKEN_PERSONAL` + `VERCEL_TOKEN_TEAM_X`), or single-token + team-list config? | **Personal token only.** Operator-scale tool, single user. |
-| 11.B | `--only` flag name collision — `fleet seo --only wip\|all` is scope; v11.A wants `--only DOMAIN`. Keep `--only DOMAIN` + rename scope flag, use `--domain DOMAIN`, or drop the scope flag entirely? | **Drop the scope flag entirely** — always operate on live-site + forwarder. `--only DOMAIN` is the single-domain probe. |
-| 11.C | `RECENT_DAYS` / `STALE_DAYS` thresholds — hardcoded 30 / 90, env-configurable, or per-domain override? | **Hardcoded constants** for v11.A. Revisit if real fleet data shows the thresholds are wrong. |
-| 11.D | Deployment history lookback — cap at N=10 per project, page until READY found (unbounded), or two-tier "stop at 10, mark ≥10 consecutive failures"? | **Two-tier (option 3).** Honest about the cap; surfaces the runaway-failures case. |
-| 11.E | Domain ↔ project matching — bare-host normalize (strip leading `www.`) or exact match? | **Bare-host normalize.** Matches user intent. |
-| 11.F | Provider conflict (same domain on both) — two rows per provider, one row with `providers` list, or first-provider-wins? | **Two rows in the snapshot** — one per provider — make the drift visible. Rollup counts treat as a single conflict. |
-| 11.G | "Add a hosting slot to the existing snapshot model" — new file `data/hosting/<date>.json` or join into a unified snapshot? | **New file** — mirrors every other layer in the tool. |
-| 11.H | Walker error surfaces — 401 (bad token) or 5xx (CF API failure) — per-row `error` field, hard exit on auth failure, or skip-affected-provider entirely? | **Skip-affected-provider entirely on 401** (cleaner than rendering N empty rows). **Per-row `error`** on 5xx / rate-limit (option 1). |
-| 11.I | Snapshot retention — keep forever (git-tracked) vs trim vs untracked? | **Keep forever, git-tracked.** Same as every other layer. Disk isn't a constraint. |
-| 11.J | Test strategy — mock at `httpx`/`requests` layer; no CI calls to real Vercel/CF? | **Confirmed.** Same pattern as `tests/test_gsc_recrawl.py`. |
+| 11.A | `VERCEL_TOKEN` scope — personal token only, multi-token, or single-token + team-list config? | **Personal token only.** Operator-scale tool, single user. |
+| 11.B | `--only` flag name collision with `fleet seo --only wip\|all`? | **Drop the scope flag entirely** — always operate on live-site + forwarder. `--only DOMAIN` is the single-domain probe. |
+| 11.C | `RECENT_DAYS` / `STALE_DAYS` thresholds — configurable or hardcoded? | **Hardcoded constants** for v11.A. Revisit if real fleet data shows the thresholds are wrong. |
+| 11.D | Deployment history lookback — cap or unbounded? | **Two-tier (option 3)** — stop at 10, mark ≥10 consecutive failures. |
+| 11.E | Domain ↔ project matching — bare-host normalize or exact match? | **Bare-host normalize.** Matches user intent. |
+| 11.F | Provider conflict (same domain on both)? | **Two rows in the snapshot** — one per provider — make drift visible. Rollup counts treat as a single conflict. |
+| 11.G | Hosting snapshot — new file or join existing? | **New file** `data/hosting/<date>.json`. Mirrors every other layer. |
+| 11.H | Walker error surfaces — 401 vs 5xx? | **Skip-affected-provider on 401**; per-row `error` on 5xx / rate-limit (option 1). |
+| 11.I | Snapshot retention? | **Keep forever, git-tracked.** Same as every other layer. |
+| 11.J | Test strategy? | **Mock at `httpx`/`requests` layer; no CI calls to real APIs.** Same pattern as `tests/test_gsc_recrawl.py`. |
+| 11.K | HG token storage shape? | **Two named env vars in `apikeys.KNOWN_KEYS`** — `HOSTGATOR_TOKEN_GATOR3164` + `HOSTGATOR_TOKEN_GATOR4216`. Add more when a third account appears. Matches `PORKBUN_API_KEY` + `PORKBUN_SECRET_API_KEY` precedent. |
+| 11.L | cPanel host derivation? | **Auto-derive from env-var suffix.** `HOSTGATOR_TOKEN_GATOR3164` → `https://gator3164.hostgator.com:2083`, username=`gator3164`. No separate override env var (YAGNI). |
+| 11.M | `HostingRow` schema — typed optional fields vs `extra: dict` blob? | **Typed optional fields.** `disk_used_mb: int \| None`, `wp_version: str \| None`, `install_path: str \| None`. Matches every other dataclass in the codebase. |
+| 11.N | `--apply-declarations` scope — only fix missing, or also rewrite drift? | **Only fix missing.** Matches `fleet repos --add-deploy-declarations` (v10.C) safety posture. Drift remediation stays manual via CHECK_143 + `settings project set-deploy`. |
 
-**Effort estimate.** 12-17h, 12 commits. P1 walkers + cache (6-8h),
-P2 renderer + CLI (4-6h), P3 dashboard + diagnose (2-3h). Real API
-quirks surface only on first run against the user's fleet.
+**Open questions (v11.B — gating code).**
 
-**Approval.** Draft, awaiting review. Before any code lands: confirm
-snapshot shape (architecture.md §4 hosting-v1), confirm 12-17h is
-acceptable, confirm provider scope (Vercel + CF Pages only for
-v11.A).
+| # | Question |
+|---|---|
+| 11.O | Verb split — keep one `new deploy` (polymorphic dispatch) or split into `new deploy <domain>` (first-time setup) + `project push <domain>` (recurring SFTP push)? CF Pages git-auto-deploys after initial setup; SFTP needs an explicit push every time. |
+| 11.P | What gets pushed — `dist/` (CF-Pages parity), source files, or operator-configured path in a new `[deploy].source_dir` / `[hosting].deploy_source` field? |
+| 11.Q | Auth — SSH key (read from `~/.ssh/id_*` or operator-configured path), cPanel password (stored in `portfolio.env`), or cPanel UAPI file-upload (avoids SFTP libraries entirely; UAPI has an upload endpoint)? |
+| 11.R | WordPress in or out for v11.B — `hybridautopart.com` + `streamsgalaxy.com` are WP-on-HG; theme/plugin/uploads deploy is fundamentally different from a static `dist/` push. Static-SFTP-only is the simpler scope. |
+| 11.S | ADR-0009 — third write surface. Reverse ADR-0003, or argue external-host writes are a different category from local-FS writes? |
+| 11.T | Atomicity — SFTP overwrites file-by-file; failed push = partial state. Stage-then-rename, maintenance-mode toggle, or accept best-effort and document? |
+
+**Effort estimate.** v11.A ≈ 16-22h, ~14 commits (P1 walkers + cache
+8-12h with the HG walker as the net-new chunk; P2 renderer + CLI +
+apply-declarations 5-7h; P3 dashboard + diagnose 3-4h). v11.B ≈
+14-20h once 11.O-T are answered. Real API quirks surface only on
+first run against the fleet.
+
+**Approval.** v11.A CLI shape + 11.K-N answers approved 2026-05-18 —
+code may proceed. v11.B design open; 11.O-T gate code.
 
 ### v12 — adversarial audit pass + reconciliation *(new 2026-05-17 PM)*
 

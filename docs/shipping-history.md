@@ -24,6 +24,161 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v10 tier · per-site deploy declarations — wrapped 2026-05-18
+
+The full v10 tier (A-E) shipped on 2026-05-18 across the day. The
+originally-planned v10.F (HostGator cPanel integration) was absorbed
+into v11.A, and v10.G (SFTP deploy abstraction) was renumbered v11.B
+on the same day — both belong with the active-hosting cluster, not
+the declaration mechanism. Tier-level design rationale follows
+(moved from `prd.md § 6 → v10 → Design notes` per the canonical-docs
+synchronization rule).
+
+### Problem statement
+
+Determining "what platform does this site deploy to?" pre-v10
+required triangulating three separate signals — repo config files
+(`wrangler.jsonc` / `vercel.json` / `netlify.toml`), DNS lookup,
+HTTP probe — and reconciling disagreement manually. There was no
+declaration mechanism for HostGator, WordPress, custom VPS, or
+static FTP-deployed sites; drift between intent and actual was
+invisible until probed; cross-site queries ("show me all sites on
+Vercel") couldn't be answered. A canonical declaration in the repo
+closed all three gaps.
+
+### Goals (all delivered)
+
+- Schema for `lamill.toml` covering common platforms + an extension
+  slot for HostGator / custom hosts — *v10.A*.
+- `LamillToml` parser/writer module reused by future tools — *v10.A*.
+- `lamill settings project set-deploy <name> <platform>` to manually
+  create or update on existing sites — *v10.B*.
+- `lamill settings project show-deploy <name>` to inspect — *v10.B*.
+- `lamill new bootstrap` writes the file as part of scaffolding —
+  inferred from `--stack` with `cf-pages` default — *v10.C*.
+- `lamill fleet repos --add-deploy-declarations` migration — safe-
+  by-default, refuses ambiguous cases — *v10.C*.
+- Real-fleet rollout: every applicable sibling repo carries a
+  committed `lamill.toml` — *v10.D* (22 of 23 fleet sites; 5
+  NO_GIT sites pending v6.F).
+- Drift detection + conformance checks (`has-lamill-toml` /
+  `lamill-toml-valid` / `deploy-drift`) — *v10.E*.
+
+### Non-goals (scope-managed)
+
+Originally deferred to v10.F-G: HostGator API integration, SFTP
+deploy abstraction. Both reassigned to v11 on 2026-05-18 (v11.A
+unified hosting walker absorbs the HG inventory case; v11.B
+polymorphic `new deploy` absorbs the SFTP deploy case). v10's
+contract closed at "declare + validate + detect drift" — active
+hosting ops are v11's job.
+
+Also deferred (still): multi-platform site declarations (apex on
+A, `www.*` on B), validation against live state beyond CHECK_143's
+classifier heuristic.
+
+### User journey scenarios
+
+1. *Bootstrapping a new site* (v10.C) — `lamill new bootstrap
+   newdomain.com --stack astro` writes `lamill.toml` with
+   `platform=cf-pages` inferred from `--stack`. Operator edits
+   before `new deploy`.
+2. *Manually setting deploy on an existing site* (v10.B) — `lamill
+   settings project set-deploy hybridautopart.com hostgator`
+   prompts for cPanel + FTP breadcrumbs, writes `lamill.toml`.
+   Tool writes to working tree only — operator commits when ready.
+3. *Reading the declaration* (v10.B) — `lamill settings project
+   show-deploy hybridautopart.com` renders platform / account /
+   branch / domains / hosting block as a human table.
+4. *Bulk migration of existing sites* (v10.C) — `lamill fleet repos
+   --add-deploy-declarations --dry-run` walks every `sites/<dir>/`,
+   classifies into unambiguous / manual-review / manual-entry /
+   archived, surfaces a plan. Re-run without `--dry-run` writes
+   the unambiguous cases.
+5. *Real-fleet rollout* (v10.D) — operator ran the migration
+   against ~22 fleet domains; reviewed the plan; applied safe
+   cases; handled edge cases interactively. End state: 22 of 23
+   fleet sites carry `lamill.toml` (17 committed in own-git-repos;
+   5 NO_GIT sites have file in working tree pending v6.F).
+6. *Drift detection* (v10.E) — `lamill project check
+   iotnews.today` surfaces CHECK_143 fail when declared platform
+   diverges from classified-actual (the iotnews case: declared=
+   vercel, classifier saw WordPress installer title in body
+   excerpt → hostgator).
+
+### Resolved open questions
+
+| # | Question | Resolution |
+|---|---|---|
+| 10.A | TOML writer library — `tomllib` + manual write, `tomli-w`, or `tomlkit`? | **`tomli-w`** — operator edits go through `$EDITOR`; tool-side writes happen on fresh files or full re-renders, so comment preservation isn't load-bearing. Tomlkit heavier than its value at personal scale. |
+| 10.B | Inference priority when multiple platform configs exist? | **Refuse — surface for manual review.** Migration is a one-time op; ambiguous cases manageable manually. `--include-ambiguous` lets the operator skip the manual step at the cost of a possibly-wrong default. |
+| 10.C | Bootstrap default platform — `cf-pages`, `vercel`, or no default? | **Kept `cf-pages`** for v10.C. Existing convention; bootstrap output stable. |
+| 10.D | Should `set-deploy` commit + push automatically? | **Just write the file.** Same posture as `settings project set-launched`. Operator decides when to commit + push. |
+| 10.E | Schema version handling on bumps (`lamill-toml-v1` → `v2`)? | **Read-with-fallback / never-write-v1.** Operator-friendly without complex migration paths. Schema bumps should be rare. |
+| 10.F | WordPress sites with no project directory under `sites/`? | **Skipped in v10.C migration.** Sites without a local repo can't carry `lamill.toml` in the repo. v11.A surfaces them differently via the HG walker. |
+| 10.G | Multi-deploy declarations (apex on A, `www.*` on B)? | **Not in v10.** YAGNI. Schema extension if a real case ever appears. |
+| 10.H | Where does `account` come from for new bootstraps? | **Left blank** for v10.C — operator profile wasn't shipped yet. v11.A may populate from cPanel-account context for HG cases. |
+
+### Approval
+
+Approved 2026-05-18 per session reorg. All five sub-phases (v10.A-E)
+landed the same day; tier closed 2026-05-18 evening when v10.E
+shipped and v10.F + v10.G were folded into v11.
+
+---
+
+## v10.E · drift detection + lamill.toml conformance checks — shipped 2026-05-18
+
+Three deploy-category checks closed the v10.A-E loop. Commit
+`cda9e28`. 26 new tests; suite at 1827 passed / 1 skipped.
+
+- *`CHECK_058 has-lamill-toml`* (severity: error). Fails when
+  `<repo>/lamill.toml` is missing. Skip on archived. 5 NO_GIT
+  sibling repos baseline-fail until v6.F runs — known and
+  accepted.
+- *`CHECK_059 lamill-toml-valid`* (severity: error). Round-trips
+  the file through `lamill_toml.load()`; surfaces TOML syntax
+  errors, missing `[deploy]`, unknown enum values, missing
+  `[hosting]` when platform requires it.
+- *`CHECK_143 deploy-drift`* (severity: warn). Best-effort
+  classification of the latest `data/checks/<date>.json` row vs
+  declared platform. WordPress fingerprints (generator-meta /
+  `<title>WordPress*` / `wp-(includes|content|admin)` paths) →
+  `hostgator`; provider-suffix hostnames in `final_url` or
+  `redirect_chain` → that provider. Honest about uncertainty —
+  `warn`s when no strong signal, only `fail`s when declared ≠
+  classified-actual. The canonical drift case `iotnews.today`
+  (declared=vercel, classifier saw WP installer error page) →
+  fail.
+
+Classifier inlined in `check_143_deploy_drift.py`, not extracted.
+Single call site for now; if v11.A's hosting walker needs a
+similar cross-check, extract then.
+
+## v10.D · real-fleet validation sweep — shipped 2026-05-18
+
+Operator-driven rollout against the actual fleet. Ran
+`lamill fleet repos --add-deploy-declarations` (dry-run → apply)
+against ~22 sibling repos; reviewed plan; resolved edge cases
+interactively via `lamill settings project set-deploy`. End
+state per `docs/handoff.md § v10.D scoreboard`:
+
+- 22 of 23 fleet sites carry `lamill.toml`.
+- 17 own-git-repos committed + pushed.
+- 2 own-git-repos committed locally, no remote yet (agesdk.dev,
+  iotbastion.com).
+- 5 NO_GIT sites have the file in working tree pending v6.F
+  (iotnews.today, linkedcsi.live, streamsgalaxy.com,
+  thoralox.com, whizgraphs.com).
+
+Two minor bugs surfaced and were logged to `docs/bugs.md`:
+`set-deploy` failing for sites/ dirs missing from portfolio.json,
+and `set-deploy` not auto-populating `custom_domains` from dir
+name. Both deferred — they didn't block the sweep.
+
+Refs commit `46ef8fa` (data refresh — fleet info cleanup +
+checks/seo snapshots).
+
 ## v10.A · `lamill.toml` foundation (schema + parser + writer + infer) — shipped 2026-05-18
 
 Three commits delivered the library half — `src/portfolio/lamill_toml.py`
@@ -31,8 +186,7 @@ Three commits delivered the library half — `src/portfolio/lamill_toml.py`
 `detect_platform_signals()`, `to_dict()`) + `tests/test_lamill_toml.py`
 (70 tests). New dep `tomli-w`. Refs `4395e1d` → `c9d543b` → `be10787`.
 
-Full design notes stay in `prd.md § 6 → v10 → Design notes` until
-v10.D ships and the whole tier moves here together.
+Tier-level design rationale at top of v10 section above.
 
 ## v10.C · `new bootstrap` writes lamill.toml + `fleet repos --add-deploy-declarations` migration sweep — shipped 2026-05-18
 
@@ -50,7 +204,7 @@ modern CF Pages spec (`"assets":` / `[assets]` blocks) alongside the
 legacy `pages_build_output_dir` field, so both bootstrap-generated
 and historical wrangler files classify correctly.
 
-Full design notes stay in `prd.md` until v10.D ships.
+Tier-level design rationale at top of v10 section above.
 
 ## v10.B · `settings project set-deploy` + `show-deploy` CLI — shipped 2026-05-18
 
@@ -64,7 +218,7 @@ reserved for project-code ops — check / fix / seo / diagnose).
 `set-launched` (originally shipped v7.C as `project set-launched`)
 moved into the same `settings project` namespace for consistency.
 
-Full design notes stay in `prd.md` until v10.D ships.
+Tier-level design rationale at top of v10 section above.
 
 ## v12.A · Adversarial audit prompt rendering — shipped 2026-05-17
 

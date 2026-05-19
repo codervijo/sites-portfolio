@@ -148,12 +148,23 @@ for these attributes. `project fix --tier 1` runs only Tier 1;
 
 ### Provider walkers (v11.A — `fleet hosting`)
 
-Pluggable per-provider walker pattern in `src/portfolio/hosting.py`:
+Pluggable per-provider walker pattern in `src/portfolio/hosting.py`.
+v11.A absorbed v10.F on 2026-05-18; HostGator UAPI walker joins
+Vercel + CF Pages as the third provider:
 
 - `walk_vercel(token, only_domain=None) -> list[HostingRow]`
 - `walk_cf_pages(api_token, account_id, only_domain=None) -> list[HostingRow]`
+- `walk_hostgator(token, account_id, only_domain=None) -> list[HostingRow]`
 
-Each walker:
+The first two walkers have a build-pipeline shape — projects, deploys,
+deploy history. The HG walker has a different shape — no build-deploy
+concept, so `latest_deploy_status` / `latest_deploy_at` /
+`last_successful_deploy_at` / `consecutive_failures` all stay None.
+HG fills the typed-optional fields `disk_used_mb`, `wp_version`,
+`install_path` (per resolution 11.M) which the renderer surfaces as
+a compact `[disk · WP]` suffix.
+
+Each Vercel/CF walker:
 1. Paginates the provider's projects-list endpoint.
 2. For each project, reads the latest deploy + walks deployment
    history (capped at `MAX_DEPLOY_LOOKBACK=10`; two-tier — stop at 10
@@ -163,14 +174,34 @@ Each walker:
 4. Returns one `HostingRow` per matched fleet domain; unmatched
    projects drop silently (they're not in the fleet).
 
-`run_hosting(domains)` orchestrator calls both walkers in parallel
-(`ThreadPoolExecutor`, mirrors `seo_runtime.run_seo`). Domains
-matched by BOTH providers emit a row with `provider_conflict=True`
-in `notes[]` — drift signal.
+The HG walker:
+1. Calls cPanel UAPI per account (two accounts in the fleet:
+   `gator3164`, `gator4216`). cPanel host auto-derived from the
+   account_id — `https://<account_id>.hostgator.com:2083` —
+   authenticated as `<account_id>:<HOSTGATOR_TOKEN_<ACCOUNT_ID>>`
+   via HTTP Basic per resolution 11.L. No separate
+   `HOSTGATOR_HOST_*` override env var (add later if a custom-host
+   case appears).
+2. `DomainInfo/list_domains` enumerates addon domains;
+   `Quota/get_quota_info` gets disk-used (account-level, not
+   per-domain — disk_used_mb is per-account, attached to all rows
+   from that account for now).
+3. WP detection: `WordPressManager/list_installations` if the
+   plugin is available, else fallback to `Fileman/list_files` and
+   look for `wp-includes/version.php` under each addon-domain's
+   document root.
+4. Returns one `HostingRow` per addon domain matched to the fleet.
+
+`run_hosting(domains)` orchestrator calls all three walker families
+in parallel (`ThreadPoolExecutor`, mirrors `seo_runtime.run_seo`).
+Per-account HG walks happen as two parallel tasks within the
+orchestrator. Domains matched by MULTIPLE providers emit one row
+per provider with `provider_conflict=True` in `notes[]` — drift
+signal (e.g. an apex on CF Pages + an addon-domain entry on HG).
 
 Provider error surfaces follow `prd.md` v11 Design notes — resolution 11.H:
-- 401 (auth) → skip the affected walker entirely; footer says
-  "Vercel skipped: token missing/invalid."
+- 401 (auth) → skip the affected walker (or per-account HG walker)
+  entirely; footer says "<Provider> skipped: token missing/invalid."
 - 5xx / rate-limit → per-row `error` field on affected domains;
   renders with `?` glyph.
 
@@ -591,18 +622,25 @@ doesn't pass through the writer.
 ```python
 @dataclass
 class HostingRow:
-    """One domain's deploy state across Vercel + Cloudflare Pages."""
+    """One domain's deploy state across Vercel + CF Pages + HostGator."""
     domain: str
-    provider: str | None              # "vercel" | "cloudflare-pages" | None
+    provider: str | None              # "vercel" | "cloudflare-pages" | "hostgator" | None
     project_slug: str | None
     project_id: str | None
-    latest_deploy_status: str | None  # READY | ERROR | BUILDING | CANCELED
-    latest_deploy_at: str | None      # ISO 8601 UTC
+    latest_deploy_status: str | None  # READY | ERROR | BUILDING | CANCELED | None for HG
+    latest_deploy_at: str | None      # ISO 8601 UTC (None for HG — no build pipeline)
     last_successful_deploy_at: str | None
     consecutive_failures: int = 0
     provider_conflict: bool = False
     error: str | None = None
     notes: list[str] = field(default_factory=list)
+    # HG-specific optional fields (None for non-HG rows). Typed
+    # explicitly rather than nested in an `extra: dict` blob per
+    # resolution 11.M — matches every other dataclass in the codebase.
+    hg_account_id: str | None = None   # "gator3164" / "gator4216"
+    disk_used_mb: int | None = None
+    wp_version: str | None = None      # `None` if not a WordPress install
+    install_path: str | None = None    # absolute path on cPanel host
 ```
 
 #### `ParsedVerdict` / `ParsedAudit` / reconciliation result
@@ -694,15 +732,13 @@ lamill
 │   ├── drift                                        ✅ v6.A
 │   ├── repos [--add-deploy-declarations]            ✅ v7.E (flag in v10.C)
 │   ├── dashboard                                    ✅ v7.B
-│   ├── hosting                                      ⏳ v11.A — Vercel + CF
-│   │                                                          deploy state
+│   ├── hosting [--refresh] [--only DOMAIN]          ⏳ v11.A — unified 3-provider
+│   │           [--provider {vercel|cf-pages|             walker (Vercel + CF Pages
+│   │                       hostgator}]                   + HostGator UAPI); absorbed
+│   │           [--apply-declarations [--dry-run]]        v10.F
 │   ├── trends                                       ⏳ v13.A — namespace
 │   │                                                          deferred (`fleet`
 │   │                                                          vs `settings gsc`)
-│   ├── (HostGator surface)                          ⏳ v10.F — design open;
-│   │                                                          first proposal
-│   │                                                          rejected, awaiting
-│   │                                                          rethink
 │   └── info
 │       ├── summary                                  ✅ v7.A
 │       ├── expiring                                 ✅ v7.A
@@ -717,9 +753,10 @@ lamill
 │   │                                                   (writes lamill.toml in
 │   │                                                   v10.C)
 │   ├── deploy                                       ✅ v3.C
-│   │                                                   (reads lamill.toml +
-│   │                                                   routes CF Pages or SFTP
-│   │                                                   in v10.G)
+│   │                                                   (becomes polymorphic in
+│   │                                                   v11.B — reads lamill.toml,
+│   │                                                   dispatches CF Pages / Vercel
+│   │                                                   / SFTP-to-HostGator)
 │   └── research [--verify]                          ✅ v8.D
 │                                                       (flag added in v12.E)
 │
@@ -737,7 +774,6 @@ lamill
     │   │                                                    metadata fits settings)
     │   ├── set-deploy <name> <platform>             ✅ v10.B
     │   └── show-deploy <name>                       ✅ v10.B
-    ├── (HostGator credentials)                      ⏳ v10.F — design open
     └── cost report                                  ⏳ v12.F (deferred) — LLM
                                                                 cost ledger
 ```
@@ -749,10 +785,11 @@ lamill
 | v10.B | `settings project set-deploy` ✅ · `settings project show-deploy` ✅. Also moved `set-launched` (v7.C) into the `settings project` namespace for consistency — per-project metadata stays together; `project` namespace reserved for project-code ops. |
 | v10.C | `fleet repos --add-deploy-declarations` flag · `new bootstrap` writes `lamill.toml` (no surface change) |
 | v10.D | None (validation phase — uses existing CLIs) |
-| v10.E | None (CHECK_xxx series — surfaced via existing `project check` / `fleet check`) |
-| v10.F | HostGator surface — design open (first proposal `settings hostgator` + `fleet hostgator` split was **rejected** 2026-05-18; needs rethink before v10.F starts) |
-| v10.G | `new deploy` extended (no new node — transparently picks target from `lamill.toml`) |
-| v11.A | `fleet hosting` |
+| v10.E | None (`CHECK_058` / `CHECK_059` / `CHECK_143` — surfaced via existing `project check` / `fleet check`) |
+| v10.F | **Absorbed by v11.A 2026-05-18** — HostGator UAPI walker folds into the unified `fleet hosting` design rather than getting its own `fleet hostgator` namespace. Single rollup table; one verb to remember. |
+| v10.G | **Absorbed by v11.B 2026-05-18** — SFTP push lives in `new deploy` polymorphic dispatch. No standalone phase. |
+| v11.A | `fleet hosting` — unified Vercel + CF Pages + HostGator walker. New flags: `--provider {vercel\|cf-pages\|hostgator}`, `--apply-declarations [--dry-run]`. HG tokens in `apikeys` as `HOSTGATOR_TOKEN_GATOR3164` / `HOSTGATOR_TOKEN_GATOR4216`. |
+| v11.B | `new deploy <domain>` becomes polymorphic — reads `lamill.toml [deploy].platform`, dispatches CF Pages (v3.C) / Vercel / SFTP-to-HG. Adds a third write surface; gated on ADR-0009. |
 | v12.B-G | `new research --verify` / `--no-verify` / `--audit-model <id>` / `--no-cache=audit` flags (no new node) |
 | v13.A | GSC trend correlation — namespace deferred (`fleet trends` vs `settings gsc trends`) |
 | v13.B | `fleet info list` (or `project list` — naming TBD) |
@@ -768,12 +805,15 @@ These are deliberate non-decisions — resolve before the relevant
 phase ships. The operator either gates these in a planning session
 or signals "decide it when you get there" per-phase.
 
-1. **v10.F HostGator surface (design open).** First proposal —
-   `settings hostgator {token, accounts}` for creds + `fleet
-   hostgator {pull, status, sync}` for data — was rejected by the
-   operator 2026-05-18 ("don't like that CLI at all"). The
-   HostGator-shape question is parked until v10.F gets picked up.
-   Until then: no new `hostgator` commands land anywhere.
+1. **v11.B SFTP push verb shape (design open — gates code).** Verb
+   split: keep one polymorphic `new deploy <domain>` that dispatches
+   by `lamill.toml [deploy].platform`, or split into `new deploy
+   <domain>` (first-time setup) + a separate `project push <domain>`
+   (recurring SFTP push)? CF Pages git-auto-deploys; SFTP needs an
+   explicit push every time the dist changes — same verb covers
+   fundamentally different cadences. Plus 11.P-T (what gets pushed,
+   auth surface, WP scope, ADR, atomicity). Resolve at v11.B
+   kickoff per `prd.md § 6 → v11 → Open questions (v11.B)`.
 2. **v13.A GSC trends namespace.** `fleet trends` (scope-first;
    reuses `data/gsc/` snapshots; sits next to `fleet seo`) vs
    `settings gsc trends` (keeps all GSC stuff together; sits
@@ -1057,47 +1097,97 @@ than extracted — single call site, no current need for reuse.
 If v11.A's hosting walker needs a similar cross-check, extract
 then.
 
-### v11.A — `fleet hosting` — fleet-wide Vercel/CF deploy state
+### v11.A — `fleet hosting` — unified 3-provider walker
 
-~12-17h, twelve commits. Mirrors `fleet seo` shape: read-only,
-cached, refreshable, emoji table. Each commit subject is
-`portfolio: v11.A — <slice>`.
+~16-22h, ~14 commits. Mirrors `fleet seo` shape: read-only, cached,
+refreshable, emoji table. Each commit subject is
+`portfolio: v11.A — <slice>`. Scope expanded 2026-05-18 to absorb
+v10.F (HG cPanel integration); HG walker is the net-new chunk
+relative to the original 2-provider design.
 
 Sequential slices, in commit order:
 
-- *`VERCEL_TOKEN` API-keys plumbing.* Add to `apikeys.KNOWN_KEYS`
-  + `_probe_vercel()` (`GET /v2/user`, 5s timeout). One new test.
+- *API-keys plumbing — Vercel + HG tokens.* Add `VERCEL_TOKEN`,
+  `HOSTGATOR_TOKEN_GATOR3164`, `HOSTGATOR_TOKEN_GATOR4216` to
+  `apikeys.KNOWN_KEYS`. `_probe_vercel()` (`GET /v2/user`, 5s
+  timeout); `_probe_hostgator(token, account_id)` (cPanel UAPI
+  `/execute/Variables/get_user_information`, 8s timeout — cPanel
+  is slower than CF/Vercel). cPanel host auto-derived from
+  account_id (per `prd.md` v11 — resolution 11.L). 3 new tests.
 - *Dataclass + constants.* New `src/portfolio/hosting.py` with
-  `HostingRow` dataclass; constants `RECENT_DAYS=30`,
-  `STALE_DAYS=90`, `MAX_DEPLOY_LOOKBACK=10`.
+  `HostingRow` dataclass (typed optional fields including
+  `disk_used_mb`, `wp_version`, `install_path` per resolution
+  11.M); constants `RECENT_DAYS=30`, `STALE_DAYS=90`,
+  `MAX_DEPLOY_LOOKBACK=10`.
 - *Vercel walker.* `walk_vercel()` — paginated projects list +
   per-project deployments. Mocked unit tests.
 - *Cloudflare Pages walker.* `walk_cf_pages()` — same shape against
   the CF API.
-- *Orchestrator + match logic.* `run_hosting()` + domain-match
-  bare-host normalize + provider-conflict detection.
+- *HostGator walker.* `walk_hostgator(account_id)` — cPanel UAPI:
+  `DomainInfo/list_domains` for addon-domain enumeration,
+  `Quota/get_quota_info` for disk usage, `WordPressManager/
+  list_installations` (or scan `~/public_html/*/wp-includes/`
+  via UAPI `Fileman/list_files` fallback) for WP version + path.
+  Two account walks (gator3164, gator4216) per fleet refresh.
+- *Orchestrator + match logic.* `run_hosting()` joining all three
+  walker outputs + domain-match (bare-host normalize per 11.E) +
+  provider-conflict detection (two rows in snapshot per 11.F).
 - *Snapshot cache.* `hosting_cache.py` mirroring `seo_cache.py`.
 - *CLI shell + cache-eligibility.* `fleet hosting` Typer command +
-  cache-eligibility logic + `--refresh` / `--only` / `--json`
-  flags.
+  cache-eligibility logic + `--refresh` / `--only DOMAIN` /
+  `--provider {vercel|cf-pages|hostgator}` / `--json` flags.
 - *Table renderer.* `_render_hosting_table()` + status-emoji helper.
-  Five columns: Domain · Provider · Status · Last Success ·
-  Failures. Footer with rollup counts.
+  Columns: Domain · Provider · Status · Last Success · Failures ·
+  HG-extra (compact `[disk · WP]` for HG rows). Footer with rollup
+  counts.
 - *Walker error surfaces.* Token-missing surface + per-row 5xx /
-  rate-limit rendering (per `prd.md` v11 Design notes — resolution
-  11.H).
+  rate-limit rendering per resolution 11.H. HG-specific: account-
+  scoped 401 skips that account but leaves the other walker
+  results visible.
+- *`--apply-declarations` writer.* For HG sites that have a local
+  `sites/<domain>/` directory but no committed `lamill.toml`,
+  write the file using v10.A's `lamill_toml.write()` —
+  `platform=hostgator`, `[hosting]` filled from the walker's
+  cPanel-account context. Dry-run by default per the v10.C
+  migration-sweep convention. Scoped to "missing only" per
+  resolution 11.N — no drift remediation.
 - *Dashboard join.* `dashboard.py`: new `Hosting` column joining
   the latest `data/hosting/` snapshot.
 - *Diagnose integration.* `diagnose.py`: optional "Hosting:"
   section when a hosting snapshot covers the diagnosed domain.
 - *Docs update.* `docs/CLAUDE.md`, `AI_AGENTS.md`,
-  `docs/Prompts.md`, prd v11.A row → ✅, v11.A Design notes →
+  `docs/Prompts.md`, prd v11.A row → ✅, v11 Design notes →
   `shipping-history.md`.
 
-**Test strategy** (`prd.md` v11 Design notes — resolution 11.J): all
-real API calls mocked at the `httpx`/`requests` layer (same pattern
-as `tests/test_gsc_recrawl.py`). No CI calls to real Vercel or
-Cloudflare APIs.
+**Test strategy** (resolution 11.J): all real API calls mocked at
+the `httpx`/`requests` layer (same pattern as
+`tests/test_gsc_recrawl.py`). No CI calls to real Vercel /
+Cloudflare / cPanel UAPI.
+
+### v11.B — `new deploy` polymorphic dispatch + SFTP push (planned)
+
+~14-20h. Adds the active-deploy half of v11 — `lamill new deploy
+<domain>` reads `lamill.toml` and dispatches by `[deploy].platform`:
+
+- `cf-pages` → existing v3.C `CloudflarePagesDeploy` impl.
+- `vercel` → existing-equivalent (verify what was shipped in v3.C
+  vs only CF; backfill if Vercel deploy verb is stub-only).
+- `hostgator` / `custom` → NEW SFTP push flow.
+- `none` → reject with a `lamill settings project set-deploy` hint.
+
+The SFTP path is a third write surface (the first being `new
+bootstrap` for fresh project dirs per ADR-0001 / ADR-0003, the
+second being `project fix` for in-place remediation). ADR-0009
+needed before code lands — either reverse ADR-0003's "two write
+surfaces only" with the new SFTP-to-remote-host argument, or
+argue external-host writes are categorically distinct from local-FS
+writes.
+
+**Design open** — gating questions in `prd.md § 6 → v11 → Open
+questions (v11.B)`: verb-split shape (one polymorphic verb vs
+split init/push), what gets pushed (`dist/` parity vs source vs
+operator-configured), auth surface (SSH key vs cPanel password vs
+UAPI file-upload), WordPress in/out, atomicity / staging strategy.
 
 ### v12.B onward — Adversarial audit response parser → docs
 

@@ -153,6 +153,47 @@ by the migration sweep. Fix is ~15 min: in `set_deploy()`, when
 
 ---
 
+### 2026-05-18 — `domain suggest` menu shows option `s` between numbered options 7 and 8
+
+**Repro**
+    uv run lamill domain suggest <topic>
+    # interactive menu renders after first grid
+
+**Expected**
+Menu options sorted with numbered options (1-8) contiguous and any
+letter options (`m`, `q`, `s`) grouped separately — either before
+numbers (commands) or after (letters), but not interleaved. Reads
+left-to-right as one consistent ordering.
+
+**Actual**
+Option `s` appears positioned between numbered options 7 and 8 in
+the rendered menu, breaking the visual scan order. (Exact menu
+behavior unconfirmed; operator brief report 2026-05-18.)
+
+**Where (guess)**
+`src/portfolio/menu.py` or `src/portfolio/suggest.py` — the
+post-grid menu renderer assembled across v3.E (options 1, 2, 5,
+8, q) + v4.A (`m` mark, shortlist count) + v4.B (option 7) +
+v4.C (options 3, 4). An item registered with `s` is landing in
+sort order between 7 and 8 because the comparator is string-
+sorting rather than numeric-first-then-letters. Likely fix is a
+two-key sort: `(is_letter, value)` so all numerics group first.
+
+**Severity**
+cosmetic — menu still works; reading order is off. Not blocking
+any workflow.
+
+**Notes**
+Operator's report is terse: *"option s between 7 & 8"*. Need to
+confirm whether `s` is an existing menu option (and what it
+does) or whether this is a request to *add* an `s` option in a
+specific position. Pick this up after the v10/v11 restructure
+commit + read the menu source first; the bug headline assumes
+sort-order interpretation but the renderer code will tell us
+which.
+
+---
+
 ### 2026-05-18 — `fleet seo --refresh` and `fleet domains` show different domain counts
 
 **Repro**
