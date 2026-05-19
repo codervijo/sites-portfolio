@@ -51,16 +51,302 @@ sub-phases over two days. Two halves:
     remote-host writes as a separate category from ADR-0003's
     local-FS write scope.
 
-The full tier-level design block from `prd.md` will migrate here
-as part of a follow-up doc-sync phase (currently inline in prd.md
-under `### v11 — active hosting layer`).
+Real-fleet hand test on 2026-05-19 verified the read-only cluster
+end-to-end: walker walked operator's actual Vercel + CF + HG
+accounts; surfaced several post-ship bugs that landed as small patch
+commits while the tier was still being built (`cb5f4cf` v11.C
+pagination, `42bb98b` v11.A HG auth username decoupling, `d3bae51`
+v11.D/E/I megabytes_used + same-provider conflict + install_path
+render). The active deploy half (v11.M-N) had not yet been
+hand-tested against the live fleet at tier close — canonical first
+target is `iotnews.today` (the v10.E drift case once the operator
+runs `settings project set-deploy iotnews.today hostgator`).
 
-Real-fleet hand test on 2026-05-19 verified the cluster end-to-end:
-walker walked operator's actual Vercel + CF + HG accounts; surfaced
-several post-ship bugs that landed as small patch commits while the
-tier was still being built (`cb5f4cf` v11.C pagination,
-`42bb98b` v11.A HG auth username decoupling, `d3bae51` v11.D/E/I
-megabytes_used + same-provider conflict + install_path render).
+Tier-level design rationale follows (moved from `prd.md § 6 → v11 →
+Design notes` per the canonical-docs synchronization rule).
+
+### Problem statement
+
+v10 closed the *declaration* gap (every applicable sibling repo now
+declares its deploy target in `lamill.toml`, and CHECK_143 surfaces
+drift between declaration and live reality). The active-hosting gap
+was still wide open:
+
+1. The tool couldn't ask Vercel / CF Pages / HostGator directly
+   whether a deploy succeeded — it inferred from filesystem markers
+   and DNS heuristics in `project diagnose`, missing stale deploys,
+   forgotten projects, and build regressions (a clean `vercel.json`
+   checked in, but the project hadn't built successfully in months
+   and the platform quietly left the previous version live).
+2. There was no programmatic inventory for HostGator-hosted sites —
+   the operator had to log into two cPanel accounts to enumerate
+   domains, disk usage, WordPress versions. The v10.E classifier
+   could tell when a site *is* HG-hosted; it couldn't enumerate the
+   inverse ("what's on this HG account that I haven't declared yet?").
+3. There was no `new deploy` path for HG/custom sites — bringing up
+   a new HG-hosted site meant manual SFTP outside the tool, and
+   updating a deployed HG site required the same manual workflow
+   each time.
+
+### Goals (all delivered)
+
+Read-only inventory (v11.A-L):
+- `lamill fleet hosting` as a peer of `fleet seo` — same shape:
+  read-only, cached, refreshable, emoji table.
+- Walk Vercel + Cloudflare Pages + Cloudflare Workers + HostGator
+  UAPI using stored tokens.
+- Match each provider's project/account to a fleet domain by
+  configured custom domain (Vercel/CF) or cPanel addon-domain list
+  (HG) — server-side truth, not local-file inference.
+- Persist results to `data/hosting/<YYYY-MM-DD>.json` mirroring the
+  `data/seo/` shape. Snapshot is git-tracked.
+- Surface a deploy-platform conflict signal when the same domain
+  appears across providers (drift) — strengthens v10.E's CHECK_143.
+- `--apply-declarations` closes the original v10.F use case: writes
+  `lamill.toml` for HG sites that have a local repo but no
+  declaration yet.
+
+Active deploy (v11.M-N):
+- `lamill new deploy <domain>` becomes a polymorphic dispatch verb.
+  `cf-pages` reuses v3.C's `CloudflarePagesDeploy`; `cf-workers`
+  shells out to `pnpm run deploy` (wrangler); `vercel` shells out
+  to `vercel deploy --prod`; `hostgator` / `custom` push via the
+  v11.N UAPI uploader; `none` rejects; `netlify` / `github-pages`
+  exit with "not yet implemented."
+- UAPI file-upload deploy for `hostgator` / `custom` —
+  operator-configurable `[hosting].deploy_source` (default `dist/`)
+  uploaded to `public_html_path` via cPanel `Fileman/upload_files`
+  with stage-then-rename atomicity. Dry-run default; `--apply`
+  required. Adds the third deploy verb surface (ADR-0011).
+
+### Non-goals (scope-managed)
+
+- Triggering deploys on CF Pages / Vercel via portfolio's own API
+  client — v11 reads their state but never POSTs a redeploy. For
+  cf-workers + vercel, `new deploy` delegates to the canonical
+  CLIs (`pnpm run deploy` / `vercel deploy --prod`) rather than
+  re-implementing wrangler's asset pipeline or vercel's file
+  pipeline. `git push` remains the contract for cf-pages.
+- Walkers for Netlify / GH Pages / direct-Worker / Render —
+  everything outside Vercel + CF Pages + CF Workers + HostGator
+  is "skip" with a rendered "—" row.
+- Cost / pricing reports.
+- Auto-flagging consecutive failures as a `fleet focus` signal.
+- Real-time webhooks.
+- WordPress-specific deploy ops (theme/plugin/uploads). v11.N is
+  static-SFTP-only; WP-aware deploy is a later phase.
+- Auto-rewriting drifted `lamill.toml` declarations.
+  `--apply-declarations` is scoped to "site has no declaration yet"
+  per 11.N; drift remediation stays manual (operator runs
+  `lamill settings project set-deploy <domain> <correct-platform>`
+  after CHECK_143 fires).
+- Fleet-wide remote-host writes. ADR-0011 caps `new deploy` at
+  one site per invocation; a "deploy everything that's changed"
+  command would need an ADR amendment.
+
+### User journey scenarios
+
+```text
+$ lamill fleet hosting
+Reading data/hosting/2026-05-19.json (1.2h old · use --refresh to re-fetch)
+
+Domain                Provider          Status  Last Success           Failures
+airsucks.com          cloudflare-workers ✓      2026-05-14 16:12 UTC   0
+civictools.dev        vercel            ✓       2026-05-13 09:44 UTC   0
+hybridautopart.com    hostgator         —       —                      —     [disk 1.4 GB · WP 6.7]
+iotnews.today         hostgator         —       —                      —     [disk 89 MB · drift!]
+linkedcsi.live        vercel            ✗       —                      5
+kwizicle.com          cloudflare-workers 💤     2026-02-08 22:01 UTC   0
+
+  22 live-site/forwarder domains · 1 ERROR · 1 stale · 1 drift
+  Run `lamill fleet hosting --refresh` to re-probe.
+
+$ lamill fleet hosting --provider hostgator
+<filtered to HG-only rows>
+
+$ lamill fleet hosting --apply-declarations --dry-run
+Inspecting HG sites without lamill.toml declarations…
+Nothing to apply — every HG site with a local repo already declares.
+(carrepairsite.com / thakinaam.com detected on HG but no local repo;
+ skipped — `lamill new bootstrap <domain>` to create one first.)
+
+$ lamill new deploy iotnews.today    # post fixing declaration to hostgator
+Deploy iotnews.today  (platform=hostgator · cPanel UAPI · DRY-RUN)
+  project dir:    /home/vijo/work/projects/sites/iotnews.today
+  deploy_source:  dist/
+  public_html:    /home4/foundervijo/public_html/iotnews.today
+  account:        gator4216  (user=foundervijo)
+
+  ↷ DRY-RUN  47 files · 2.3 MB
+  would upload to /home4/.../iotnews.today.next, then rename + swap …
+
+Re-run with `--apply` to actually push.
+
+$ lamill new deploy iotnews.today --apply
+…
+  ✓ Deployed  47 files · 2.3 MB
+  uploaded 47 files (2.3 MB) → /home4/foundervijo/public_html/iotnews.today
+```
+
+### Resolved open questions
+
+v11.A-L read-only walker (answered 2026-05-18):
+
+| # | Question | Resolution |
+|---|---|---|
+| 11.A | `VERCEL_TOKEN` scope — personal token only, multi-token, or single-token + team-list config? | **Personal token only.** Operator-scale tool, single user. |
+| 11.B | `--only` flag name collision with `fleet seo --only wip\|all`? | **Drop the scope flag entirely** — always operate on live-site + forwarder. `--only DOMAIN` is the single-domain probe. |
+| 11.C | `RECENT_DAYS` / `STALE_DAYS` thresholds — configurable or hardcoded? | **Hardcoded constants** (shipped v11.A foundation). Revisit if real fleet data shows the thresholds are wrong. |
+| 11.D | Deployment history lookback — cap or unbounded? | **Two-tier (option 3)** — stop at 10, mark ≥10 consecutive failures. |
+| 11.E | Domain ↔ project matching — bare-host normalize or exact match? | **Bare-host normalize.** Matches user intent. |
+| 11.F | Provider conflict (same domain on both)? | **Two rows in the snapshot** — one per provider — make drift visible. Rollup counts treat as a single conflict. |
+| 11.G | Hosting snapshot — new file or join existing? | **New file** `data/hosting/<date>.json`. Mirrors every other layer. |
+| 11.H | Walker error surfaces — 401 vs 5xx? | **Skip-affected-provider on 401**; per-row `error` on 5xx / rate-limit (option 1). |
+| 11.I | Snapshot retention? | **Keep forever, git-tracked.** Same as every other layer. |
+| 11.J | Test strategy? | **Mock at `httpx`/`requests` layer; no CI calls to real APIs.** Same pattern as `tests/test_gsc_recrawl.py`. |
+| 11.K | HG token storage shape? | **Two named env vars in `apikeys.KNOWN_KEYS`** — `HOSTGATOR_TOKEN_GATOR3164` + `HOSTGATOR_TOKEN_GATOR4216`. Add more when a third account appears. Matches `PORKBUN_API_KEY` + `PORKBUN_SECRET_API_KEY` precedent. |
+| 11.L | cPanel host derivation? | **Auto-derive host from env-var suffix; cPanel username separately overridable.** `HOSTGATOR_TOKEN_GATOR3164` → host `https://gator3164.hostgator.com:2083`. Username defaults to the same `gator3164` (back-compat with unmanaged HG shared hosting where username==server) but is overridable via paired `HOSTGATOR_USER_GATOR3164` env var. Patched 2026-05-19 after the operator's 403 hand test surfaced that their cPanel `Current User: foundervijo` differs from the server slug. |
+| 11.M | `HostingRow` schema — typed optional fields vs `extra: dict` blob? | **Typed optional fields.** `disk_used_mb: int \| None`, `wp_version: str \| None`, `install_path: str \| None`. Matches every other dataclass in the codebase. |
+| 11.N | `--apply-declarations` scope — only fix missing, or also rewrite drift? | **Only fix missing.** Matches `fleet repos --add-deploy-declarations` (v10.C) safety posture. Drift remediation stays manual via CHECK_143 + `settings project set-deploy`. |
+
+v11.M-N deploy verb (answered 2026-05-19):
+
+| # | Question | Resolution |
+|---|---|---|
+| 11.O | Verb split — one polymorphic `new deploy` or split into `new deploy` + `project push`? | **One polymorphic `new deploy <domain>`** (shipped v11.M). Reads `lamill.toml` and dispatches by platform. CF/Vercel/Workers paths are first-time-or-redeploy as the underlying tooling dictates; HG/custom path runs every time. |
+| 11.P | What gets pushed — `dist/`, source files, or configured path? | **`[hosting].deploy_source` (default `dist/`)** — operator-configurable per site so a static-build site (`dist/`), a raw-PHP site (`.`), or a WP child theme each declare what to upload without inventing three verbs. |
+| 11.Q | Auth — SSH key, cPanel password, or UAPI upload? | **cPanel UAPI `Fileman/upload_files`** — reuses v11.D's `HOSTGATOR_TOKEN_<account>` + `HOSTGATOR_USER_<account>` auth. No new auth surface, no SFTP library dependency. Per-file POST is slower than batch SFTP for many small files; acceptable for static-site payloads. |
+| 11.R | WordPress in or out for v11.N? | **Static-only.** WP-on-HG sites (`hybridautopart.com`, `streamsgalaxy.com`) get a `skipped_wp` action with a clear note. WP-aware deploy (theme/plugin sync) is a later phase. |
+| 11.S | Third write surface — reverse or refine ADR-0003? | **Write new ADR-0011** (next available — ADR-0009 / ADR-0010 already taken; PRD's original "ADR-0009" reference was stale). Establishes remote-host writes as a separate category from ADR-0003's local-FS write scope, with its own constraints. ADR-0003 stays intact. |
+| 11.T | Atomicity — file-by-file, stage-then-rename, or maintenance mode? | **Stage-then-rename pair via cPanel Fileman/rename.** Upload to `<path>.next/` → rename current to `.prev/` → rename `.next/` to current → delete `.prev/`. Brief downtime window (ms) between renames — fine for static sites (WP excluded per 11.R). Failed upload leaves prod untouched; failed swap rolls back to `.prev/`. |
+
+### Effort and approval
+
+Read-only walker (v11.A-K) effort estimate at design time was
+≈ 16-22h total, spread across 11 granular sub-phases:
+
+| Phase | Scope | Effort |
+|---|---|---|
+| v11.A | Foundation (apikeys + dataclass) | ✅ shipped 2026-05-18 (~2h) |
+| v11.B | Vercel walker | ~2-3h |
+| v11.C | CF Pages walker | ~2-3h |
+| v11.D | HostGator walker (net-new) | ~3-4h |
+| v11.E | Orchestrator + match | ~2h |
+| v11.F | Snapshot cache | ~1-2h |
+| v11.G | CLI shell + flags | ~1-2h |
+| v11.H | Renderer + error surfaces | ~2h (+CF Workers walker inserted) |
+| v11.I | `--apply-declarations` writer | ~1-2h |
+| v11.J | Dashboard + diagnose | ~2h |
+| v11.K | Docs update | ~1h |
+
+Active deploy (v11.M-N) shipped 2026-05-19 — both phases in one
+session after the 11.O-T design pass. v11.M ~30min (small dispatcher
++ shell-outs). v11.N ~3h (UAPI helpers + orchestrator + ADR-0011
++ ~35 tests). Well under the 14-20h estimate; the shell-out choice
+for cf-workers/vercel + the simple UAPI POST contract for HG kept
+scope tight.
+
+Approval: v11.A-K CLI shape + 11.K-N answers approved 2026-05-18;
+v11.A shipped same day. v11.M dispatcher answers approved
+2026-05-19, shipped same day. v11.N (11.O-T answers + ADR-0011)
+approved and shipped 2026-05-19 — tier v11 complete.
+
+## v11.N · UAPI file-upload deploy for hostgator/custom — shipped 2026-05-19
+
+Closes the v11 tier. Active half of `new deploy <domain>` for the
+`hostgator` and `custom` platforms — pushes the configured payload
+(`sites/<domain>/<[hosting].deploy_source>/`, default `dist/`) to
+the declared `public_html_path` on the cPanel host via UAPI.
+
+Adds a third deploy verb surface — gated on **ADR-0011** (new),
+which establishes remote-host writes as a separate write-surface
+category from ADR-0003's local-FS scope. ADR-0003 stays in force,
+unchanged; ADR-0011 carries its own constraints (idempotent,
+dry-run default, per-site allowlist via `[hosting]` block,
+stage-then-rename atomicity). The PRD's original gate said
+"ADR-0009" but that slot was already taken by
+`0009-makefile-forwards-to-central-builder` — ADR-0011 is the next
+free number.
+
+`HostingBlock` (lamill_toml.py) gains
+`deploy_source: str = "dist/"` — operator-configurable per site;
+serializer omits when default for round-trip determinism.
+
+UAPI helpers in `hosting.py` (multipart POST for upload, GET for
+everything else via existing `_call_hg_uapi`): `_hg_upload_file`
+(`Fileman/upload_files`), `_hg_mkdir`, `_hg_rename`,
+`_hg_delete_dir`. Orchestrator `deploy_hg_files(row, *,
+lamill_toml, token, cpanel_user, sites_root, dry_run, client)
+-> HgDeployRow` is single-row by design (ADR-0011's per-site
+allowlist).
+
+Stage-then-rename atomicity per resolution 11.T:
+
+  1. mkdir `<public_html_path>.next/`
+  2. upload every file (lazy subdir mkdirs)
+  3. rename current → `.prev/`  (benign-failure on first-time deploy)
+  4. swap `.next/` → current      ← the load-bearing rename
+  5. delete `.prev/`              (best-effort, non-fatal)
+
+On step-4 failure: rename `.prev/` back to current so prod stays up.
+
+CLI wired in `cli.py::_deploy_hostgator_v11n` (replaces the v11.M
+placeholder). Reads token via
+`apikeys.get_key("HOSTGATOR_TOKEN_<account>")`, cpanel_user via
+`apikeys.hg_user_for_account()`, matching `HostingRow` from
+`hosting_cache.latest_snapshot()` (refuses without a snapshot —
+hints to run `fleet hosting --refresh`). New `--apply` flag on
+`new deploy` flips dry-run-default → push for the hostgator/custom
+branches.
+
+`HgDeployRow.action` vocabulary mirrors `HgApplyRow`:
+`would_deploy` / `deployed` / `skipped_wp` / `skipped_no_source` /
+`skipped_no_path` / `failed`. WP-skip fires when the snapshot row's
+`wp_version` is set (resolution 11.R: static-only).
+
+Ref `ee863f2`. 40 new tests (4 lamill_toml `deploy_source` + 31
+in `test_hosting_deploy.py` + 5 CLI integration in
+`test_new_deploy_dispatch.py`).
+
+**Not yet hand-tested against the live fleet** — canonical first
+target is `iotnews.today` (the v10.E drift case once the operator
+runs `settings project set-deploy iotnews.today hostgator`).
+
+## v11.M · `new deploy` polymorphic dispatch — shipped 2026-05-19
+
+Refactors `new deploy <domain>` from CF-Pages-only (v3.C) into a
+polymorphic dispatcher that reads `lamill.toml` and routes to the
+right deploy path per platform.
+
+Dispatcher branches in `cli.py::new_deploy`:
+
+| `platform` | Path |
+|---|---|
+| `cf-pages` | Existing `CloudflarePagesDeploy` flow, extracted into private `_deploy_cf_pages_v3c()` (behavior unchanged from v3.C) |
+| `cf-workers` | `deploy_cf_workers_via_shell()` runs `pnpm run deploy` in the project dir (delegates to wrangler) |
+| `vercel` | `deploy_vercel_via_shell()` runs `vercel deploy --prod` |
+| `hostgator` / `custom` | v11.N placeholder (replaced by the real UAPI uploader in `ee863f2`) |
+| `netlify` / `github-pages` | "Not implemented yet" exit |
+| `none` | Reject with `settings project set-deploy` hint |
+| (missing `lamill.toml`) | Assume `cf-pages` (legacy default) with an explicit notice |
+
+Shell-out (not direct API) for cf-workers and vercel is deliberate:
+wrangler's assets-upload pipeline and vercel's file-hashing pipeline
+are nontrivial to replicate against raw HTTP, and the operator
+already has the canonical CLIs installed. The new helpers
+(`deploy_cf_workers_via_shell`, `deploy_vercel_via_shell` in
+`deploy.py`) take a `runner=` injection seam so tests don't fork
+real subprocesses.
+
+11.O resolved: one polymorphic verb (vs split into separate
+`new deploy` + `project push` for first-time vs recurring). The
+asymmetry — "do the deploy" means different things per platform
+(first-time interactive for CF Pages; immediate for cf-workers and
+vercel via their CLIs; staged + apply for HG) — is acceptable;
+splitting the verb would add cognitive overhead without operational
+benefit at this scale.
+
+Ref `84ca891`. 22 new tests (8 shell-helper + 14 CLI dispatcher).
 
 ## v11.K · `fleet dashboard` + `project diagnose` integrations — shipped 2026-05-19
 

@@ -88,23 +88,50 @@ contract — they are managed BY this tool, not part of its package. See
 
 ## 2. Write surfaces
 
-Per ADR-0003, `portfolio` has **two write surfaces only**. Adding a
-third needs an explicit operator decision and a new ADR.
+Two categories, governed by separate ADRs.
+
+### 2.1 Local-FS writes (ADR-0003)
+
+**Two surfaces only** into sibling `sites/<domain>/` project dirs.
+Adding a third needs an explicit operator decision and a superseding
+ADR.
 
 | Surface | Purpose | Operator gate |
 |---|---|---|
 | `new bootstrap <domain>` | Creates a new `sites/<domain>/` project dir — `git init`, scaffolds AI_AGENTS.md / docs / Makefile / public assets / `lamill.toml`, sets up the central-builder forward | Required positional arg; no implicit-create flow |
 | `project fix <domain> --apply` | Modifies an existing project dir to close conformance gaps — runs Tier 1 templated fixers, optionally Tier 2 Claude subprocess | `--apply` required (default is dry-run); `--yes` skips confirmation |
 
-Read-only commands: everything else. `new deploy`, `new suggest`,
-`fleet *`, `project check`, `project diagnose`, `settings *` —
-none write to project dirs. Snapshot files under `data/` and
-credential rotation through `settings apikeys` are not project-dir
-writes; they're tool-local state.
+Read-only against `sites/<domain>/`: everything else — `new suggest`,
+`fleet *`, `project check`, `project diagnose`, `settings *`, and
+`new deploy` (which reads the project dir but writes to
+remote hosts, never back to the local FS). Snapshot files under
+`data/` and credential rotation through `settings apikeys` are not
+project-dir writes; they're tool-local state.
 
 The two-surface constraint is *load-bearing* for trust: an operator
 can run `lamill <anything>` against an unrelated repo and know it
-won't be modified.
+won't be modified locally.
+
+### 2.2 Remote-host writes (ADR-0011 — v11.N)
+
+A separate category for writes that push bytes to an external host.
+Currently one surface; future remote write surfaces inherit
+ADR-0011's constraints.
+
+| Surface | Purpose | Operator gate |
+|---|---|---|
+| `new deploy <domain> --apply` *(hostgator / custom only)* | Uploads `sites/<domain>/<[hosting].deploy_source>/` to `[hosting].public_html_path` on the cPanel host via UAPI. Stage-then-rename atomicity (see §3 Active deploy verb). | `--apply` required (default is dry-run); per-site allowlist via `lamill.toml` `[hosting]` block; one site per invocation |
+
+ADR-0011 constraints, applied via code review (not the conformance
+catalog): idempotent payload, dry-run default, per-site allowlist,
+stage-then-rename where the platform allows it, no credentials in
+the payload.
+
+The cf-pages / cf-workers / vercel branches of `new deploy` also
+trigger remote-side state changes (CF Pages project creation, push
+to wrangler / vercel) but the bytes flow through `gh` / `pnpm` /
+`vercel` CLIs the operator already trusts — they're not portfolio's
+own write surface in the ADR-0011 sense.
 
 ## 3. Mechanisms
 
@@ -204,6 +231,74 @@ Provider error surfaces follow `prd.md` v11 Design notes — resolution 11.H:
   entirely; footer says "<Provider> skipped: token missing/invalid."
 - 5xx / rate-limit → per-row `error` field on affected domains;
   renders with `?` glyph.
+
+### Active deploy verb (v11.M-N — `new deploy <domain>`)
+
+`new deploy` is a polymorphic dispatcher in `cli.py::new_deploy` —
+reads `<sites/<domain>/lamill.toml>.deploy.platform` and routes to
+the right deploy implementation. Branches:
+
+| `platform` | Mechanism | Module |
+|---|---|---|
+| `cf-pages` | First-time setup via `CloudflarePagesDeploy` (v3.C) — interactive confirms at each step | `cli.py::_deploy_cf_pages_v3c` + `deploy.py::CloudflarePagesDeploy` |
+| `cf-workers` | Shells out to `pnpm run deploy` in `sites/<domain>/` (delegates to wrangler) | `deploy.py::deploy_cf_workers_via_shell` |
+| `vercel` | Shells out to `vercel deploy --prod` | `deploy.py::deploy_vercel_via_shell` |
+| `hostgator` / `custom` | cPanel UAPI uploader with stage-then-rename atomicity (ADR-0011) | `cli.py::_deploy_hostgator_v11n` + `hosting.py::deploy_hg_files` |
+| `netlify` / `github-pages` | Not yet implemented — exits with a clear "track in a future v11.X" message | — |
+| `none` | Rejects with a `settings project set-deploy` hint | — |
+| (missing `lamill.toml`) | Assumes `cf-pages` (legacy default) with a notice — backward-compat with pre-v10.A repos | — |
+
+The cf-workers + vercel branches delegate to the canonical CLIs
+rather than re-implementing wrangler's assets-upload pipeline or
+vercel's file-hashing pipeline against raw HTTP. Both pipelines
+have years of edge cases baked into them; replicating that surface
+in portfolio is a maintenance trap. The shell helpers take a
+`runner=` injection seam so tests don't fork real subprocesses.
+
+The HostGator / custom branch is the only one that adds a new
+remote-host write surface (ADR-0011). It runs through three layers:
+
+1. **CLI shim** (`cli.py::_deploy_hostgator_v11n`) — reads token via
+   `apikeys.get_key("HOSTGATOR_TOKEN_<account>")`, cpanel_user via
+   `apikeys.hg_user_for_account()`, latest `HostingRow` for the
+   domain via `hosting_cache.latest_snapshot()` (refuses to deploy
+   without a snapshot — hints to `fleet hosting --refresh`).
+2. **Orchestrator** (`hosting.py::deploy_hg_files`) — single-row by
+   design (ADR-0011 per-site allowlist). Walks
+   `sites/<domain>/<deploy_source>/` for the payload (where
+   `deploy_source` defaults to `"dist/"`, configurable in
+   `[hosting]`). Coordinates the stage-then-rename dance.
+3. **UAPI helpers** (`hosting.py::_hg_upload_file`, `_hg_mkdir`,
+   `_hg_rename`, `_hg_delete_dir`) — wrap the corresponding cPanel
+   Fileman endpoints. `upload_file` is a multipart POST; the others
+   are GET via the existing `_call_hg_uapi`.
+
+Stage-then-rename atomicity (per resolution 11.T):
+
+```
+1. mkdir <public_html_path>.next/
+2. upload every file from sites/<domain>/<deploy_source>/
+   (lazy mkdir of subdirs as needed)
+3. rename current → .prev/       (benign-failure on first-time deploy)
+4. swap .next/  → current        ← the load-bearing rename
+5. delete .prev/                 (best-effort, non-fatal)
+```
+
+Brief downtime window between renames 3 and 4 — acceptable for
+static sites (WP excluded per resolution 11.R). On step-4 failure,
+the orchestrator renames `.prev/` back to current so prod stays up.
+
+`HgDeployRow.action` vocabulary mirrors `HgApplyRow` from v11.J:
+`would_deploy` / `deployed` / `skipped_wp` / `skipped_no_source` /
+`skipped_no_path` / `failed`. WP-skip fires when the snapshot row's
+`wp_version` field is set — uploading a static `dist/` over a
+WordPress install would clobber it.
+
+`new deploy <hg-domain>` defaults to dry-run for the hostgator /
+custom branches (prints file count + bytes + target path).
+`--apply` is required to actually push. Other branches keep their
+existing flag semantics (cf-pages has its own per-step interactive
+confirms; cf-workers + vercel apply immediately).
 
 ### Research module (v8.E–v8.J + v12.A onward)
 
@@ -552,6 +647,11 @@ class HostingBlock:
     ftp_user: str | None = None
     ftp_port: int | None = None
     public_html_path: str | None = None
+    # v11.N — local path inside the project dir to upload from.
+    # Default `dist/` matches CF-Pages / Vite convention. Raw-PHP
+    # operators set `"."`; serializer omits when default for
+    # round-trip determinism.
+    deploy_source: str = "dist/"
 
 @dataclass
 class BackendBlock:
@@ -617,7 +717,7 @@ Format: TOML via stdlib `tomllib`. Round-trip write via `tomli-w`
 round-trip** — accepted; operator edits go through `$EDITOR`, which
 doesn't pass through the writer.
 
-#### `HostingRow` (v11.A — `src/portfolio/hosting.py`, planned)
+#### `HostingRow` (v11.A — `src/portfolio/hosting.py`)
 
 ```python
 @dataclass
@@ -641,6 +741,32 @@ class HostingRow:
     disk_used_mb: int | None = None
     wp_version: str | None = None      # `None` if not a WordPress install
     install_path: str | None = None    # absolute path on cPanel host
+```
+
+#### `HgDeployRow` (v11.N — `src/portfolio/hosting.py`)
+
+```python
+@dataclass
+class HgDeployRow:
+    """One row of the `new deploy <hg-domain>` report (single-row
+    per invocation — ADR-0011's per-site allowlist)."""
+    domain: str
+    hg_account_id: str
+    public_html_path: str | None = None
+    deploy_source: str | None = None
+    # Verb describing the deploy's intent / outcome:
+    #   would_deploy / deployed     — dry-run vs apply, happy path
+    #   skipped_wp                  — wp_version set on snapshot row
+    #   skipped_no_source           — sites/<domain>/<deploy_source>/
+    #                                 missing or empty
+    #   skipped_no_path             — lamill.toml missing
+    #                                 [hosting].public_html_path
+    #   failed                      — UAPI call failed mid-flight
+    action: str = ""
+    file_count: int = 0
+    total_bytes: int = 0
+    error: str | None = None
+    notes: str | None = None
 ```
 
 #### `ParsedVerdict` / `ParsedAudit` / reconciliation result
