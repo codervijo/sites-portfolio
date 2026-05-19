@@ -24,17 +24,99 @@ Listed reverse-chronologically (newest first).
 
 ---
 
-## v11 read-only walker cluster (v11.A-H) — shipped 2026-05-18 to 2026-05-19
+## v11 read-only walker cluster (v11.A-L) — shipped 2026-05-18 to 2026-05-19
 
 The read-only half of v11 (active hosting layer) shipped across
-2026-05-18 → 2026-05-19. Multi-provider walker — Vercel + CF Pages +
-CF Workers + HostGator — feeding `data/hosting/<date>.json` via the
-new `lamill fleet hosting` command. v11.I-N (renderer polish, write
-surfaces, deploy verbs, docs) still planned.
+2026-05-18 → 2026-05-19 — 12 sub-phases over two days. Multi-provider
+walker (Vercel + CF Pages + CF Workers + HostGator) feeding
+`data/hosting/<date>.json` via the new `lamill fleet hosting`
+command, plus integrations into `fleet dashboard` and `project
+diagnose`, plus the `--apply-declarations` writer that closes the
+v10.F use case (HG sites without local repos / declarations).
 
-Architecture lives in `prd.md § 6 → v11 → Design notes`; the
-tier-level design block stays in prd.md until v11.N ships (then the
-whole tier moves here together).
+v11.M-N (`new deploy` polymorphic dispatch + SFTP push) still
+planned — once they ship the whole tier-level design block in
+`prd.md` will migrate here as a single v11 entry. Until then the
+tier-level design notes stay in prd.md.
+
+Real-fleet hand test on 2026-05-19 verified the cluster end-to-end:
+walker walked operator's actual Vercel + CF + HG accounts; surfaced
+several post-ship bugs that landed as small patch commits while the
+tier was still being built (`cb5f4cf` v11.C pagination,
+`42bb98b` v11.A HG auth username decoupling, `d3bae51` v11.D/E/I
+megabytes_used + same-provider conflict + install_path render).
+
+## v11.K · `fleet dashboard` + `project diagnose` integrations — shipped 2026-05-19
+
+Brings v11.A-J walker output into two existing fleet-level operator
+surfaces. Dashboard (v7.B) gains Host (🟢/🟡/🔴/—) + Prov
+(VC/CFP/CFW/HG, `+` suffix on conflict) columns plus a `host=`
+entry in the freshness footer; rollup widens to 4 dimensions.
+Diagnose (v7.F) gains a sixth `HostingLayer` (snapshot-read only —
+never re-walks); renders provider / project_slug / hg_account_id /
+status / last_ok date / failures / disk / WP per matching row;
+surfaces 🤐 conflict on multi-row drift.
+
+Both reuse v11.F's `hosting_cache.result_from_snapshot()`. New
+`_host_dot()` cascade mirrors `hosting_status_emoji` but maps to
+the dashboard's color-dot vocabulary. Hand test confirmed all three
+integration signals: `HG+` column for hybridautopart conflict,
+🤐 markers in diagnose for the same domain (showing both gator3164
+and gator4216 rows), and iotnews.today diagnose layer showing
+`provider=hostgator` despite the lamill.toml declaring `vercel`
+(visible drift case from v10.E now surfacing in diagnose too).
+Ref `afa2031`. 19 tests.
+
+## v11.J · `fleet hosting --apply-declarations` writer — shipped 2026-05-19
+
+Closes the original v10.F use case (HG cPanel integration writes
+`lamill.toml` for HG sites without a declaration) inside v11's
+unified design. Mirrors v10.C's `fleet repos --add-deploy-
+declarations` migration-sweep convention — dry-run by default,
+`--apply` writes. Scoped HG-only (CF/Vercel already inferable via
+v10.C). New `apply_hg_declarations()` data-layer function +
+`HgApplyRow` per-domain action shape (would_write / wrote /
+skipped_already / skipped_no_site_dir / skipped_archived).
+Resolution 11.N — never overwrites an existing `lamill.toml`.
+
+Real-fleet dry-run on 2026-05-19: against 10 HG-walker rows, 4 were
+`skipped_already` (existing declarations including the drift-case
+`iotnews.today`), 6 were `skipped_no_site_dir` (HG-hosted but no
+local repo: `carrepairsite.com`, `thakinaam.com`, `lamill.us`,
+`maslist.com`, `virtually.co.in`, `winmacbook.com`). 0 would-write
+— current fleet is in equilibrium. Two of the surfaced no-repo
+sites (`virtually.co.in`, `winmacbook.com`) operator decided to
+delete from HG entirely after seeing them in the dry-run. Ref
+`47e77f4`. 15 tests.
+
+## v11.I · `fleet hosting` renderer upgrade (status emoji, footer, conditional HG-extra) — shipped 2026-05-19
+
+Renderer polish for the v11.A-H walker cluster. Closes three bugs
+surfaced during the 2026-05-19 real-fleet hand test:
+
+- Status emoji column at left of the table per resolution 11.C's
+  age cascade (✓ recent / ⚠ stale / 💤 dormant / ✗ runaway-fail /
+  🤐 conflict / — unowned). `hosting.hosting_status_emoji(row)` is
+  the public helper that the dashboard + diagnose integrations
+  in v11.K reuse.
+- Conditional `HG-extra` column — only rendered when ≥1 HG row.
+  Previously the empty column rendered for every Vercel/CF row,
+  padding the table with visual noise.
+- One-line footer summary via `hosting.hosting_footer_summary()` —
+  `N rows · M cloudflare-workers · L vercel · K cloudflare-pages
+  · J hostgator (X skipped, Y conflicts)`. Zero counts surface
+  for diagnostic visibility.
+- `--provider X` zero-rows distinguishes (a) walker returned
+  nothing vs (b) filter dropped everything — the latter shows the
+  pre-filter breakdown. Operator-visible improvement after the
+  hand test where `--provider=cloudflare-pages` showed only "No
+  hosting rows" despite the walker returning 11 rows under other
+  providers.
+
+Public helpers `hosting_status_emoji` / `hosting_provider_counts`
+/ `hosting_footer_summary` reusable by the v11.K dashboard +
+diagnose integrations + any future renderers. Ref `44fe8dc`. 28
+tests (20 emoji/footer unit + 8 CLI integration).
 
 ## v11.H · CF Workers walker — shipped 2026-05-19
 
@@ -90,20 +172,40 @@ the run. `_flag_provider_conflicts` post-pass sets
 `provider_conflict=True` on every row whose domain matches under
 ≥2 distinct providers (resolution 11.F). Ref `cb62027`. 15 tests.
 
-## v11.D · HostGator walker (cPanel UAPI) — shipped 2026-05-18
+## v11.D · HostGator walker (cPanel UAPI) — shipped 2026-05-18 *(+post-ship fixes 2026-05-19)*
 
-`walk_hostgator(token, account_id, fleet_domains, *, only_domain)`.
-cPanel UAPI calls: `DomainInfo/list_domains` (main + addon + parked
-+ sub with `documentroot` extraction), `Quota/get_quota_info`
-(account-level `disk_used_mb`), `WordPressManager/list_installations`
-(`wp_version` + `install_path`, 404-tolerant — WPM plugin isn't on
-every cPanel). Custom `cpanel <user>:<token>` auth scheme. Closes
-the v10.F use case. Ref `7158868`. 16 tests.
+`walk_hostgator(token, account_id, fleet_domains, *, only_domain,
+cpanel_user)`. cPanel UAPI calls: `DomainInfo/list_domains` (main +
+addon + parked + sub with `documentroot` extraction),
+`Quota/get_quota_info` (account-level `disk_used_mb`),
+`WordPressManager/list_installations` (`wp_version` + `install_path`,
+404-tolerant — WPM plugin isn't on every cPanel). Custom
+`cpanel <user>:<token>` auth scheme. Closes the v10.F use case.
+Ref `7158868`. 16 tests + 1 added in post-ship fix.
 
-(Note: hand test on 2026-05-19 surfaced a 403 on `DomainInfo/list_domains`
-for both operator HG accounts — token-scope / IP-whitelist / wrong-
-username unresolved. Diagnostic curl pending operator side. Not a
-v11.D walker bug; logged in `docs/bugs.md` for later pickup.)
+**Post-ship fixes (real-fleet hand test 2026-05-19):**
+
+- `42bb98b` v11.A patch — Decoupled cPanel username from server
+  hostname. Original 11.L resolution assumed username==server-
+  hostname (true for unmanaged HG shared hosting where
+  `HOSTGATOR_TOKEN_GATOR3164` implies cPanel user `gator3164`).
+  Operator's account 403'd because their cPanel `Current User:
+  foundervijo` differs from the server slug. Added paired
+  `HOSTGATOR_USER_<account>` env vars to `apikeys.KNOWN_KEYS` +
+  `apikeys.hg_user_for_account()` helper. Walker takes a
+  `cpanel_user=` kwarg; falls back to `account_id` when None for
+  back-compat with shared-hosting setups.
+
+- `d3bae51` v11.D/E/I patch — Three real-fleet bugs:
+  (a) `disk_used_mb` empty because cPanel returns `megabytes_used`,
+  not the `disk_used` key I'd guessed; walker now reads both with
+  preference for the real-API key.
+  (b) `_flag_provider_conflicts` extended to flag any domain with
+  ≥2 rows (not just cross-PROVIDER ones) — catches the operator's
+  hybridautopart.com appearing as an addon on BOTH gator3164 AND
+  gator4216.
+  (c) Renderer adds `install_path` to the HG-extra cell when set
+  (truncates to last 30 chars on long paths).
 
 ## v11.C · Cloudflare Pages walker — shipped 2026-05-18 *(post-ship fix: single-shot pagination 2026-05-19, ref cb5f4cf)*
 
