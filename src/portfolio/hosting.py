@@ -1701,3 +1701,354 @@ def apply_hg_declarations(
         out.append(apply_row)
 
     return out
+
+
+# ---- v11.N HostGator UAPI deploy ----------------------------------
+#
+# Adds a third deploy verb surface (per ADR-0011 — remote-host writes
+# are a separate category from ADR-0003's local-FS write scope).
+#
+# Auth: reuses v11.D's `HOSTGATOR_TOKEN_<account>` +
+# `HOSTGATOR_USER_<account>`.
+#
+# Atomicity: stage-then-rename via cPanel Fileman/rename (per
+# resolution 11.T). Upload → `<public_html_path>.next/`; rename
+# current to `.prev/`; rename `.next/` to current; delete `.prev/`.
+# All four rename ops live in the same parent dir so cPanel handles
+# them as cheap mv operations. Brief downtime window (ms) between
+# the two renames; acceptable for static sites. WP excluded per 11.R.
+
+
+@dataclass
+class HgDeployRow:
+    """One row of the `new deploy <hg-domain>` report.
+
+    `action` verbs mirror `HgApplyRow`'s migration vocabulary:
+      - `would_deploy` / `deployed` — dry-run vs apply, happy path
+      - `skipped_wp` — WordPress detected (v11.R: static-only)
+      - `skipped_no_source` — sites/<domain>/<deploy_source>/ missing or empty
+      - `skipped_no_path` — lamill.toml lacks [hosting].public_html_path
+      - `failed` — UAPI call failed mid-flight; `error` carries detail
+    """
+    domain: str
+    hg_account_id: str
+    public_html_path: str | None = None
+    deploy_source: str | None = None
+    action: str = ""
+    file_count: int = 0
+    total_bytes: int = 0
+    error: str | None = None
+    notes: str | None = None
+
+
+def _hg_upload_file(
+    client: httpx.Client,
+    token: str,
+    account_id: str,
+    cpanel_user: str,
+    *,
+    remote_dir: str,
+    local_path: "Path",
+) -> tuple[str | None, bool]:
+    """One UAPI `Fileman/upload_files` call — multipart POST.
+
+    Returns `(error_str_or_None, is_auth_error)`. cPanel UAPI accepts
+    a multipart body with the target `dir` as a regular form field and
+    each file as `file-1`, `file-2`, etc. We upload one at a time for
+    simpler error attribution.
+    """
+    url = _hg_url(account_id, "Fileman", "upload_files")
+    try:
+        with local_path.open("rb") as fh:
+            files = {
+                "file-1": (local_path.name, fh, "application/octet-stream"),
+            }
+            r = client.post(
+                url,
+                headers=_hg_headers(token, cpanel_user),
+                data={"dir": remote_dir},
+                files=files,
+            )
+    except httpx.HTTPError as e:
+        return (
+            f"upload {local_path.name} network error: {type(e).__name__}",
+            False,
+        )
+    except OSError as e:
+        return f"upload {local_path.name} read error: {e}", False
+    if r.status_code == 401:
+        return f"upload {local_path.name} http 401", True
+    if r.status_code != 200:
+        return f"upload {local_path.name} http {r.status_code}", False
+    try:
+        body = r.json()
+    except ValueError:
+        return f"upload {local_path.name} non-JSON response", False
+    if not isinstance(body, dict) or body.get("status") != 1:
+        errs = body.get("errors") if isinstance(body, dict) else None
+        first = (errs or ["status=0"])[0]
+        return f"upload {local_path.name} UAPI {first}", False
+    return None, False
+
+
+def _hg_mkdir(
+    client: httpx.Client,
+    token: str,
+    account_id: str,
+    cpanel_user: str,
+    *,
+    parent: str,
+    name: str,
+) -> tuple[str | None, bool]:
+    """Create `parent/name` on the cPanel host."""
+    _body, err, is_auth = _call_hg_uapi(
+        client, token, account_id, cpanel_user,
+        "Fileman", "mkdir",
+        params={"path": parent, "name": name},
+    )
+    return err, is_auth
+
+
+def _hg_rename(
+    client: httpx.Client,
+    token: str,
+    account_id: str,
+    cpanel_user: str,
+    *,
+    directory: str,
+    oldname: str,
+    newname: str,
+) -> tuple[str | None, bool]:
+    """Rename `directory/oldname` → `directory/newname` on the cPanel host."""
+    _body, err, is_auth = _call_hg_uapi(
+        client, token, account_id, cpanel_user,
+        "Fileman", "rename",
+        params={
+            "directory": directory,
+            "oldname": oldname,
+            "newname": newname,
+        },
+    )
+    return err, is_auth
+
+
+def _hg_delete_dir(
+    client: httpx.Client,
+    token: str,
+    account_id: str,
+    cpanel_user: str,
+    *,
+    path: str,
+) -> tuple[str | None, bool]:
+    """Remove `path` recursively via cPanel Fileman/remove_files."""
+    _body, err, is_auth = _call_hg_uapi(
+        client, token, account_id, cpanel_user,
+        "Fileman", "remove_files",
+        params={"file": path},
+    )
+    return err, is_auth
+
+
+def _walk_deploy_source(source_dir: "Path") -> list[tuple["Path", str]]:
+    """Return [(local_path, posix-relative-subpath)] for every file
+    under `source_dir`. Sorted for determinism (and friendlier dry-run
+    output)."""
+    from pathlib import Path as _Path  # noqa — local alias for typing
+
+    out: list[tuple[_Path, str]] = []
+    for p in sorted(source_dir.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(source_dir).as_posix()
+        out.append((p, rel))
+    return out
+
+
+def _fmt_bytes(n: int) -> str:
+    """Tiny human-readable byte formatter for deploy plan output."""
+    f = float(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if f < 1024:
+            return f"{int(n)} B" if unit == "B" else f"{f:.1f} {unit}"
+        f /= 1024
+    return f"{f:.1f} TB"
+
+
+def deploy_hg_files(
+    row: HostingRow,
+    *,
+    lamill_toml,
+    token: str,
+    cpanel_user: str,
+    sites_root=None,
+    dry_run: bool = True,
+    client: httpx.Client | None = None,
+) -> HgDeployRow:
+    """v11.N — upload `sites/<row.domain>/<deploy_source>/` to
+    `public_html_path` on the cPanel host via UAPI, stage-then-rename.
+
+    Single-row by design — ADR-0011 caps remote-host writes to one
+    site per invocation. A future fleet-wide variant would need an
+    ADR amendment.
+    """
+    from pathlib import Path
+
+    out = HgDeployRow(
+        domain=row.domain,
+        hg_account_id=row.hg_account_id or "",
+        public_html_path=(
+            lamill_toml.hosting.public_html_path
+            if lamill_toml.hosting else None
+        ),
+        deploy_source=(
+            lamill_toml.hosting.deploy_source if lamill_toml.hosting else None
+        ),
+    )
+
+    if row.provider != PROVIDER_HOSTGATOR:
+        out.action = "failed"
+        out.error = (
+            f"row.provider={row.provider!r}; deploy_hg_files only "
+            f"handles {PROVIDER_HOSTGATOR}"
+        )
+        return out
+
+    if row.wp_version:
+        out.action = "skipped_wp"
+        out.notes = (
+            f"WordPress detected (v{row.wp_version}) — deploy not "
+            "supported in v11.N (static-only, per resolution 11.R)"
+        )
+        return out
+
+    if (
+        lamill_toml.hosting is None
+        or not lamill_toml.hosting.public_html_path
+    ):
+        out.action = "skipped_no_path"
+        out.notes = "lamill.toml missing [hosting].public_html_path"
+        return out
+
+    if sites_root is None:
+        from .fleet_repos import SITES_ROOT
+        sites_root = SITES_ROOT
+    sites_root = Path(sites_root)
+    deploy_source = lamill_toml.hosting.deploy_source or "dist/"
+    source_dir = sites_root / row.domain / deploy_source
+    if not source_dir.is_dir():
+        out.action = "skipped_no_source"
+        out.notes = (
+            f"deploy_source path missing: {source_dir} "
+            "(run the build, or fix [hosting].deploy_source)"
+        )
+        return out
+
+    files = _walk_deploy_source(source_dir)
+    out.file_count = len(files)
+    out.total_bytes = sum(p.stat().st_size for p, _ in files)
+    if out.file_count == 0:
+        out.action = "skipped_no_source"
+        out.notes = f"{source_dir} contains no files"
+        return out
+
+    target = out.public_html_path or ""
+    parent, _, leaf = target.rpartition("/")
+    next_name = f"{leaf}.next"
+    prev_name = f"{leaf}.prev"
+    next_path = f"{parent}/{next_name}" if parent else next_name
+    prev_path = f"{parent}/{prev_name}" if parent else prev_name
+
+    if dry_run:
+        out.action = "would_deploy"
+        out.notes = (
+            f"would upload {out.file_count} files "
+            f"({_fmt_bytes(out.total_bytes)}) to {next_path}, "
+            f"then rename current → .prev → swap .next → current → "
+            f"delete .prev"
+        )
+        return out
+
+    own_client = client is None
+    if own_client:
+        client = httpx.Client(timeout=HG_HTTP_TIMEOUT)
+    try:
+        # 1. stage dir
+        err, _ = _hg_mkdir(
+            client, token, row.hg_account_id or "", cpanel_user,
+            parent=parent, name=next_name,
+        )
+        if err is not None and "exists" not in err.lower():
+            out.action = "failed"
+            out.error = f"mkdir {next_path}: {err}"
+            return out
+
+        # 2. upload files (mkdir subdirs lazily)
+        seen_subdirs: set[str] = set()
+        for local_path, rel in files:
+            sub_parent, _, _fname = rel.rpartition("/")
+            if sub_parent and sub_parent not in seen_subdirs:
+                cur = next_path
+                for piece in sub_parent.split("/"):
+                    err, _ = _hg_mkdir(
+                        client, token, row.hg_account_id or "", cpanel_user,
+                        parent=cur, name=piece,
+                    )
+                    if err is not None and "exists" not in err.lower():
+                        out.action = "failed"
+                        out.error = f"mkdir {cur}/{piece}: {err}"
+                        return out
+                    cur = f"{cur}/{piece}"
+                seen_subdirs.add(sub_parent)
+            remote_dir = (
+                f"{next_path}/{sub_parent}" if sub_parent else next_path
+            )
+            err, _ = _hg_upload_file(
+                client, token, row.hg_account_id or "", cpanel_user,
+                remote_dir=remote_dir, local_path=local_path,
+            )
+            if err is not None:
+                out.action = "failed"
+                out.error = f"upload {rel}: {err}"
+                return out
+
+        # 3. rename current → .prev (only if a current dir exists;
+        # first-time deploys won't have one — rename failure here
+        # means "nothing to back up" and is benign).
+        rename_err, _ = _hg_rename(
+            client, token, row.hg_account_id or "", cpanel_user,
+            directory=parent, oldname=leaf, newname=prev_name,
+        )
+        had_prev = rename_err is None
+
+        # 4. swap .next → current (the load-bearing rename)
+        err, _ = _hg_rename(
+            client, token, row.hg_account_id or "", cpanel_user,
+            directory=parent, oldname=next_name, newname=leaf,
+        )
+        if err is not None:
+            out.action = "failed"
+            out.error = f"swap {next_path} → {target}: {err}"
+            # Roll back: rename .prev back to current so prod stays up.
+            if had_prev:
+                _hg_rename(
+                    client, token, row.hg_account_id or "", cpanel_user,
+                    directory=parent, oldname=prev_name, newname=leaf,
+                )
+            return out
+
+        # 5. delete .prev (best-effort; non-fatal on failure)
+        if had_prev:
+            _hg_delete_dir(
+                client, token, row.hg_account_id or "", cpanel_user,
+                path=prev_path,
+            )
+
+        out.action = "deployed"
+        out.notes = (
+            f"uploaded {out.file_count} files "
+            f"({_fmt_bytes(out.total_bytes)}) → {target}"
+        )
+        return out
+    finally:
+        if own_client:
+            client.close()

@@ -23,6 +23,7 @@ trade-offs were, and what the consequences are.
 | 0008 | `pnpm`-only for `sites/*`                          | Accepted    | —         |
 | 0009 | Makefile forwards to central builder               | Accepted    | —         |
 | 0010 | Three-canonical-doc model + heading hygiene        | Accepted    | —         |
+| 0011 | Remote-host writes as a separate write-surface category | Accepted | —         |
 
 ## When to write an ADR
 

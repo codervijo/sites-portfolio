@@ -24,7 +24,7 @@ External snapshot for planning / orientation. Operational detail follows in late
   5. *Project bootstrap* — `new bootstrap <domain>`: scaffolds a new `sites/<domain>/` project at full conformance (Astro/Vite stack via central builder, SEO pack, deploy-target abstraction, CF Pages default). `new deploy` creates the GitHub repo + CF Pages project.
 
 **Architecture.**
-  - Two write surfaces only: `new bootstrap` (creates project dirs) and `project fix` (remediates existing ones). Everything else is read-only.
+  - Two local-FS write surfaces only (ADR-0003): `new bootstrap` (creates project dirs) and `project fix` (remediates existing ones). Remote-host writes (v11.N `new deploy` for `hostgator`/`custom` via cPanel UAPI) are a separate category under ADR-0011 — same dry-run-default safety posture. Everything else is read-only.
   - Scope-first CLI namespaces (post-v7.A): `project` / `fleet` / `new` / `settings`.
   - Check catalog is file-per-check, auto-discovered.
   - Atomic env-file IO for credentials; HTTP connectivity probes built in.

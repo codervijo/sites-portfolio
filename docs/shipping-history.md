@@ -24,20 +24,36 @@ Listed reverse-chronologically (newest first).
 
 ---
 
-## v11 read-only walker cluster (v11.A-L) — shipped 2026-05-18 to 2026-05-19
+## v11 — active hosting layer (v11.A-N) — shipped 2026-05-18 to 2026-05-19
 
-The read-only half of v11 (active hosting layer) shipped across
-2026-05-18 → 2026-05-19 — 12 sub-phases over two days. Multi-provider
-walker (Vercel + CF Pages + CF Workers + HostGator) feeding
-`data/hosting/<date>.json` via the new `lamill fleet hosting`
-command, plus integrations into `fleet dashboard` and `project
-diagnose`, plus the `--apply-declarations` writer that closes the
-v10.F use case (HG sites without local repos / declarations).
+The full v11 tier shipped across 2026-05-18 → 2026-05-19 — 14
+sub-phases over two days. Two halves:
 
-v11.M-N (`new deploy` polymorphic dispatch + SFTP push) still
-planned — once they ship the whole tier-level design block in
-`prd.md` will migrate here as a single v11 entry. Until then the
-tier-level design notes stay in prd.md.
+  * **Read-only walker (v11.A-L).** Multi-provider walker (Vercel +
+    CF Pages + CF Workers + HostGator) feeding
+    `data/hosting/<date>.json` via the new `lamill fleet hosting`
+    command, plus integrations into `fleet dashboard` and `project
+    diagnose`, plus the `--apply-declarations` writer that closes
+    the v10.F use case (HG sites without local repos / declarations).
+
+  * **Active deploy verb (v11.M-N).** `new deploy <domain>` becomes
+    polymorphic — reads `lamill.toml` and dispatches by platform.
+    `cf-pages` reuses the v3.C `CloudflarePagesDeploy` first-time
+    flow. `cf-workers` and `vercel` shell out to the canonical CLIs
+    (`pnpm run deploy` / `vercel deploy --prod`) rather than
+    re-implementing wrangler's asset pipeline or vercel's
+    file-hashing pipeline against raw HTTP. `hostgator` / `custom`
+    push to the cPanel host via UAPI `Fileman/upload_files` +
+    `Fileman/rename` with stage-then-rename atomicity (upload to
+    `<path>.next/` → rename current to `.prev/` → swap `.next/` to
+    current → delete `.prev/`); dry-run default, `--apply` required.
+    Adds a third deploy verb surface; ADR-0011 establishes
+    remote-host writes as a separate category from ADR-0003's
+    local-FS write scope.
+
+The full tier-level design block from `prd.md` will migrate here
+as part of a follow-up doc-sync phase (currently inline in prd.md
+under `### v11 — active hosting layer`).
 
 Real-fleet hand test on 2026-05-19 verified the cluster end-to-end:
 walker walked operator's actual Vercel + CF + HG accounts; surfaced

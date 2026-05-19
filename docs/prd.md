@@ -307,20 +307,22 @@ Tier-level design notes moved to `docs/shipping-history.md`. See
 | v10.F | ✅ *(absorbed by v11.A-L 2026-05-18)* | HostGator cPanel integration — folded into v11's unified hosting walker cluster (Vercel + CF Pages + CF Workers + HostGator). One `fleet hosting` command replaces two (`fleet hosting` + `fleet hostgator`); single rollup table; operator no longer has to remember which command surfaces which provider. HG-specific walker work lives in v11.D. See v11 below. |
 | v10.G | ✅ *(absorbed by v11.M-N 2026-05-18)* | SFTP deploy abstraction — split into v11.M (`new deploy` polymorphic dispatch for CF/Vercel/Workers) + v11.N (SFTP push for `hostgator`/`custom`). Different risk profiles: M reuses v3.C; N adds a third write surface and needs ADR-0009. See v11 below. |
 
-### v11 — active hosting layer *(renumbered 2026-05-17, was v10; scope expanded 2026-05-18 to absorb v10.F + v10.G; sub-phases re-split 2026-05-19; v11.A-H read-only walker cluster ✅ shipped 2026-05-18 → 2026-05-19)*
+### v11 — active hosting layer *(renumbered 2026-05-17, was v10; scope expanded 2026-05-18 to absorb v10.F + v10.G; sub-phases re-split 2026-05-19; v11.A-N ✅ shipped 2026-05-18 → 2026-05-19; tier complete)*
 
 The hosting cluster — read-only inventory across every provider in
 the fleet, plus the active deploy verb that operates against those
-providers. **v11.A-H ✅ shipped** — the walker cluster is live:
-`lamill fleet hosting` queries Vercel + Cloudflare Pages + Cloudflare
+providers. **All 14 sub-phases shipped** over two days. The walker
+cluster (v11.A-L) walks Vercel + Cloudflare Pages + Cloudflare
 Workers + HostGator UAPI in parallel and writes
-`data/hosting/<date>.json` snapshots. **v11.I-L** finish the
-read-only half (renderer polish, `--apply-declarations` writer,
-dashboard/diagnose integration, docs). **v11.M-N** cover the active
-deploy verb half (polymorphic `new deploy` + SFTP push for HG/custom).
-**See `docs/architecture.md § 3 Mechanisms / § 4 Schemas / § 9 Active
-implementation plans / § 10 Risks` for the technical design;
-per-phase shipping rationale in `docs/shipping-history.md § v11.A-H`.**
+`data/hosting/<date>.json` snapshots. The deploy half (v11.M-N)
+adds polymorphic `new deploy` that dispatches by `lamill.toml`
+platform — `cf-pages` reuses v3.C; `cf-workers` shells out to
+`pnpm run deploy`; `vercel` shells out to `vercel deploy --prod`;
+`hostgator` / `custom` upload via cPanel UAPI with stage-then-rename
+atomicity (ADR-0011). **See `docs/architecture.md § 3 Mechanisms /
+§ 4 Schemas / § 9 Active implementation plans / § 10 Risks` for the
+technical design; per-phase shipping rationale in
+`docs/shipping-history.md § v11.A-H`.**
 
 Real-fleet hand test 2026-05-19 verified the cluster end-to-end:
 walked operator's actual Vercel + CF accounts; surfaced two
@@ -352,7 +354,7 @@ stay correctly labeled `v11.A` and roll up as the foundation phase.
 | v11.K | ✅ *(renumbered 2026-05-19 — was v11.J)* | `fleet dashboard` + `project diagnose` integration. Dashboard gains Host (🟢/🟡/🔴/—) + Prov (VC/CFP/CFW/HG, `+` suffix on conflict) columns plus a `host=` entry in the freshness footer; rollup widens to 4 dimensions. Diagnose gains a sixth `HostingLayer` (snapshot-read only — never re-walks); renders provider / project_slug / hg_account_id / status / last_ok date / failures / disk / WP per matching row; surfaces 🤐 conflict on multi-row drift. Both reuse v11.F's `hosting_cache.result_from_snapshot()`. New `_host_dot()` cascade mirrors `hosting_status_emoji` but maps to the dashboard's 🟢/🟡/🔴/— vocabulary. 19 tests. |
 | v11.L | ✅ *(renumbered 2026-05-19 — was v11.K)* | Docs sync closing the v11.A-K read-only walker cluster. Per-phase entries for v11.I (renderer upgrade), v11.J (`--apply-declarations` writer), v11.K (dashboard + diagnose integrations) added to `shipping-history.md`. v11.D entry expanded with post-ship-fix notes (`42bb98b` HG auth username decoupling + `d3bae51` megabytes_used / conflict-detection / install_path). v11 tier-level design notes stay in `prd.md` until v11.M-N (deploy verb) ships — partial migration would split tier context awkwardly. Operator hand-test verified all integrations 2026-05-19 (dashboard `HG+` conflict flag, diagnose `🤐 conflict` rows for hybridautopart, diagnose `provider=hostgator` for declared-vercel iotnews.today). |
 | v11.M | ✅ | `new deploy` polymorphic dispatch — reads `lamill.toml`, dispatches `cf-pages` → existing v3.C `CloudflarePagesDeploy` (extracted into private `_deploy_cf_pages_v3c()`); `cf-workers` → `deploy_cf_workers_via_shell()` which runs `pnpm run deploy` in the project dir (delegates to wrangler — replicating the assets-upload pipeline against raw HTTP is non-trivial maintenance burden); `vercel` → `deploy_vercel_via_shell()` which runs `vercel deploy --prod`; `hostgator` / `custom` → v11.N placeholder (until that ships); `netlify` / `github-pages` → "not implemented yet" with a clear hint; `none` → reject with `set-deploy` hint; missing `lamill.toml` → assumes `cf-pages` (legacy default) with a notice. `--dry-run` propagates to every branch. Shell helpers use a `runner=` injection seam for tests (no real subprocesses). 22 new tests (8 shell-helper + 14 CLI dispatcher). |
-| v11.N | ⏳ *(renumbered 2026-05-19 — was v11.M)* | UAPI file-upload deploy for `hostgator` / `custom` — adds `deploy_source` to `[hosting]` (default `dist/`); new `hosting.py` helpers `_hg_upload_file` / `_hg_rename` / `_hg_delete_dir` via existing `_call_hg_uapi`; orchestrator `deploy_hg_files(rows, *, dry_run, sites_root, plan)` mirroring `apply_hg_declarations` shape; stage-then-rename atomicity via cPanel Fileman/rename (upload → `public_html_path.next/` → rename current to `.prev/` → rename `.next/` to current → delete `.prev/`); WP-skip footer per resolution 11.R; dry-run default, `--apply` required. Adds the third deploy verb surface; gated on **ADR-0011** (PRD originally said ADR-0009 but that slot is taken — corrected). Per resolutions 11.P-T below. |
+| v11.N | ✅ | UAPI file-upload deploy for `hostgator` / `custom`. Adds `deploy_source: str = "dist/"` to `HostingBlock` in `lamill_toml.py` (operator-configurable per site). New `hosting.py` helpers — `_hg_upload_file` (multipart POST to `Fileman/upload_files`), `_hg_mkdir`, `_hg_rename`, `_hg_delete_dir` (all via existing `_call_hg_uapi` for GETs). Orchestrator `deploy_hg_files(row, *, lamill_toml, token, cpanel_user, sites_root, dry_run, client) -> HgDeployRow` is single-row by design (ADR-0011's per-site allowlist). Stage-then-rename atomicity: mkdir `<path>.next/` → upload all files (lazy subdir mkdirs) → rename current to `.prev/` → rename `.next/` to current → delete `.prev/`. Rollback on swap failure: rename `.prev/` back to current so prod stays up. Action vocabulary mirrors `HgApplyRow`: `would_deploy` / `deployed` / `skipped_wp` / `skipped_no_source` / `skipped_no_path` / `failed`. WP-skip when `wp_version` set on the snapshot row (resolution 11.R). CLI wired in `cli.py::_deploy_hostgator_v11n` — reads token via `apikeys.get_key("HOSTGATOR_TOKEN_<account>")`, cpanel_user via `apikeys.hg_user_for_account`, snapshot via `hosting_cache.latest_snapshot()`; new `--apply` flag flips dry-run-default → push. Third deploy verb surface; gated on **ADR-0011** (PRD originally referenced ADR-0009 but that slot was already taken; ADR-0011 establishes remote-host writes as a separate category from ADR-0003's local-FS scope). 35 new tests (4 lamill_toml `deploy_source` + 31 `test_hosting_deploy.py` + ~6 CLI integration in `test_new_deploy_dispatch.py`). |
 
 #### Design notes
 
@@ -508,14 +510,17 @@ spread across 11 phases instead of one chunky v11.A:
 | v11.J | Dashboard + diagnose | ~2h |
 | v11.K | Docs update | ~1h |
 
-Active deploy (v11.M-N) ≈ 14-20h once 11.O-T are answered. v11.M
-shipped 2026-05-19 (~4h, well under estimate — shell-out choice for
-cf-workers/vercel kept scope tight). v11.N still pending.
+Active deploy (v11.M-N) shipped 2026-05-19 — both phases in one
+session after the 11.O-T design pass. v11.M ~30min (small dispatcher
++ shell-outs). v11.N ~3h (UAPI helpers + orchestrator + ADR-0011
++ ~35 tests). Well under the 14-20h estimate; the shell-out choice
+for cf-workers/vercel + the simple UAPI POST contract for HG kept
+scope tight.
 
-**Approval.** v11.A-K CLI shape + 11.K-N answers approved 2026-05-18 —
-code may proceed; v11.A shipped same day. v11.M dispatcher answers
-approved 2026-05-19, shipped same day. v11.N gates remain on
-11.P-T resolutions above (now answered) plus ADR-0011 land.
+**Approval.** v11.A-K CLI shape + 11.K-N answers approved 2026-05-18;
+v11.A shipped same day. v11.M dispatcher answers approved 2026-05-19,
+shipped same day. v11.N (11.O-T answers + ADR-0011) approved and
+shipped 2026-05-19 — tier v11 complete.
 
 ### v12 — adversarial audit pass + reconciliation *(new 2026-05-17 PM)*
 

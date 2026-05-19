@@ -4677,6 +4677,7 @@ def new_deploy(
     skip_verify: bool = typer.Option(False, "--skip-verify", help="Skip the local-config sanity check (cf-pages only)"),
     skip_repo: bool = typer.Option(False, "--skip-repo", help="Skip GitHub repo creation (cf-pages only)"),
     skip_pages: bool = typer.Option(False, "--skip-pages", help="Skip Cloudflare Pages project creation (cf-pages only)"),
+    apply: bool = typer.Option(False, "--apply", help="Required to actually push files for hostgator/custom (dry-run default per ADR-0011)."),
 ) -> None:
     """Deploy a sites/<domain>/ project. Dispatches by lamill.toml platform (v11.M)."""
     from .data import ROOT as DATA_ROOT
@@ -4732,7 +4733,12 @@ def new_deploy(
         return
 
     if platform in ("hostgator", "custom"):
-        _deploy_hostgator_placeholder(domain=domain, platform=platform)
+        _deploy_hostgator_v11n(
+            domain=domain,
+            project_dir=project_dir,
+            lamill_toml=decl,
+            apply=apply,
+        )
         return
 
     # netlify / github-pages — declared in PLATFORM_VALUES but not yet
@@ -4880,15 +4886,124 @@ def _deploy_vercel(*, domain: str, project_dir, dry_run: bool) -> None:
     raise typer.Exit(6)
 
 
-def _deploy_hostgator_placeholder(*, domain: str, platform: str) -> None:
-    """v11.M placeholder: hostgator/custom routes here until v11.N lands."""
-    console.print(
-        f"[yellow]platform={platform!r} for {domain} routes through v11.N "
-        "(UAPI file-upload deploy), which isn't shipped yet.[/]\n"
-        "[dim]Coming in v11.N — for now, deploy manually via cPanel File "
-        "Manager or your usual SFTP client.[/]"
+def _deploy_hostgator_v11n(
+    *,
+    domain: str,
+    project_dir,
+    lamill_toml,
+    apply: bool,
+) -> None:
+    """v11.N — UAPI file upload for hostgator/custom. Stage-then-rename
+    via cPanel Fileman (see ADR-0011)."""
+    from . import apikeys, hosting, hosting_cache
+
+    account_id = (
+        (lamill_toml.deploy.account or "").strip().lower()
+        if lamill_toml.deploy.account else ""
     )
-    raise typer.Exit(2)
+    if not account_id:
+        console.print(
+            f"[red]lamill.toml deploy.account is empty for {domain}.[/]"
+        )
+        console.print(
+            "[dim]Add an `account = \"<hg-account-id>\"` line under "
+            "the deploy section (e.g. gator3164) and re-run.[/]"
+        )
+        raise typer.Exit(2)
+
+    token = apikeys.get_key(f"HOSTGATOR_TOKEN_{account_id.upper()}") or ""
+    if not token:
+        console.print(
+            f"[red]Missing HOSTGATOR_TOKEN_{account_id.upper()} in "
+            f"portfolio.env.[/]\n"
+            f"[dim]Run `lamill settings apikeys set "
+            f"HOSTGATOR_TOKEN_{account_id.upper()} <token>` and try again.[/]"
+        )
+        raise typer.Exit(2)
+    cpanel_user = apikeys.hg_user_for_account(account_id)
+
+    snapshot_path = hosting_cache.latest_snapshot()
+    if snapshot_path is None:
+        console.print(
+            "[red]No hosting snapshot found in data/hosting/.[/]\n"
+            "[dim]Run `lamill fleet hosting --refresh` first so v11.N "
+            "can read wp_version + hg_account_id metadata before pushing.[/]"
+        )
+        raise typer.Exit(2)
+    result = hosting_cache.result_from_snapshot(
+        hosting_cache.load_snapshot(snapshot_path)
+    )
+    matching = [
+        r for r in result.rows
+        if r.domain == domain
+        and r.provider == hosting.PROVIDER_HOSTGATOR
+        and (r.hg_account_id or "").lower() == account_id
+    ]
+    if not matching:
+        console.print(
+            f"[red]Domain {domain} not found as a hostgator row on "
+            f"account {account_id} in the latest snapshot.[/]\n"
+            f"[dim]Snapshot: {snapshot_path}. Run `lamill fleet hosting "
+            "--refresh` to rebuild.[/]"
+        )
+        raise typer.Exit(2)
+    row = matching[0]
+
+    dry_run = not apply
+    console.print(
+        f"[bold]Deploy[/] [cyan]{domain}[/]  "
+        f"[dim](platform={lamill_toml.deploy.platform} · cPanel UAPI · "
+        f"{'DRY-RUN' if dry_run else 'APPLY'})[/]"
+    )
+    console.print(f"  project dir:    {project_dir}")
+    console.print(
+        f"  deploy_source:  "
+        f"{lamill_toml.hosting.deploy_source if lamill_toml.hosting else '(none)'}"
+    )
+    console.print(
+        f"  public_html:    "
+        f"{lamill_toml.hosting.public_html_path if lamill_toml.hosting else '(none)'}"
+    )
+    console.print(f"  account:        {account_id}  (user={cpanel_user})")
+
+    dr = hosting.deploy_hg_files(
+        row,
+        lamill_toml=lamill_toml,
+        token=token,
+        cpanel_user=cpanel_user,
+        dry_run=dry_run,
+    )
+
+    console.print()
+    if dr.action == "would_deploy":
+        console.print(
+            f"  [yellow]↷ DRY-RUN[/]  "
+            f"{dr.file_count} files · {hosting._fmt_bytes(dr.total_bytes)}"
+        )
+        console.print(f"  [dim]{dr.notes}[/]")
+        console.print(
+            "\n[dim]Re-run with `--apply` to actually push.[/]"
+        )
+        return
+    if dr.action == "deployed":
+        console.print(
+            f"  [green]✓ Deployed[/]  "
+            f"{dr.file_count} files · {hosting._fmt_bytes(dr.total_bytes)}"
+        )
+        console.print(f"  [dim]{dr.notes}[/]")
+        return
+    if dr.action == "skipped_wp":
+        console.print(f"  [yellow]↷ Skipped (WP)[/]  {dr.notes}")
+        raise typer.Exit(0)
+    if dr.action == "skipped_no_source":
+        console.print(f"  [yellow]↷ Skipped (no source)[/]  {dr.notes}")
+        raise typer.Exit(2)
+    if dr.action == "skipped_no_path":
+        console.print(f"  [yellow]↷ Skipped (no path)[/]  {dr.notes}")
+        raise typer.Exit(2)
+    # failed
+    console.print(f"  [red]✗ Failed[/]  {dr.error or '(no detail)'}")
+    raise typer.Exit(6)
 
 
 # `project` namespace — per-project ops (check, fix, seo, diagnose, set-launched).

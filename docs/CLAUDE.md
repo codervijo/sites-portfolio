@@ -70,9 +70,12 @@ uv run portfolio new bootstrap <domain>
   - **Makefile forwards to parent** — every `sites/*` project's Makefile
     delegates to `~/work/projects/builder/`'s `Makefile` via
     `$(MAKE) -C ..` (CHECK_012). Don't duplicate build logic per-site.
-  - **Two write surfaces only**: v3 bootstrap (creates new project dirs)
-    and v6.D remediation (modifies existing project dirs to fix
-    conformance gaps). Everything else is read-only.
+  - **Two local-FS write surfaces only** (ADR-0003): v3 bootstrap
+    (creates new project dirs) and v6.D remediation (modifies
+    existing project dirs to fix conformance gaps). Everything else
+    is read-only on the local FS. **Remote-host writes** (v11.N's
+    UAPI deploy to cPanel) are a separate category governed by
+    ADR-0011 — they don't touch sibling project dirs.
   - **`portfolio` repo is excluded from `check --git`** by default
     (`[git] ignore_repos = ["portfolio"]`) — it's a Python CLI tool, not
     a website, so the SEO/stack checks would all skip and create noise.

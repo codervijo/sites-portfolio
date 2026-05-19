@@ -103,6 +103,11 @@ class HostingBlock:
     ftp_user: str | None = None
     ftp_port: int | None = None
     public_html_path: str | None = None
+    # v11.N — relative path inside the project dir to upload from.
+    # Default `dist/` matches the CF-Pages / Vite convention. Operators
+    # with raw-PHP sites set `"."`; WP child-theme sites would set
+    # `wp-content/themes/<name>/` (WP not yet supported by v11.N).
+    deploy_source: str = "dist/"
 
 
 @dataclass
@@ -261,6 +266,7 @@ def _parse_hosting(raw: dict, *, source: Path) -> HostingBlock:
     ):
         raise ParseError(f"{source}: [hosting].ftp_port must be an integer")
 
+    deploy_source = _str("deploy_source")
     return HostingBlock(
         cpanel_user=_str("cpanel_user"),
         cpanel_url=_str("cpanel_url"),
@@ -268,6 +274,7 @@ def _parse_hosting(raw: dict, *, source: Path) -> HostingBlock:
         ftp_user=_str("ftp_user"),
         ftp_port=ftp_port,
         public_html_path=_str("public_html_path"),
+        deploy_source=deploy_source if deploy_source is not None else "dist/",
     )
 
 
@@ -379,6 +386,11 @@ def _serialize_hosting(h: HostingBlock) -> dict:
         out["ftp_port"] = h.ftp_port
     if h.public_html_path is not None:
         out["public_html_path"] = h.public_html_path
+    # Only emit deploy_source if the operator changed it from the
+    # dataclass default — keeps round-trip determinism + minimal files
+    # for the common case (everyone uses `dist/`).
+    if h.deploy_source != "dist/":
+        out["deploy_source"] = h.deploy_source
     return out
 
 

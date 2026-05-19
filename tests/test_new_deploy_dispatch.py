@@ -311,27 +311,276 @@ def test_dispatch_vercel_shell_failure_exits_6(tmp_path, monkeypatch):
     assert r.exit_code == 6
 
 
-def test_dispatch_hostgator_shows_v11n_placeholder(tmp_path, monkeypatch):
+def test_dispatch_hostgator_missing_account_exits_2(tmp_path, monkeypatch):
+    """lamill.toml without [deploy].account is a misconfig — refuse
+    rather than guessing."""
     sites_root = _patch_data_root(monkeypatch, tmp_path)
     project = sites_root / "iotnews.today"
     project.mkdir()
-    _write_lamill_toml(project, platform="hostgator")
+    _write_lamill_toml(project, platform="hostgator")  # no account
     runner = CliRunner()
     r = runner.invoke(app, ["new", "deploy", "iotnews.today"])
     assert r.exit_code == 2
-    assert "v11.N" in r.output
-    assert "hostgator" in r.output.lower() or "'hostgator'" in r.output
+    assert "account is empty" in r.output
 
 
-def test_dispatch_custom_shows_v11n_placeholder(tmp_path, monkeypatch):
+def test_dispatch_hostgator_missing_token_exits_2(tmp_path, monkeypatch):
+    sites_root = _patch_data_root(monkeypatch, tmp_path)
+    project = sites_root / "iotnews.today"
+    project.mkdir()
+    # Build a fuller lamill.toml with the account field set.
+    (project / "lamill.toml").write_text('''schema = "lamill-toml-v1"
+
+[deploy]
+platform = "hostgator"
+account = "gator4216"
+production_branch = "main"
+
+[hosting]
+public_html_path = "/home4/foundervijo/public_html/iotnews.today"
+''')
+    import portfolio.apikeys as apikeys_mod
+    monkeypatch.setattr(apikeys_mod, "get_key", lambda k: None)
+    monkeypatch.setattr(
+        apikeys_mod, "hg_user_for_account", lambda a: "foundervijo"
+    )
+    runner = CliRunner()
+    r = runner.invoke(app, ["new", "deploy", "iotnews.today"])
+    assert r.exit_code == 2
+    assert "HOSTGATOR_TOKEN_GATOR4216" in r.output
+
+
+def test_dispatch_hostgator_no_snapshot_exits_2(tmp_path, monkeypatch):
+    sites_root = _patch_data_root(monkeypatch, tmp_path)
+    project = sites_root / "iotnews.today"
+    project.mkdir()
+    (project / "lamill.toml").write_text('''schema = "lamill-toml-v1"
+
+[deploy]
+platform = "hostgator"
+account = "gator4216"
+production_branch = "main"
+
+[hosting]
+public_html_path = "/home4/foundervijo/public_html/iotnews.today"
+''')
+    import portfolio.apikeys as apikeys_mod
+    import portfolio.hosting_cache as cache_mod
+    monkeypatch.setattr(
+        apikeys_mod, "get_key", lambda k: "tok" if "TOKEN" in k else None
+    )
+    monkeypatch.setattr(
+        apikeys_mod, "hg_user_for_account", lambda a: "foundervijo"
+    )
+    monkeypatch.setattr(cache_mod, "latest_snapshot", lambda: None)
+    runner = CliRunner()
+    r = runner.invoke(app, ["new", "deploy", "iotnews.today"])
+    assert r.exit_code == 2
+    assert "No hosting snapshot" in r.output
+
+
+def test_dispatch_hostgator_dry_run_calls_deploy_hg_files(
+    tmp_path, monkeypatch
+):
+    sites_root = _patch_data_root(monkeypatch, tmp_path)
+    project = sites_root / "iotnews.today"
+    project.mkdir()
+    (project / "lamill.toml").write_text('''schema = "lamill-toml-v1"
+
+[deploy]
+platform = "hostgator"
+account = "gator4216"
+production_branch = "main"
+
+[hosting]
+public_html_path = "/home4/foundervijo/public_html/iotnews.today"
+''')
+    import portfolio.apikeys as apikeys_mod
+    import portfolio.hosting as hosting_mod
+    import portfolio.hosting_cache as cache_mod
+
+    monkeypatch.setattr(
+        apikeys_mod, "get_key",
+        lambda k: "tok" if "TOKEN" in k else None,
+    )
+    monkeypatch.setattr(
+        apikeys_mod, "hg_user_for_account", lambda a: "foundervijo"
+    )
+
+    fake_row = hosting_mod.HostingRow(
+        domain="iotnews.today",
+        provider=hosting_mod.PROVIDER_HOSTGATOR,
+        hg_account_id="gator4216",
+        install_path="/home4/foundervijo/public_html/iotnews.today",
+    )
+    fake_result = hosting_mod.HostingResult(rows=[fake_row])
+
+    monkeypatch.setattr(
+        cache_mod, "latest_snapshot",
+        lambda: tmp_path / "fake-snapshot.json",
+    )
+    monkeypatch.setattr(cache_mod, "load_snapshot", lambda p: {})
+    monkeypatch.setattr(
+        cache_mod, "result_from_snapshot", lambda s: fake_result
+    )
+
+    seen = {}
+
+    def fake_deploy(row, *, lamill_toml, token, cpanel_user,
+                    sites_root=None, dry_run=True, client=None):
+        seen["row_domain"] = row.domain
+        seen["dry_run"] = dry_run
+        seen["token"] = token
+        seen["cpanel_user"] = cpanel_user
+        return hosting_mod.HgDeployRow(
+            domain=row.domain, hg_account_id=row.hg_account_id or "",
+            action="would_deploy", file_count=5, total_bytes=12345,
+            notes="dry-run plan",
+        )
+
+    monkeypatch.setattr(hosting_mod, "deploy_hg_files", fake_deploy)
+    runner = CliRunner()
+    r = runner.invoke(app, ["new", "deploy", "iotnews.today"])
+    assert r.exit_code == 0
+    assert seen["row_domain"] == "iotnews.today"
+    assert seen["dry_run"] is True  # default — no --apply
+    assert seen["token"] == "tok"
+    assert seen["cpanel_user"] == "foundervijo"
+    assert "DRY-RUN" in r.output
+    assert "5 files" in r.output
+
+
+def test_dispatch_hostgator_apply_flag_disables_dry_run(
+    tmp_path, monkeypatch
+):
+    sites_root = _patch_data_root(monkeypatch, tmp_path)
+    project = sites_root / "iotnews.today"
+    project.mkdir()
+    (project / "lamill.toml").write_text('''schema = "lamill-toml-v1"
+
+[deploy]
+platform = "hostgator"
+account = "gator4216"
+production_branch = "main"
+
+[hosting]
+public_html_path = "/home4/foundervijo/public_html/iotnews.today"
+''')
+    import portfolio.apikeys as apikeys_mod
+    import portfolio.hosting as hosting_mod
+    import portfolio.hosting_cache as cache_mod
+
+    monkeypatch.setattr(
+        apikeys_mod, "get_key",
+        lambda k: "tok" if "TOKEN" in k else None,
+    )
+    monkeypatch.setattr(
+        apikeys_mod, "hg_user_for_account", lambda a: "foundervijo"
+    )
+
+    fake_row = hosting_mod.HostingRow(
+        domain="iotnews.today",
+        provider=hosting_mod.PROVIDER_HOSTGATOR,
+        hg_account_id="gator4216",
+    )
+    fake_result = hosting_mod.HostingResult(rows=[fake_row])
+    monkeypatch.setattr(
+        cache_mod, "latest_snapshot",
+        lambda: tmp_path / "fake-snapshot.json",
+    )
+    monkeypatch.setattr(cache_mod, "load_snapshot", lambda p: {})
+    monkeypatch.setattr(
+        cache_mod, "result_from_snapshot", lambda s: fake_result
+    )
+
+    seen = {}
+
+    def fake_deploy(row, *, dry_run=True, **kw):
+        seen["dry_run"] = dry_run
+        return hosting_mod.HgDeployRow(
+            domain=row.domain, hg_account_id=row.hg_account_id or "",
+            action="deployed", file_count=5, total_bytes=12345,
+            notes="ok",
+        )
+
+    monkeypatch.setattr(hosting_mod, "deploy_hg_files", fake_deploy)
+    runner = CliRunner()
+    r = runner.invoke(
+        app, ["new", "deploy", "iotnews.today", "--apply"]
+    )
+    assert r.exit_code == 0
+    assert seen["dry_run"] is False
+    assert "Deployed" in r.output
+
+
+def test_dispatch_hostgator_wp_skip_exits_0(tmp_path, monkeypatch):
+    """A WP site reported by deploy_hg_files exits 0 — the skip is
+    informational, not an error."""
+    sites_root = _patch_data_root(monkeypatch, tmp_path)
+    project = sites_root / "hybridautopart.com"
+    project.mkdir()
+    (project / "lamill.toml").write_text('''schema = "lamill-toml-v1"
+
+[deploy]
+platform = "hostgator"
+account = "gator3164"
+production_branch = "main"
+
+[hosting]
+public_html_path = "/home2/foundervijo/public_html/hybridautopart.com"
+''')
+    import portfolio.apikeys as apikeys_mod
+    import portfolio.hosting as hosting_mod
+    import portfolio.hosting_cache as cache_mod
+
+    monkeypatch.setattr(
+        apikeys_mod, "get_key",
+        lambda k: "tok" if "TOKEN" in k else None,
+    )
+    monkeypatch.setattr(
+        apikeys_mod, "hg_user_for_account", lambda a: "foundervijo"
+    )
+    fake_row = hosting_mod.HostingRow(
+        domain="hybridautopart.com",
+        provider=hosting_mod.PROVIDER_HOSTGATOR,
+        hg_account_id="gator3164",
+        wp_version="6.7.1",
+    )
+    monkeypatch.setattr(
+        cache_mod, "latest_snapshot",
+        lambda: tmp_path / "fake-snapshot.json",
+    )
+    monkeypatch.setattr(cache_mod, "load_snapshot", lambda p: {})
+    monkeypatch.setattr(
+        cache_mod, "result_from_snapshot",
+        lambda s: hosting_mod.HostingResult(rows=[fake_row]),
+    )
+
+    def fake_deploy(row, **kw):
+        return hosting_mod.HgDeployRow(
+            domain=row.domain, hg_account_id=row.hg_account_id or "",
+            action="skipped_wp", notes="WordPress 6.7.1 detected",
+        )
+
+    monkeypatch.setattr(hosting_mod, "deploy_hg_files", fake_deploy)
+    runner = CliRunner()
+    r = runner.invoke(app, ["new", "deploy", "hybridautopart.com"])
+    assert r.exit_code == 0
+    assert "Skipped" in r.output
+    assert "WP" in r.output
+
+
+def test_dispatch_custom_routes_into_v11n_path(tmp_path, monkeypatch):
+    """`platform=custom` shares the v11.N UAPI path — same code,
+    same flags. Just verify routing (account check fires)."""
     sites_root = _patch_data_root(monkeypatch, tmp_path)
     project = sites_root / "self-hosted.example"
     project.mkdir()
-    _write_lamill_toml(project, platform="custom")
+    _write_lamill_toml(project, platform="custom")  # no account
     runner = CliRunner()
     r = runner.invoke(app, ["new", "deploy", "self-hosted.example"])
     assert r.exit_code == 2
-    assert "v11.N" in r.output
+    assert "account is empty" in r.output
 
 
 def test_dispatch_netlify_shows_not_implemented(tmp_path, monkeypatch):

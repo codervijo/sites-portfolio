@@ -694,3 +694,71 @@ def test_infer_jsonc_with_line_comments(tmp_path: Path):
     block = infer_from_existing_configs(tmp_path)
     assert block is not None
     assert block.platform == "cf-pages"
+
+
+# ---------- v11.N — deploy_source field ----------
+
+
+def test_hosting_block_default_deploy_source_is_dist(tmp_path: Path):
+    """When [hosting].deploy_source is absent, parser falls back to
+    the v11.N default `dist/`."""
+    _write(tmp_path, '''
+        [deploy]
+        platform = "hostgator"
+        account = "gator3164"
+
+        [hosting]
+        public_html_path = "/home/test/public_html/x.com"
+    ''')
+    t = load(tmp_path)
+    assert t is not None
+    assert t.hosting is not None
+    assert t.hosting.deploy_source == "dist/"
+
+
+def test_hosting_block_explicit_deploy_source_round_trips(tmp_path: Path):
+    """Explicit `deploy_source = "public/"` survives load → write →
+    load. Used by raw-PHP / WP-child-theme operators."""
+    payload = LamillToml(
+        deploy=DeployBlock(platform="hostgator", account="gator3164"),
+        hosting=HostingBlock(
+            public_html_path="/home/test/public_html/x.com",
+            deploy_source="public/",
+        ),
+    )
+    write(tmp_path, payload)
+    reloaded = load(tmp_path)
+    assert reloaded is not None
+    assert reloaded.hosting is not None
+    assert reloaded.hosting.deploy_source == "public/"
+
+
+def test_hosting_block_default_deploy_source_omitted_on_write(
+    tmp_path: Path,
+):
+    """If the operator uses the default `dist/`, the serializer skips
+    the field — keeps round-trip determinism + minimal files."""
+    payload = LamillToml(
+        deploy=DeployBlock(platform="hostgator", account="gator3164"),
+        hosting=HostingBlock(
+            public_html_path="/home/test/public_html/x.com",
+            # deploy_source left as default "dist/"
+        ),
+    )
+    write(tmp_path, payload)
+    on_disk = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert "deploy_source" not in on_disk
+
+
+def test_hosting_block_deploy_source_must_be_string(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "hostgator"
+        account = "gator3164"
+
+        [hosting]
+        public_html_path = "/home/test/public_html/x.com"
+        deploy_source = 42
+    ''')
+    with pytest.raises(ParseError, match="deploy_source"):
+        load(tmp_path)
