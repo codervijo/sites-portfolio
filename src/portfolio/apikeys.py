@@ -40,6 +40,15 @@ KNOWN_KEYS: tuple[str, ...] = (
     "CF_ACCOUNT_ID",
     "CRUX_API_KEY",
     "SERPAPI_KEY",   # v8.D — real-SERP fetcher for `new research`
+    "VERCEL_TOKEN",  # v11.A — Vercel provider walker for `fleet hosting`
+    # v11.A — per-account HostGator API tokens. cPanel API tokens are
+    # account-scoped; one token per HG account in the fleet. Account_id
+    # is encoded in the suffix and the cPanel host auto-derives from it
+    # (resolution 11.L) — `HOSTGATOR_TOKEN_GATOR3164` →
+    # `https://gator3164.hostgator.com:2083`, username=`gator3164`.
+    # Add more when a third HG account appears.
+    "HOSTGATOR_TOKEN_GATOR3164",
+    "HOSTGATOR_TOKEN_GATOR4216",
 )
 
 
@@ -256,6 +265,89 @@ def _probe_serpapi(key: str) -> ProbeResult:
     return ProbeResult("invalid", f"http {r.status_code}")
 
 
+def _probe_vercel(token: str) -> ProbeResult:
+    """Vercel `/v2/user` — cheapest authenticated call; confirms the
+    token is valid and returns the user/team identity.
+    """
+    if not token:
+        return ProbeResult("missing", "")
+    try:
+        r = httpx.get(
+            "https://api.vercel.com/v2/user",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+    except httpx.HTTPError as e:
+        return ProbeResult("invalid", f"{type(e).__name__}")
+    if r.status_code == 200:
+        try:
+            user = r.json().get("user", {})
+            username = user.get("username") or user.get("email") or "?"
+            return ProbeResult("valid", f"user={username}")
+        except (ValueError, KeyError):
+            return ProbeResult("valid", "200 OK")
+    if r.status_code == 401:
+        return ProbeResult("invalid", "401 unauthorized")
+    return ProbeResult("invalid", f"http {r.status_code}")
+
+
+HOSTGATOR_TOKEN_PREFIX = "HOSTGATOR_TOKEN_"
+
+
+def _hg_account_from_keyname(keyname: str) -> str | None:
+    """Extract the cPanel account_id from a `HOSTGATOR_TOKEN_<ACCOUNT_ID>`
+    env-var name. Returns None if the keyname doesn't match the
+    expected pattern.
+    """
+    if not keyname.startswith(HOSTGATOR_TOKEN_PREFIX):
+        return None
+    return keyname[len(HOSTGATOR_TOKEN_PREFIX):].lower() or None
+
+
+def _probe_hostgator(token: str, account_id: str) -> ProbeResult:
+    """HostGator cPanel UAPI — `Variables/get_user_information`.
+
+    Auth uses cPanel's custom `cpanel <user>:<token>` scheme (NOT HTTP
+    Basic). cPanel host is auto-derived from `account_id` per
+    resolution 11.L: `https://<account_id>.hostgator.com:2083`. 8s
+    timeout because cPanel is slower than CF/Vercel.
+    """
+    if not token:
+        return ProbeResult("missing", "")
+    if not account_id:
+        return ProbeResult("invalid", "missing account_id")
+    url = (
+        f"https://{account_id}.hostgator.com:2083"
+        f"/execute/Variables/get_user_information"
+    )
+    try:
+        r = httpx.get(
+            url,
+            headers={"Authorization": f"cpanel {account_id}:{token}"},
+            timeout=8.0,
+        )
+    except httpx.HTTPError as e:
+        return ProbeResult("invalid", f"{type(e).__name__}")
+    if r.status_code == 200:
+        try:
+            body = r.json()
+        except ValueError:
+            return ProbeResult("invalid", "non-JSON response")
+        # UAPI returns top-level `status` (1=success, 0=failure).
+        if body.get("status") == 1:
+            data = body.get("data") or {}
+            user = data.get("user") or account_id
+            return ProbeResult("valid", f"cPanel user={user}")
+        errors = body.get("errors") or []
+        first = errors[0] if errors else "unknown error"
+        return ProbeResult("invalid", f"UAPI status=0: {first}")
+    if r.status_code == 401:
+        return ProbeResult("invalid", "401 unauthorized")
+    if r.status_code == 403:
+        return ProbeResult("invalid", "403 forbidden (token scope?)")
+    return ProbeResult("invalid", f"http {r.status_code}")
+
+
 def probe_all() -> dict[str, ProbeResult]:
     """Run connectivity probes for every known key. Returns a dict
     keyed by KEY name. Probes run sequentially (~5-10s total).
@@ -288,5 +380,11 @@ def probe_all() -> dict[str, ProbeResult]:
         out["CF_ACCOUNT_ID"] = ProbeResult("missing", "")
 
     out["SERPAPI_KEY"] = _probe_serpapi(get_key("SERPAPI_KEY") or "")
+
+    # v11.A — Vercel + HostGator (one probe per HG account).
+    out["VERCEL_TOKEN"] = _probe_vercel(get_key("VERCEL_TOKEN") or "")
+    for hg_key in (k for k in KNOWN_KEYS if k.startswith(HOSTGATOR_TOKEN_PREFIX)):
+        account_id = _hg_account_from_keyname(hg_key) or ""
+        out[hg_key] = _probe_hostgator(get_key(hg_key) or "", account_id)
 
     return out

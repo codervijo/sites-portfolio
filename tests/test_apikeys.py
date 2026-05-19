@@ -201,6 +201,12 @@ def test_probe_all_returns_known_keys(monkeypatch, tmp_path):
                         lambda _a, _b: ProbeResult("missing", ""))
     monkeypatch.setattr(apikeys, "_probe_cf_token",
                         lambda _t: ProbeResult("missing", ""))
+    monkeypatch.setattr(apikeys, "_probe_serpapi",
+                        lambda _k: ProbeResult("missing", ""))
+    monkeypatch.setattr(apikeys, "_probe_vercel",
+                        lambda _t: ProbeResult("missing", ""))
+    monkeypatch.setattr(apikeys, "_probe_hostgator",
+                        lambda _t, _a: ProbeResult("missing", ""))
 
     out = apikeys.probe_all()
     for key in apikeys.KNOWN_KEYS:
@@ -212,7 +218,10 @@ def test_known_keys_includes_canonical_set():
     of the CLI references."""
     expected = {"OPENAI_API_KEY", "PORKBUN_API_KEY", "PORKBUN_SECRET_API_KEY",
                 "CF_API_TOKEN", "CF_ACCOUNT_ID", "CRUX_API_KEY",
-                "SERPAPI_KEY"}  # v8.D
+                "SERPAPI_KEY",                # v8.D
+                "VERCEL_TOKEN",               # v11.A
+                "HOSTGATOR_TOKEN_GATOR3164",  # v11.A
+                "HOSTGATOR_TOKEN_GATOR4216"}  # v11.A
     assert set(apikeys.KNOWN_KEYS) == expected
 
 
@@ -253,3 +262,169 @@ def test_serpapi_probe_network_error(monkeypatch):
     result = apikeys._probe_serpapi("any-key")
     assert result.status == "invalid"
     assert "ConnectError" in result.detail
+
+
+# ---------- v11.A: Vercel + HostGator probes ----------
+
+
+def test_probe_vercel_missing_when_empty():
+    assert apikeys._probe_vercel("").status == "missing"
+
+
+def test_probe_vercel_valid_returns_username(monkeypatch):
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"user": {"username": "vijo", "email": "x@y.com"}}
+    monkeypatch.setattr(apikeys.httpx, "get", lambda *a, **kw: _Resp())
+    result = apikeys._probe_vercel("vc-fake")
+    assert result.status == "valid"
+    assert "user=vijo" in result.detail
+
+
+def test_probe_vercel_invalid_on_401(monkeypatch):
+    class _Resp:
+        status_code = 401
+    monkeypatch.setattr(apikeys.httpx, "get", lambda *a, **kw: _Resp())
+    result = apikeys._probe_vercel("vc-bad")
+    assert result.status == "invalid"
+    assert "401" in result.detail
+
+
+def test_probe_vercel_network_error(monkeypatch):
+    import httpx as _httpx
+    def _raise(*a, **kw):
+        raise _httpx.ConnectError("boom")
+    monkeypatch.setattr(apikeys.httpx, "get", _raise)
+    result = apikeys._probe_vercel("vc-any")
+    assert result.status == "invalid"
+    assert "ConnectError" in result.detail
+
+
+def test_hg_account_from_keyname_parses():
+    """Account-id extraction from `HOSTGATOR_TOKEN_<ACCOUNT_ID>`."""
+    assert apikeys._hg_account_from_keyname("HOSTGATOR_TOKEN_GATOR3164") == "gator3164"
+    assert apikeys._hg_account_from_keyname("HOSTGATOR_TOKEN_GATOR4216") == "gator4216"
+    assert apikeys._hg_account_from_keyname("HOSTGATOR_TOKEN_") is None
+    assert apikeys._hg_account_from_keyname("OPENAI_API_KEY") is None
+    assert apikeys._hg_account_from_keyname("") is None
+
+
+def test_probe_hostgator_missing_when_empty_token():
+    assert apikeys._probe_hostgator("", "gator3164").status == "missing"
+
+
+def test_probe_hostgator_invalid_when_empty_account_id():
+    """Programmer-error guard — token present but account_id blank."""
+    result = apikeys._probe_hostgator("hg-fake", "")
+    assert result.status == "invalid"
+    assert "account_id" in result.detail
+
+
+def test_probe_hostgator_uses_account_derived_url(monkeypatch):
+    """Resolution 11.L — cPanel host derives from account_id, not config."""
+    captured = {}
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"status": 1, "data": {"user": "gator3164"}}
+    def _capture(url, **kw):
+        captured["url"] = url
+        captured["auth"] = kw.get("headers", {}).get("Authorization")
+        return _Resp()
+    monkeypatch.setattr(apikeys.httpx, "get", _capture)
+
+    apikeys._probe_hostgator("hg-token", "gator3164")
+    assert "gator3164.hostgator.com:2083" in captured["url"]
+    assert "Variables/get_user_information" in captured["url"]
+    # cPanel custom auth scheme — NOT HTTP Basic.
+    assert captured["auth"] == "cpanel gator3164:hg-token"
+
+
+def test_probe_hostgator_valid_on_uapi_status_1(monkeypatch):
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"status": 1, "data": {"user": "gator4216"}}
+    monkeypatch.setattr(apikeys.httpx, "get", lambda *a, **kw: _Resp())
+    result = apikeys._probe_hostgator("hg-good", "gator4216")
+    assert result.status == "valid"
+    assert "gator4216" in result.detail
+
+
+def test_probe_hostgator_invalid_on_uapi_status_0(monkeypatch):
+    """UAPI's own failure path — HTTP 200 but `status=0` in body."""
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return {"status": 0, "errors": ["Token does not exist."]}
+    monkeypatch.setattr(apikeys.httpx, "get", lambda *a, **kw: _Resp())
+    result = apikeys._probe_hostgator("hg-bad", "gator3164")
+    assert result.status == "invalid"
+    assert "Token does not exist" in result.detail
+
+
+def test_probe_hostgator_invalid_on_401(monkeypatch):
+    class _Resp:
+        status_code = 401
+    monkeypatch.setattr(apikeys.httpx, "get", lambda *a, **kw: _Resp())
+    result = apikeys._probe_hostgator("hg-revoked", "gator3164")
+    assert result.status == "invalid"
+    assert "401" in result.detail
+
+
+def test_probe_hostgator_invalid_on_403_scope(monkeypatch):
+    class _Resp:
+        status_code = 403
+    monkeypatch.setattr(apikeys.httpx, "get", lambda *a, **kw: _Resp())
+    result = apikeys._probe_hostgator("hg-noscope", "gator3164")
+    assert result.status == "invalid"
+    assert "403" in result.detail
+
+
+def test_probe_hostgator_network_error(monkeypatch):
+    import httpx as _httpx
+    def _raise(*a, **kw):
+        raise _httpx.ConnectError("boom")
+    monkeypatch.setattr(apikeys.httpx, "get", _raise)
+    result = apikeys._probe_hostgator("hg-any", "gator3164")
+    assert result.status == "invalid"
+    assert "ConnectError" in result.detail
+
+
+def test_probe_all_dispatches_to_hg_accounts(monkeypatch, tmp_path):
+    """probe_all() should call _probe_hostgator once per HG_TOKEN_* known
+    key. Verifies the loop over KNOWN_KEYS picks both gator3164 and
+    gator4216 — and would pick up a third if added later."""
+    _patch_env_path(monkeypatch, tmp_path)
+    from portfolio.apikeys import ProbeResult
+    # Stub the other probes so they don't try real network calls.
+    monkeypatch.setattr(apikeys, "_probe_openai",
+                        lambda _k: ProbeResult("missing", ""))
+    monkeypatch.setattr(apikeys, "_probe_crux",
+                        lambda _k: ProbeResult("missing", ""))
+    monkeypatch.setattr(apikeys, "_probe_porkbun",
+                        lambda _a, _b: ProbeResult("missing", ""))
+    monkeypatch.setattr(apikeys, "_probe_cf_token",
+                        lambda _t: ProbeResult("missing", ""))
+    monkeypatch.setattr(apikeys, "_probe_serpapi",
+                        lambda _k: ProbeResult("missing", ""))
+    monkeypatch.setattr(apikeys, "_probe_vercel",
+                        lambda _t: ProbeResult("missing", ""))
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        apikeys, "_probe_hostgator",
+        lambda token, account_id: (
+            calls.append((token, account_id))
+            or ProbeResult("missing", "")
+        ),
+    )
+
+    out = apikeys.probe_all()
+    assert "HOSTGATOR_TOKEN_GATOR3164" in out
+    assert "HOSTGATOR_TOKEN_GATOR4216" in out
+    # Verify the loop called _probe_hostgator with the right derived
+    # account_ids — order follows KNOWN_KEYS declaration order.
+    account_ids_called = [c[1] for c in calls]
+    assert "gator3164" in account_ids_called
+    assert "gator4216" in account_ids_called
