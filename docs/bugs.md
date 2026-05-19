@@ -351,6 +351,47 @@ with installations → option 2 (field-name mismatch, fix walker).
 
 ---
 
+### 2026-05-19 — `fleet dashboard` truncates every cell on standard terminal width
+
+**Repro**
+    lamill fleet dashboard
+    # Standard 80-col-ish terminal; output shows `hyb…`, `iot…`, `air…`
+    # for every domain.
+
+**Expected**
+Domain column wide enough to render the actual domain in the
+common-fleet-size case. Other columns either widen or accept
+narrower rendering — but domain (the row identifier) should never
+be truncated to "_xyz…_" unreadable form.
+
+**Actual**
+With 15 columns (12 original + Host + Prov added in v11.K + Site +
+Domain age), rich.Table squeezes every column to fit terminal
+width. Result: `hyb…` instead of `hybridautopart.com`.
+
+**Where (guess)**
+`src/portfolio/dashboard.py:render_dashboard` adds 13-15 columns
+with default sizing. Rich uses proportional shrinking. Options:
+
+1. Mark `Domain` as `no_wrap=True` + `min_width=25` so it gets
+   priority space.
+2. Drop the Live + Conf columns (less actionable than the dots)
+   when terminal width is < 120 columns.
+3. Default sort changes — surface most-actionable-first (already
+   sort=attention default) AND limit display to top-N by default
+   with --all to render everything.
+
+**Severity**
+minor — predates v11.K (was already truncating columns; v11.K just
+made it slightly worse by adding 2 more). Information is in the
+rendered cells, just unreadably narrow at standard width.
+
+**Notes**
+Pick up in a future v11 polish phase. Probably fold into v11.L
+docs sync if there's slack, or its own commit.
+
+---
+
 ### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
 
 **Repro**
