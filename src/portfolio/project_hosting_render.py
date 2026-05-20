@@ -85,7 +85,7 @@ def _get(obj: Any, key: str, default=None):
 
 def render_project_hosting(
     *, domain: str, rows: list, skipped: dict[str, str], source: str,
-    console,
+    console, freshness: Any = None,
 ) -> None:
     """Render the vertical-sections view for a single domain.
 
@@ -94,6 +94,10 @@ def render_project_hosting(
     provider-conflict cases (same domain under two walkers) it can be
     longer — each provider then gets its own header + deploy block,
     grouped under one 📌 Domains rollup.
+
+    `freshness` is an optional `FreshnessReport` (v15.D) — adds the
+    📋 Freshness section between Deploy and Domains. Omitted entirely
+    when None (the v15.B baseline keeps working).
     """
     console.print(f"[dim]Source: {source}[/]")
 
@@ -114,6 +118,10 @@ def render_project_hosting(
     for row in rows:
         _render_one_row(row, console)
 
+    # v15.D — Freshness section (between Deploy and Domains).
+    if freshness is not None:
+        _render_freshness_section(freshness, console)
+
     # Domains rollup at the end — collects custom_domains across
     # every matched row (with dedup) plus the canonical domain.
     _render_domains_section(domain, rows, console)
@@ -122,6 +130,72 @@ def render_project_hosting(
         console.print()
         for label, reason in sorted(skipped.items()):
             console.print(f"  [dim]{label} skipped: {reason}[/]")
+
+
+def _render_freshness_section(freshness: Any, console) -> None:
+    """v15.D — render the 📋 Freshness section. `freshness` is a
+    `FreshnessReport` (see `portfolio.version_stamp`)."""
+    head = _get(freshness, "head_sha") or "?"
+    live = _get(freshness, "live_sha") or "?"
+    verdict = _get(freshness, "verdict", "")
+    err = _get(freshness, "error_detail")
+
+    head_short = head[:12] if head and head != "?" else "?"
+    live_short = live[:12] if live and live not in ("?", "unknown") else live
+
+    console.print()
+    console.print(f"  [bold]📋 Freshness[/]")
+
+    if verdict == "in_sync":
+        console.print(f"    [dim]HEAD @[/]          {head_short}")
+        console.print(
+            f"    [dim]Live @[/]          {live_short}  "
+            f"[green]✓ in sync[/]"
+        )
+        return
+
+    if verdict == "drift":
+        console.print(f"    [dim]HEAD @[/]          {head_short}")
+        console.print(
+            f"    [dim]Live @[/]          {live_short}  "
+            f"[red]✗ drift — local HEAD ahead (or branch divergence)[/]"
+        )
+        console.print(
+            f"    [dim]Hint:[/]           push + redeploy to align"
+        )
+        return
+
+    if verdict == "head_unknown":
+        console.print(
+            f"    [yellow]·[/] local HEAD unavailable "
+            f"[dim](not a git repo or `git` missing)[/]"
+        )
+        if live and live != "?":
+            console.print(f"    [dim]Live @[/]          {live_short}")
+        return
+
+    if verdict == "live_unknown":
+        console.print(
+            f"    [yellow]·[/] live /version.json unavailable "
+            f"[dim]({err or 'unknown error'})[/]"
+        )
+        if head_short != "?":
+            console.print(f"    [dim]HEAD @[/]          {head_short}")
+        return
+
+    if verdict == "live_marker_unknown":
+        console.print(
+            f"    [yellow]·[/] live commit is the \"unknown\" fallback "
+            f"[dim](deploy ran without git context)[/]"
+        )
+        if head_short != "?":
+            console.print(f"    [dim]HEAD @[/]          {head_short}")
+        return
+
+    # Defensive — unknown verdict.
+    console.print(
+        f"    [dim]· unexpected freshness verdict: {verdict}[/]"
+    )
 
 
 def _render_one_row(row: Any, console) -> None:

@@ -6145,9 +6145,17 @@ def _project_hosting_impl(
 ) -> None:
     """Body of `project hosting`. Carved out so tests can drive it
     directly without the typer surface."""
+    from dataclasses import asdict
     from . import hosting_cache
     from .hosting import run_hosting
+    from .project import SITES_ROOT
     from .project_hosting_render import render_project_hosting
+    from .checks.seo._live import resolve_live_url
+    from .version_stamp import (
+        compare_versions,
+        fetch_version_stamp,
+        local_head_sha,
+    )
 
     fleet_domains = {d.name.lower() for d in load_domains()}
 
@@ -6177,21 +6185,33 @@ def _project_hosting_impl(
     # matching row so the renderer can flag the drift.
     matched_rows = [r for r in result.rows if r.domain.lower() == domain]
 
+    # v15.D — fetch live /version.json + compare to local HEAD to
+    # surface the 📋 Freshness section. Best-effort; renderer
+    # gracefully omits the section when freshness is None.
+    freshness = None
+    repo_path = SITES_ROOT / domain
+    if repo_path.exists() and matched_rows:
+        origin = resolve_live_url(str(repo_path))
+        if origin:
+            stamp_or_error = fetch_version_stamp(origin)
+            head = local_head_sha(str(repo_path))
+            freshness = compare_versions(head, stamp_or_error)
+
     if json_out:
         import json as _json
-        from dataclasses import asdict
         payload = {
             "domain": domain,
             "source": source,
             "rows": [asdict(r) for r in matched_rows],
             "skipped": dict(result.skipped),
+            "freshness": asdict(freshness) if freshness else None,
         }
         typer.echo(_json.dumps(payload, indent=2))
         return
 
     render_project_hosting(
         domain=domain, rows=matched_rows, skipped=result.skipped,
-        source=source, console=console,
+        source=source, console=console, freshness=freshness,
     )
 
 
@@ -6818,9 +6838,109 @@ def fleet_sync(
         False, "--refresh-rdap",
         help="Also fetch RDAP creation_date per domain (~0.5s each, ~15s for full fleet)."
     ),
+    refresh: bool = typer.Option(
+        False, "--refresh",
+        help="v15.F — pull live Porkbun domain list via API (writes data/domains/porkbun.csv) "
+             "before merging. GoDaddy/Namecheap CSVs remain manual until those registrars' "
+             "account-API setup lands.",
+    ),
+    watch: bool = typer.Option(
+        False, "--watch",
+        help="v15.F — block and re-merge whenever any data/domains/*.csv changes on disk. "
+             "Composes with --refresh (initial pull then watch). Ctrl-C to exit.",
+    ),
+    interval: float = typer.Option(
+        2.0, "--interval",
+        help="Polling interval (seconds) for --watch. Ignored without --watch.",
+    ),
 ) -> None:
-    """Rebuild data/portfolio.json from registrar CSVs. `--refresh-rdap` adds the domain-age fetch."""
+    """Rebuild data/portfolio.json from registrar CSVs.
+
+    Default: read existing CSVs and merge. `--refresh-rdap` adds the
+    domain-age fetch. `--refresh` pulls live from Porkbun first.
+    `--watch` runs continuously, re-merging on CSV change.
+    """
+    if refresh:
+        _do_porkbun_refresh()
+
     info_cleanup(refresh_rdap=refresh_rdap)
+
+    if watch:
+        _watch_domains_loop(refresh_rdap=refresh_rdap, interval=interval)
+
+
+def _do_porkbun_refresh() -> None:
+    """v15.F — fetch Porkbun owned-domain list + write
+    data/domains/porkbun.csv. Errors warn but don't fail the rest of
+    `fleet sync` (operator may have CSVs already in place)."""
+    from .apikeys import get_key
+    from .data import DOMAINS_DIR
+    from .porkbun_list import PorkbunListError, refresh_porkbun_csv
+
+    api_key = get_key("PORKBUN_API_KEY") or ""
+    secret = get_key("PORKBUN_SECRET_API_KEY") or ""
+    if not api_key or not secret:
+        console.print(
+            "[yellow]⚠  --refresh skipped:[/] PORKBUN_API_KEY / "
+            "PORKBUN_SECRET_API_KEY not set in portfolio.env. "
+            "[dim](Add them via `lamill settings apikeys set`.)[/]"
+        )
+        return
+
+    csv_path = DOMAINS_DIR / "porkbun.csv"
+    console.print("[cyan]Porkbun listAll →[/] " + str(csv_path) + " ...")
+    try:
+        count = refresh_porkbun_csv(api_key, secret, csv_path)
+    except PorkbunListError as e:
+        console.print(f"[red]Porkbun refresh failed:[/] {e}")
+        return
+    console.print(f"[green]✓[/] wrote {count} rows to porkbun.csv")
+
+
+def _watch_domains_loop(*, refresh_rdap: bool, interval: float) -> None:
+    """v15.F — poll data/domains/*.csv mtimes; re-run info_cleanup on
+    any change. Bounded by `interval` seconds (default 2s). Ctrl-C
+    exits cleanly. Simpler than the `watchdog` library — no new
+    dependency and good enough for the CSV-edit cadence."""
+    import time
+    from .data import DOMAINS_DIR
+
+    console.print(
+        f"[dim]Watching {DOMAINS_DIR} for CSV changes "
+        f"(interval={interval:.1f}s) — Ctrl-C to exit.[/]"
+    )
+
+    def _snapshot_mtimes() -> dict[str, float]:
+        out: dict[str, float] = {}
+        if not DOMAINS_DIR.exists():
+            return out
+        for f in DOMAINS_DIR.glob("*.csv"):
+            try:
+                out[f.name] = f.stat().st_mtime
+            except OSError:
+                pass
+        return out
+
+    seen = _snapshot_mtimes()
+    try:
+        while True:
+            time.sleep(interval)
+            current = _snapshot_mtimes()
+            if current == seen:
+                continue
+            changed = {
+                name for name, mt in current.items()
+                if seen.get(name) != mt
+            }
+            seen = current
+            console.print(
+                f"\n[dim]→ CSV change detected ({', '.join(sorted(changed))}); "
+                f"re-running merge ...[/]"
+            )
+            info_cleanup(refresh_rdap=refresh_rdap)
+    except KeyboardInterrupt:
+        console.print("\n[yellow](watch interrupted)[/]")
+        return
 
 
 # ---------- settings namespace ----------

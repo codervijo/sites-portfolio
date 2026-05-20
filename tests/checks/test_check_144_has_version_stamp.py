@@ -36,7 +36,7 @@ def _patch_transport(handler):
         transport = httpx.MockTransport(handler)
         return httpx.Client(transport=transport, follow_redirects=True, timeout=10.0)
     return patch(
-        "portfolio.checks.deploy.check_144_has_version_stamp._build_client",
+        "portfolio.version_stamp._build_client",
         _builder,
     )
 

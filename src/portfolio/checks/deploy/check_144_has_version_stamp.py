@@ -19,22 +19,20 @@ Pass / warn / fail:
           (don't fail-grade on flaky transport, matching the v15.D
           deploy-fresh check posture)
 
-Pair: v15.D `deploy-fresh` (CHECK_NNN) reads the same `commit` field
+Pair: v15.D `deploy-fresh` (CHECK_145) reads the same `commit` field
 to compare against the operator's local HEAD. v15.E `last-build-success`
 column on `fleet hosting` reads the same `built_at`.
 """
 from __future__ import annotations
 
-import json
-from typing import Any
-
 from ..result import CheckResult
-from ..seo._live import (
-    LiveFetchError,
-    _build_client,
-    resolve_live_url,
-)
+from ..seo._live import resolve_live_url
 from ..seo import _is_web_project
+from ...version_stamp import (
+    VersionStamp,
+    VersionStampError,
+    fetch_version_stamp,
+)
 
 CHECK_ID = "CHECK_144"
 CHECK_NAME = "has-version-stamp"
@@ -43,8 +41,6 @@ SEVERITY = "warn"
 DESCRIPTION = (
     "Live site serves `/version.json` with the v15.C schema (commit + built_at)."
 )
-
-VERSION_JSON_PATH = "/version.json"
 
 
 def run(repo_path: str) -> CheckResult:
@@ -55,71 +51,56 @@ def run(repo_path: str) -> CheckResult:
     if not origin:
         return CheckResult(status="warn", message="no live URL configured — skipped")
 
-    url = origin.rstrip("/") + VERSION_JSON_PATH
+    result = fetch_version_stamp(origin)
 
-    try:
-        with _build_client() as client:
-            response = client.get(url, timeout=10.0)
-    except Exception as e:
-        # Network-level failure → warn, not fail. Matches CHECK_090 posture.
-        return CheckResult(
-            status="warn",
-            message=f"version.json unreachable ({type(e).__name__}: {e})",
-        )
-
-    if response.status_code == 404:
-        return CheckResult(
-            status="fail",
-            message=(
-                f"{url} → 404. Site isn't serving version.json — wire the "
-                f"`vite-version-stamp` plugin into vite.config and redeploy. "
-                f"See ~/work/projects/builder/vite-version-stamp.ts."
-            ),
-        )
-
-    if not (200 <= response.status_code < 300):
-        return CheckResult(
-            status="fail",
-            message=f"{url} → HTTP {response.status_code} (expected 200)",
-        )
-
-    try:
-        payload: Any = response.json()
-    except (json.JSONDecodeError, ValueError) as e:
-        return CheckResult(
-            status="fail",
-            message=f"{url} → body did not parse as JSON: {e}",
-        )
-
-    if not isinstance(payload, dict):
-        return CheckResult(
-            status="fail",
-            message=f"{url} → expected object, got {type(payload).__name__}",
-        )
-
-    commit = payload.get("commit")
-    built_at = payload.get("built_at")
-    schema = payload.get("schema")
-
-    missing = []
-    if not isinstance(commit, str) or not commit.strip():
-        missing.append("commit")
-    if not isinstance(built_at, str) or not built_at.strip():
-        missing.append("built_at")
-
-    if missing:
+    if isinstance(result, VersionStampError):
+        # Map error kinds to pass/warn/fail per CHECK_144's posture.
+        kind = result.kind
+        if kind == "unreachable":
+            return CheckResult(
+                status="warn",
+                message=f"version.json unreachable ({result.detail})",
+            )
+        if kind == "not_found":
+            return CheckResult(
+                status="fail",
+                message=(
+                    f"{result.detail}. Site isn't serving version.json — wire the "
+                    f"`vite-version-stamp` plugin into vite.config and redeploy. "
+                    f"See ~/work/projects/builder/vite-version-stamp.ts."
+                ),
+            )
+        if kind == "http_error":
+            return CheckResult(
+                status="fail",
+                message=f"{result.detail} (expected 200)",
+            )
+        if kind == "not_json":
+            return CheckResult(
+                status="fail",
+                message=f"{result.detail}",
+            )
+        if kind == "wrong_shape":
+            return CheckResult(
+                status="fail",
+                message=(
+                    f"{result.detail}. Expected schema-v1 shape "
+                    f'{{"schema":1,"commit":"<sha>","built_at":"<iso>"}}.'
+                ),
+            )
         return CheckResult(
             status="fail",
-            message=(
-                f"{url} → missing or invalid: {', '.join(missing)}. "
-                f"Expected schema-v1 shape "
-                f'{{"schema":1,"commit":"<sha>","built_at":"<iso>"}}.'
-            ),
+            message=f"unexpected version-stamp error: {result.kind} / {result.detail}",
         )
 
-    short_commit = commit[:12] if commit != "unknown" else commit
-    schema_note = f" (schema v{schema})" if isinstance(schema, int) else ""
+    # Happy path — VersionStamp parsed correctly.
+    stamp: VersionStamp = result
+    short_commit = stamp.commit[:12] if stamp.commit != "unknown" else stamp.commit
+    schema_note = f" (schema v{stamp.schema})" if stamp.schema is not None else ""
     return CheckResult(
         status="pass",
-        message=f"version.json served · commit {short_commit} · built {built_at}{schema_note}",
+        message=(
+            f"version.json served · commit {short_commit} · "
+            f"built {stamp.built_at}{schema_note}"
+        ),
     )
