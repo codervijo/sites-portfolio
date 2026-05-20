@@ -509,9 +509,108 @@ target tree, and decides the cutover style before any code moves.
 
 | # | Status | Feature |
 |---|---|---|
-| v14.A | ⏳ | **Kickoff planning.** Lock the target tree from the captured rename decisions (2026-05-20 design pass): `new suggest`→`new domain`, `new research`→`new validate`, `fleet info cleanup`→`fleet sync`, `fleet info {summary,expiring}` folded into flags on `fleet domains`, `fleet info` namespace deleted, `settings project`→`settings deploy`. Decide the still-open items: verb trim under `settings deploy` (`set-deploy`→`set`, `show-deploy`→`show`), where `set-launched` belongs long-term, cutover style (deprecation aliases per v7.A.2 vs hard cutover). ~1-2h. |
-| v14.B | ⏳ | **Apply renames + namespace moves.** Wire the locked target tree into `cli.py` — add new command names, keep old ones as deprecation aliases that print a one-line nudge and forward (v7.A.2 pattern). Fold `fleet info summary`/`expiring` into `fleet domains` flags. Delete the `fleet info` typer once aliases are in place. Tests cover both new and aliased paths. ~2-3h. |
-| v14.C | ⏳ | **Docs sync.** Last phase of the tier — propagates the locked CLI shape to every doc surface that references commands: `docs/architecture.md` (command-tree section + per-command references), `docs/CLAUDE.md` (v7.A locked target shape section), `AI_AGENTS.md` (capability lines + usage examples), `docs/shipping-history.md` (v14 tier-level wrap), plus any code docstrings, help strings, or comments still naming the old verbs. Update the v7.A entry in CLAUDE.md to note it was superseded by v14. |
+| v14.A | ✅ | **Kickoff planning.** Locked the target CLI tree from the 2026-05-20 design pass. Resolved still-open items: (a) verb trim under `settings deploy` — `set`/`show` (drop the redundant `-deploy` suffix), (b) `set-launched` stays under `settings deploy` despite the mild lifecycle-vs-deploy semantic mismatch (revisit if a 2nd lifecycle verb appears — then split into `settings lifecycle`), (c) **hard cutover** — no deprecation aliases (operator's own tool, no third-party consumers, daily-driver muscle memory will adjust in days). See `#### Design notes` for the locked tree and the migration map. |
+| v14.B | ⏳ | **Apply renames + namespace moves (hard cutover).** Wire the locked target tree into `cli.py` — rename `new suggest`→`new domain`, `new research`→`new validate`, fold `fleet info summary`/`expiring` into flags on `fleet domains`, rename `fleet info cleanup`→`fleet sync` (promoted out of `info` since it writes), delete the `fleet info` typer, rename `settings project`→`settings deploy`, trim its verbs to `set`/`show`/`set-launched`. No deprecation aliases — old paths return typer's standard "no such command" error. Full code-side sweep in this phase (NOT v14.C — that's docs only): (a) `src/portfolio/cli.py` typer registrations + every `help=` string referencing an old verb, (b) `src/portfolio/menu.py` interactive-menu `CmdSpec` entries + group preamble (7+ direct refs), (c) every test referencing an old command path (test IDs / fixture names / subprocess invocations), (d) any other code-level grep hits for the old verbs. ~2-3h. |
+| v14.C | ⏳ | **Docs sync.** Last phase of the tier — propagates the locked CLI shape to every doc surface that references commands: `docs/architecture.md` (command-tree section + per-command references), `docs/CLAUDE.md` (v7.A locked target shape section — mark as superseded by v14), `AI_AGENTS.md` (capability lines + usage examples), `docs/shipping-history.md` (v14 tier-level wrap), plus any remaining markdown / code comments referencing the old verbs. v14.B already handled help strings + menu — v14.C is markdown-only docs propagation. |
+
+#### Design notes
+
+**Locked target tree (after v14.B ships).**
+
+```
+lamill
+├── new
+│   ├── validate <topic>                    is this topic SEO-winnable?
+│   ─
+│   ├── domain <topic>                      find a domain for a validated topic
+│   ├── bootstrap <domain>                  scaffold sites/<domain>/
+│   └── deploy <domain>                     ship it (polymorphic by lamill.toml platform)
+│
+├── project
+│   ├── check <domain>
+│   ├── fix <domain>
+│   ├── seo <domain>
+│   └── diagnose <domain>
+│
+├── fleet
+│   ├── focus
+│   ├── domains [--summary] [--expiring N]
+│   ├── seo
+│   ├── hosting
+│   ├── check
+│   ├── fix
+│   ├── drift
+│   ├── repos
+│   ├── dashboard
+│   └── sync [--refresh-rdap]
+│
+└── settings
+    ├── catalog       (list · describe · run)
+    ├── gsc           (auth · recrawl · status)
+    ├── apikeys       (list · set · delete)
+    ├── operator      (show)
+    ├── cloudflare    (token · status)
+    ├── serpapi-quota (show · sync)
+    └── deploy
+        ├── set <domain> <platform>
+        ├── show <domain>
+        └── set-launched <domain>
+```
+
+Command count: 37 → 35. `fleet` 12→10 (info collapse + sync rename).
+`settings deploy` retains 3 verbs (collision with top-level `project`
+gone; subgroup renamed; verb names trimmed).
+
+**Migration map (v14.B work).**
+
+| Today | After v14.B |
+|---|---|
+| `lamill new suggest <topic>` | `lamill new domain <topic>` |
+| `lamill new research <topic>` | `lamill new validate <topic>` |
+| `lamill fleet info summary` | `lamill fleet domains --summary` |
+| `lamill fleet info expiring N` | `lamill fleet domains --expiring N` |
+| `lamill fleet info cleanup` | `lamill fleet sync` |
+| `lamill settings project set-deploy <d> <p>` | `lamill settings deploy set <d> <p>` |
+| `lamill settings project show-deploy <d>` | `lamill settings deploy show <d>` |
+| `lamill settings project set-launched <d>` | `lamill settings deploy set-launched <d>` |
+
+**What did NOT change (deliberate keeps).**
+
+- `set-deploy`/`show-deploy`/`set-launched` stay under `settings` (not
+  promoted to top-level `project` — operator reverted that move
+  2026-05-20). The new subgroup name `deploy` (vs old `project`) is
+  what resolves the collision.
+- Top-level `project` keeps its 4 verbs unchanged.
+- `fleet repos` vs `fleet check` overlap is **deferred** — no fold
+  in this tier. Revisit if a 3rd similar verb appears.
+- `new deploy` stays under `new` even though it acts on existing
+  projects — the polymorphic dispatch already happens via
+  `lamill.toml`; renaming to `project deploy` would be a separate
+  design call.
+- `settings serpapi-quota` keeps its kebab-case name (only such
+  node) — renaming to `settings serpapi` reads as broader than the
+  verb does (it's a quota ledger only, not "all serpapi stuff").
+
+**Parked for v14+ (not v14 scope).**
+
+- **Data/cache namespace promotion.** `fleet sync` is one step; the
+  long-term shape may be `lamill data sync` with sub-verbs per
+  source (registrar / gsc / crux / serpapi / cloudflare / vercel).
+  Don't do in v14 — observe `fleet sync` usage first.
+- **Settings split** (`settings creds` vs `settings status`).
+  Currently mixes credentials with status views. Worth splitting
+  later or promoting status verbs to a top-level `lamill status`.
+  Not urgent.
+- **`fleet repos` vs `fleet check` fold.** Either `repos` becomes
+  `check --git`, or `repos` renames to `fleet git-status`. Revisit
+  at v14+ if the overlap creates real friction.
+
+**Open implementation questions** (resolve during v14.B):
+| # | Question |
+|---|---|
+| 14.A | Does `new validate` share the SerpAPI cluster cache with `new domain`? Likely yes (both query SERP for adjacent topics); confirm during v14.B implementation. |
+| 14.B | `new deploy` help string should pin down the dispatch axis — currently labelled "polymorphic"; add a one-liner referencing `lamill.toml [deploy] platform = ...`. |
+| 14.C | Test files reference old command names in test IDs / fixture names — sweep during v14.B; commit message should call out any test rename count. |
 
 ### v15 — deploy verification + content seeding *(renumbered 2026-05-17 PM; deprioritized; absorbed v13.C 2026-05-20; renumbered 2026-05-20, was v14)*
 
