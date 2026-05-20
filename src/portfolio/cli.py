@@ -3564,11 +3564,31 @@ def new_bootstrap(
         flag_value=git_url, non_interactive=non_interactive,
     )
 
+    # Bug-fix 2026-05-20 — smart multi-section paste. When the operator
+    # pastes an LLM-staged 9-section response at the Summary prompt,
+    # the parsed payload can override downstream resolvers' flag
+    # values (git_url, registered, registrar, growth_hypothesis). The
+    # extras dict collects those overrides; the orchestrator applies
+    # them below before the corresponding resolver runs.
+    paste_extras: dict = {}
     operator_inputs = _collect_operator_inputs(
         summary=summary, audience=audience, icp=icp,
         goal=goal, content_strategy=content_strategy,
         non_interactive=non_interactive,
+        extras_out=paste_extras,
     )
+    # If smart-paste captured a Lovable repo URL, override the empty
+    # value `_resolve_git_url` returned earlier (operator likely hit
+    # Enter to skip because they were planning to paste it as part of
+    # the multi-section response).
+    if not git_url and paste_extras.get("git_url"):
+        git_url = paste_extras["git_url"]
+    if paste_extras.get("registered") is not None and registered is None:
+        registered = paste_extras["registered"]
+    if paste_extras.get("registrar") and not registrar:
+        registrar = paste_extras["registrar"]
+    if paste_extras.get("growth_hypothesis") and not growth_hypothesis:
+        growth_hypothesis = paste_extras["growth_hypothesis"]
     # Resolve v9.C inputs BEFORE running bootstrap so a failed scaffold
     # doesn't waste the operator's prompt answers. (The inventory write
     # itself happens AFTER bootstrap succeeds.)
@@ -3969,7 +3989,9 @@ def _apply_inventory_decision(domain: str, decision: dict) -> None:
 def _collect_operator_inputs(*,
                              summary: str, audience: str, icp: str,
                              goal: str, content_strategy: str,
-                             non_interactive: bool) -> dict[str, str]:
+                             non_interactive: bool,
+                             extras_out: dict | None = None,
+                             ) -> dict[str, str]:
     """Build the {heading → content} dict the bootstrap renderer
     consumes for operator-input sections.
 
@@ -3978,11 +4000,31 @@ def _collect_operator_inputs(*,
     case they're left empty and the renderer drops in `(to be filled
     in)` placeholders.
 
+    Bug-fix 2026-05-20 — smart multi-section paste. The first
+    paragraph-style prompt (typically Summary) inspects the captured
+    text via `parse_multisection_paste()`. When the operator pasted
+    an LLM-staged 9-section response, the paste is split into
+    canonical sections and (on operator confirm) the remaining
+    AI_AGENTS prompts are auto-filled. Cross-section overrides
+    (git_url / growth_hypothesis / registered / registrar) land in
+    `extras_out` so the orchestrator can forward them to the
+    downstream resolvers (`_resolve_git_url`, `_resolve_inventory_inputs`,
+    `_resolve_growth_hypothesis`) without re-prompting.
+
     Returns a complete dict (one key per operator-input section,
     even if the value is empty) so the renderer doesn't need to
     guess defaults.
     """
     from .canonical_sections import operator_sections
+    from .bootstrap_paste import (
+        CANONICAL_LABELS,
+        first_nonblank_line,
+        looks_like_repo_url,
+        normalize_registrar,
+        normalize_yes_no,
+        parse_multisection_paste,
+        preview_snippet,
+    )
 
     # Map CLI-flag value → canonical heading. Mirrors the order in
     # canonical_sections.AI_AGENTS_SECTIONS; the user-facing flag
@@ -4007,6 +4049,18 @@ def _collect_operator_inputs(*,
             pending_for_prompt.append(spec)
             inputs[spec.heading] = ""   # provisional; overwritten if prompted
 
+    # Map canonical-paste keys → AI_AGENTS heading for operator
+    # sections so a parsed paste can be sluiced into `inputs`.
+    paste_key_to_heading: dict[str, str] = {
+        "summary": "Summary",
+        "audience": "Audience",
+        "icp": "ICP",
+        "goals": "Goals",
+        "content_strategy": "Content strategy",
+    }
+    # Sections that render best on one line (single-line in AI_AGENTS).
+    single_line_headings = {"Audience", "Goals"}
+
     if pending_for_prompt:
         console.print(
             "\n[bold]Operator content for AI_AGENTS.md[/]"
@@ -4018,13 +4072,55 @@ def _collect_operator_inputs(*,
         # multi-paragraph pastes don't overflow into the shell. The
         # one-line sections (Audience, Goals) stay on `typer.prompt`.
         multiline_sections = {"Summary", "ICP", "Content strategy"}
+        smart_paste_attempted = False
         for spec in pending_for_prompt:
+            # If smart-paste already filled this section, skip the prompt.
+            if inputs.get(spec.heading):
+                continue
             if spec.heading in multiline_sections:
+                # Bug-fix 2026-05-20 — smart-paste hint on the first
+                # paragraph prompt only. Once we've checked one
+                # multiline answer for paste-shape, don't check again
+                # (otherwise the second Summary-ish prompt would
+                # double-prompt on a single section's content).
+                hint = (
+                    "Hit Enter twice when done, or Ctrl-D. "
+                    "Enter twice immediately to skip."
+                )
+                if not smart_paste_attempted:
+                    hint = (
+                        "Hit Enter twice when done, or Ctrl-D. "
+                        "Enter twice immediately to skip. "
+                        "(Paste a multi-section response here to fill "
+                        "all prompts at once.)"
+                    )
                 answer = _prompt_multiline(
                     f"\n  [cyan]{spec.heading}[/] — [dim]{spec.description}[/]",
-                    hint="Hit Enter twice when done, or Ctrl-D. "
-                         "Enter twice immediately to skip.",
+                    hint=hint,
                 ).strip()
+                # Smart-paste detection runs on the FIRST paragraph
+                # answer only. Subsequent paragraph prompts use plain
+                # capture.
+                if not smart_paste_attempted:
+                    smart_paste_attempted = True
+                    parsed = parse_multisection_paste(answer)
+                    if parsed is not None and _confirm_multisection_paste(
+                        parsed, current_heading=spec.heading,
+                    ):
+                        _apply_multisection_paste(
+                            parsed,
+                            inputs=inputs,
+                            extras_out=extras_out,
+                            paste_key_to_heading=paste_key_to_heading,
+                            single_line_headings=single_line_headings,
+                            current_heading=spec.heading,
+                        )
+                        # Skip setting `inputs[spec.heading] = answer`
+                        # below — the paste payload supplied the
+                        # correct section content (or left it blank
+                        # if the operator pasted the OTHER sections
+                        # but no Summary).
+                        continue
             else:
                 console.print(
                     f"\n  [cyan]{spec.heading}[/] — [dim]{spec.description}[/]"
@@ -4036,6 +4132,119 @@ def _collect_operator_inputs(*,
                 inputs[spec.heading] = answer
 
     return inputs
+
+
+def _confirm_multisection_paste(parsed: dict[str, str], *,
+                                current_heading: str) -> bool:
+    """Print the multi-section preview banner and prompt for confirmation.
+
+    Bug-fix 2026-05-20 — when smart-paste detects a multi-section
+    response at the Summary prompt, show the operator each detected
+    section's name + a short snippet so they can verify the parse
+    before auto-fill commits. Default Yes (Enter to accept).
+
+    Returns True on Y / yes / empty (default); False on N / no.
+    """
+    from .bootstrap_paste import CANONICAL_LABELS, preview_snippet
+
+    n = len(parsed)
+    console.print(
+        f"\n[bold]Detected a multi-section paste with {n} sections:[/]"
+    )
+    # Preserve insertion order so the preview matches the operator's
+    # mental model of how their LLM laid out the response.
+    for key, content in parsed.items():
+        label = CANONICAL_LABELS.get(key, key)
+        snippet = preview_snippet(content, limit=80)
+        console.print(
+            f"  [green]✓[/] [bold]{label:<22}[/] [dim]{snippet}[/]"
+        )
+    raw = typer.prompt(
+        "\n  Auto-fill the remaining prompts from this paste? [Y/n]",
+        default="Y", show_default=False,
+    ).strip().lower()
+    return raw not in ("n", "no")
+
+
+def _apply_multisection_paste(parsed: dict[str, str], *,
+                              inputs: dict[str, str],
+                              extras_out: dict | None,
+                              paste_key_to_heading: dict[str, str],
+                              single_line_headings: set[str],
+                              current_heading: str) -> None:
+    """Sluice a parsed multi-section paste into the orchestrator state.
+
+    Populates `inputs[]` for any matched AI_AGENTS heading and
+    `extras_out[]` for cross-section overrides (git_url /
+    growth_hypothesis / registered / registrar). Sections missing
+    from the paste are left for the regular prompt flow."""
+    from .bootstrap_paste import (
+        CANONICAL_LABELS,
+        first_nonblank_line,
+        looks_like_repo_url,
+        normalize_registrar,
+        normalize_yes_no,
+        preview_snippet,
+    )
+
+    valid_registrars = _REGISTRARS  # ("porkbun", "godaddy", "namecheap", "other")
+    filled: list[tuple[str, str]] = []
+
+    for key, content in parsed.items():
+        heading = paste_key_to_heading.get(key)
+        if heading is not None:
+            value = content.strip()
+            if heading in single_line_headings:
+                value = first_nonblank_line(value)
+            if value:
+                inputs[heading] = value
+                filled.append((CANONICAL_LABELS.get(key, heading), value))
+            continue
+
+        # Cross-section overrides — only populated when extras_out is
+        # supplied (the orchestrator path). Stand-alone callers that
+        # don't pass extras_out (e.g. unit tests that don't care)
+        # silently ignore these.
+        if extras_out is None:
+            continue
+
+        if key == "growth_hypothesis":
+            value = content.strip()
+            if value:
+                extras_out["growth_hypothesis"] = value
+                filled.append(("Growth hypothesis", preview_snippet(value)))
+        elif key == "domain_registered":
+            parsed_bool = normalize_yes_no(content)
+            if parsed_bool is not None:
+                extras_out["registered"] = parsed_bool
+                filled.append(
+                    ("Domain registered?",
+                     "yes" if parsed_bool else "no"),
+                )
+        elif key == "registrar":
+            value = normalize_registrar(content, valid_registrars)
+            extras_out["registrar"] = value
+            filled.append(("Registrar", value))
+        elif key == "lovable_repo":
+            value = content.strip()
+            if value and looks_like_repo_url(value):
+                extras_out["git_url"] = value
+                filled.append(("Lovable GitHub repo URL", value))
+            elif value:
+                # Non-URL-shaped — skip rather than crashing the
+                # downstream `_resolve_git_url` validator.
+                console.print(
+                    f"  [yellow]Skipping Lovable repo value "
+                    f"(doesn't look like a URL): {value!r}[/]"
+                )
+
+    if filled:
+        console.print("\n[bold]Auto-filled from paste:[/]")
+        for label, value in filled:
+            console.print(
+                f"  [green]✓[/] [bold]{label:<22}[/] "
+                f"[dim]{preview_snippet(value)}[/]"
+            )
 
 
 def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:

@@ -1,0 +1,554 @@
+"""Tests for the 2026-05-20 smart multi-section paste bootstrap UX.
+
+Bug context: at the Summary prompt of `lamill new bootstrap`, the
+operator may paste an LLM-staged 9-section response containing all
+the bootstrap answers in numbered sections (`2. Summary`, `3. Audience`,
+…, `9. Growth hypothesis`). Pre-fix: the entire blob landed in the
+Summary field and prompts 3-9 fired empty. Post-fix:
+`parse_multisection_paste()` recognizes the pattern, splits the paste
+into canonical sections, and (on operator confirm) auto-fills all
+remaining prompts in `_collect_operator_inputs` plus the cross-cutting
+overrides (`git_url`, `growth_hypothesis`, `registered`, `registrar`).
+
+Two layers tested:
+  1. `portfolio.bootstrap_paste.parse_multisection_paste(text)` — pure
+     parser unit tests (threshold edges, header variants, content
+     spanning multiple paragraphs, weird whitespace, etc.).
+  2. `portfolio.cli._collect_operator_inputs(...)` integration with
+     `extras_out={}` — simulates pasting at the Summary prompt and
+     confirming the auto-fill, checks that:
+       - `inputs[]` is populated for all matched AI_AGENTS headings;
+       - `extras_out[]` is populated for cross-section overrides;
+       - declining (`n`) keeps only the Summary content.
+
+`typer.prompt` and `sys.stdin` are monkeypatched so no real TTY is
+needed.
+"""
+from __future__ import annotations
+
+import io
+
+import pytest
+import typer
+
+from portfolio import cli as cli_mod
+from portfolio.bootstrap_paste import parse_multisection_paste
+
+
+# The exact 9-section paste shape captured in the operator's 2026-05-20
+# test session. Used by several integration tests below.
+NINE_SECTION_PASTE = """\
+2. Summary
+AgeSDK is a React Native SDK that handles AB 1043 age signal compliance end-to-end. It wraps the Apple/Google age APIs, provides drop-in React Native components, and ships with an admin dashboard for compliance reporting.
+
+3. Audience
+React Native and Expo developers building consumer apps with California users who need AB 1043 compliance before January 2027.
+
+4. ICP
+A React Native developer or small-team CTO at a consumer app with 10K-500K MAU who just got a legal email about AB 1043 and has 90 days to ship a compliance fix without rebuilding their auth flow.
+
+5. Goals
+Own the AB 1043 compliance SDK category before any competitor ships, and rank for every developer-facing AB 1043 search term before enforcement demand spikes in late 2026. Convert organic traffic to npm installs and npm installs to paid dashboard accounts.
+
+6. Content strategy
+Landing page targeting AB 1043 compliance SDK. Docs site with per-framework integration guides. Blog with compliance deep-dives. Code samples on GitHub. Mix of long-form rationale and copy-paste reference snippets.
+
+7. Domain registered?
+Y
+
+8. Registrar
+porkbun
+
+9. Growth hypothesis
+AB 1043 creates a mandatory compliance event for every consumer app developer with California users. The SDK that ranks #1 for "AB 1043 React Native" before Q3 2026 owns the category by default. Distribution channel: developer SEO + Stack Overflow + npm trending.
+"""
+
+
+# ---------- parse_multisection_paste — parser unit tests ----------
+
+
+def test_parser_nine_section_paste_returns_all_keys():
+    """The canonical 9-section paste yields all 8 canonical keys
+    (the operator's prompt template uses `1.` for the LLM template
+    intro, so the actual sections start at `2. Summary`)."""
+    result = parse_multisection_paste(NINE_SECTION_PASTE)
+    assert result is not None
+    assert set(result.keys()) == {
+        "summary", "audience", "icp", "goals", "content_strategy",
+        "domain_registered", "registrar", "growth_hypothesis",
+    }
+    # Summary content begins with "AgeSDK is a React Native SDK".
+    assert result["summary"].startswith("AgeSDK is a React Native SDK")
+    # Y normalizes downstream via normalize_yes_no; raw content is "Y".
+    assert result["domain_registered"].strip() == "Y"
+    assert result["registrar"].strip() == "porkbun"
+
+
+def test_parser_partial_paste_three_sections():
+    """Operator pastes a partial response with 3 sections → returns
+    a dict with exactly those 3 keys."""
+    text = (
+        "1. Summary\n"
+        "Short summary text.\n"
+        "\n"
+        "2. Audience\n"
+        "Developers.\n"
+        "\n"
+        "3. Goals\n"
+        "Win the category.\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    assert set(result.keys()) == {"summary", "audience", "goals"}
+
+
+def test_parser_single_paragraph_returns_none():
+    """Plain single-paragraph paste (no numbered section headers) →
+    None. Treated as single-section input; current behavior."""
+    text = (
+        "AgeSDK is a React Native SDK that handles AB 1043 "
+        "age signal compliance end-to-end. It wraps the Apple/Google "
+        "age APIs."
+    )
+    assert parse_multisection_paste(text) is None
+
+
+def test_parser_two_section_threshold_returns_none():
+    """Exactly 2 numbered sections → below the ≥3 threshold → None.
+    The operator's input is treated as the original prompt's content."""
+    text = (
+        "1. Summary\n"
+        "Foo.\n"
+        "\n"
+        "2. Audience\n"
+        "Bar.\n"
+    )
+    assert parse_multisection_paste(text) is None
+
+
+def test_parser_empty_input_returns_none():
+    """Empty / whitespace-only input → None (current behavior preserved)."""
+    assert parse_multisection_paste("") is None
+    assert parse_multisection_paste("   \n\n  \n") is None
+
+
+def test_parser_mixed_case_headers_parsed():
+    """Headers with weird casing (`SUMMARY`, `audience`, `IcP`)
+    normalize to the canonical key set."""
+    text = (
+        "1. SUMMARY\n"
+        "S text.\n"
+        "\n"
+        "2. audience\n"
+        "A text.\n"
+        "\n"
+        "3. IcP\n"
+        "I text.\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    assert result.keys() == {"summary", "audience", "icp"}
+
+
+def test_parser_section_content_spans_multiple_paragraphs():
+    """A section whose content spans multiple paragraphs (internal
+    blank lines) captures the whole body until the next numbered
+    header. Internal newlines are preserved."""
+    text = (
+        "1. Summary\n"
+        "Paragraph one of the summary.\n"
+        "\n"
+        "Paragraph two of the summary, still part of Summary.\n"
+        "\n"
+        "2. Audience\n"
+        "A short audience line.\n"
+        "\n"
+        "3. Goals\n"
+        "G.\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    assert "Paragraph one" in result["summary"]
+    assert "Paragraph two" in result["summary"]
+    # Internal newline preserved between the two paragraphs.
+    assert "\n\nParagraph two" in result["summary"]
+    # Audience should NOT contain Goals content.
+    assert "G." not in result["audience"]
+
+
+def test_parser_trailing_whitespace_and_extra_blank_lines():
+    """Trailing/leading whitespace + extra blank lines around content
+    don't break the parse and don't end up in the result."""
+    text = (
+        "\n\n"
+        "1. Summary  \n"
+        "  S content.  \n"
+        "\n\n\n"
+        "2. Audience\n"
+        "A content.\n"
+        "\n"
+        "3. Goals\n"
+        "G content.\n"
+        "\n\n\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    # Content is stripped — no leading/trailing whitespace.
+    assert result["summary"] == "S content."
+    assert result["audience"] == "A content."
+    assert result["goals"] == "G content."
+
+
+def test_parser_punctuation_in_header_is_tolerated():
+    """`Domain registered?` (with the question mark) and `Domain registered`
+    (without) both normalize to the same canonical key."""
+    with_q = (
+        "1. Summary\nS.\n\n"
+        "2. Audience\nA.\n\n"
+        "3. Domain registered?\nY\n"
+    )
+    without_q = (
+        "1. Summary\nS.\n\n"
+        "2. Audience\nA.\n\n"
+        "3. Domain registered\nY\n"
+    )
+    r1 = parse_multisection_paste(with_q)
+    r2 = parse_multisection_paste(without_q)
+    assert r1 is not None and r2 is not None
+    assert r1.get("domain_registered") == "Y"
+    assert r2.get("domain_registered") == "Y"
+
+
+def test_parser_lovable_repo_alias_routes_to_lovable_repo_key():
+    """`Lovable GitHub repo URL`, `GitHub repo`, `Lovable repo` all
+    normalize to the `lovable_repo` canonical key."""
+    text = (
+        "1. Summary\nS.\n\n"
+        "2. Audience\nA.\n\n"
+        "3. Lovable GitHub repo URL\nhttps://github.com/u/r\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    assert result.get("lovable_repo") == "https://github.com/u/r"
+
+
+def test_parser_unknown_section_headers_skipped():
+    """Headers that don't match any canonical alias (e.g. `Topic`)
+    are skipped — they don't show up in the result, and they don't
+    pollute neighboring sections."""
+    text = (
+        "1. Topic\n"
+        "AB 1043 compliance SDK.\n"
+        "\n"
+        "2. Summary\n"
+        "S content.\n"
+        "\n"
+        "3. Audience\n"
+        "A content.\n"
+        "\n"
+        "4. Goals\n"
+        "G content.\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    assert "topic" not in result
+    assert result["summary"] == "S content."
+
+
+def test_parser_single_line_answers_still_parse():
+    """A paste with only single-line content per section (no
+    paragraphs) still parses if ≥3 section headers are present."""
+    text = (
+        "1. Audience\n"
+        "Developers.\n"
+        "2. Goals\n"
+        "Win.\n"
+        "3. Registrar\n"
+        "porkbun\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    assert result["audience"] == "Developers."
+    assert result["goals"] == "Win."
+    assert result["registrar"] == "porkbun"
+
+
+# ---------- _collect_operator_inputs integration ----------
+
+
+def _patch_stdin(monkeypatch, text: str) -> None:
+    """Replace `sys.stdin` so `_prompt_multiline()` reads `text`."""
+    import sys
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+
+
+def test_collect_smart_paste_confirm_auto_fills_all_sections(monkeypatch):
+    """At the Summary prompt the operator pastes the 9-section
+    response (terminated by Enter-Enter). The confirmation prompt
+    fires; operator hits Y. All 5 AI_AGENTS sections populate from
+    the paste; extras_out captures git_url-less / growth /
+    registered=True / registrar=porkbun."""
+    # Two blank lines terminate `_prompt_multiline`.
+    _patch_stdin(monkeypatch, NINE_SECTION_PASTE + "\n\n")
+
+    # Only ONE typer.prompt call expected (the confirm Y/n) — none of
+    # the per-section prompts should fire because smart-paste filled
+    # them all. Make the test fail loud if more prompts arrive.
+    answers = iter(["Y"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+
+    # All 5 operator AI_AGENTS sections populated.
+    assert inputs["Summary"].startswith("AgeSDK is a React Native SDK")
+    assert inputs["Audience"].startswith("React Native and Expo developers")
+    assert inputs["ICP"].startswith("A React Native developer")
+    assert inputs["Goals"].startswith("Own the AB 1043 compliance SDK category")
+    assert inputs["Content strategy"].startswith("Landing page targeting AB 1043")
+
+    # Cross-section extras captured.
+    assert extras["registered"] is True
+    assert extras["registrar"] == "porkbun"
+    assert extras["growth_hypothesis"].startswith(
+        "AB 1043 creates a mandatory compliance event"
+    )
+    # No Lovable repo URL in this paste → key not in extras.
+    assert "git_url" not in extras
+
+
+def test_collect_smart_paste_decline_keeps_only_summary(monkeypatch):
+    """Operator declines the auto-fill prompt with `n`. The pasted
+    text stays as the Summary content; remaining prompts fire as
+    normal. (Audience / ICP / Goals / Content strategy each get an
+    empty answer from `typer.prompt` and become empty strings.)"""
+    _patch_stdin(monkeypatch, NINE_SECTION_PASTE + "\n\n")
+
+    # Sequence: confirm-prompt "n", then 4 single-line prompts for
+    # remaining sections (Audience / ICP / Goals / Content strategy).
+    # ICP and Content strategy are paragraph-style, so they're fed
+    # through `_prompt_multiline` (not typer.prompt) — but stdin is
+    # already drained by the Summary prompt, so the next readline()
+    # call returns EOF immediately and `_prompt_multiline` returns "".
+    answers = iter(["n", "", "", "", "", "", "", ""])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+
+    # Summary captures the entire paste — current behavior.
+    assert inputs["Summary"].startswith("2. Summary")
+    # Other sections empty (operator can fill via the regular prompts).
+    assert inputs["Audience"] == ""
+    assert inputs["Goals"] == ""
+    # No extras filled.
+    assert extras == {}
+
+
+def test_collect_smart_paste_partial_paste_fills_only_matched(monkeypatch):
+    """Paste contains only 3 sections (Summary / Audience / Goals).
+    Smart-paste fills those 3; the remaining 2 AI_AGENTS sections
+    (ICP / Content strategy) still get prompted."""
+    partial = (
+        "1. Summary\nS content.\n"
+        "\n"
+        "2. Audience\nA content.\n"
+        "\n"
+        "3. Goals\nG content.\n"
+    )
+    # Two newlines terminate _prompt_multiline; we then need the ICP
+    # and Content strategy multiline prompts to drain immediately.
+    _patch_stdin(monkeypatch, partial + "\n\n")
+
+    # Sequence: Y to confirm auto-fill, then no further typer.prompts
+    # fire for the multiline ICP/Content-strategy sections (they use
+    # _prompt_multiline which reads from stdin → EOF → empty).
+    answers = iter(["Y"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert inputs["Summary"] == "S content."
+    assert inputs["Audience"] == "A content."
+    assert inputs["Goals"] == "G content."
+    # ICP and Content strategy weren't in the paste; they get empty
+    # answers via the EOF-drained _prompt_multiline.
+    assert inputs["ICP"] == ""
+    assert inputs["Content strategy"] == ""
+
+
+def test_collect_smart_paste_lovable_repo_routes_to_git_url(monkeypatch):
+    """A paste section labeled "Lovable GitHub repo URL" with a
+    valid URL value lands in `extras_out['git_url']`."""
+    paste = (
+        "1. Lovable GitHub repo URL\nhttps://github.com/u/r\n"
+        "\n"
+        "2. Summary\nS.\n"
+        "\n"
+        "3. Audience\nA.\n"
+        "\n"
+        "4. Goals\nG.\n"
+    )
+    _patch_stdin(monkeypatch, paste + "\n\n")
+    answers = iter(["Y"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert extras["git_url"] == "https://github.com/u/r"
+    assert inputs["Summary"] == "S."
+
+
+def test_collect_smart_paste_with_flag_supplied_for_summary(monkeypatch):
+    """If `--summary "X"` is supplied, the Summary prompt is skipped
+    AND smart-paste fires on whatever the FIRST remaining multiline
+    prompt is (ICP). Verifies smart-paste isn't hardwired to Summary."""
+    paste = (
+        "1. ICP\nI content.\n"
+        "\n"
+        "2. Goals\nG content.\n"
+        "\n"
+        "3. Content strategy\nC content.\n"
+    )
+    _patch_stdin(monkeypatch, paste + "\n\n")
+    # Y confirms; one Audience-typer.prompt may fire (single-line).
+    answers = iter(["Y", ""])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="Pre-supplied summary.",
+        audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert inputs["Summary"] == "Pre-supplied summary."
+    assert inputs["ICP"] == "I content."
+    assert inputs["Goals"] == "G content."
+    assert inputs["Content strategy"] == "C content."
+
+
+def test_collect_non_smart_paste_input_falls_through_to_normal_flow(monkeypatch):
+    """Operator pastes a single-paragraph Summary (not a multi-section
+    response). Smart-paste does not fire; the paste becomes the
+    Summary content; remaining prompts fire normally."""
+    # Single-paragraph Summary, then Audience single-line, then EOF
+    # for ICP/Goals/Content strategy.
+    summary_text = "AgeSDK is a React Native SDK for AB 1043 compliance.\n\n"
+    _patch_stdin(monkeypatch, summary_text)
+    answers = iter(["broad-audience"])  # Audience prompt only.
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert inputs["Summary"].startswith("AgeSDK is a React Native SDK")
+    assert inputs["Audience"] == "broad-audience"
+    assert extras == {}
+
+
+def test_collect_smart_paste_audience_collapses_to_single_line(monkeypatch):
+    """A paste with multi-line Audience content collapses to the
+    first non-blank line (Audience is a single-line AI_AGENTS slot,
+    not a paragraph)."""
+    paste = (
+        "1. Summary\nS.\n\n"
+        "2. Audience\n"
+        "First line of audience.\n"
+        "Second line.\n"
+        "Third line.\n"
+        "\n"
+        "3. Goals\nG.\n"
+    )
+    _patch_stdin(monkeypatch, paste + "\n\n")
+    answers = iter(["Y"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert inputs["Audience"] == "First line of audience."
+
+
+def test_collect_smart_paste_registered_normalization_yes(monkeypatch):
+    """`Y` / `Yes` / `true` in the Domain registered? section all
+    normalize to True in extras."""
+    for raw in ("Y", "yes", "true", "1"):
+        paste = (
+            "1. Summary\nS.\n\n"
+            "2. Audience\nA.\n\n"
+            f"3. Domain registered?\n{raw}\n"
+        )
+        _patch_stdin(monkeypatch, paste + "\n\n")
+        answers = iter(["Y"])
+        monkeypatch.setattr(typer, "prompt",
+                            lambda *a, _it=answers, **k: next(_it, ""))
+        extras: dict = {}
+        cli_mod._collect_operator_inputs(
+            summary="", audience="", icp="", goal="", content_strategy="",
+            non_interactive=False, extras_out=extras,
+        )
+        assert extras.get("registered") is True, f"raw={raw!r}"
+
+
+def test_collect_smart_paste_registrar_falls_back_to_other(monkeypatch):
+    """An unknown registrar value (e.g. `Squarespace`) normalizes to
+    `other` rather than rejecting the paste."""
+    paste = (
+        "1. Summary\nS.\n\n"
+        "2. Audience\nA.\n\n"
+        "3. Registrar\nSquarespace\n"
+    )
+    _patch_stdin(monkeypatch, paste + "\n\n")
+    answers = iter(["Y"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert extras.get("registrar") == "other"
+
+
+def test_collect_smart_paste_default_enter_accepts_confirm(monkeypatch):
+    """Operator hits Enter at the confirm prompt → defaults to Y
+    (auto-fill applied). Operator workflow: paste, Enter-Enter to
+    terminate, Enter to confirm."""
+    # 3-section paste so the threshold is met.
+    paste = (
+        "1. Summary\nS.\n\n"
+        "2. Audience\nA.\n\n"
+        "3. Goals\nG.\n"
+    )
+    _patch_stdin(monkeypatch, paste + "\n\n")
+    # typer.prompt with default="Y" returns "Y" when the user hits
+    # Enter at an empty prompt. We simulate that by returning "Y"
+    # (typer's default-applied behavior). Empty input would also pass
+    # since `_confirm_multisection_paste` treats empty as Yes.
+    answers = iter(["Y"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert inputs["Summary"] == "S."
+    assert inputs["Audience"] == "A."
+    assert inputs["Goals"] == "G."
