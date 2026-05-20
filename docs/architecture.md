@@ -968,12 +968,13 @@ lamill
 | v12.B-G | `new validate --verify` / `--no-verify` / `--audit-model <id>` / `--invalidate {none, interpretive, audit, all}` flags (no new node) |
 | v13.B | `project seo <domain>` gains the GSC-diagnostics default block (sitemaps + coverage + hints). |
 | **v14.B** | **Hard-cutover CLI rename — see tree above. No new functionality; reshape only.** |
-| v15.B | `project version` |
-| v15.C | `project deploy-status` (or fold into `diagnose`?) |
-| v15.D | (deploy lag / build status surfaced via existing `fleet hosting`?) |
-| v15.E | `fleet sync --refresh` / `--watch` flags (no new node) |
-| v16.B | URL Inspection API wrapper + binary check_NNN (`project check` fails when URL not indexed). |
-| v16.C | Fleet-level GSC rollup — new `fleet dashboard` columns (Coverage % / Crawl errors / W/w imp Δ / Page-2 opp count) + `fleet seo --detail` mode for fleet-aggregated top queries / top pages. |
+| v15.B | `project hosting <domain>` (new verb) + drop `fleet hosting --only` flag (hard cutover, matches v14.B precedent). Restores `project X ↔ fleet X` symmetry. |
+| v15.C | `has-version-stamp` conformance check (no new verb; build artifact convention). |
+| v15.D | `deploy-fresh` conformance check + 📋 Freshness section in `project hosting <domain>`. |
+| v15.E | `Last build` column on `fleet hosting` + 🔧 Build section on `project hosting <domain>` (folds into existing `_fleet_hosting_impl` walker — no new platform-API infra). |
+| v15.F | `fleet sync --refresh` (live Porkbun pull) + `--watch` (filesystem watcher) flags (no new node). |
+| v16.C | URL Inspection API wrapper + binary check_NNN (`project check` fails when URL not indexed). |
+| v16.D | Fleet-level GSC rollup — new `fleet dashboard` columns (Coverage % / Crawl errors / W/w imp Δ / Page-2 opp count) + `fleet seo --detail` mode for fleet-aggregated top queries / top pages. |
 | v17.B-E | 14 new conformance checks (CHECK_081-088 + 096-101 + 102-105). |
 | v18.B | `new bootstrap --ga4 G-XXXXXX` flag · `project fix` gains `inject-ga4` remediation. |
 | v19.B | `lamill trends <topic>` (standalone test invocation; later composes into `new validate`). |

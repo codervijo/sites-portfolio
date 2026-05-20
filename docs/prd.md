@@ -394,7 +394,7 @@ v10 + v11 wraps.*
 v8.D shipped 2026-05-15; v8.E-J shipped 2026-05-16/17 (full primary
 interpretive pass + audit payload builder); v12.A shipped 2026-05-17.
 
-### v13 — per-project GSC diagnostics *(retheme 2026-05-20; was "analytical roll-ups"; v13.A absorbed by v16.C (fleet rollup; was --trend pre-v16-reshape 2026-05-20); old v13.B `project list` roll-up + draft GSC-ownership-conformance retheme both dropped 2026-05-20; old v13.C moved to v15.F)*
+### v13 — per-project GSC diagnostics *(retheme 2026-05-20; was "analytical roll-ups"; v13.A absorbed by v16.D (fleet rollup; was --trend pre-v16-reshape 2026-05-20); old v13.B `project list` roll-up + draft GSC-ownership-conformance retheme both dropped 2026-05-20; old v13.C moved to v15.F)*
 
 Diagnostics drill-down for `lamill project seo <domain>`. When
 `fleet focus` flags "GSC: sitemap parse errors (4)" or "Stale CF
@@ -416,7 +416,7 @@ Behavior change: today's `project seo <domain>` renders only a
 1-row 28-day aggregate. After v13.B, the aggregate stays as a
 header line above the new diagnostics block. Backwards-
 incompatible for any consumer that scraped the 1-row output —
-but scripts should use `--json` (which v16.B is planned to add).
+but scripts that scraped the 1-row output will need to adapt (a future `--json` mode would be a clean answer; not in v16 scope).
 
 **Kickoff gate.** Before starting `v13.B`, re-validate the plan
 against existing GSC infrastructure (auth scope, cache shape) +
@@ -428,7 +428,7 @@ surfaces).
 
 | # | Status | Feature |
 |---|---|---|
-| v13.A | ✅ *(absorbed by v16.C 2026-05-19; v16.C subsequently reshaped 2026-05-20 from `--trend` section flag to fleet rollup)* | GSC trend correlation — the persisted `data/gsc/` snapshots + w/w delta computation feed into v16.C's fleet-aggregated `W/w Δimp` column on `fleet dashboard`. Per-property trend rendering dropped in v16's 2026-05-20 reshape (GSC UI does single-property trend well). |
+| v13.A | ✅ *(absorbed by v16.D 2026-05-19; v16.D subsequently reshaped 2026-05-20 from `--trend` section flag to fleet rollup)* | GSC trend correlation — the persisted `data/gsc/` snapshots + w/w delta computation feed into v16.D's fleet-aggregated `W/w Δimp` column on `fleet dashboard`. Per-property trend rendering dropped in v16's 2026-05-20 reshape (GSC UI does single-property trend well). |
 | v13.B | ✅ | Per-project GSC diagnostics shipped as the new `project seo <domain>` default. New module `src/portfolio/project_seo_diagnostics.py` — `ProjectSeoDiagnostics` dataclass + `build_diagnostics(domain, *, top_n=10)` orchestrator + `fetch_sitemap_details()` (GSC Sitemaps API per-sitemap status/errors/warnings/last-fetch) + `fetch_coverage_details()` (top-N URLs from live sitemap → URL Inspection API per URL via existing `gsc_recrawl.inspect_one_url`). Hardcoded `_COVERAGE_HINTS` mapping by coverage_state ({crawled_not_indexed, discovered_not_indexed, not_found_404, redirect_error, server_error, blocked_by_robots, soft_404}) — deterministic, no LLM cost. Sitemap-error hints reference `project fix --apply` for CF-cache clearing. New per-domain cache `src/portfolio/gsc_detail_cache.py` writing `data/gsc/<domain>/<UTC-today>.json` (24h TTL, mirrors `hosting_cache` shape with per-domain subdirs). Manual actions + security issues NOT shipped — no public GSC API; mobile usability folded inline with per-URL coverage detail (from `urlInspection.mobileUsabilityResult`). Render block `_render_project_seo_diagnostics()` in `cli.py` — sitemap status cascade (OK / WARN / PENDING / ERROR) with glyph+color; coverage rows with truncate-middle URL formatting; hints with severity-colored bullets; supports both dataclass and dict-from-cache shapes. 33 tests including consistency predicate test (focus's sitemap-error detector and v13.B's per-sitemap ERROR status fire on the same condition). |
 
 #### Design notes
@@ -477,19 +477,19 @@ remember.
 |---|---|---|
 | v5.D | Runtime live SEO probe | `project seo` 1-row aggregate (today) |
 | **v13** | **Diagnostics (what's broken)** | **`project seo` default block** |
-| v16.B | Per-URL index conformance (binary check) | `project check`, `project seo` |
-| v16.C | Fleet-level GSC rollup (coverage / crawl errors / opportunity counts) | `fleet dashboard` + `fleet seo --detail` |
+| v16.C | Per-URL index conformance (binary check) | `project check`, `project seo` |
+| v16.D | Fleet-level GSC rollup (coverage / crawl errors / opportunity counts) | `fleet dashboard` + `fleet seo --detail` |
 | v23 | Fleet-level sitemap status | `fleet seo` |
 
-Some overlap with v16.B (URL Inspection coverage) and v23.B (Sitemaps
-API). The kickoff gate validates that v16.B / v23.B aren't
+Some overlap with v16.C (URL Inspection coverage) and v23.B (Sitemaps
+API). The kickoff gate validates that v16.C / v23.B aren't
 prematurely committing to the same Sitemaps API wrapper — v13.B
-ships first; v16.B / v23.B reuse what lands here.
+ships first; v16.C / v23.B reuse what lands here.
 
 **Open questions** (resolved at v13.B kickoff):
 | # | Question |
 |---|---|
-| 13.A | Cap on per-URL coverage detail — top 10 / 25 / all submitted URLs? Default 10 (matches v16.B's planned default). |
+| 13.A | Cap on per-URL coverage detail — top 10 / 25 / all submitted URLs? Default 10 (matches v16.C's planned default). |
 | 13.B | Hints — hardcoded mapping by error type vs LLM-generated per finding? Hardcoded first (deterministic, no LLM cost); LLM-generated could be a v13.B+ polish. |
 | 13.C | Domain has no GSC property — show "not registered" hint + suggest manual setup vs error out? Show hint; defer auto-registration to a future tier (the old v13 GSC-ownership theme is parked for revisit). |
 | 13.D | `fleet focus` ↔ `project seo` consistency — when focus says "GSC: sitemap parse errors (4)", the diagnostics block should show those exact 4 errors. Wire the focus detector to the same sitemap-API call (or shared cache) so the counts match. |
@@ -610,7 +610,7 @@ commit. Hard cutover, matching v14.B's posture for `new suggest`/
 (last-build-success on both surfaces) → F (`fleet sync` flags).
 Total estimate ~6-9h. B is the unblocker for D/E.
 
-### v16 — GSC fleet-level intelligence *(new 2026-05-19; absorbs v13.A; renumbered 2026-05-20, was v15; reshaped 2026-05-20 — dropped v16.B/C/E single-property reinvention per `§ 2 Non-goals` audit; relabel v16.D→v16.B, v16.F→v16.C)*
+### v16 — GSC fleet-level intelligence *(new 2026-05-19; absorbs v13.A; renumbered 2026-05-20, was v15; reshaped 2026-05-20 — dropped original v16.B/C/E single-property reinvention per `§ 2 Non-goals` audit; relabeled original v16.D→v16.B + v16.F→v16.C; kickoff inserted 2026-05-20 — bumped foundation/check/rollup to v16.B/C/D)*
 
 GSC web UI handles single-property dim views (queries / pages /
 devices / trend) well — operator can browse `search.google.com/
@@ -630,9 +630,10 @@ non-goals — same family as the dropped GA4 Data API consumers.
 
 | # | Status | Feature |
 |---|---|---|
-| v16.A | ⏳ | Foundation — `gsc.py` dimension-aware query helpers (`query_with_dims(property, days, dimensions, row_limit)`) + per-project cache module `gsc_detail_cache.py` writing `data/gsc/<domain>/<UTC-today>.json`. Persists fleet-aggregation inputs so v16.B/C read from cache without re-burning GSC quota. `--refresh` re-fetches; `is_stale` default 24h. Heavy reuse of existing OAuth + retry plumbing in `gsc.py`. |
-| v16.B | ⏳ | URL Inspection API wrapper + binary check (was v16.D). `gsc.inspect_url(property, url)` calls `urlInspection.index:inspect`, returns `(indexed, last_crawl_at, mobile_usability_verdict, crawl_state)` where `crawl_state` itemizes the GSC verdict — `submitted_indexed` / `crawled_not_indexed` / `discovered_not_indexed` / `not_found_404` / `redirect_error` / `server_error` / `blocked_by_robots`. Capped at top-N pages from the sitemap (default 10) so a 100+ page site doesn't burn the URL Inspection daily quota. Exposes the data as a **binary CHECK_NNN** in `project check` — fires `fail` when any inspected URL is in a non-`submitted_indexed` state. *(Optional `--coverage` flag on `project seo` is a stretch goal — supersedes v13.B's existing block; not required for the binary check.)* |
-| v16.C | ⏳ | Fleet-level GSC rollup (was v16.F; absorbs the aggregate signals from dropped v16.B/C/E). New columns on `fleet dashboard`: Coverage % (indexed/submitted, from v16.B cache) · Crawl-errors count · W/w impressions delta · Page-2 opportunity count (fleet-summed). `fleet seo --detail` mode surfaces fleet-aggregated top queries / top pages / page-2 opportunities — *across the fleet*, not per-property (the GSC UI already does per-property). Reuses persisted GSC snapshots — no extra API quota when called within cache TTL. Renders condensed at narrow terminal widths. |
+| v16.A | ✅ | **Kickoff planning.** Locked five decisions 2026-05-20: (a) v16.C URL Inspection check inspects **sitemap URLs ranked by GSC impressions desc** (alphabetical fallback for zero-imp URLs) — works for new sites + prioritizes URLs that actually matter. (b) v16.D fleet-aggregated views surface via a **single `fleet seo --detail` flag** rather than compositional section flags — coherent unit, fewer flags. (c) Cache TTL stays **24h default** — matches existing `hosting_cache`/`seo_cache` conventions; GSC's own 2-3 day publishing lag dominates anyway. (d) v16.C binary check is **indexing-only** (`crawl_state != submitted_indexed`); mobile-usability data renders but doesn't fail the check (one assertion per CHECK_NNN). (e) Formally adopted the kickoff-phase convention — bumped existing v16.A/B/C → v16.B/C/D. See `#### Design notes` for the locked decisions; this matches the v14.A / v15.A kickoff precedent. |
+| v16.B | ⏳ | Foundation — `gsc.py` dimension-aware query helpers (`query_with_dims(property, days, dimensions, row_limit)`) + per-project cache module `gsc_detail_cache.py` writing `data/gsc/<domain>/<UTC-today>.json`. Persists fleet-aggregation inputs so v16.C/D read from cache without re-burning GSC quota. `--refresh` re-fetches; `is_stale` default 24h. Heavy reuse of existing OAuth + retry plumbing in `gsc.py`. |
+| v16.C | ⏳ | URL Inspection API wrapper + binary check (was v16.D). `gsc.inspect_url(property, url)` calls `urlInspection.index:inspect`, returns `(indexed, last_crawl_at, mobile_usability_verdict, crawl_state)` where `crawl_state` itemizes the GSC verdict — `submitted_indexed` / `crawled_not_indexed` / `discovered_not_indexed` / `not_found_404` / `redirect_error` / `server_error` / `blocked_by_robots`. Capped at top-N pages from the sitemap (default 10) so a 100+ page site doesn't burn the URL Inspection daily quota. Exposes the data as a **binary CHECK_NNN** in `project check` — fires `fail` when any inspected URL is in a non-`submitted_indexed` state. *(Optional `--coverage` flag on `project seo` is a stretch goal — supersedes v13.B's existing block; not required for the binary check.)* |
+| v16.D | ⏳ | Fleet-level GSC rollup (was v16.F pre-reshape, then v16.C briefly post-reshape; absorbs the aggregate signals from dropped original v16.B/C/E). New columns on `fleet dashboard`: Coverage % (indexed/submitted, from v16.C cache) · Crawl-errors count · W/w impressions delta · Page-2 opportunity count (fleet-summed). `fleet seo --detail` mode surfaces fleet-aggregated top queries / top pages / page-2 opportunities — *across the fleet*, not per-property (the GSC UI already does per-property). Reuses persisted GSC snapshots — no extra API quota when called within cache TTL. Renders condensed at narrow terminal widths. |
 
 #### Design notes
 
@@ -697,7 +698,7 @@ both one or two GSC API calls away:
 $ lamill project seo lamillrentals.com
 <sitemaps · coverage · hints diagnostics block, as shipped in v13.B>
 
-# v16.B — per-URL index conformance fires as a binary check
+# v16.C — per-URL index conformance fires as a binary check
 $ lamill project check airsucks.com
 …
  ✗ url-indexed (CHECK_NNN)
@@ -706,7 +707,7 @@ $ lamill project check airsucks.com
        · /docs/old      not_found_404
      Hint: re-publish or remove from sitemap; re-submit if intentional.
 
-# v16.C — fleet rollup columns on the dashboard
+# v16.D — fleet rollup columns on the dashboard
 $ lamill fleet dashboard
 Domain                Status  …  Cov %   Crawl-err  W/w Δimp   P2-opp
 airsucks.com           ✓      …  92%       0        +18         3
@@ -714,7 +715,7 @@ homeloom.app           ✓      …  88%       1        -22         5
 lamillrentals.com      ⚠      …  78%       4        +6          2
 …
 
-# v16.C — fleet-aggregated top queries / page-2 opportunities
+# v16.D — fleet-aggregated top queries / page-2 opportunities
 $ lamill fleet seo --detail
 🔎 Top queries (fleet-aggregated, 28d)
  Query                            Sites  Imp     Pos avg
@@ -736,17 +737,20 @@ $ lamill fleet seo --detail --refresh
 
 | # | Question | Resolution |
 |---|---|---|
-| 16.A | URL Inspection cap — how to bound the per-day quota burn? | **Top N pages from the sitemap** (default 10). A 100-page site at one inspect call each would chew the daily quota; capping at top-N keeps it bounded. |
+| 16.A | URL Inspection cap — how to bound the per-day quota burn? | **Top N pages from the sitemap, ranked by GSC impressions desc** with alphabetical fallback (default top 10). A 100-page site at one inspect call each would chew the daily quota; capping at top-N keeps it bounded. Ranking by impressions surfaces the most-trafficked URLs first. |
 | 16.B | Per-project GSC cache TTL? | **24h default**, configurable via `is_stale(max_age_hours=N)` like `hosting_cache`. GSC search data has a 2-3 day publishing lag anyway; 24h matches the daily-run cadence. |
 | 16.C | Cache directory shape — `data/gsc/<domain>/<date>.json` (per-domain subdir) vs flat `data/gsc/<domain>-<date>.json`? | **Per-domain subdir.** Matches how `data/seo/` would scale if we ever wanted per-domain history. Cleaner `ls` output. Already adopted in v13.B's `gsc_detail_cache.py`. |
+| 16.D | Fleet-aggregated views — single `--detail` flag or compositional `--queries`/`--pages`/`--opportunities` flags on `fleet seo`? | **Single `--detail` flag.** Renders all three fleet-aggregated sections (top queries / top pages / page-2 opportunities) below the existing per-site table. Coherent unit; simpler flag surface. Can decompose into section flags later if section-by-section iteration becomes valuable. |
+| 16.E | v16.C binary check failure semantics — fail on indexing only, or also on mobile usability? | **Indexing only** (`crawl_state != submitted_indexed`). Mobile-usability data renders in the URL Inspection output but doesn't trigger conformance failure. Keeps the CHECK_NNN surgical (one assertion per check). Mobile-friendliness could become a separate CHECK_NNN later. |
 
-**Effort estimate.** ~4-6h total across 3 sub-phases:
+**Effort estimate.** ~4.5-6.5h total across 4 sub-phases:
 
 | Phase | Scope | Effort |
 |---|---|---|
-| v16.A | `gsc.py` dim-aware queries + per-project cache module | ~2h |
-| v16.B | URL Inspection wrapper + binary CHECK_NNN | ~1-2h |
-| v16.C | Fleet rollup columns + `fleet seo --detail` | ~1-2h |
+| v16.A | Kickoff planning (✅ shipped 2026-05-20) | ~0.5h |
+| v16.B | `gsc.py` dim-aware queries + per-project cache module | ~2h |
+| v16.C | URL Inspection wrapper + binary CHECK_NNN | ~1-2h |
+| v16.D | Fleet rollup columns + `fleet seo --detail` | ~1-2h |
 
 Real GSC API quirks (paging behavior on filtered queries, rate-limit
 edges, URL Inspection quota math) surface only on first run against
@@ -756,13 +760,7 @@ the operator's actual properties.
 assignment approved 2026-05-19. Reshape approved 2026-05-20 per
 `§ 2 Non-goals` audit.
 
-**Kickoff gate.** Before starting `v16.A`, re-validate the plan
-above against learnings from `v11` + `v12` (the most recently
-shipped tiers). The pattern: incoming tier's first concrete sub-
-phase only begins after one revisit of its plan with current
-context. For new tiers v17+ this gate is the explicit `vN.A`
-phase (see below); v15 and v16 absorb it as a one-line tier-
-preamble note since their letter slots are already assigned.
+**Kickoff gate.** Now adopted as the explicit `v16.A` phase (above) — 2026-05-20 locked the five decisions captured there. For consistency, v16+ (post-kickoff-convention) all carry the explicit `vN.A — kickoff planning` row; v15 also adopted it 2026-05-20. v13/v14 absorbed it as a one-line tier-preamble note since their letter slots were already assigned at shipping.
 
 ### v17 — SEO check expansion *(new 2026-05-19; renumbered 2026-05-20, was v16)*
 
@@ -778,7 +776,7 @@ catalog conventions (post-implementation).**
 
 `v17.A` kickoff phase re-validates the candidate-check list against
 whatever shipped in v16 (some overlap possible — e.g., per-page
-coverage signal may already live in v16.B's URL Inspection wrapper,
+coverage signal may already live in v16.C's URL Inspection wrapper,
 in which case the equivalent v17 check thins out).
 
 #### Phases
@@ -804,7 +802,7 @@ doesn't generalize.
 **Out of scope (deferred):**
 - Per-page coverage (currently checks homepage only) — that's a
   separate "multi-page check sweep" concern; v17 stays single-page.
-- GSC-coverage check (% submitted indexed) — already in v16.B.
+- GSC-coverage check (% submitted indexed) — already in v16.C.
 - Lighthouse / Core Web Vitals — dropped (v20 reserved; see tier note).
 - Performance budgets (bundle size, image count) — dropped with v20.
 
@@ -926,18 +924,18 @@ Two GSC API surfaces not covered by v16: the **Sitemaps API**
 (`/webmasters/v3/sites/{site}/sitemaps`) for tracking submitted-
 sitemap status (lastSubmitted, lastDownloaded, errors, warnings)
 and the **Search Console API `index` endpoint** for index-status-
-inspection at the per-URL level. Distinct from v16.B's URL
+inspection at the per-URL level. Distinct from v16.C's URL
 Inspection: Sitemaps API is bulk + lower-quota; URL Inspection
-(v16.B) is per-URL + higher-detail. Both surfaces useful for
+(v16.C) is per-URL + higher-detail. Both surfaces useful for
 different operator workflows.
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v23.A | ⏳ | **Kickoff planning.** Re-check API surface coverage against what v16.B actually shipped. If v16.B's URL Inspection already covers per-URL index status sufficiently, v23 shrinks to just the Sitemaps API. ~0.5h. |
+| v23.A | ⏳ | **Kickoff planning.** Re-check API surface coverage against what v16.C actually shipped. If v16.C's URL Inspection already covers per-URL index status sufficiently, v23 shrinks to just the Sitemaps API. ~0.5h. |
 | v23.B | ⏳ | GSC Sitemaps API wrapper + `project seo --sitemaps` section flag (composable with v16). Shows submitted sitemaps with last-fetch / error counts / warning counts per site. ~1h. |
-| v23.C | ⏳ | Per-URL bulk-index-status integration into `fleet dashboard` (indexed/submitted column augmentation from v16.C). ~1h. |
+| v23.C | ⏳ | Per-URL bulk-index-status integration into `fleet dashboard` (indexed/submitted column augmentation from v16.D). ~1h. |
 
 ## 7. Conformance rules for all websites
 
