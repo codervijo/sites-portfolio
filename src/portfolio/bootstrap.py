@@ -1694,11 +1694,74 @@ def bootstrap(
     if from_genai:
         if not project_dir.exists():
             raise BootstrapError(f"--from-genai requires {project_dir} to already exist with a genai/ subdir")
-        copied, copy_warnings = _copy_from_genai(project_dir)
-        # Re-detect stack from package.json after copy.
-        detected = detect_stack_from_pkg(project_dir)
-        if detected != "unknown":
-            stack = detected
+
+        # v15.H per ADR-0013 — detect the cloned repo's stack. If
+        # non-Astro, translate to Astro+Vite via Claude subprocess
+        # BEFORE running `_copy_from_genai` (which would otherwise
+        # copy non-Astro source verbatim to root).
+        from .stack_translate import (
+            STACK_ASTRO,
+            STACK_UNKNOWN,
+            StackTranslationError,
+            detect_stack,
+            translate_to_astro,
+            validate_translation,
+        )
+
+        genai_dir = project_dir / "genai"
+        stack_detection = detect_stack(genai_dir)
+
+        if stack_detection.stack == STACK_ASTRO:
+            # Source is already Astro+Vite — existing direct-copy path.
+            copied, copy_warnings = _copy_from_genai(project_dir)
+        elif stack_detection.stack == STACK_UNKNOWN:
+            # No translation policy for unknown stacks — bail.
+            raise BootstrapError(
+                f"genai/ stack is unknown (signals: "
+                f"{', '.join(stack_detection.signals)}). lamill can only "
+                f"bootstrap Astro+Vite projects via --git-url. Either fix "
+                f"the source repo's package.json or use blank bootstrap "
+                f"(no --git-url)."
+            )
+        else:
+            # Translate via Claude subprocess.
+            console_translate_msg = (
+                f"genai/ stack is `{stack_detection.stack}` "
+                f"(signals: {', '.join(stack_detection.signals)}); "
+                f"translating to Astro+Vite via Claude subprocess "
+                f"(ADR-0013)..."
+            )
+            # Print to stderr so test output can capture for verification;
+            # bootstrap doesn't import `rich` console — use print.
+            print(console_translate_msg)
+            result = translate_to_astro(
+                project_dir,
+                detection=stack_detection,
+            )
+            if not result.ok:
+                raise StackTranslationError(
+                    f"Claude translation failed: {result.error}. "
+                    f"Output: {result.raw_output[:300]}"
+                )
+            # Validate the output conforms to Astro+Vite shape.
+            validation = validate_translation(project_dir)
+            if not validation.ok:
+                raise StackTranslationError(
+                    f"Translator output failed validation: "
+                    f"{'; '.join(validation.issues)}"
+                )
+            # Translation wrote to project_dir directly; no `_copy_from_genai`.
+            # Synthesize the copy-report for downstream code.
+            copied = ["<translated by Claude subprocess>"]
+            copy_warnings = []
+            # Always Astro post-translation.
+            stack = "astro"
+
+        # Re-detect stack from package.json after copy/translation.
+        if stack_detection.stack == STACK_ASTRO:
+            detected = detect_stack_from_pkg(project_dir)
+            if detected != "unknown":
+                stack = detected
         result = BootstrapResult(
             project_dir=project_dir,
             stack=stack,

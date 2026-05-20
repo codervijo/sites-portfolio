@@ -1,0 +1,346 @@
+"""v15.H — Bootstrap stack normalization via Claude subprocess.
+
+Per ADR-0013: `sites/*` projects must be Astro+Vite. When `--git-url`
+clones an external repo (typically a Lovable export, but anyone's
+GitHub repo works), this module:
+
+  1. **Detects** the cloned repo's stack via `package.json` + config
+     files.
+  2. If non-Astro, **translates** the source into an Astro+Vite shape
+     in-place via the `claude` CLI subprocess (reuses the Tier-2-fixer
+     pattern from `fix_helpers.run_claude()`; ADR-0006).
+  3. **Validates** the translator's output before bootstrap proceeds —
+     bails with `StackTranslationError` if the output doesn't satisfy
+     Astro+Vite shape requirements.
+
+The translator's output overwrites the project root. The cloned
+`genai/` subdir is preserved untouched as the original-source
+reference.
+
+Reads required:
+  - `<project_dir>/genai/package.json` (detector)
+  - All files under `<project_dir>/genai/` (translator)
+
+Writes:
+  - All files under `<project_dir>/` except `genai/` (translator)
+"""
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .fix_helpers import ClaudeResult, claude_available, run_claude
+
+# Stack values returned by detect_stack(). Use these constants in
+# bootstrap.py + tests to avoid string-mismatch bugs.
+STACK_ASTRO = "astro"
+STACK_VITE_REACT = "vite-react"
+STACK_TANSTACK = "tanstack-start"
+STACK_NEXTJS = "nextjs"
+STACK_SVELTEKIT = "sveltekit"
+STACK_UNKNOWN = "unknown"
+
+# Translator budget cap. Translation of a typical Lovable export is
+# 5-30 files (pages, components, styles, configs). Empirically Claude
+# spends $0.05-0.25 per repo translation; 0.50 USD gives headroom for
+# larger projects without budget-exceeded failures.
+_DEFAULT_BUDGET_USD = 0.50
+
+# Translator timeout. Empirically Claude takes 30s-3min depending on
+# repo size + complexity. 300s (5min) covers worst-case Lovable
+# exports without false timeouts.
+_DEFAULT_TIMEOUT_S = 300
+
+
+class StackTranslationError(RuntimeError):
+    """Raised by bootstrap when translation can't proceed:
+      - `claude` CLI not on PATH
+      - Claude subprocess errored (budget exceeded, timeout, etc.)
+      - Translator output failed validation
+      - Detected stack is `STACK_UNKNOWN` (no policy to translate it)
+
+    Bootstrap catches + cleans up (removes any partial output;
+    surfaces the issue to the operator with actionable next steps).
+    """
+
+
+@dataclass(frozen=True)
+class StackDetection:
+    """Result of inspecting a cloned repo for its framework stack.
+
+    `signals` lists the concrete evidence (e.g. `"dependency:astro"`,
+    `"file:src/server.ts"`) so the operator can see why a particular
+    stack was inferred. Useful when the detection seems wrong.
+    """
+    stack: str
+    signals: list[str] = field(default_factory=list)
+
+
+def detect_stack(genai_dir: Path) -> StackDetection:
+    """Identify the framework stack of a cloned repo.
+
+    Detection order matters — most specific first:
+      1. Astro (dependency + astro.config presence)
+      2. SvelteKit (@sveltejs/kit dependency or svelte.config)
+      3. Next.js (next dependency)
+      4. TanStack Start (any @tanstack/* dep, optionally with
+         src/server.ts for SSR)
+      5. Vite + React (vite + react deps with no Astro layer)
+      6. Unknown (nothing matched)
+    """
+    signals: list[str] = []
+
+    if not genai_dir.is_dir():
+        return StackDetection(STACK_UNKNOWN, ["genai_dir_missing"])
+
+    pkg_path = genai_dir / "package.json"
+    deps: dict[str, str] = {}
+    if pkg_path.exists():
+        try:
+            pkg_data = json.loads(pkg_path.read_text())
+            deps = {
+                **(pkg_data.get("dependencies") or {}),
+                **(pkg_data.get("devDependencies") or {}),
+            }
+        except (json.JSONDecodeError, OSError):
+            signals.append("package_json_unreadable")
+
+    # Astro — highest priority (this is the target stack).
+    if "astro" in deps:
+        signals.append("dependency:astro")
+        if any((genai_dir / f"astro.config.{ext}").exists()
+               for ext in ("mjs", "ts", "js")):
+            signals.append("config:astro.config")
+        return StackDetection(STACK_ASTRO, signals)
+
+    # SvelteKit.
+    if "@sveltejs/kit" in deps:
+        signals.append("dependency:@sveltejs/kit")
+        return StackDetection(STACK_SVELTEKIT, signals)
+    if (genai_dir / "svelte.config.js").exists():
+        signals.append("config:svelte.config.js")
+        return StackDetection(STACK_SVELTEKIT, signals)
+
+    # Next.js.
+    if "next" in deps:
+        signals.append("dependency:next")
+        return StackDetection(STACK_NEXTJS, signals)
+
+    # TanStack Start (Lovable's current default).
+    if any(k.startswith("@tanstack/") for k in deps):
+        tanstack_keys = [k for k in deps if k.startswith("@tanstack/")]
+        signals.append(f"dependency:{tanstack_keys[0]}")
+        for ext in ("ts", "tsx", "js", "jsx"):
+            if (genai_dir / "src" / f"server.{ext}").exists():
+                signals.append(f"file:src/server.{ext}")
+                break
+        return StackDetection(STACK_TANSTACK, signals)
+
+    # Vite + React (no Astro layer).
+    if "vite" in deps and "react" in deps:
+        signals.append("dependency:vite")
+        signals.append("dependency:react")
+        return StackDetection(STACK_VITE_REACT, signals)
+
+    return StackDetection(STACK_UNKNOWN, signals or ["no_matching_signals"])
+
+
+@dataclass(frozen=True)
+class ValidationResult:
+    """Output of `validate_translation()`. `ok=True` iff `issues` is
+    empty; non-empty issues are reportable strings for the operator."""
+    ok: bool
+    issues: list[str] = field(default_factory=list)
+
+
+def validate_translation(project_dir: Path) -> ValidationResult:
+    """Verify the post-translation `project_dir` conforms to Astro+Vite
+    shape. Checks:
+
+      1. `package.json` exists + parses as JSON
+      2. `package.json` lists `astro` in deps
+      3. `astro.config.{mjs,ts,js}` exists at root
+      4. No banned framework deps remain (`next`, `@sveltejs/kit`,
+         `@tanstack/react-start*`)
+      5. `src/pages/` exists (Astro file-based routing target)
+      6. No `wrangler.jsonc` at root (deploy pipeline v15.I owns
+         this; translator should not emit it)
+
+    Returns `ValidationResult(ok=False, issues=[...])` on any
+    failure. Bootstrap wraps this in `StackTranslationError`.
+    """
+    issues: list[str] = []
+
+    # 1+2: package.json present + astro dep.
+    pkg_path = project_dir / "package.json"
+    if not pkg_path.exists():
+        issues.append("missing package.json at project root")
+    else:
+        try:
+            pkg_data = json.loads(pkg_path.read_text())
+        except json.JSONDecodeError as e:
+            issues.append(f"package.json: invalid JSON ({e})")
+            pkg_data = {}
+        deps = {
+            **(pkg_data.get("dependencies") or {}),
+            **(pkg_data.get("devDependencies") or {}),
+        }
+        if "astro" not in deps:
+            issues.append("package.json: missing 'astro' dependency")
+        # 4: banned frameworks. These are PARTIAL matches because
+        # tanstack publishes many packages (@tanstack/react-start,
+        # @tanstack/react-start-rsc, @tanstack/react-router, ...).
+        banned_prefixes = (
+            "@tanstack/react-start",
+            "next",
+            "@sveltejs/",
+        )
+        for dep_key in deps:
+            for prefix in banned_prefixes:
+                # Exact match for "next" (avoid matching "next-link" etc.)
+                if prefix == "next" and dep_key != "next":
+                    continue
+                if dep_key == prefix or dep_key.startswith(prefix):
+                    issues.append(
+                        f"package.json: banned framework dep present: "
+                        f"'{dep_key}' (translator should have replaced)"
+                    )
+                    break
+
+    # 3: astro.config.*
+    if not any((project_dir / f"astro.config.{ext}").exists()
+               for ext in ("mjs", "ts", "js")):
+        issues.append("missing astro.config.{mjs,ts,js} at project root")
+
+    # 5: src/pages/
+    if not (project_dir / "src" / "pages").is_dir():
+        issues.append(
+            "missing src/pages/ directory "
+            "(expected for translated pages — Astro file-based routing)"
+        )
+
+    # 6: no wrangler.jsonc
+    if (project_dir / "wrangler.jsonc").exists():
+        issues.append(
+            "wrangler.jsonc present at root — deploy pipeline (v15.I) "
+            "owns Cloudflare config; translator should not emit it"
+        )
+
+    return ValidationResult(ok=not issues, issues=issues)
+
+
+def translate_to_astro(
+    project_dir: Path,
+    *,
+    detection: StackDetection,
+    budget_usd: float = _DEFAULT_BUDGET_USD,
+    timeout_s: int = _DEFAULT_TIMEOUT_S,
+) -> ClaudeResult:
+    """Spawn `claude` CLI to translate `<project_dir>/genai/`'s source
+    into an Astro+Vite project at `<project_dir>/` root.
+
+    Reuses `fix_helpers.run_claude()` (the Tier-2-fixer subprocess
+    pattern; ADR-0006). Same restricted toolset (Read/Edit/Glob/Grep);
+    no Bash, no network beyond model calls.
+
+    The `genai/` subdir is preserved untouched — the translator reads
+    from it but writes only to project root. Operator keeps the
+    original-clone reference for archeology / debugging.
+
+    Returns `ClaudeResult` — bootstrap checks `.ok` and surfaces
+    `.error` on failure.
+    """
+    if not claude_available():
+        return ClaudeResult(
+            ok=False, cost_usd=0.0, duration_s=0.0,
+            error="claude-not-found",
+            raw_output=(
+                "The `claude` CLI is not on PATH. Stack translation "
+                "requires Claude Code installed locally. Install per "
+                "https://docs.claude.com/claude-code/quickstart, then "
+                "re-run `lamill new bootstrap`."
+            ),
+        )
+
+    prompt = _build_translation_prompt(project_dir, detection)
+    return run_claude(
+        prompt,
+        cwd=project_dir,
+        budget_usd=budget_usd,
+        timeout_s=timeout_s,
+    )
+
+
+def _build_translation_prompt(
+    project_dir: Path, detection: StackDetection,
+) -> str:
+    """The translation prompt sent to Claude. Spelled out per
+    ADR-0013's mandate."""
+    return f"""You are translating a `{detection.stack}` project to Astro + Vite.
+
+## Source
+
+Read the source from `genai/` (a subdirectory of your current
+working directory). Detection signals:
+{chr(10).join(f"  - {s}" for s in detection.signals)}
+
+## Target
+
+Emit an equivalent Astro + Vite project at the **project root**
+(your current working directory). Do NOT write inside `genai/` —
+preserve it as the original-source reference for archeology.
+
+## Required output files
+
+1. `package.json` — pnpm-only (no bun, no npm). Must list `astro`
+   and `vite` in dependencies. Build script: `"build": "astro build"`.
+   Dev script: `"dev": "astro dev"`. Preserve any operator-facing
+   scripts from the source (e.g. `lint`, `format`, `test:seo`).
+2. `astro.config.mjs` — minimal Astro 5+ config. Include the
+   `@astrojs/react` integration if the source has React components
+   you're preserving as islands. Set `output: "static"`.
+3. `src/pages/` — one `.astro` file per route. Use Astro's
+   file-based routing convention.
+4. `src/components/` — preserve component organization from the
+   source. React components stay React (use Astro islands with
+   `client:load` or `client:visible` directives for hydration).
+5. `src/layouts/` — extract shared chrome (header / footer / meta)
+   into an Astro Layout.
+6. `src/styles/` — preserve Tailwind / global CSS verbatim.
+7. `public/` — copy static assets unchanged from `genai/public/`.
+8. `tsconfig.json` — if the source uses TypeScript.
+
+## Drop with TODO markers
+
+Framework-specific server code does NOT translate cleanly to
+Astro's static-output model. Drop with a `TODO:` marker:
+
+  - TanStack Start `src/server.ts` / `src/server.tsx`
+  - Next.js `src/pages/api/*` or `src/app/api/*`
+  - SvelteKit `src/routes/**/+server.ts`
+
+Replace with a `src/lib/server-todo.md` file documenting what was
+in the dropped files. Operator hand-ports server logic outside
+the translation.
+
+## Preserve
+
+  - All operator-visible content (page copy, headings, ICP-targeting
+    text, CTAs).
+  - All design (layout, spacing, colors, typography). Tailwind classes
+    keep verbatim; convert only the JSX→.astro wrapper.
+  - All public assets (images, fonts, favicons).
+  - All client-side interactivity. React components with `useState` /
+    `useEffect` stay as React; mount them as Astro islands.
+
+## Do NOT write
+
+  - `wrangler.jsonc` — the lamill deploy pipeline (v15.I) writes this.
+  - `bun.lock` / `bunfig.toml` — pnpm-only per ADR-0008.
+  - `vite.config.ts` at root — Astro owns the Vite config under the hood.
+  - Anything inside `genai/` (read-only reference).
+
+When the file emission is complete, your work is done. The lamill
+v15.H validator will run next and report any shape issues.
+"""
