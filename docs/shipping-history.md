@@ -24,6 +24,153 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v14 — CLI rethink after drift (v14.A-C) — shipped 2026-05-20
+
+### Problem
+
+The v7.A scope-first design (`project` / `fleet` / `new` /
+`settings`) was locked 2026-05-10 and shipped across v7.A.1-3.
+Between then and v13, the CLI accreted nodes opportunistically —
+`fleet hosting`, `fleet dashboard`, `fleet domains`, `fleet repos`,
+`settings operator`, `settings cloudflare`, `settings serpapi-quota`,
+`settings project`, `gsc recrawl` — without re-validating against
+the v7.A intent.
+
+By 2026-05-20 the drift was visible enough to warrant a tier:
+
+  * `settings project` collided with the top-level `project` group
+    (same word, different scope) — the worst offense.
+  * `fleet info cleanup` was a write surface (rebuilds
+    `data/portfolio.json` from CSVs) misplaced under a read-only
+    inventory subgroup.
+  * `fleet live` (v7.A canonical) had silently disappeared, its
+    function moved into `fleet domains`, leaving the inventory-style
+    name attached to a runtime-probe verb.
+  * Several v7.A.2 deprecation aliases (`info status`, `check git`,
+    etc.) had been stripped without records.
+  * `new suggest` and `new research` were method-described
+    (suggest a domain by brainstorming; research SEO) rather than
+    intent-described (find a domain; validate winnability).
+
+### Design rationale
+
+Audit + re-alignment, not a rewrite. Two principles:
+
+  * **Hard cutover.** Operator's own tool, no third-party consumers;
+    deprecation aliases would accrue rot faster than muscle memory
+    would adapt. Old paths return typer's standard "no such command"
+    after v14.B — no nudges, no forwarders.
+  * **Verbs say what to do; the namespace says where you are.**
+    `settings deploy set` rather than `settings deploy set-deploy`
+    (redundancy). `set-launched` retained its compound form because
+    it's the lone outlier in the subgroup; rename it later if a
+    sibling lifecycle verb appears.
+
+The `fleet domains` flag-overload (`--summary` / `--expiring N`) was
+the most-debated piece. The operator confirmed `fleet domains` is
+the right noun-group container — different flag-views of the fleet
+*at the domain level* — and approved the mode-switching design over
+a separate inventory subgroup.
+
+### Locked tree
+
+See `docs/architecture.md § Projected CLI surface` for the current
+shape with phase annotations.
+
+### Migration map (8 renames)
+
+| Today | After v14.B |
+|---|---|
+| `new suggest <topic>` | `new domain <topic>` |
+| `new research <topic>` | `new validate <topic>` |
+| `fleet info summary [--verbose]` | `fleet domains --summary [--verbose]` |
+| `fleet info expiring N` | `fleet domains --expiring N` |
+| `fleet info cleanup [--refresh-rdap]` | `fleet sync [--refresh-rdap]` |
+| `settings project set-deploy <d> <p>` | `settings deploy set <d> <p>` |
+| `settings project show-deploy <d>` | `settings deploy show <d>` |
+| `settings project set-launched <d>` | `settings deploy set-launched <d>` |
+
+### Resolved open questions
+
+| # | Question | Resolution |
+|---|---|---|
+| 14.A | Verb trim under `settings deploy`? | Trim `set-deploy`→`set`, `show-deploy`→`show`. The subgroup already carries the noun. |
+| 14.B | Where does `set-launched` belong long-term? | Stays under `settings deploy` despite mild lifecycle-vs-deploy mismatch. Revisit if a 2nd lifecycle verb appears (then split into `settings lifecycle`). |
+| 14.C | Cutover style — deprecation aliases or hard? | **Hard cutover.** Single operator, daily-driver workflow adjusts in days. |
+| 14.D | Free `fleet domains` slot for inventory flags, or move inventory elsewhere? | Operator confirmed `fleet domains` is the right noun-group container. Mode-switch via flags. |
+
+### Parked for v14+
+
+  * **Data/cache namespace promotion** — `fleet sync` is one step;
+    long-term may become `lamill data sync` with sub-verbs per
+    source (registrar / gsc / crux / serpapi / cloudflare / vercel).
+    Observe `fleet sync` usage first.
+  * **Settings split** (`settings creds` vs `settings status`) —
+    currently mixes credentials with status views. Worth splitting
+    later or promoting status verbs to top-level `lamill status`.
+  * **`fleet repos` vs `fleet check` fold** — either `repos`
+    becomes `check --git`, or `repos` renames to `fleet git-status`.
+    Revisit at v14+ if overlap creates real friction.
+
+### User journey
+
+Before:
+
+```
+$ lamill new suggest "ev charger"        # find a domain
+$ lamill new research "ev charger"       # validate winnability
+$ lamill fleet info summary --verbose    # portfolio rollup
+$ lamill fleet info expiring 90
+$ lamill fleet info cleanup
+$ lamill settings project set-deploy airsucks.com cf-pages
+```
+
+After:
+
+```
+$ lamill new domain "ev charger"
+$ lamill new validate "ev charger"
+$ lamill fleet domains --summary --verbose
+$ lamill fleet domains --expiring 90
+$ lamill fleet sync
+$ lamill settings deploy set airsucks.com cf-pages
+```
+
+Same workflows, intent-described verbs, no namespace collisions.
+
+### Approval
+
+2026-05-20 — operator-driven design pass + same-day implementation
+across all three sub-phases. Hard cutover committed; suite stayed at
+2251 passed / 1 skipped throughout.
+
+### Per-phase entries
+
+  * **v14.A — kickoff planning** (doc-only commit `b493468`).
+    Locked the target tree from the 2026-05-20 design pass. Three
+    decisions resolved: trim verbs, keep `set-launched`, hard
+    cutover. Captured migration map + parked items in `prd.md §
+    v14 #### Design notes`.
+  * **v14.B — apply renames + namespace moves** (`41004e5`, 28
+    files). Wired the locked tree into `cli.py`; folded `fleet info
+    summary/expiring` into `fleet domains` flags with mutual-exclusion
+    guard; deleted the `fleet_info_app` typer; renamed
+    `settings_project_app`→`settings_deploy_app`; swept
+    `menu.py` CmdSpec entries + every test + every help string +
+    check messages + bootstrap hints + diagnose root-cause text.
+    No deprecation aliases.
+  * **v14.C — docs sync** (this commit). Rewrote
+    `architecture.md § Projected CLI surface` with the v14.B-shipped
+    tree + planned-by-phase annotations. Marked the v7.A locked-
+    target-shape section in `CLAUDE.md` as superseded (preserved as
+    archeology). Updated `AI_AGENTS.md` capability lines + usage
+    examples. Migrated v14 design notes from `prd.md` to this
+    entry. Phase-table rows in `prd.md` updated to reflect new
+    names where they describe planned/active work; historical
+    entries (v7.A, v8.A, v10.B) annotated rather than rewritten.
+
+---
+
 ## v12 — adversarial audit pass + reconciliation (v12.A-G) — shipped 2026-05-17 → 2026-05-19
 
 The full v12 tier shipped across three days. v12.A (audit prompt

@@ -115,7 +115,7 @@ don't rewrite older entries when adding new ones.
 > to `data/portfolio.json`. `launched` auto-inferred from first git
 > commit in `sites/<domain>/`, override-able via
 > `project set-launched <domain> <YYYY-MM-DD>`. `domain_created` populated
-> from RDAP `registration` event date via `fleet info cleanup --refresh-rdap`.
+> from RDAP `registration` event date via `fleet sync --refresh-rdap`.
 > `cleanup()` now preserves these fields across CSV rebuilds. Both
 > surface as columns in `fleet dashboard` (Site age + Domain age).
 >

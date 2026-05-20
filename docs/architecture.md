@@ -22,7 +22,7 @@ sites/portfolio/
 │   ├── data.py                   # multi-registrar CSV adapters + portfolio.json
 │   ├── bootstrap.py              # `new bootstrap` write surface
 │   ├── deploy.py                 # `new deploy` (GitHub repo + CF Pages project)
-│   ├── suggest.py                # `new suggest` (Power 1 — domain brainstorm)
+│   ├── suggest.py                # `new domain` (Power 1 — domain brainstorm)
 │   ├── decide.py                 # validation-mode shortlist + decide
 │   ├── availability.py           # RDAP + Porkbun availability/pricing
 │   ├── cloudflare.py             # CF API client (Pages + Workers)
@@ -30,11 +30,11 @@ sites/portfolio/
 │   ├── gsc_recrawl.py            # GSC sitemap-resubmit flow
 │   ├── seo_runtime.py            # live HTTP SEO probe orchestrator
 │   ├── seo_cache.py              # snapshot save/load for `data/seo/`
-│   ├── serp.py                   # cluster builder for `new research`
+│   ├── serp.py                   # cluster builder for `new validate`
 │   ├── serp_fetch.py             # SerpAPI client
 │   ├── serp_query_cache.py       # per-query snapshot cache under `data/serp/`
 │   ├── serpapi_quota.py          # SerpAPI monthly-quota counter
-│   ├── research_v2.py            # `new research` orchestrator (Phases 1-3 mechanical)
+│   ├── research_v2.py            # `new validate` orchestrator (Phases 1-3 mechanical)
 │   ├── research_gates.py         # gate classification (Gate 1/2/3)
 │   ├── interpretive_pass.py      # Phase 4a — primary verdict (Claude Sonnet)
 │   ├── audit_pass.py             # Phase 4b — adversarial audit (GPT-4o)
@@ -101,7 +101,7 @@ ADR.
 | `new bootstrap <domain>` | Creates a new `sites/<domain>/` project dir — `git init`, scaffolds AI_AGENTS.md / docs / Makefile / public assets / `lamill.toml`, sets up the central-builder forward | Required positional arg; no implicit-create flow |
 | `project fix <domain> --apply` | Modifies an existing project dir to close conformance gaps — runs Tier 1 templated fixers, optionally Tier 2 Claude subprocess | `--apply` required (default is dry-run); `--yes` skips confirmation |
 
-Read-only against `sites/<domain>/`: everything else — `new suggest`,
+Read-only against `sites/<domain>/`: everything else — `new domain`,
 `fleet *`, `project check`, `project diagnose`, `settings *`, and
 `new deploy` (which reads the project dir but writes to
 remote hosts, never back to the local FS). Snapshot files under
@@ -245,7 +245,7 @@ the right deploy implementation. Branches:
 | `vercel` | Shells out to `vercel deploy --prod` | `deploy.py::deploy_vercel_via_shell` |
 | `hostgator` / `custom` | cPanel UAPI uploader with stage-then-rename atomicity (ADR-0011) | `cli.py::_deploy_hostgator_v11n` + `hosting.py::deploy_hg_files` |
 | `netlify` / `github-pages` | Not yet implemented — exits with a clear "track in a future v11.X" message | — |
-| `none` | Rejects with a `settings project set-deploy` hint | — |
+| `none` | Rejects with a `settings deploy set` hint | — |
 | (missing `lamill.toml`) | Assumes `cf-pages` (legacy default) with a notice — backward-compat with pre-v10.A repos | — |
 
 The cf-workers + vercel branches delegate to the canonical CLIs
@@ -302,7 +302,7 @@ confirms; cf-workers + vercel apply immediately).
 
 ### Research module (v8.E–v8.J + v12.A–G — tier complete 2026-05-19)
 
-Three-stage pipeline added to `new research`:
+Three-stage pipeline added to `new validate`:
 
 1. **Phase 4a — Primary interpretive pass** (`interpretive_pass.py`).
    Renders `prompts/niche_evaluation_v1.md` with operator-profile +
@@ -406,12 +406,12 @@ analysis benefit is real.
 Lives in repo root, gitignored. KNOWN_KEYS (enforced by
 `settings apikeys`):
 
-- `OPENAI_API_KEY` — `new suggest`, `audit_pass`
+- `OPENAI_API_KEY` — `new domain`, `audit_pass`
 - `PORKBUN_API_KEY`, `PORKBUN_SECRET_API_KEY` — availability +
   registration
 - `CF_API_TOKEN`, `CF_ACCOUNT_ID` — Pages + Workers walker
 - `CRUX_API_KEY` — `seo_runtime` field-data probe
-- `SERPAPI_KEY` — `new research` real SERP fetch
+- `SERPAPI_KEY` — `new validate` real SERP fetch
 - `GOOGLE_OAUTH_*` — GSC integration
 - `VERCEL_TOKEN` — v11.A `fleet hosting` (planned)
 - `ANTHROPIC_API_KEY` — reserved; current implementation uses the
@@ -460,7 +460,7 @@ Free-form prose for transition states, deploy quirks, etc.
 expertise = ["SEO and programmatic content", "Python CLI tooling"]
 workflow_preference = "builder"      # builder | writer | mixed
 motivation_cadence  = "weekly"       # weekly | monthly | quarterly
-verify_by_default = false            # v12 — flips `new research --verify` default
+verify_by_default = false            # v12 — flips `new validate --verify` default
 ```
 
 **Defaults applied if section absent:**
@@ -890,15 +890,18 @@ project creation (not a project-dir write, but irreversible).
 
 ### Projected CLI surface (current + planned)
 
-Full command tree at the end of v15, with shipped nodes marked ✅
+Full command tree at the end of v14, with shipped nodes marked ✅
 and planned nodes labeled with the phase that introduces them.
+**v14.B (2026-05-20) was the most recent CLI restructure** — renamed
+several verbs and deleted the `fleet info` subgroup; supersedes the
+v7.A locked target shape in `docs/CLAUDE.md`.
 
 ```
 lamill
 ├── project                                          # ops on one project
 │   ├── check <name>                                 ✅ v7.A
 │   ├── fix <name>                                   ✅ v6.D
-│   ├── seo <name>                                   ✅ v7.A
+│   ├── seo <name>                                   ✅ v7.A (+ v13.B GSC diagnostics)
 │   ├── diagnose <name>                              ✅ v7.F
 │   ├── version <name>                               ⏳ v15.A — read local
 │   │                                                          version.json
@@ -908,105 +911,80 @@ lamill
 │
 ├── fleet                                            # cross-portfolio ops
 │   ├── focus                                        ✅ v7.D
-│   ├── domains                                      ✅ v5.G
+│   ├── domains [--summary [--verbose]]              ✅ v5.G; flag-overload v14.B
+│   │           [--expiring N]                                 (was `fleet info
+│   │                                                          summary/expiring`)
 │   ├── seo                                          ✅ v5.D
+│   ├── hosting [--refresh] [--only DOMAIN]          ✅ v11.A — unified 4-provider
+│   │           [--provider {vercel|cf-pages|                  walker (Vercel + CF
+│   │                       cf-workers|hostgator}]             Pages + Workers + HG)
+│   │           [--apply-declarations [--dry-run]]
 │   ├── check                                        ✅ v5.B
 │   ├── fix                                          ✅ v6.G
 │   ├── drift                                        ✅ v6.A
 │   ├── repos [--add-deploy-declarations]            ✅ v7.E (flag in v10.C)
 │   ├── dashboard                                    ✅ v7.B
-│   ├── hosting [--refresh] [--only DOMAIN]          ⏳ v11.A — unified 3-provider
-│   │           [--provider {vercel|cf-pages|             walker (Vercel + CF Pages
-│   │                       hostgator}]                   + HostGator UAPI); absorbed
-│   │           [--apply-declarations [--dry-run]]        v10.F
-│   ├── trends                                       ⏳ v13.A — namespace
-│   │                                                          deferred (`fleet`
-│   │                                                          vs `settings gsc`)
-│   └── info
-│       ├── summary                                  ✅ v7.A
-│       ├── expiring                                 ✅ v7.A
-│       ├── cleanup                                  ✅ v7.A
-│       └── list                                     ⏳ v13.B — aggregate
-│                                                              verdict-counts
-│                                                              view
+│   └── sync [--refresh-rdap]                        ✅ v7.A; renamed v14.B
+│                                                                (was `fleet info
+│                                                                cleanup`)
 │
 ├── new                                              # create work
-│   ├── suggest                                      ✅ v2.A
+│   ├── validate <topic> [--verify] [...]            ✅ v8.D; renamed v14.B
+│   │                                                              (was `new research`)
+│   ├── domain <topic>                               ✅ v2.A; renamed v14.B
+│   │                                                              (was `new suggest`)
 │   ├── bootstrap                                    ✅ v3.A
-│   │                                                   (writes lamill.toml in
-│   │                                                   v10.C)
-│   ├── deploy                                       ✅ v3.C
-│   │                                                   (becomes polymorphic in
-│   │                                                   v11.B — reads lamill.toml,
-│   │                                                   dispatches CF Pages / Vercel
-│   │                                                   / SFTP-to-HostGator)
-│   └── research [--verify]                          ✅ v8.D
-│                                                       (flag added in v12.E)
+│   │                                                              (writes lamill.toml
+│   │                                                              in v10.C)
+│   └── deploy <name>                                ✅ v3.C → v11.M polymorphic
+│                                                              (reads lamill.toml,
+│                                                              dispatches CF Pages /
+│                                                              Workers / Vercel /
+│                                                              HostGator)
 │
 └── settings                                         # setup / debug
     ├── catalog {list, describe, run}                ✅ v7.A
-    ├── gsc {auth, status}                           ✅ v7.A
+    ├── gsc {auth, recrawl, status}                  ✅ v7.A (+ recrawl post-v7.A)
     ├── apikeys {list, set, delete}                  ✅ v7.A
     ├── operator {show}                              ✅ v8.D
     ├── cloudflare {token, status}                   ✅ v7.H
     ├── serpapi-quota {show, sync}                   ✅ v8.D
-    ├── project                                      # per-project metadata
-    │   ├── set-launched <name> <date>               ✅ v7.C (moved here from
-    │   │                                                    `project set-launched`
-    │   │                                                    2026-05-18 — per-project
-    │   │                                                    metadata fits settings)
-    │   ├── set-deploy <name> <platform>             ✅ v10.B
-    │   └── show-deploy <name>                       ✅ v10.B
-    └── cost report                                  ⏳ v12.F (deferred) — LLM
-                                                                cost ledger
+    └── deploy                                       ✅ v10.B; renamed v14.B
+        ├── set <name> <platform>                                  (was `settings
+        ├── show <name>                                            project set-deploy
+        └── set-launched <name> <date>                             / show-deploy /
+                                                                   set-launched`)
 ```
 
-#### Net additions by phase
+#### Net additions by phase (recent + planned)
 
 | Phase | New CLI surface |
 |---|---|
-| v10.B | `settings project set-deploy` ✅ · `settings project show-deploy` ✅. Also moved `set-launched` (v7.C) into the `settings project` namespace for consistency — per-project metadata stays together; `project` namespace reserved for project-code ops. |
+| v10.B | Original `settings project {set-deploy, show-deploy, set-launched}` — all renamed in v14.B (see above). |
 | v10.C | `fleet repos --add-deploy-declarations` flag · `new bootstrap` writes `lamill.toml` (no surface change) |
-| v10.D | None (validation phase — uses existing CLIs) |
-| v10.E | None (`CHECK_058` / `CHECK_059` / `CHECK_143` — surfaced via existing `project check` / `fleet check`) |
-| v10.F | **Absorbed by v11.A 2026-05-18** — HostGator UAPI walker folds into the unified `fleet hosting` design rather than getting its own `fleet hostgator` namespace. Single rollup table; one verb to remember. |
-| v10.G | **Absorbed by v11.B 2026-05-18** — SFTP push lives in `new deploy` polymorphic dispatch. No standalone phase. |
-| v11.A | `fleet hosting` — unified Vercel + CF Pages + HostGator walker. New flags: `--provider {vercel\|cf-pages\|hostgator}`, `--apply-declarations [--dry-run]`. HG tokens in `apikeys` as `HOSTGATOR_TOKEN_GATOR3164` / `HOSTGATOR_TOKEN_GATOR4216`. |
-| v11.B | `new deploy <domain>` becomes polymorphic — reads `lamill.toml [deploy].platform`, dispatches CF Pages (v3.C) / Vercel / SFTP-to-HG. Adds a third write surface; gated on ADR-0009. |
-| v12.B-G | `new research --verify` / `--no-verify` / `--audit-model <id>` / `--no-cache=audit` flags (no new node) |
-| v13.A | GSC trend correlation — namespace deferred (`fleet trends` vs `settings gsc trends`) |
-| v13.B | `fleet info list` (or `project list` — naming TBD) |
-| v13.C | LLM content seeding — postponed indefinitely; no surface change |
+| v10.D-E | None (validation + drift detection — uses existing CLIs) |
+| v11.A | `fleet hosting` — unified Vercel + CF Pages + Workers + HostGator walker (absorbed v10.F + v10.G). |
+| v11.M | `new deploy <domain>` becomes polymorphic — reads `lamill.toml [deploy].platform`, dispatches CF Pages (v3.C) / CF Workers / Vercel / HostGator. |
+| v12.B-G | `new validate --verify` / `--no-verify` / `--audit-model <id>` / `--invalidate {none, interpretive, audit, all}` flags (no new node) |
+| v13.B | `project seo <domain>` gains the GSC-diagnostics default block (sitemaps + coverage + hints). |
+| **v14.B** | **Hard-cutover CLI rename — see tree above. No new functionality; reshape only.** |
 | v15.A | `project version` |
 | v15.B | `project deploy-status` (or fold into `diagnose`?) |
 | v15.C | (deploy lag / build status surfaced via existing `fleet hosting`?) |
-| v15.D | `cleanup --refresh` / `--watch` flags (no new node) |
+| v15.D | `fleet sync --refresh` / `--watch` flags (no new node) |
+| v16.B-F | `project seo --queries` / `--pages` / `--devices` / `--trend` / `--coverage` / `--opportunities` / `--full` section flags. |
+| v17.B-E | 14 new conformance checks (CHECK_081-088 + 096-101 + 102-105). |
+| v18.B | `new bootstrap --ga4 G-XXXXXX` flag · `project fix` gains `inject-ga4` remediation. |
+| v19.B | `lamill trends <topic>` (standalone test invocation; later composes into `new validate`). |
+| v20.B-D | `project speed --lab` / `--field` flags. New `fleet dashboard` Perf column. |
+| v21.B | `new deploy --reindex [<url>...]` flag (Google Indexing API). |
+| v23.B-C | `project seo --sitemaps` section flag · `fleet dashboard` indexed/submitted column augmentation. |
 
 #### Open CLI design questions
 
-These are deliberate non-decisions — resolve before the relevant
-phase ships. The operator either gates these in a planning session
-or signals "decide it when you get there" per-phase.
+Resolve before the relevant phase ships.
 
-1. **v11.B SFTP push verb shape (design open — gates code).** Verb
-   split: keep one polymorphic `new deploy <domain>` that dispatches
-   by `lamill.toml [deploy].platform`, or split into `new deploy
-   <domain>` (first-time setup) + a separate `project push <domain>`
-   (recurring SFTP push)? CF Pages git-auto-deploys; SFTP needs an
-   explicit push every time the dist changes — same verb covers
-   fundamentally different cadences. Plus 11.P-T (what gets pushed,
-   auth surface, WP scope, ADR, atomicity). Resolve at v11.B
-   kickoff per `prd.md § 6 → v11 → Open questions (v11.B)`.
-2. **v13.A GSC trends namespace.** `fleet trends` (scope-first;
-   reuses `data/gsc/` snapshots; sits next to `fleet seo`) vs
-   `settings gsc trends` (keeps all GSC stuff together; sits
-   next to existing `settings gsc auth`/`status`). Deferred until
-   v13.A starts.
-3. **v13.B roll-up listing.** `fleet info list` (matches existing
-   inventory views; clean fit) vs `project list` (matches
-   pre-v7.A name; was deprecated). Leaning `fleet info list` —
-   confirm at v13.B kickoff.
-4. **v15.B deploy-status placement.** Standalone `project
+1. **v15.B deploy-status placement.** Standalone `project
    deploy-status <name>` vs fold the HEAD-vs-deployed check into
    the existing `project diagnose <name>` 5-layer probe. The
    diagnose path is closer to the existing UX shape; standalone
@@ -1014,7 +992,7 @@ or signals "decide it when you get there" per-phase.
 
 ### `--verify` semantics (v12)
 
-`lamill new research <topic>`:
+`lamill new validate <topic>`:
 - Default → primary only (Phase 4a). Cost ~$0.01-0.02/run.
 - `--verify` → primary + audit + reconciliation (Phases 4a-c). Cost ~$0.05-0.10/run.
 - `--no-verify` → primary only, even if `verify_by_default=true`.
@@ -1028,13 +1006,13 @@ or signals "decide it when you get there" per-phase.
 
 | Provider | Used for | Auth | Quirks |
 |---|---|---|---|
-| **OpenAI** | `new suggest` brainstorm; `audit_pass` (v12) | `OPENAI_API_KEY` (Bearer) | 429 with `Retry-After` |
+| **OpenAI** | `new domain` brainstorm; `audit_pass` (v12) | `OPENAI_API_KEY` (Bearer) | 429 with `Retry-After` |
 | **Anthropic (Claude CLI subprocess)** | `interpretive_pass` primary (v8); Tier 2 fixers (v6.E) | Operator's existing Claude subscription via local CLI | Different I/O shape from direct API; cost model per local subscription, not per-token |
 | **Anthropic API** | Reserved — direct-API switch path for primary pass | `ANTHROPIC_API_KEY` (header `x-api-key` + `anthropic-version`) | Per-provider rate-limit dialect; not currently exercised |
 | **Cloudflare** | Pages projects, Workers, DNS lookups | `CF_API_TOKEN` + `CF_ACCOUNT_ID` | Pagination on Pages projects list |
 | **Vercel** | v11.A `fleet hosting` walker | `VERCEL_TOKEN` (Bearer) | Personal token sees only personal account; multi-team out of scope (`prd.md` v11 Design notes — 11.A) |
 | **CrUX (Chrome UX Report)** | `seo_runtime` field data | `CRUX_API_KEY` | `no-data` for personal-portfolio-scale origins (expected; not a bug) |
-| **SerpAPI** | `new research` real SERP fetch | `SERPAPI_KEY` | Monthly quota tracked in `data/serp/_quota.json` |
+| **SerpAPI** | `new validate` real SERP fetch | `SERPAPI_KEY` | Monthly quota tracked in `data/serp/_quota.json` |
 | **Google Search Console** | `gsc.py` ranking + impressions | OAuth (`GOOGLE_OAUTH_*`) | 28-day rolling window for the operator's verified properties |
 | **Porkbun** | Availability + pricing + registration | `PORKBUN_API_KEY` + `PORKBUN_SECRET_API_KEY` | Registration is the only registrar API the tool calls; GoDaddy/Namecheap are CSV-export only |
 | **RDAP** | Availability fallback | Anonymous | Authoritative WHOIS replacement |
@@ -1097,7 +1075,7 @@ candidate refactor if a third LLM provider lands.
 | `data.py` | Multi-registrar CSV adapters + `portfolio.json` IO | `load_inventory`, `rebuild_portfolio_json` |
 | `bootstrap.py` | `new bootstrap <domain>` write surface | `bootstrap_domain` |
 | `deploy.py` | `new deploy` (GitHub repo + CF Pages project) | `deploy_domain` |
-| `suggest.py` | `new suggest <topic>` Power 1 brainstorm | `suggest_domains` |
+| `suggest.py` | `new domain <topic>` Power 1 brainstorm | `suggest_domains` |
 | `decide.py` | Validation-mode shortlist + decide | `mark_shortlist`, `decide_from_shortlist` |
 | `availability.py` | RDAP + Porkbun availability + pricing | `check_availability` |
 | `cloudflare.py` | CF API client (Pages, Workers, DNS) | `walk_pages_projects`, `dns_lookup` |
@@ -1105,11 +1083,11 @@ candidate refactor if a third LLM provider lands.
 | `gsc_recrawl.py` | Sitemap resubmit flow | `recrawl_property` |
 | `seo_runtime.py` | Live HTTP SEO probe orchestrator | `run_seo(domains)` |
 | `seo_cache.py` | Snapshot save/load for `data/seo/` | `save_snapshot`, `latest_snapshot`, `is_stale` |
-| `serp.py` | Cluster builder for `new research` | `build_cluster` |
+| `serp.py` | Cluster builder for `new validate` | `build_cluster` |
 | `serp_fetch.py` | SerpAPI client | `fetch_serp_for_query` |
 | `serp_query_cache.py` | Per-query snapshot cache under `data/serp/` | `save_query_snapshot`, `load_query_snapshot` |
 | `serpapi_quota.py` | SerpAPI monthly-quota counter | `bump_quota`, `quota_remaining` |
-| `research_v2.py` | `new research` orchestrator (Phases 1-3) | `run_research(topic, *, verify)` |
+| `research_v2.py` | `new validate` orchestrator (Phases 1-3) | `run_research(topic, *, verify)` |
 | `research_gates.py` | Gate 1/2/3 mechanical classification | `run_gates(cluster)` |
 | `interpretive_pass.py` | Phase 4a — primary verdict | `build_payload`, `parse_verdict`, `run_primary_pass` |
 | `audit_pass.py` | Phase 4b — adversarial audit | `build_audit_payload`, `parse_audit`, `run_audit_pass` |
@@ -1165,14 +1143,14 @@ the tier-level design context remains load-bearing in `prd.md`.
 
 Two slices delivered the CLI half of `lamill.toml`:
 
-- *`settings project set-deploy <name> <platform>`* — interactive
+- *`settings deploy set <name> <platform>`* — interactive
   by default; hostgator/custom walks cpanel + FTP breadcrumbs.
   `--non-interactive` + flags (`--account`/`--branch`/
   `--auto-deploy`/`--no-auto-deploy`/`--domain` repeatable/
   `--cpanel-user`/.../`--public-html-path`) for scripted use. Writes
   via `lamill_toml.write()` (atomic). 17 tests at
   `tests/test_settings_project_set_deploy.py`.
-- *`settings project show-deploy <name>`* — rich-table renderer +
+- *`settings deploy show <name>`* — rich-table renderer +
   `--json` (uses `lamill_toml.to_dict()`). Shows "no deploy
   declaration" hint + `set-deploy` invocation when no
   `lamill.toml` exists. Long notes truncated. 12 tests at
@@ -1237,7 +1215,7 @@ Real-fleet rollout. Operator-driven, not code-heavy:
 
 - Ran `lamill fleet repos --add-deploy-declarations --dry-run`
   against the actual fleet; reviewed plan; resolved edge cases
-  via `lamill settings project set-deploy` interactively.
+  via `lamill settings deploy set` interactively.
 - 22 of 23 fleet sites now carry a `lamill.toml`. 17 of 22
   committed in own-git-repos; 5 NO_GIT sites have the file in
   working tree pending v6.F (own-git-repo guided migration).
@@ -1356,7 +1334,7 @@ Cloudflare / cPanel UAPI.
 - `vercel` → existing-equivalent (verify what was shipped in v3.C
   vs only CF; backfill if Vercel deploy verb is stub-only).
 - `hostgator` / `custom` → NEW SFTP push flow.
-- `none` → reject with a `lamill settings project set-deploy` hint.
+- `none` → reject with a `lamill settings deploy set` hint.
 
 The SFTP path is a third write surface (the first being `new
 bootstrap` for fresh project dirs per ADR-0001 / ADR-0003, the
@@ -1398,7 +1376,7 @@ v12.B-G wedges:
   SERP data.
 - **v12.G — Docs** (~1h). `docs/CLAUDE.md`, `AI_AGENTS.md`,
   `docs/Prompts.md`, prd v12 rows → ✅; "when to use --verify"
-  guidance added to `lamill new research --help`.
+  guidance added to `lamill new validate --help`.
 
 Total v12.B-G: ~13-18h.
 

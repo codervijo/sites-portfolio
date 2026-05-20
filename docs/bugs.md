@@ -65,6 +65,107 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — v13.B `project seo` GSC diagnostics — 3 rendering/classification issues
+
+**Repro**
+    lamill project seo hybridautopart.com --top 30
+
+Run against a live, GSC-verified site. One operator run surfaced
+all three sub-issues at once.
+
+**Expected**
+- Coverage section accurately reflects GSC URL Inspection verdicts
+  (URLs reported as "submitted and indexed" should count as
+  indexed and render with a pass marker).
+- `--top N` is honored beyond 10 — `--top 30` should inspect up to
+  30 URLs.
+- Relative-date formatter renders sub-day deltas as "today" or
+  "~0d ago", never "0y ago".
+
+**Actual**
+Three rendering/classification defects in one run, captured below:
+
+1. **Coverage state misclassified.** Every URL in the output was
+   labeled "submitted and indexed" by the GSC URL Inspection API,
+   but the renderer marked them all with ✗ (red cross) and counted
+   them as **0/10 indexed (0%)**. The classifier likely expects the
+   GSC verdict token `submitted_indexed` (underscored) but the API
+   is returning `submitted and indexed` (human text), so nothing
+   matches the pass case and everything falls through to the fail
+   rendering. The header `📊 Coverage (top 10 inspected — 0/10
+   indexed, 0%)` is therefore wrong on a healthy site.
+
+2. **`--top N` not honored beyond 10.** Operator passed `--top 30`
+   but only 10 URLs were shown. Either the API call caps at 10, or
+   the top-N truncation happens before the user's value is applied,
+   or both. Either way the flag is silently capped.
+
+3. **Relative-date formatter unit bug.** One row reads `crawled 0y
+   ago` — "0 years ago" — for a URL crawled today (or very
+   recently). The relative-time formatter is picking the wrong unit
+   at the low end. Should read "today" or "~0d ago".
+
+Full operator terminal output:
+
+```
+$ lamill project seo hybridautopart.com --top 30
+Probing 1 domain(s) — HTTP + GSC (28d) + CrUX...
+  [1/1] hybridautopart.com
+check --seo · 1 domains · GSC 28d · sort=impressions
+ SEO  Domain              HTTP    Robots  Sitemap  GSC  GSC sm     Imp  Clicks   CTR   Pos
+ 🟡   hybridautopart.com  🟢 200    🟢      🟢     🟢     🟡    26,378     117  0.4%  13.3
+
+  GSC diagnostics
+    Property: https://hybridautopart.com/
+    📋 Sitemaps (1 submitted)
+      ⚠ WARN     /sitemap_index.xml               3 warning(s)  ·  fetched 17h ago
+    📊 Coverage (top 10 inspected — 0/10 indexed, 0%)
+      ✗ https://hybridautopart.com/            submitted and indexed     crawled 4d ago
+      ✗ https://hybridauto…-en/subaru-hybrids/ submitted and indexed     crawled 5d ago
+      ✗ https://hybridauto…blog-en/phev-guide/ crawled - currently not indexed  verdict=NEUTRAL · crawled 0y ago
+      ✗ https://hybridauto…rgy-drive-problems/ submitted and indexed     crawled 4d ago
+      ✗ https://hybridauto…-en/prius-charging/ submitted and indexed     crawled 3w ago
+      ✗ https://hybridauto…ing-courses-online/ submitted and indexed     crawled 3w ago
+      ✗ https://hybridauto…og-en/mhev-vs-phev/ submitted and indexed     crawled 9d ago
+      ✗ https://hybridauto…power-split-device/ submitted and indexed     crawled 9d ago
+      ✗ https://hybridauto…ible-link-assembly/ submitted and indexed     crawled 8w ago
+      ✗ https://hybridauto…tion-engine-heater/ submitted and indexed     crawled 3d ago
+```
+
+**Where (guess)**
+`src/portfolio/project_seo_diagnostics.py` — the coverage
+classifier + renderer + relative-date formatter all live here (or
+in a helper module called from here). Suggested fix directions:
+
+- *Issue 1:* Normalize the GSC verdict string before matching
+  against the pass case (`submitted_indexed` / `submitted and
+  indexed` → same key). Case-fold + collapse spaces/underscores
+  before comparison.
+- *Issue 2:* Check the URL Inspection API call's `top_n` path;
+  ensure `top_n=30` is plumbed all the way through (from CLI flag
+  → diagnostics entry point → API call → result truncation).
+  Default cap may be hardcoded to 10 somewhere along the chain.
+- *Issue 3:* In the relative-date formatter, add a "today" / "0d"
+  branch before the years/weeks/days cascade falls through to
+  years for sub-1d deltas. Likely an integer-divide ordering issue
+  where `delta_days // 365 == 0` is being formatted as "0y" instead
+  of falling through to the days/hours/today branch.
+
+**Severity**
+minor — cosmetic + small accuracy issue. The Coverage% misread is
+the most visible (operator can't trust the "0/10 indexed" header
+on a healthy site), but no data loss; underlying GSC data is
+correct, just rendered wrong.
+
+**Notes**
+All three issues surfaced in v13.B (per-project GSC diagnostics as
+`project seo` default — shipped in commit `a693d96`). Likely
+shippable as one small follow-up phase (v13.C?) since they share
+a file and a renderer. Self-contained — full repro output captured
+above so the bug record stands alone.
+
+---
+
 ### 2026-05-20 — tech-debt audit pass
 
 **Repro**
@@ -121,16 +222,16 @@ maintainability + future-velocity, not user-visible.
   pass between feature tiers when motivation strikes. Operator to
   decide scoping.
 
-### 2026-05-18 — `settings project set-deploy` fails for sites/ dirs missing from portfolio.json
+### 2026-05-18 — `settings deploy set` fails for sites/ dirs missing from portfolio.json
 
 **Repro**
     # Site has sites/<domain>/ directory but no entry in portfolio.json:
-    uv run lamill settings project set-deploy hostkit.app vercel --domain hostkit.app --non-interactive
+    uv run lamill settings deploy set hostkit.app vercel --domain hostkit.app --non-interactive
 
 **Expected**
 Writes `sites/hostkit.app/lamill.toml`. The site dir exists; the
 operator's intent is clear. Drift between sites/ and portfolio.json
-is its own concern (`fleet info cleanup` / `fleet drift`), not a
+is its own concern (`fleet sync` / `fleet drift`), not a
 blocker for declaring a deploy target.
 
 **Actual**
@@ -150,10 +251,10 @@ migration sweep in the same module bypasses
 `resolve_project` and walks the filesystem directly. Make
 `set_deploy` either (a) fall back to the dir-name match when
 portfolio.json lookup fails, (b) print a warning + proceed
-anyway, or (c) suggest `fleet info cleanup` and exit.
+anyway, or (c) suggest `fleet sync` and exit.
 
 **Severity**
-minor — workaround is `fleet info cleanup` to reconcile
+minor — workaround is `fleet sync` to reconcile
 portfolio.json first, or hand-edit the JSON. Surfaces real drift
 (sites/ dirs without inventory entries) which is useful, but the
 hard-block on a write-only command is friction.
@@ -167,10 +268,10 @@ might be the right behavior; just needs a clearer error.
 
 ---
 
-### 2026-05-18 — `settings project set-deploy` doesn't auto-populate `custom_domains` from dir name
+### 2026-05-18 — `settings deploy set` doesn't auto-populate `custom_domains` from dir name
 
 **Repro**
-    uv run lamill settings project set-deploy <domain> cf-pages --non-interactive
+    uv run lamill settings deploy set <domain> cf-pages --non-interactive
     cat sites/<domain>/lamill.toml
 
 **Expected**
@@ -184,7 +285,7 @@ Without explicit `--domain <X>` flag, `set-deploy` writes no
 `custom_domains` entry. Operator has to remember to pass
 `--domain <domain>` to match the migration sweep's output.
 Inconsistency: `fleet repos --add-deploy-declarations` and
-`settings project set-deploy <name>` produce different
+`settings deploy set <name>` produce different
 `lamill.toml` shapes for the same input domain.
 
 **Where (guess)**
@@ -234,7 +335,7 @@ into three categories:
 
 | Category | Sites | Cause | Operator fix |
 |---|---|---|---|
-| **A. No Vercel project exists** | agesdk.dev · iotbastion.com · iotnews.today · lamill.io · thoralox.com · whizgraphs.com | Site declared `vercel` in `lamill.toml` but no project is registered in operator's Vercel account. iotnews.today is the canonical CHECK_143 drift case (declared vercel, actually serving WP on HG). The others are likely stale decls or sites never deployed to Vercel. | Either deploy the site to Vercel (then it'll surface), or fix the declaration via `lamill settings project set-deploy <name> <correct-platform>`. |
+| **A. No Vercel project exists** | agesdk.dev · iotbastion.com · iotnews.today · lamill.io · thoralox.com · whizgraphs.com | Site declared `vercel` in `lamill.toml` but no project is registered in operator's Vercel account. iotnews.today is the canonical CHECK_143 drift case (declared vercel, actually serving WP on HG). The others are likely stale decls or sites never deployed to Vercel. | Either deploy the site to Vercel (then it'll surface), or fix the declaration via `lamill settings deploy set <name> <correct-platform>`. |
 | **B. Vercel project exists but custom domain not attached** | calcengine.site (project `calcengine-site` exists, `alias` = only `*.vercel.app` URLs) · linkedcsi.live (project `linkedcsi` exists, `alias` = only `linkedcsi.vercel.app`) | Project deployed to Vercel; custom domain CNAME'd via DNS but never bound at the Vercel project level via the dashboard's Domains pane. Vercel only populates `targets.production.alias` for project-bound domains. | Attach the custom domain in the Vercel dashboard (Project → Settings → Domains → Add) for each. |
 | **C. Project name mismatch** | homeloom.app (declared, but only `homeloop-app` exists in Vercel — typo? renamed?) | The Vercel project was either renamed, deleted, or has a different name than the operator's declaration assumes. | Confirm whether `homeloop-app` is the same project and rename in Vercel, OR fix the local declaration. |
 

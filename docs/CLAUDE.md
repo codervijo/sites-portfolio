@@ -188,7 +188,18 @@ at quarterly cleanup time.
 
 Designs aligned but not yet executed. When picked up, no need to re-debate.
 
-### v7.A — CLI restructure to scope-first (`project` / `fleet`) + `settings`
+### v7.A — CLI restructure to scope-first (`project` / `fleet`) + `settings` *(SHIPPED — superseded by v14)*
+
+> **Status: SUPERSEDED.** v7.A shipped 2026-05-10; v14.B (2026-05-20)
+> further restructured the CLI — renamed `new suggest`→`new domain`,
+> `new research`→`new validate`, folded `fleet info {summary,
+> expiring}` into `fleet domains --summary/--expiring`, renamed
+> `fleet info cleanup`→`fleet sync`, deleted `fleet info` subgroup,
+> renamed `settings project`→`settings deploy` with trimmed verbs.
+> See `docs/architecture.md § Projected CLI surface` for the current
+> command tree and `docs/shipping-history.md § v14` for the design
+> rationale. The content below is preserved as the original v7.A
+> design record — do not edit; treat as archeology.
 
 Aligned 2026-05-10 across two design sessions. Replaces the current
 mixed-namespace tree with a scope-first model. `project` for ops on
@@ -244,9 +255,9 @@ Rename map: `info status <name>` → `project check <name>`;
 `check seo --domain X` → `project seo X`; `check git` → `fleet check`;
 `check live` → `fleet live`; `check seo` → `fleet seo`;
 `project fix --all` → `fleet fix`; `focus` → `fleet focus`;
-`info summary` → `fleet info summary`; `info list` →
-`fleet info summary --verbose`; `info expiring` → `fleet info expiring`;
-`info cleanup` → `fleet info cleanup`; `info drift` → `fleet drift`;
+`info summary` → `fleet domains --summary`; `info list` →
+`fleet domains --summary --verbose`; `info expiring` → `fleet domains --expiring`;
+`info cleanup` → `fleet sync`; `info drift` → `fleet drift`;
 `check {catalog,describe,run}` → `settings catalog {list,describe,run}`;
 `gsc auth` → `settings gsc auth`; `gsc list/sync/compare` →
 `settings gsc status [--refresh]`.

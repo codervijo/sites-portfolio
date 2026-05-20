@@ -39,7 +39,7 @@ each one is in its lifecycle. portfolio is the single place to:
    goal — turns "I have an idea" into "indexed live site" in under an
    hour.
 6. **Validate a niche before committing to a build** *(v8 + v12)* —
-   `lamill new research <topic>` walks a mechanical SERP gate plus an
+   `lamill new validate <topic>` walks a mechanical SERP gate plus an
    LLM interpretive verdict; `--verify` (v12) adds an adversarial audit
    pass against a different model. REVIEW_REQUIRED is a first-class
    verdict when models disagree — visibility over false confidence.
@@ -106,8 +106,8 @@ standards + acquisition + validation — for one operator.
 Sole user: Vijo. No multi-tenancy, no permissions, no public surface.
 CLI-only. Daily-driver workflow:
 
-- Domain ideation → `lamill new suggest <topic>` (v2/v4 Power 1).
-- Niche validation → `lamill new research <topic>` (v8 + v12).
+- Domain ideation → `lamill new domain <topic>` (v2/v4 Power 1).
+- Niche validation → `lamill new validate <topic>` (v8 + v12).
 - Project scaffold → `lamill new bootstrap <domain>` (v3 Power 2).
 - Deploy → `lamill new deploy <domain>` (v3.C).
 - Daily fleet ops → `lamill fleet focus`, `lamill fleet dashboard`,
@@ -155,7 +155,7 @@ never `vN.X.Y` (ADR-0004; CHECK_013).
 Read/write surface note: portfolio is **read-only** through v2.
 **v3** (bootstrap) is the first write surface; **v6.D** (remediation)
 is the second. Everything else — `fleet *`, `project check`,
-`project diagnose`, `new suggest`, `new research`, `settings *` — is
+`project diagnose`, `new domain`, `new validate`, `settings *` — is
 read-only.
 
 ### v1 — project status + multi-registrar inventory ✅
@@ -241,7 +241,7 @@ read-only.
 |---|---|---|
 | v7.A | ✅ | CLI restructure — scope-first (`project` / `fleet` / `new` / `settings`). Reorganized the CLI surface around scope-first namespaces. New commands: `project check` (replaces `info status`), `project fix`, `project seo` (replaces `check seo --domain`), `fleet focus`/`live`/`seo`/`check`/`fix`/`drift`, `fleet info {summary,expiring,cleanup}`, `settings catalog {list,describe,run}`, `settings gsc {auth,status}`, `settings apikeys {list,set,delete}` (NEW — replaces manual `portfolio.env` editing). Old paths kept as additive aliases. |
 | v7.B | ✅ | `fleet dashboard` — unified live + SEO + git view. Single per-domain row joining `data/checks/<date>.json` + `data/seo/<date>.json` + local git state. Worst-of rollup dot leftmost. Sort modes: attention (worst rollup first — default), name, imp, age. |
-| v7.C | ✅ | Age tracking — `launched` + `domain_created`. Two new fields on each row in `data/portfolio.json`. `launched` manual via `lamill settings project set-launched <domain> <YYYY-MM-DD>`, falls back to first-commit-date inference; `domain_created` via RDAP `registration` event date. `fleet info cleanup --refresh-rdap`. Both surface as columns in `fleet dashboard` (Site age + Domain age). |
+| v7.C | ✅ | Age tracking — `launched` + `domain_created`. Two new fields on each row in `data/portfolio.json`. `launched` manual via `lamill settings deploy set-launched <domain> <YYYY-MM-DD>`, falls back to first-commit-date inference; `domain_created` via RDAP `registration` event date. `fleet sync --refresh-rdap`. Both surface as columns in `fleet dashboard` (Site age + Domain age). |
 | v7.D | ✅ | `fleet focus` enhancements + P4 age-aware SEO grading. Five fixes: (1) variant-aware site-down; (2) platform-aware action text; (3) `--refresh` flag; (4) age-aware SEO signal suppression for sites <90d old with `--include-young` to override; (5) idle (🟡) signal for forwarder/parked. P4 closed the age-awareness loop in `seo_runtime.overall_status` — masks imp + pos cells when site is young. |
 | v7.E | ✅ | `fleet repos` audit + naming-consistency cluster + archived state. Read-only audit of every `sites/<domain>/`'s git-layer state. Three new git-category catalog checks: CHECK_040 (git-remote-name-matches-domain), CHECK_041 (dir-matches-portfolio-entry), CHECK_042 (live-final-url-matches-domain). Archived support via `TOMBSTONE.md` marker or portfolio.json category in `{to be deleted immediately, archived, tombstoned}`. |
 | v7.F | ✅ | `project diagnose <domain>` — five-layer auto-investigate. Probes DNS / HTTP / TLS / repo / inventory and synthesizes a root cause + suggested fix. Seven heuristics catching real-world patterns: Vercel deployment-not-found, Namecheap parking, intent-vs-actual mismatch, TLS alert 112 on intended platform, no-DNS-at-all, normal live site, forwarder/parked decision. |
@@ -254,14 +254,14 @@ read-only.
 
 | # | Status | Feature |
 |---|---|---|
-| v8.A | ✅ | `new research <topic>` core command. *(absorbed by v8.D 2026-05-14)* |
+| v8.A | ✅ | `new validate <topic>` core command. *(absorbed by v8.D 2026-05-14)* |
 | v8.B | ✅ | Multi-keyword cluster mode. *(absorbed by v8.D 2026-05-14)* |
 | v8.D | ✅ | Research module v2 — real SERP + three-gate framework + operator profile. Rebuild from AI-only synthesis to SerpAPI primary with synthesis fallback. Phase 1 (SerpAPI fetch + per-query dated snapshots); Phase 2 (three-gate logic — Market / SERP-with-7-classifiers / Moat-interactive-prompt); Phase 3 (operator profile read from `sites/portfolio/lamill.toml [operator]`). Verdict vocabulary: GO / NICHE-DOWN / NO-GO. Schema bumped; old caches archived. |
 | v8.E | ✅ | Primary-pass payload assembly. `interpretive_pass.build_payload(cluster, operator_profile)`. Pure data-shaping helper. |
 | v8.F | ✅ | Primary-pass prompt rendering. `interpretive_pass.render_primary_prompt(payload, operator_profile)`. Operator-var placeholders substituted; payload JSON in a fenced block. `UnfilledPlaceholderError` raised at render time on drift. |
 | v8.G | ✅ | Primary-pass response parser. `interpretive_pass.parse_verdict(markdown)` + `ParsedVerdict` dataclass + `VerdictParseError`. Splits on `### <header>` boundaries. Strict on `verdict` / `confidence` / `reasoning` and canonical token sets; tolerant on optional sections, bullet markers, header case, NICHE-DOWN separator variants. |
 | v8.H | ✅ | Primary interpretive pass runner. `interpretive_pass.run_primary_pass(cluster, ...)`. End-to-end build_payload → render → run_claude_text → parse_verdict. Returns `InterpretivePassResult`. |
-| v8.I | ✅ | Wire primary pass into `new research` orchestrator. First user-visible v8.E-series feature. Renders "Interpretive verdict (Claude):" section in human output. Snapshot schema bumped to v2.1. |
+| v8.I | ✅ | Wire primary pass into `new validate` orchestrator. First user-visible v8.E-series feature. Renders "Interpretive verdict (Claude):" section in human output. Snapshot schema bumped to v2.1. |
 | v8.J | ✅ | Adversarial audit payload builder. `audit_pass.build_audit_payload(cluster, *, primary_verdict, operator_profile)` — extends the v8.E primary payload with `primary_response_markdown` reconstructed from the persisted parsed verdict. `_reconstruct_primary_markdown` strips `blind_spot_self_report` by default (anti-anchoring). |
 
 ### v9 — bootstrap UX — canonical AI_AGENTS + interactive prompts ✅
@@ -300,9 +300,9 @@ Tier-level design notes moved to `docs/shipping-history.md`. See
 | # | Status | Feature |
 |---|---|---|
 | v10.A | ✅ | `lamill.toml` foundation — schema constants (`PLATFORM_VALUES`, `DB_VALUES`, `FRAMEWORK_VALUES`, `BACKEND_HOSTING_VALUES`), dataclasses (`DeployBlock` / `HostingBlock` / `BackendBlock` / `LamillToml`), `load()` (strict-on-read, raises `ParseError`), atomic `write()` (tmpfile + rename, round-trip determinism), `infer_from_existing_configs()` + `detect_platform_signals()` (filesystem-marker classification with ambiguous-case detection). Shipped `4395e1d` → `c9d543b` → `be10787` 2026-05-18. 70 tests. |
-| v10.B | ✅ | Operator CLI surfaces — `lamill settings project set-deploy <name> <platform>` (interactive prompts when stdin is TTY; `--non-interactive` rejects on missing required fields; hostgator/custom walks cpanel + FTP breadcrumbs) + `lamill settings project show-deploy <name>` (pretty table renderer + `--json`). `set-launched` also moved into the same `settings project` namespace 2026-05-18 for consistency (was `project set-launched` v7.C). Shipped 2026-05-18 across `d28c516` → `890841e` → show-deploy commit. |
-| v10.C | ✅ | Auto-write integration — `new bootstrap` writes `lamill.toml` as part of scaffolding (platform priority: `--platform <X>` flag → infer-from-existing-configs → `cf-pages` default; `hostgator/custom` rejected at bootstrap, use `settings project set-deploy` instead). `fleet repos --add-deploy-declarations [--dry-run/--apply] [--include-ambiguous]` migration sweep walks every `sites/<dir>/`, classifies (unambiguous / ambiguous / manual / already-declared / archived), writes safe cases. Shipped 2026-05-18 across `fd725ff` + migration-sweep commit. v10.D validation phase next — runs this against the real fleet. |
-| v10.D | ✅ | **Validation phase** — real-fleet sweep. Run the migration against the actual ~22-domain fleet; review the dry-run plan; `--apply` the unambiguous cases; handle ambiguous + manual-entry cases interactively via `settings project set-deploy`. End state: every applicable sibling `sites/<domain>/` repo has a valid `lamill.toml` committed. Surfaces bugs / edge cases that only appear against real config files. ~2-3h (mostly running the tools, fixing edge cases that surface). |
+| v10.B | ✅ | Operator CLI surfaces — `lamill settings deploy set <name> <platform>` (interactive prompts when stdin is TTY; `--non-interactive` rejects on missing required fields; hostgator/custom walks cpanel + FTP breadcrumbs) + `lamill settings deploy show <name>` (pretty table renderer + `--json`). `set-launched` also moved into the same `settings project` namespace 2026-05-18 for consistency (was `project set-launched` v7.C). Shipped 2026-05-18 across `d28c516` → `890841e` → show-deploy commit. |
+| v10.C | ✅ | Auto-write integration — `new bootstrap` writes `lamill.toml` as part of scaffolding (platform priority: `--platform <X>` flag → infer-from-existing-configs → `cf-pages` default; `hostgator/custom` rejected at bootstrap, use `settings deploy set` instead). `fleet repos --add-deploy-declarations [--dry-run/--apply] [--include-ambiguous]` migration sweep walks every `sites/<dir>/`, classifies (unambiguous / ambiguous / manual / already-declared / archived), writes safe cases. Shipped 2026-05-18 across `fd725ff` + migration-sweep commit. v10.D validation phase next — runs this against the real fleet. |
+| v10.D | ✅ | **Validation phase** — real-fleet sweep. Run the migration against the actual ~22-domain fleet; review the dry-run plan; `--apply` the unambiguous cases; handle ambiguous + manual-entry cases interactively via `settings deploy set`. End state: every applicable sibling `sites/<domain>/` repo has a valid `lamill.toml` committed. Surfaces bugs / edge cases that only appear against real config files. ~2-3h (mostly running the tools, fixing edge cases that surface). |
 | v10.E | ✅ | Drift detection + lamill.toml conformance checks. Three deploy-category checks: `CHECK_058 has-lamill-toml`, `CHECK_059 lamill-toml-valid`, `CHECK_143 deploy-drift`. Drift compares declared platform against a best-effort classification of the live HTTP snapshot (WordPress generator / title / wp-includes paths → hostgator; `*.vercel.app` / `*.pages.dev` / `*.netlify.app` in final URL or redirect chain → that provider). Canonical drift case `iotnews.today` (declared=vercel, classified=hostgator via WP title) fires `fail`. 26 tests. |
 | v10.F | ✅ *(absorbed by v11.A-L 2026-05-18)* | HostGator cPanel integration — folded into v11's unified hosting walker cluster (Vercel + CF Pages + CF Workers + HostGator). One `fleet hosting` command replaces two (`fleet hosting` + `fleet hostgator`); single rollup table; operator no longer has to remember which command surfaces which provider. HG-specific walker work lives in v11.D. See v11 below. |
 | v10.G | ✅ *(absorbed by v11.M-N 2026-05-18)* | SFTP deploy abstraction — split into v11.M (`new deploy` polymorphic dispatch for CF/Vercel/Workers) + v11.N (UAPI file-upload for `hostgator`/`custom`). Different risk profiles: M reuses v3.C; N adds a third deploy verb surface, gated on ADR-0011 (originally specced as ADR-0009; that slot was already taken). See v11 below. |
@@ -381,9 +381,9 @@ Risks` for the technical design.**
 | v12.B | ✅ | Adversarial audit response parser. `audit_pass.parse_audit(markdown) → ParsedAudit` + `AuditParseError`. Different schema from `parse_verdict`: required `### agreement_level` ∈ {full, partial, disagree}, `### confidence`, `### specific_concerns` (≥1 bullet). Optional `### counter_verdict` (only on `disagree`, split into `counter_verdict_token` + `counter_verdict_reasoning`), `### audit_self_check`. Same tolerances as parse_verdict — reuses `_split_sections` / `_parse_bullets` / `_normalize_verdict_token`. 24 tests. |
 | v12.C | ✅ | Adversarial audit pass runner. `audit_pass.run_audit_pass(cluster, *, primary_verdict, operator_profile, model, timeout_s, openai_caller, api_key) → AuditPassResult`. Orchestrates build_audit_payload → render_audit_prompt → OpenAI Responses-API call → parse_audit + cost computation. Default model `gpt-4o`, override via `model=` (CLI `--audit-model` wiring is v12.E). `AuditPassError` wraps HTTP/transport/parse failures. Per-1M-token pricing table covers `gpt-4o` / `gpt-4o-mini` / `gpt-4-turbo` / `gpt-4.1` plus dated-alias prefix match; unknown models record cost=0 rather than crash. `openai_caller=` injection seam for tests. 19 tests. |
 | v12.D | ✅ | Reconciliation + REVIEW_REQUIRED first-class verdict. New `reconciliation.py` module: pure logic, no I/O. `reconcile(primary, audit) → Reconciliation`. Full → primary verdict + confidence preserved, no caveats. Partial → primary verdict, confidence downgraded one notch (HIGH→MEDIUM→LOW→LOW saturates), caveats = audit.specific_concerns. Disagree → `REVIEW_REQUIRED` (new fourth verdict token), confidence LOW, caveats surfaced. Intentionally NO auto-resolution per the human-tiebreaker principle. `requires_review` convenience property. Primary + audit dataclasses preserved on the result for the v12.E renderer to show side-by-side. 20 tests. |
-| v12.E | ✅ | CLI `--verify` flag + `--audit-model` override (default `gpt-4o`) wired into `new research` orchestrator. New `_run_audit_pass_and_reconcile()` helper runs after primary pass; new `_render_reconciliation_block()` renders below the primary block (full/partial/disagree shapes; REVIEW_REQUIRED in magenta to distinguish from red NO-GO). Same-model rejection: errors when `--audit-model X` matches the primary's `model_id`. Cache-aware: `from_cache + audit` short-circuits the audit on subsequent runs. Persists `audit` + `audit_pass_meta` + `reconciliation` blocks into the cluster snapshot. 17 tests. |
+| v12.E | ✅ | CLI `--verify` flag + `--audit-model` override (default `gpt-4o`) wired into `new validate` orchestrator. New `_run_audit_pass_and_reconcile()` helper runs after primary pass; new `_render_reconciliation_block()` renders below the primary block (full/partial/disagree shapes; REVIEW_REQUIRED in magenta to distinguish from red NO-GO). Same-model rejection: errors when `--audit-model X` matches the primary's `model_id`. Cache-aware: `from_cache + audit` short-circuits the audit on subsequent runs. Persists `audit` + `audit_pass_meta` + `reconciliation` blocks into the cluster snapshot. 17 tests. |
 | v12.F | ✅ | Polish — cost ledger + `verify_by_default` + granular cache invalidation. (a) `costs` block on the cluster snapshot — `{primary_usd, audit_usd, total_usd, currency}` — populated idempotently by `_update_cost_summary(payload)` after each pass writes its meta. Render-footer shows breakdown when both passes contributed; omitted on zero-cost / old snapshots. (b) `verify_by_default` field on `OperatorProfile` (loaded from `lamill.toml [operator]`); new `--no-verify` CLI flag overrides for a single run. `effective_verify = (verify or profile.verify_by_default) and not no_verify`. (c) New `--invalidate {none, interpretive, audit, all}` CLI flag; granular per-pass cache short-circuit on a cached cluster. `--no-cache` (boolean) still bypasses the SerpAPI cluster cache wholesale. 30 tests. |
-| v12.G | ✅ | Docs sync — closes v12 tier. Migrated v12 tier-level design notes (problem, goals, non-goals, user journey, resolved 12.A-J open questions, effort+approval) from `prd.md` to `docs/shipping-history.md § v12` following the v10 + v11 wrap pattern. Added per-phase entries in `shipping-history.md` for v12.A (fleshed out from placeholder) and v12.B/C/D/E/F (new). Updated `architecture.md § 3 Mechanisms (Research module)` with the v12.A-G end-state (cost notes, `--invalidate` semantics, REVIEW_REQUIRED dispatch, audit-failure semantics). Rewrote `architecture.md § 4 Schemas` cluster-snapshot block to reflect the actual field shape that shipped (`primary_verdict` + `primary_pass_meta` + `audit` + `audit_pass_meta` + `reconciliation` + `costs`) — replaced the v2.1 prediction with the as-shipped additive schema. Added `lamill new research --verify` capability line to `AI_AGENTS.md § Current capabilities`. Doc-only. |
+| v12.G | ✅ | Docs sync — closes v12 tier. Migrated v12 tier-level design notes (problem, goals, non-goals, user journey, resolved 12.A-J open questions, effort+approval) from `prd.md` to `docs/shipping-history.md § v12` following the v10 + v11 wrap pattern. Added per-phase entries in `shipping-history.md` for v12.A (fleshed out from placeholder) and v12.B/C/D/E/F (new). Updated `architecture.md § 3 Mechanisms (Research module)` with the v12.A-G end-state (cost notes, `--invalidate` semantics, REVIEW_REQUIRED dispatch, audit-failure semantics). Rewrote `architecture.md § 4 Schemas` cluster-snapshot block to reflect the actual field shape that shipped (`primary_verdict` + `primary_pass_meta` + `audit` + `audit_pass_meta` + `reconciliation` + `costs`) — replaced the v2.1 prediction with the as-shipped additive schema. Added `lamill new validate --verify` capability line to `AI_AGENTS.md § Current capabilities`. Doc-only. |
 
 *Tier-level design notes (problem statement, goals, non-goals, user
 journey scenarios, resolved 12.A-J open questions, effort, approval)
@@ -510,107 +510,10 @@ target tree, and decides the cutover style before any code moves.
 | # | Status | Feature |
 |---|---|---|
 | v14.A | ✅ | **Kickoff planning.** Locked the target CLI tree from the 2026-05-20 design pass. Resolved still-open items: (a) verb trim under `settings deploy` — `set`/`show` (drop the redundant `-deploy` suffix), (b) `set-launched` stays under `settings deploy` despite the mild lifecycle-vs-deploy semantic mismatch (revisit if a 2nd lifecycle verb appears — then split into `settings lifecycle`), (c) **hard cutover** — no deprecation aliases (operator's own tool, no third-party consumers, daily-driver muscle memory will adjust in days). See `#### Design notes` for the locked tree and the migration map. |
-| v14.B | ✅ | **Apply renames + namespace moves (hard cutover).** Wire the locked target tree into `cli.py` — rename `new suggest`→`new domain`, `new research`→`new validate`, fold `fleet info summary`/`expiring` into flags on `fleet domains`, rename `fleet info cleanup`→`fleet sync` (promoted out of `info` since it writes), delete the `fleet info` typer, rename `settings project`→`settings deploy`, trim its verbs to `set`/`show`/`set-launched`. No deprecation aliases — old paths return typer's standard "no such command" error. Full code-side sweep in this phase (NOT v14.C — that's docs only): (a) `src/portfolio/cli.py` typer registrations + every `help=` string referencing an old verb, (b) `src/portfolio/menu.py` interactive-menu `CmdSpec` entries + group preamble (7+ direct refs), (c) every test referencing an old command path (test IDs / fixture names / subprocess invocations), (d) any other code-level grep hits for the old verbs. ~2-3h. |
-| v14.C | ⏳ | **Docs sync.** Last phase of the tier — propagates the locked CLI shape to every doc surface that references commands: `docs/architecture.md` (command-tree section + per-command references), `docs/CLAUDE.md` (v7.A locked target shape section — mark as superseded by v14), `AI_AGENTS.md` (capability lines + usage examples), `docs/shipping-history.md` (v14 tier-level wrap), plus any remaining markdown / code comments referencing the old verbs. v14.B already handled help strings + menu — v14.C is markdown-only docs propagation. |
+| v14.B | ✅ | **Apply renames + namespace moves (hard cutover).** Wired the locked target tree into `cli.py` — `new suggest`→`new domain`, `new research`→`new validate`, fold `fleet info summary`/`expiring` into flags on `fleet domains`, rename `fleet info cleanup`→`fleet sync` (promoted out of `info` since it writes), delete the `fleet info` typer, rename `settings project`→`settings deploy`, trim its verbs to `set`/`show`/`set-launched`. No deprecation aliases — old paths return typer's standard "no such command" error. Full code-side sweep: `cli.py` + `menu.py` (CmdSpec entries + group preamble) + every test referencing an old command path + `project_deploy.py` / `bootstrap.py` / `diagnose.py` + check messages (CHECK_058 / CHECK_143) — 28 files touched. Suite stayed at 2251 / 1. |
+| v14.C | ✅ | **Docs sync.** Rewrote `architecture.md § Projected CLI surface` with the v14.B-shipped tree + planned-by-phase annotations. Marked the v7.A locked-target-shape section in `CLAUDE.md` as superseded (preserved as archeology). Updated `AI_AGENTS.md` capability lines + usage examples. Migrated v14 design notes from `prd.md` to `shipping-history.md § v14`. Phase-table rows in `prd.md` updated to reflect new names where they describe planned/active work; historical entries (v7.A, v8.A, v10.B) annotated rather than rewritten. Doc-only. |
 
-#### Design notes
-
-**Locked target tree (after v14.B ships).**
-
-```
-lamill
-├── new
-│   ├── validate <topic>                    is this topic SEO-winnable?
-│   ─
-│   ├── domain <topic>                      find a domain for a validated topic
-│   ├── bootstrap <domain>                  scaffold sites/<domain>/
-│   └── deploy <domain>                     ship it (polymorphic by lamill.toml platform)
-│
-├── project
-│   ├── check <domain>
-│   ├── fix <domain>
-│   ├── seo <domain>
-│   └── diagnose <domain>
-│
-├── fleet
-│   ├── focus
-│   ├── domains [--summary] [--expiring N]
-│   ├── seo
-│   ├── hosting
-│   ├── check
-│   ├── fix
-│   ├── drift
-│   ├── repos
-│   ├── dashboard
-│   └── sync [--refresh-rdap]
-│
-└── settings
-    ├── catalog       (list · describe · run)
-    ├── gsc           (auth · recrawl · status)
-    ├── apikeys       (list · set · delete)
-    ├── operator      (show)
-    ├── cloudflare    (token · status)
-    ├── serpapi-quota (show · sync)
-    └── deploy
-        ├── set <domain> <platform>
-        ├── show <domain>
-        └── set-launched <domain>
-```
-
-Command count: 37 → 35. `fleet` 12→10 (info collapse + sync rename).
-`settings deploy` retains 3 verbs (collision with top-level `project`
-gone; subgroup renamed; verb names trimmed).
-
-**Migration map (v14.B work).**
-
-| Today | After v14.B |
-|---|---|
-| `lamill new suggest <topic>` | `lamill new domain <topic>` |
-| `lamill new research <topic>` | `lamill new validate <topic>` |
-| `lamill fleet info summary` | `lamill fleet domains --summary` |
-| `lamill fleet info expiring N` | `lamill fleet domains --expiring N` |
-| `lamill fleet info cleanup` | `lamill fleet sync` |
-| `lamill settings project set-deploy <d> <p>` | `lamill settings deploy set <d> <p>` |
-| `lamill settings project show-deploy <d>` | `lamill settings deploy show <d>` |
-| `lamill settings project set-launched <d>` | `lamill settings deploy set-launched <d>` |
-
-**What did NOT change (deliberate keeps).**
-
-- `set-deploy`/`show-deploy`/`set-launched` stay under `settings` (not
-  promoted to top-level `project` — operator reverted that move
-  2026-05-20). The new subgroup name `deploy` (vs old `project`) is
-  what resolves the collision.
-- Top-level `project` keeps its 4 verbs unchanged.
-- `fleet repos` vs `fleet check` overlap is **deferred** — no fold
-  in this tier. Revisit if a 3rd similar verb appears.
-- `new deploy` stays under `new` even though it acts on existing
-  projects — the polymorphic dispatch already happens via
-  `lamill.toml`; renaming to `project deploy` would be a separate
-  design call.
-- `settings serpapi-quota` keeps its kebab-case name (only such
-  node) — renaming to `settings serpapi` reads as broader than the
-  verb does (it's a quota ledger only, not "all serpapi stuff").
-
-**Parked for v14+ (not v14 scope).**
-
-- **Data/cache namespace promotion.** `fleet sync` is one step; the
-  long-term shape may be `lamill data sync` with sub-verbs per
-  source (registrar / gsc / crux / serpapi / cloudflare / vercel).
-  Don't do in v14 — observe `fleet sync` usage first.
-- **Settings split** (`settings creds` vs `settings status`).
-  Currently mixes credentials with status views. Worth splitting
-  later or promoting status verbs to a top-level `lamill status`.
-  Not urgent.
-- **`fleet repos` vs `fleet check` fold.** Either `repos` becomes
-  `check --git`, or `repos` renames to `fleet git-status`. Revisit
-  at v14+ if the overlap creates real friction.
-
-**Open implementation questions** (resolve during v14.B):
-| # | Question |
-|---|---|
-| 14.A | Does `new validate` share the SerpAPI cluster cache with `new domain`? Likely yes (both query SERP for adjacent topics); confirm during v14.B implementation. |
-| 14.B | `new deploy` help string should pin down the dispatch axis — currently labelled "polymorphic"; add a one-liner referencing `lamill.toml [deploy] platform = ...`. |
-| 14.C | Test files reference old command names in test IDs / fixture names — sweep during v14.B; commit message should call out any test rename count. |
+*Tier-level design notes (locked target tree, migration map, deliberate keeps, parked items, resolved open questions) migrated to `docs/shipping-history.md § v14 — CLI rethink after drift` 2026-05-20 as part of v14.C — same pattern as v10 + v11 + v12 wraps.*
 
 ### v15 — deploy verification + content seeding *(renumbered 2026-05-17 PM; deprioritized; absorbed v13.C 2026-05-20; renumbered 2026-05-20, was v14)*
 
@@ -698,7 +601,7 @@ all-or-nothing dump.
 **Non-goals.**
 
 - Cross-project aggregation (that's covered by `fleet dashboard`
-  + the v16.F fleet-rollup columns + `fleet info summary`).
+  + the v16.F fleet-rollup columns + `fleet domains --summary`).
 - Persistent trend storage beyond the 24h cache + the existing
   `data/gsc/<date>.json` snapshots (long-horizon analytics is a
   different tier).
@@ -910,10 +813,10 @@ re-scopes:
 - `lamill trends <topic>` rich CLI — interest-over-time + related-
   queries (top + rising) + `--region` + `--timeframe {7d, 30d, 90d,
   12m, 5y, all}` + `--json`.
-- Wire into `new suggest` shortlist — per-candidate "interest
+- Wire into `new domain` shortlist — per-candidate "interest
   direction" badge (📈 rising / ➡️ flat / 📉 declining) from 12-month
   slope. Reject topics on clear downtrends pre-purchase.
-- Wire into `new research` (v8) cluster snapshot — trend signal for
+- Wire into `new validate` (v8) cluster snapshot — trend signal for
   the cluster's primary query, persisted alongside SERP data,
   surfaced in interpretive_pass payload so the LLM weighs trajectory.
   **Schema-evolution gate: ADR-0012** binds the `trends` block to
