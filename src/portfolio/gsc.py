@@ -123,6 +123,59 @@ def query_totals(service, site_url: str, start: date, end: date) -> dict:
     }
 
 
+def query_with_dims(
+    service,
+    site_url: str,
+    days: int = DEFAULT_DAYS,
+    *,
+    dimensions: list[str],
+    row_limit: int = 100,
+    lag_days: int = DEFAULT_LAG_DAYS,
+) -> list[dict]:
+    """v16.B — dimension-aware GSC searchAnalytics query.
+
+    Returns per-row results for arbitrary GSC dimensions: `query`,
+    `page`, `device`, `country`, `date`, `searchAppearance`. Each row
+    in the response shape:
+
+      {
+        "keys": ["<dim 1 value>", "<dim 2 value>", ...],
+        "clicks": int,
+        "impressions": int,
+        "ctr": float,
+        "position": float,
+      }
+
+    Reuses the OAuth + retry plumbing of `query_totals`; same lag-day
+    convention (default 3-day lag because GSC data is published with a
+    2-3 day delay).
+
+    Used by v16.C URL Inspection (top-N pages ranked by impressions)
+    and v16.D fleet rollup (fleet-aggregated top queries / pages /
+    page-2 opportunities).
+    """
+    end = date.today() - timedelta(days=lag_days)
+    start = end - timedelta(days=days)
+    body = {
+        "startDate": start.isoformat(),
+        "endDate": end.isoformat(),
+        "dimensions": list(dimensions),
+        "rowLimit": int(row_limit),
+    }
+    resp = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
+    rows = resp.get("rows") or []
+    out: list[dict] = []
+    for r in rows:
+        out.append({
+            "keys": list(r.get("keys", [])),
+            "clicks": int(r.get("clicks", 0)),
+            "impressions": int(r.get("impressions", 0)),
+            "ctr": float(r.get("ctr", 0.0)),
+            "position": float(r["position"]) if "position" in r else None,
+        })
+    return out
+
+
 def _merge_property_totals(per_property: list[dict]) -> dict:
     """Sum clicks/impressions across a domain's properties; impression-weighted average position."""
     total_clicks = sum(p["clicks"] for p in per_property)

@@ -464,9 +464,28 @@ def render_dashboard(rows: list[DashRow], freshness: dict, *,
     t.add_column("Prov", justify="left")      # v11.K — provider code
     t.add_column("Site", justify="right")     # since launched
     t.add_column("Domain", justify="right")   # since RDAP creation
+    # v16.D — GSC rollup columns. Read from per-domain caches
+    # (`data/gsc/<domain>/<UTC-today>.json`). Render `—` when cache
+    # absent / stale / section not yet populated.
+    t.add_column("Cov %", justify="right")        # v16.D — Coverage %
+    t.add_column("Crawl-err", justify="right")    # v16.D — Non-indexed URLs (from v16.C inspections)
+    t.add_column("P2-opp", justify="right")       # v16.D — Page-2 opportunities count
+
+    # v16.D — bulk-load per-domain GSC rollup once per render (cheap;
+    # each lookup just reads one JSON file). Bulk-loading here avoids
+    # importing gsc_rollup at module top to keep dashboard's import
+    # surface minimal.
+    from . import gsc_rollup as _rollup
 
     for r in rows:
         http_cell = _fmt_int(r.http_status) if r.http_status else _GREY
+
+        cov = _rollup.domain_coverage_stats(r.domain)
+        cov_pct_cell = f"{cov.coverage_pct:.0f}%" if cov else "—"
+        crawl_err_cell = str(cov.crawl_errors) if cov else "—"
+        p2_count = _rollup.page_2_opp_count(r.domain)
+        p2_cell = str(p2_count) if p2_count is not None else "—"
+
         cells = [
             r.rollup_dot,
             r.domain,
@@ -483,6 +502,9 @@ def render_dashboard(rows: list[DashRow], freshness: dict, *,
             _provider_short(r.host_provider),
             _fmt_long_age(r.site_age_days),
             _fmt_long_age(r.domain_age_days),
+            cov_pct_cell,
+            crawl_err_cell,
+            p2_cell,
         ]
         t.add_row(*cells)
     console.print(t)

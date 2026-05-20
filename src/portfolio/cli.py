@@ -3480,6 +3480,11 @@ def new_bootstrap(
              "Values: cf-pages | cf-workers | vercel | netlify | "
              "github-pages | hostgator | custom | none.",
     ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Skip the owned-domains validation — use when "
+             "bootstrapping a domain you haven't registered yet (rare).",
+    ),
 ) -> None:
     """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A).
 
@@ -3499,8 +3504,42 @@ def new_bootstrap(
     audience?") and writes it as the first dated H2 entry in
     `docs/growth.md`. Skip with `--growth-hypothesis "X"` flag or
     `--non-interactive`.
+
+    Cross-checks the requested domain against the owned-domains
+    inventory (`data/portfolio.json` + `data/domains/*.csv`) before
+    writing anything. Typo'd or unregistered domains exit 2 with a
+    "Did you mean: …?" hint unless `--force` is passed.
     """
-    from .bootstrap import BootstrapError, bootstrap as run_bootstrap
+    from .bootstrap import (
+        BootstrapError,
+        bootstrap as run_bootstrap,
+        validate_owned_domain,
+    )
+
+    # Owned-domains pre-flight. Runs BEFORE prompts / file writes so a
+    # typo'd domain (e.g. `ageskd.dev` for `agesdk.dev`) exits cleanly
+    # without scaffolding the wrong directory or polluting
+    # portfolio.json. Bypass with `--force`.
+    if not force:
+        owned = validate_owned_domain(domain)
+        if not owned.found:
+            if owned.close_matches:
+                hint = (
+                    f"Did you mean: {', '.join(owned.close_matches)}? "
+                    "Run `lamill fleet sync --refresh` to pull the "
+                    "latest Porkbun list, or pass --force to bootstrap "
+                    "anyway."
+                )
+            else:
+                hint = (
+                    "Verify the spelling, or pass --force to bootstrap "
+                    "anyway."
+                )
+            console.print(
+                f"[yellow]⚠[/] '{domain}' is not in your owned-domains "
+                f"inventory. {hint}"
+            )
+            raise typer.Exit(2)
 
     operator_inputs = _collect_operator_inputs(
         summary=summary, audience=audience, icp=icp,
@@ -6399,10 +6438,116 @@ def fleet_seo(
     concurrency: int = typer.Option(20, "--concurrency", "-c"),
     sort_by: str = typer.Option("impressions", "--sort"),
     refresh: bool = typer.Option(False, "--refresh"),
+    detail: bool = typer.Option(
+        False, "--detail",
+        help="v16.D — append fleet-aggregated top queries / top pages / "
+             "page-2 opportunities (across the fleet, not per-property).",
+    ),
 ) -> None:
-    """Runtime SEO probe across all live-site/forwarder domains."""
+    """Runtime SEO probe across all live-site/forwarder domains.
+
+    `--detail` (v16.D) renders three additional fleet-aggregated
+    sections below the per-site table, reading from each domain's
+    `data/gsc/<domain>/<UTC-today>.json` cache. Sections show as
+    "(empty)" when no domains have cached GSC analytics data yet —
+    populate via `lamill project seo <domain>` per site.
+    """
     check_seo(days=days, domain="", repo="", only=only,
               concurrency=concurrency, sort_by=sort_by, refresh=refresh)
+
+    if detail:
+        _render_fleet_seo_detail(only=only)
+
+
+def _render_fleet_seo_detail(*, only: str) -> None:
+    """v16.D — render fleet-aggregated top queries / top pages /
+    page-2 opportunities. Reads `gsc_rollup` aggregations across
+    every domain in scope."""
+    from .gsc_rollup import (
+        fleet_aggregated_top_pages,
+        fleet_aggregated_top_queries,
+        fleet_page_2_opportunities,
+    )
+
+    fleet_doms = [d.name for d in load_domains()]
+    # Honor the same scope as the upstream `check_seo` call.
+    if only and only != "all":
+        try:
+            from .data import load_plan
+            plan = load_plan()
+            scope_doms = {
+                d for d, cat in plan.items()
+                if cat and cat.lower() == only.lower()
+            }
+            fleet_doms = [d for d in fleet_doms if d in scope_doms]
+        except Exception:
+            # Best-effort scope filter; fall through to full fleet.
+            pass
+
+    queries = fleet_aggregated_top_queries(fleet_doms, top_n=10)
+    pages = fleet_aggregated_top_pages(fleet_doms, top_n=10)
+    p2 = fleet_page_2_opportunities(fleet_doms, top_n=15)
+
+    console.print()
+    _render_top_queries_section(queries)
+    console.print()
+    _render_top_pages_section(pages)
+    console.print()
+    _render_page_2_opportunities_section(p2)
+    console.print(
+        "\n[dim]Source: per-domain GSC cache "
+        "(`data/gsc/<domain>/<UTC-today>.json`). "
+        "Populate via `lamill project seo <domain>`.[/]"
+    )
+
+
+def _render_top_queries_section(queries: list) -> None:
+    tag = "" if queries else " [dim](empty — no cached query data)[/]"
+    console.print(f"[bold]🔎 Top queries (fleet-aggregated, 28d){tag}[/]")
+    if not queries:
+        return
+    t = Table(show_header=True, header_style="bold", box=None,
+              padding=(0, 1))
+    t.add_column("Query")
+    t.add_column("Sites", justify="right")
+    t.add_column("Imp", justify="right")
+    t.add_column("Clicks", justify="right")
+    for key, imp, clicks, sites in queries:
+        t.add_row(key, str(sites), f"{imp:,}", f"{clicks:,}")
+    console.print(t)
+
+
+def _render_top_pages_section(pages: list) -> None:
+    tag = "" if pages else " [dim](empty — no cached page data)[/]"
+    console.print(f"[bold]📄 Top pages (fleet-aggregated, 28d){tag}[/]")
+    if not pages:
+        return
+    t = Table(show_header=True, header_style="bold", box=None,
+              padding=(0, 1))
+    t.add_column("URL")
+    t.add_column("Imp", justify="right")
+    t.add_column("Clicks", justify="right")
+    for url, imp, clicks in pages:
+        short_url = url if len(url) <= 60 else url[:57] + "…"
+        t.add_row(short_url, f"{imp:,}", f"{clicks:,}")
+    console.print(t)
+
+
+def _render_page_2_opportunities_section(p2: list) -> None:
+    tag = "" if p2 else " [dim](empty — no qualifying pages, pos 11-20 / imp ≥50)[/]"
+    console.print(f"[bold]💡 Page-2 opportunities (fleet-summed){tag}[/]")
+    if not p2:
+        return
+    t = Table(show_header=True, header_style="bold", box=None,
+              padding=(0, 1))
+    t.add_column("Site")
+    t.add_column("URL")
+    t.add_column("Imp", justify="right")
+    t.add_column("Pos", justify="right")
+    for site, url, imp, pos in p2:
+        short_url = url if len(url) <= 50 else url[:47] + "…"
+        t.add_row(site, short_url, f"{imp:,}", f"{pos:.1f}")
+    console.print(t)
 
 
 # v11.G — `fleet hosting`. Read-only multi-provider hosting state

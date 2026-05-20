@@ -65,6 +65,50 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — `new bootstrap` accepts unregistered/typo'd domains silently
+
+**Repro**
+
+    lamill new bootstrap ageskd.dev
+
+Operator ran the above (typo for `agesdk.dev`). Operator owns
+`agesdk.dev` at Porkbun (registered 2026-05-17; appears in
+`data/domains/porkbun.csv` post `fleet sync --refresh`).
+
+**Expected**
+
+Bootstrap should at least *warn* before scaffolding a domain that's
+nowhere in the owned-domains inventory — `data/portfolio.json` or
+`data/domains/*.csv`. Either reject outright (default) or require
+`--force` to proceed.
+
+**Actual**
+
+Silently scaffolded `~/work/projects/sites/ageskd.dev/` (typo'd dir)
++ appended a `registrar=porkbun, status=Active` row to
+`data/portfolio.json` for a domain the operator doesn't actually own.
+
+**Where (guess)**
+
+`src/portfolio/cli.py @new_app.command("bootstrap")` + the bootstrap
+orchestrator (likely `src/portfolio/bootstrap.py`). The pre-bootstrap
+"Is the domain registered? [Y/n]:" prompt accepted Enter (default Y)
+without any inventory cross-check. Add a validation step before that
+prompt.
+
+**Severity** — `major`
+
+Causes real cleanup work + pollutes portfolio.json. Default `minor`
+is wrong here.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator. Sister bug to consider: registrar
+prompt accepts free-text without validating against registrars
+actually present in `data/domains/`.
+
+---
+
 ### 2026-05-20 — `project check` groups `warn` results inconsistently across the rendered sections
 
 **Repro**

@@ -23,6 +23,8 @@ own .git from day zero (in addition to the cloned genai/ history).
 """
 from __future__ import annotations
 
+import csv
+import difflib
 import hashlib
 import json
 import re
@@ -32,7 +34,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-from .data import ROOT
+from .data import DOMAINS_DIR, PORTFOLIO_JSON, ROOT
 
 SITES_ROOT = ROOT.parent
 MIN_VITE_MAJOR = 6
@@ -69,6 +71,112 @@ def validate_domain(name: str) -> str:
             f"invalid domain format: {name!r} — must be lowercase, dotted, no spaces or special chars"
         )
     return n
+
+
+@dataclass
+class OwnedDomainCheck:
+    """Result of the owned-domains inventory cross-check.
+
+    Catches the operator-typo case (e.g. `ageskd.dev` for `agesdk.dev`)
+    before any files get scaffolded. `found=True` → the requested
+    domain is in the inventory; ship it. `found=False` → not in
+    inventory; CLI surfaces `close_matches` (if any) + asks the
+    operator to confirm via `--force`.
+    """
+    found: bool
+    close_matches: list[str]
+    inventory_size: int
+    source: str  # "portfolio.json" | "csv" | "none"
+
+
+def _load_owned_domains_from_portfolio_json(
+    portfolio_json: Path | None = None,
+) -> list[str]:
+    """Read domain names from data/portfolio.json (the canonical
+    inventory rebuilt by `fleet sync`). Returns [] if the file is
+    missing or unreadable so the caller can fall back to CSV scan."""
+    path = portfolio_json if portfolio_json is not None else PORTFOLIO_JSON
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    return [
+        row.get("name", "").lower()
+        for row in payload.get("domains", [])
+        if row.get("name")
+    ]
+
+
+def _load_owned_domains_from_csvs(
+    domains_dir: Path | None = None,
+) -> list[str]:
+    """Scan data/domains/<registrar>.csv for domain names. Used as
+    fallback when portfolio.json doesn't yet exist (cold-start before
+    `fleet sync` has run)."""
+    directory = domains_dir if domains_dir is not None else DOMAINS_DIR
+    if not directory.exists():
+        return []
+    out: list[str] = []
+    for csv_path in sorted(directory.glob("*.csv")):
+        try:
+            with csv_path.open() as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    # Registrar CSVs vary in case + column name. Try the
+                    # common variants in priority order: porkbun/godaddy
+                    # use "DOMAIN" (upper); namecheap uses "Domain Name".
+                    for key in ("DOMAIN", "Domain", "domain",
+                                "Domain Name", "domain_name", "name"):
+                        v = row.get(key)
+                        if v and v.strip():
+                            out.append(v.strip().lower())
+                            break
+        except (OSError, csv.Error):
+            continue
+    return out
+
+
+def validate_owned_domain(
+    domain: str,
+    *,
+    portfolio_json: Path | None = None,
+    domains_dir: Path | None = None,
+) -> OwnedDomainCheck:
+    """Check whether `domain` appears in the operator's owned-domains
+    inventory.
+
+    Source preference: `data/portfolio.json` (rebuilt by `fleet sync`)
+    is canonical when present. When portfolio.json is absent (cold
+    start before the first sync), falls back to scanning each
+    `data/domains/<registrar>.csv`.
+
+    `found=False` returns the top-3 closest matches (via difflib at
+    cutoff=0.7) so the CLI can suggest "Did you mean: agesdk.dev?".
+    Inventory size is included so the warning can hint at whether the
+    inventory's just empty (size=0 → "run fleet sync first").
+    """
+    d = domain.strip().lower()
+    owned = _load_owned_domains_from_portfolio_json(portfolio_json)
+    source = "portfolio.json"
+    if not owned:
+        owned = _load_owned_domains_from_csvs(domains_dir)
+        source = "csv" if owned else "none"
+
+    # Dedupe + sort for a stable close-matches result.
+    owned_unique = sorted(set(owned))
+    found = d in owned_unique
+    close = (
+        [] if found
+        else difflib.get_close_matches(d, owned_unique, n=3, cutoff=0.7)
+    )
+    return OwnedDomainCheck(
+        found=found,
+        close_matches=close,
+        inventory_size=len(owned_unique),
+        source=source,
+    )
 
 
 # ---------- templates ----------
