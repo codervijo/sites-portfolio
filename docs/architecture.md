@@ -972,11 +972,11 @@ lamill
 | v15.C | `project deploy-status` (or fold into `diagnose`?) |
 | v15.D | (deploy lag / build status surfaced via existing `fleet hosting`?) |
 | v15.E | `fleet sync --refresh` / `--watch` flags (no new node) |
-| v16.B-F | `project seo --queries` / `--pages` / `--devices` / `--trend` / `--coverage` / `--opportunities` / `--full` section flags. |
+| v16.B | URL Inspection API wrapper + binary check_NNN (`project check` fails when URL not indexed). |
+| v16.C | Fleet-level GSC rollup — new `fleet dashboard` columns (Coverage % / Crawl errors / W/w imp Δ / Page-2 opp count) + `fleet seo --detail` mode for fleet-aggregated top queries / top pages. |
 | v17.B-E | 14 new conformance checks (CHECK_081-088 + 096-101 + 102-105). |
 | v18.B | `new bootstrap --ga4 G-XXXXXX` flag · `project fix` gains `inject-ga4` remediation. |
 | v19.B | `lamill trends <topic>` (standalone test invocation; later composes into `new validate`). |
-| v20.B-D | `project speed --lab` / `--field` flags. New `fleet dashboard` Perf column. |
 | v21.B | `new deploy --reindex [<url>...]` flag (Google Indexing API). |
 | v23.B-C | `project seo --sitemaps` section flag · `fleet dashboard` indexed/submitted column augmentation. |
 
