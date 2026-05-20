@@ -3939,6 +3939,19 @@ def new_research(
         help="Skip the Gate 3 moat prompt (PENDING result; re-run "
              "interactively to fill in). Implied by --json.",
     ),
+    verify: bool = typer.Option(
+        False, "--verify",
+        help="Run adversarial audit pass against the primary verdict "
+             "(uses OpenAI gpt-4o by default; override via --audit-model). "
+             "Adds ~$0.01-0.02 per run. Surfaces REVIEW_REQUIRED when "
+             "the two models disagree.",
+    ),
+    audit_model: str = typer.Option(
+        "gpt-4o", "--audit-model",
+        help="OpenAI model id for the audit pass (only used with --verify). "
+             "Must resolve to a different model than the primary — same-model "
+             "audit defeats the model-family-diversity goal.",
+    ),
 ) -> None:
     """v8.D — multi-keyword cluster SERP research.
 
@@ -4090,6 +4103,37 @@ def new_research(
     if not cache_has_primary:
         _run_primary_interpretive_pass(topic, payload, console=console)
 
+    # v12.E — adversarial audit pass + reconciliation. Default-off
+    # (operator opts in via --verify). Default model gpt-4o provides
+    # model-family diversity from the Claude-CLI primary; --audit-model
+    # overrides. Persists into the cluster snapshot so cache hits skip
+    # the audit on subsequent runs.
+    if verify and "primary_verdict" in payload:
+        # Same-model rejection. The audit's value is model-family
+        # diversity; using the primary's model collapses that into
+        # "ask twice and hope for variance," defeating the point of
+        # the verdict-gate. Fail loud rather than silently produce a
+        # weaker signal.
+        primary_model = payload.get("primary_pass_meta", {}).get(
+            "model_id", "claude-cli",
+        )
+        if audit_model == primary_model:
+            console.print(
+                f"[red]--audit-model {audit_model!r} matches the primary "
+                f"model id. The audit pass requires a different model "
+                f"family to be useful; pick another with --audit-model.[/]"
+            )
+            raise typer.Exit(2)
+
+        cache_has_audit = (
+            payload.get("from_cache") and payload.get("audit")
+        )
+        if not cache_has_audit:
+            _run_audit_pass_and_reconcile(
+                topic, payload,
+                audit_model=audit_model, console=console,
+            )
+
     if json_out:
         _render_serp_json(payload)
     else:
@@ -4164,6 +4208,106 @@ def _run_primary_interpretive_pass(topic: str, payload: dict, *, console) -> Non
         save_cluster_snapshot(topic, payload)
     except OSError as e:
         console.print(f"[dim]warn: could not persist interpretive verdict: {e}[/]")
+
+
+def _run_audit_pass_and_reconcile(topic: str, payload: dict, *,
+                                  audit_model: str, console) -> None:
+    """v12.E — wire the adversarial audit pass + reconciliation into
+    the research flow.
+
+    Runs after `_run_primary_interpretive_pass` when `--verify` is
+    set. Loads the operator profile, calls `run_audit_pass` with the
+    requested model, reconciles primary + audit into a final verdict
+    via `reconcile()`, persists everything into the cluster snapshot.
+    Mutates `payload` in place — the renderer + JSON output pick it
+    up without a second pass.
+
+    Non-fatal on failure: `AuditPassError` (OpenAI HTTP / transport /
+    parse) logs a yellow warning and returns. The primary verdict
+    above is still useful on its own — the audit's absence just
+    means no second-opinion was added.
+    """
+    from .audit_pass import AuditPassError, run_audit_pass
+    from .interpretive_pass import ParsedVerdict
+    from .operator_profile import load_operator_profile
+    from .reconciliation import reconcile
+    from .research_v2 import save_cluster_snapshot
+
+    profile = load_operator_profile()
+    pv_dict = payload["primary_verdict"]
+
+    console.print(
+        f"[cyan]Running adversarial audit pass ({audit_model})...[/] "
+        f"[dim](~10-30s, cost ~$0.01-0.02)[/]"
+    )
+    try:
+        result = run_audit_pass(
+            payload,
+            primary_verdict=pv_dict,
+            operator_profile=profile,
+            model=audit_model,
+        )
+    except AuditPassError as e:
+        console.print(f"[yellow]  ✗ Audit pass skipped: {e}[/]")
+        return
+
+    # Persist parsed audit as a flat dict — JSON output + downstream
+    # consumers shouldn't need to import the ParsedAudit dataclass.
+    payload["audit"] = {
+        "agreement_level":        result.audit.agreement_level,
+        "confidence":             result.audit.confidence,
+        "specific_concerns":      list(result.audit.specific_concerns),
+        "counter_verdict_token":  result.audit.counter_verdict_token,
+        "counter_verdict_reasoning": result.audit.counter_verdict_reasoning,
+        "audit_self_check":       result.audit.audit_self_check,
+    }
+    payload["audit_pass_meta"] = {
+        "prompt_version": result.prompt_version,
+        "model_id":       result.model_id,
+        "rendered_prompt": result.rendered_prompt,
+        "cost_usd":       result.cost_usd,
+        "duration_s":     result.duration_s,
+    }
+
+    # Reconcile — rebuild ParsedVerdict from the persisted flat dict
+    # so `reconcile()` does pure-logic work without knowing the
+    # snapshot's serialization shape.
+    parsed_primary = ParsedVerdict(
+        verdict=pv_dict["verdict"],
+        confidence=pv_dict["confidence"],
+        reasoning=pv_dict.get("reasoning", ""),
+        moat_required=pv_dict.get("moat_required"),
+        moat_prompt=pv_dict.get("moat_prompt", ""),
+        reductions=list(pv_dict.get("reductions") or []),
+        operator_fit_warnings=list(pv_dict.get("operator_fit_warnings") or []),
+        blind_spot_self_report=pv_dict.get("blind_spot_self_report", ""),
+    )
+    rec = reconcile(parsed_primary, result.audit)
+    payload["reconciliation"] = {
+        "final_verdict":     rec.final_verdict,
+        "final_confidence":  rec.final_confidence,
+        "caveats":           list(rec.caveats),
+    }
+
+    # Operator one-liner — yellow when REVIEW_REQUIRED (operator must
+    # decide), green otherwise.
+    line_color = "yellow" if rec.requires_review else "green"
+    v_color = _VERDICT_COLOR.get(rec.final_verdict, "magenta")
+    c_color = _confidence_color(rec.final_confidence)
+    console.print(
+        f"[{line_color}]  ✓ Audit:[/] [bold]{result.audit.agreement_level}[/] "
+        f"→ final: [{v_color}]{rec.final_verdict}[/] "
+        f"([{c_color}]{rec.final_confidence}[/]) "
+        f"[dim](cost=${result.cost_usd:.4f}, "
+        f"duration={result.duration_s:.1f}s)[/]"
+    )
+
+    try:
+        save_cluster_snapshot(topic, payload)
+    except OSError as e:
+        console.print(
+            f"[dim]warn: could not persist audit + reconciliation: {e}[/]"
+        )
 
 
 def _confidence_color(confidence: str) -> str:
@@ -4304,6 +4448,14 @@ def _render_research_v2_full(payload: dict, console) -> None:
     if "primary_verdict" in payload:
         _render_primary_verdict_block(payload, console)
 
+    # v12.E — reconciliation block (audit + primary). Renders only
+    # when --verify was set on this or a prior cached run (i.e., the
+    # snapshot has a `reconciliation` field). Sits below the primary
+    # block so the operator scans mechanical → primary → audit/
+    # reconciliation top-down, matching the verdict-formation order.
+    if "reconciliation" in payload:
+        _render_reconciliation_block(payload, console)
+
     # Per-query SERP summaries
     for pq in per_query:
         q = pq.get("query", "?")
@@ -4365,6 +4517,7 @@ _VERDICT_COLOR = {
     "GO": "green",
     "NICHE-DOWN": "yellow",
     "NO-GO": "red",
+    "REVIEW_REQUIRED": "magenta",   # v12.E — reconciliation's fourth verdict token
 }
 
 
@@ -4455,6 +4608,94 @@ def _render_primary_verdict_block(payload: dict, console) -> None:
             f"verdict ([bold]{mechanical}[/] vs Claude's "
             f"[bold]{verdict}[/]). Both views above; read them carefully.[/]"
         )
+    console.print()
+
+
+def _render_reconciliation_block(payload: dict, console) -> None:
+    """v12.E — render the reconciled audit + primary verdict.
+
+    Three render shapes keyed on `audit.agreement_level`:
+      - full     → terse one-line confirmation; no caveats block
+      - partial  → caveats block populated from audit.specific_concerns
+      - disagree → REVIEW_REQUIRED banner; both verdicts surfaced
+                   side-by-side; audit's counter_verdict + self-check
+                   shown so the operator has both sides to weigh
+
+    Same indentation + color palette as the primary block above so
+    the three verdicts (mechanical / primary / reconciled) read as a
+    visually consistent cascade. REVIEW_REQUIRED renders in magenta
+    to distinguish from NO-GO (red) — they mean very different
+    things to the operator.
+    """
+    audit = payload["audit"]
+    rec   = payload["reconciliation"]
+    meta  = payload.get("audit_pass_meta", {})
+
+    agreement = audit.get("agreement_level", "?")
+    final_verdict     = rec.get("final_verdict", "?")
+    final_confidence  = rec.get("final_confidence", "?")
+    caveats           = rec.get("caveats") or []
+    counter_token     = audit.get("counter_verdict_token", "")
+    counter_reasoning = audit.get("counter_verdict_reasoning", "")
+    self_check        = (audit.get("audit_self_check") or "").strip()
+
+    v_color = _VERDICT_COLOR.get(final_verdict, "magenta")
+    c_color = _confidence_color(final_confidence)
+
+    console.print()
+    console.print("  [bold cyan]Reconciliation (audit + primary)[/]")
+
+    model     = meta.get("model_id", "?")
+    prompt_ver = meta.get("prompt_version", "?")
+    cost      = meta.get("cost_usd")
+    duration  = meta.get("duration_s")
+    if cost is not None and duration is not None:
+        console.print(
+            f"    [dim]source: {model} · prompt={prompt_ver} · "
+            f"cost=${cost:.4f} · duration={duration:.1f}s[/]"
+        )
+
+    agreement_label = {
+        "full":     "[green]full agreement[/]",
+        "partial":  "[yellow]partial agreement[/]",
+        "disagree": "[red bold]disagreement[/]",
+    }.get(agreement, f"[dim]{agreement}[/]")
+    console.print(f"    [bold]Audit agreement:[/] {agreement_label}")
+    console.print(
+        f"    [bold]Final verdict:[/]   [{v_color}]{final_verdict}[/]"
+    )
+    console.print(
+        f"    [bold]Final confidence:[/] [{c_color}]{final_confidence}[/]"
+    )
+
+    if caveats:
+        console.print(f"    [bold]Caveats from audit:[/]")
+        for c in caveats:
+            console.print(f"      [yellow]·[/] {c}")
+
+    if agreement == "disagree":
+        # Render the audit's counter-verdict + the primary's verdict
+        # side-by-side. The operator needs both to break the tie.
+        console.print(f"    [bold]REVIEW_REQUIRED — verdicts side-by-side:[/]")
+        primary_verdict_token = payload.get("primary_verdict", {}).get("verdict", "?")
+        p_color = _VERDICT_COLOR.get(primary_verdict_token, "white")
+        console.print(
+            f"      Primary (Claude): [{p_color}]{primary_verdict_token}[/]"
+        )
+        if counter_token:
+            ct_color = _VERDICT_COLOR.get(counter_token, "white")
+            console.print(
+                f"      Audit ({model}):   [{ct_color}]{counter_token}[/] — "
+                f"{counter_reasoning}"
+            )
+
+    if self_check:
+        from textwrap import fill
+        console.print(f"    [bold dim]Audit self-check:[/]")
+        wrapped = fill(self_check, width=68, initial_indent="      ",
+                       subsequent_indent="      ")
+        console.print(f"[dim]{wrapped}[/]")
+
     console.print()
 
 
