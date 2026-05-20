@@ -65,6 +65,251 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — `new bootstrap` should generate a copy-paste LLM prompt first
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+Operator runs bootstrap → faced with 5+ paragraph-style prompts
+(Summary / Audience / ICP / Goals / Content strategy / Growth
+hypothesis) cold. Has to compose each answer in-prompt without
+any AI assistance, OR open ChatGPT/Claude in a separate window
+and manually feed each prompt one at a time.
+
+**Expected**
+
+BEFORE firing the first interactive prompt, bootstrap renders a
+ready-to-paste prompt template the operator can drop into
+chatgpt.com / claude.ai. The template asks for all the section
+contents at once + the growth hypothesis, organized clearly so
+the LLM's response can be split section-by-section into the
+bootstrap prompts.
+
+Something like:
+
+```
+─── Copy-paste prompt for ChatGPT / claude.ai ─────────────────
+
+I'm scaffolding a new site at agesdk.dev. Topic: <prompt me or use
+--topic flag if supplied>.
+
+Please draft the following for me. Keep each section under
+the indicated length. Put each section under its labeled H2
+heading so I can copy-paste them one at a time:
+
+## Summary
+One paragraph (3-5 sentences). What this site IS and what it
+DOES. Concrete, not aspirational.
+
+## Audience
+One sentence. The broad demographic (e.g. "homeowners with EV
+chargers" / "RN/Expo developers shipping consumer apps").
+
+## ICP
+One paragraph. The SPECIFIC targetable subset — demographics,
+pain points, what they use today. More precise than Audience.
+Concrete enough you could write an ad-targeting brief from it.
+
+## Goals
+1-2 sentences. The primary business / product goal. Time-bound
+if there's a relevant deadline.
+
+## Content strategy
+One paragraph. Page types this site needs · initial topics ·
+format mix (long-form vs reference vs tool).
+
+## Growth hypothesis
+One paragraph. Your bet for how this site reaches its audience.
+Distribution channel + why it's defensible + the timing window.
+
+──────────────────────────────────────────────────────────────
+
+When you have the response, the next prompts will ask for each
+section one at a time. Paste each one in.
+```
+
+The operator can either:
+  (a) Type answers freehand (current behavior — preserved); OR
+  (b) Open the LLM, paste this template, copy the structured
+      response, then paste section-by-section into each prompt.
+
+**Actual**
+
+Bootstrap fires the prompts cold. Operator either composes each
+one freehand (slow) or shuttles between windows manually.
+
+**Where (guess)**
+
+Print the template right after the pre-flight question list
+banner (the other 2026-05-20 bug). New helper
+`_render_llm_prompt_template(domain, topic)` in bootstrap-orchestrator
+code. Skip when `--non-interactive` set.
+
+**Severity** — `major`
+
+The cold-prompt experience is a real friction point — operator's
+test session showed two sections answered with content from the
+NEXT section over (Summary got the Goals content, Audience got the
+ICP content), because composing in-prompt without context is hard.
+An LLM-staged response makes section-to-prompt mapping mechanical.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator. Pairs naturally with the multi-
+paragraph paste fix (also 2026-05-20) — together they make the
+LLM-stage → paste-each-section workflow clean.
+
+---
+
+### 2026-05-20 — `new bootstrap` should ask whether the frontend is already designed
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+The Lovable-repo-URL prompt (separate 2026-05-20 bug) jumps
+directly to "paste the URL or skip". But the operator's mental
+model has a logically-prior question: "have you designed the
+frontend yet?" Two operator states:
+
+  (a) **Frontend already designed in Lovable** → operator has a
+      GitHub repo with the export. Bootstrap should ask for the
+      URL, clone into `genai/`, run `--from-genai` path.
+  (b) **Frontend not yet designed** → operator wants the blank
+      template scaffold so they can run `make run` and design
+      iteratively in the local dev server.
+
+**Expected**
+
+Replace the single "Lovable repo URL?" prompt with a two-step:
+
+```
+Is the frontend already designed? [y/N]:
+  >: y
+  Lovable / GitHub repo URL:
+    >: https://github.com/user/agesdk-dev-ui
+
+Is the frontend already designed? [y/N]:
+  >: n
+  → Will scaffold the blank Astro template; design in local dev.
+```
+
+Or as a single question with branching:
+
+```
+Frontend status:
+  1. Already designed in Lovable — I have a GitHub repo URL
+  2. Not yet designed — scaffold the blank template
+  >: 2
+  → Will scaffold the blank Astro template; design in local dev.
+```
+
+**Actual**
+
+Bootstrap currently has only the implicit `--git-url` flag (no
+prompt). The pending Lovable-repo-URL prompt (separate bug) doesn't
+ask the prior "is the frontend designed?" question.
+
+**Where (guess)**
+
+The Lovable-repo-URL prompt being added in the same bootstrap-UX
+session — extend it to the two-step form. Operator decides which
+shape they want at implementation time.
+
+**Severity** — `minor`
+
+The current flag flow works fine; this is an interactive-UX
+improvement that pairs with the pending Lovable-repo prompt.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator. Both bugs (this + the Lovable-
+repo-URL one) should land together in the same bootstrap-UX fix
+commit.
+
+---
+
+### 2026-05-20 — `new bootstrap` prompt layout makes Audience/ICP visually confusable
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+The operator's 2026-05-20 test session captured this exact
+behavior:
+
+```
+  Audience — one sentence: who this is for (broad demographic)
+  >: ICP: RN/Expo developer or small-team CTO at a consumer app
+     with California users. Never dealt with age compliance before.
+     Found the law via a legal email or Twitter. Will self-serve,
+     will not talk to sales.
+
+  ICP — the specific ideal customer — demographics, pain points,
+  what they use today. More detail than Audience: Audience is the
+  broad demo ("homeowners with EV chargers"), ICP is the specific
+  targetable subset ("Tesla owners in CA who installed in last 90d,
+  paid $2k+")
+  >: <empty>
+```
+
+Operator typed the ICP content into the AUDIENCE prompt because:
+
+  1. Each prompt's instruction text wraps onto multiple lines.
+  2. The ICP prompt header (`ICP — the specific ideal customer
+     — demographics, pain points, what they use today.`) starts
+     immediately after the operator's Audience input.
+  3. Operator's eye treated the ICP description text as additional
+     context for the Audience question — natural pattern-matching
+     failure on the visual hierarchy.
+
+**Expected**
+
+Each prompt is visually distinct enough that the operator can't
+accidentally type a later prompt's content into an earlier one.
+Concrete options (combinable):
+
+  1. Echo the operator's input back after each prompt with a
+     "[saved as <section>]" confirmation before moving on.
+  2. Add a visual separator (rule line / blank line / bold
+     heading) between sections so the next prompt's intro doesn't
+     blend into the prior section's input area.
+  3. Show only the H2-name + the `>:` line, with full description
+     printed BEFORE the input field rather than between sections.
+  4. Number each prompt (`[2/9] Audience:`) so operator can track
+     which one they're on without re-reading the surrounding text.
+
+**Actual**
+
+Two operator sections got mis-routed in real testing. Bootstrap
+saved incorrect content + left the correct slots empty (rendered
+as `(to be filled in)` placeholders, requiring manual edit later).
+
+**Where (guess)**
+
+Whichever function in `src/portfolio/cli.py` /
+`src/portfolio/bootstrap.py` orchestrates the v9.B AI_AGENTS
+section prompts. The visual layout fix is the same place; the
+"[saved as X]" confirmation is the same pattern.
+
+Pairs with the cut-and-paste LLM prompt fix above — when operator
+uses the LLM-staged flow (paste structured response section-by-
+section), this confusion mostly disappears because each section
+is already pre-labeled by the LLM.
+
+**Severity** — `major`
+
+Operator hit it on their first test session.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator during the same test session that
+surfaced the multi-paragraph paste + Lovable repo + pre-flight
+listing bugs.
+
+---
+
 ### 2026-05-20 — `new bootstrap` doesn't prompt for Lovable's GitHub repo URL
 
 **Repro**
