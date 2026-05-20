@@ -24,6 +24,166 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v16 — GSC fleet-level intelligence (v16.A-D) — shipped 2026-05-20
+
+### Problem
+
+v13.B (per-project GSC diagnostics) gave the operator a per-domain
+diagnostics block — sitemaps + per-URL coverage + hints. Two adjacent
+gaps remained:
+
+  * **Per-URL coverage wasn't a binary conformance signal.** v13.B
+    rendered the data; `project check` didn't fire a fail when
+    Google had stopped indexing a sitemap-submitted URL. A
+    `crawled_not_indexed` URL is a silent ranking failure — invisible
+    to every other check.
+  * **GSC's web UI is one-property-at-a-time.** Operator with
+    20+ sites couldn't easily ask "across all my properties, what
+    are the top queries? where are the page-2 opportunities? which
+    sites have the worst index coverage?" GSC's data is there;
+    aggregation isn't.
+
+### Design rationale
+
+Three threads:
+
+  1. **Cache-first** — every per-domain GSC fetch (v13.B sitemap
+     details, v16.C URL Inspections, v16.B query/page dim data) writes
+     to the same `data/gsc/<domain>/<UTC-today>.json` cache (the v13.B
+     file). v16.B/C/D layer their data into new sections of the same
+     JSON. Single read-side aggregation (`gsc_rollup.py`) reads any
+     section that's there, gracefully degrades when sections are
+     absent (renders `—` in dashboards).
+  2. **Binary check, not chart-rendering** — v16.C's `CHECK_147
+     url-indexed` is a pass/fail conformance assertion, not a rich
+     UI. The pass condition (`coverageState ∈ {"Submitted and
+     indexed", "Indexed, not submitted in sitemap"}`) matches GSC's
+     actual API response strings — the v13.B-era assumption that the
+     API returned enum-style tokens (`submitted_indexed`) was wrong
+     and got logged as a bug 2026-05-20.
+  3. **Fleet aggregation = the actual unique value** — single-property
+     dim views (queries / pages / devices / trend / opportunities)
+     were dropped in the 2026-05-20 audit because GSC's web UI
+     already does them well. What it CAN'T do is aggregate across
+     properties. v16.D ships only the cross-property summaries.
+
+### Locked → as-shipped deltas
+
+  * **v16.D's `W/w impressions Δ` column** was dropped from the
+    `fleet dashboard` row in this tier — it needs comparing across
+    multi-day snapshots, and the per-domain GSC cache (introduced
+    in v13.B) only has the current-day snapshot. Will land once
+    snapshot history exists.
+  * **Cache-population hook on `project seo`** wasn't added in v16.D
+    — gsc_rollup ships the *read* side; the *write* side
+    (populating `v16b_queries`/`v16b_pages` per-domain) is a
+    follow-up. Most dashboard columns render `—` until per-domain
+    caches are filled in.
+  * **Test file name `tests/test_v16c_bootstrap_owned_domain_check.py`**
+    is misleadingly tagged v16.C — the bug fix it covers is
+    unrelated to v16 (bootstrap-side, not GSC-side). Background
+    agent named it that way because the fix happened during v16
+    work. Worth renaming in a future cleanup.
+
+### Conformance checks added
+
+  * **CHECK_147 `url-indexed`** (deploy/warn) — fetches the live URL's
+    top-N pages ranked by GSC impressions (sitemap fallback for
+    zero-imp), runs `urlInspection.index:inspect` on each, fires
+    `fail` when any URL is in a non-indexed `coverageState`. Cache-
+    aware; mobile-usability data renders but doesn't trigger fail.
+
+### CLI surface added
+
+  * **`fleet dashboard`** gains 3 columns: `Cov %`, `Crawl-err`,
+    `P2-opp` — read from per-domain GSC cache; render `—` when
+    absent.
+  * **`fleet seo --detail`** — appends three fleet-aggregated
+    sections (🔎 Top queries, 📄 Top pages, 💡 Page-2
+    opportunities) below the per-site table. Sections render
+    "(empty)" when no domains have cached GSC data yet.
+  * **`gsc.query_with_dims(service, site_url, *, dimensions, row_limit)`**
+    — dimension-aware searchAnalytics wrapper. Internal API used by
+    v16.C and the future cache-populator.
+  * **`gsc_rollup` module** — read-only fleet aggregation helpers.
+    Internal API; powers the dashboard columns and `fleet seo
+    --detail`.
+
+### Resolved open questions
+
+| # | Question | Resolution |
+|---|---|---|
+| 16.A | URL Inspection cap — bound the per-day quota burn how? | Top-N pages from sitemap, ranked by GSC impressions desc with alphabetical fallback (default top 10). 2000 URL-Inspection calls/day; a 30-site fleet sweep at top-10 = ~300 calls. |
+| 16.B | Per-project GSC cache TTL? | 24h default, matches `hosting_cache` / `seo_cache`. GSC's 2-3 day publishing lag dominates. |
+| 16.C | Cache directory shape? | Per-domain subdir `data/gsc/<domain>/<UTC-today>.json` — already adopted in v13.B's `gsc_detail_cache.py`. |
+| 16.D | Fleet-aggregated views — single `--detail` flag or compositional section flags? | Single `--detail` flag. Coherent unit; simpler flag surface. |
+| 16.E | CHECK_147 failure semantics — indexing only or also mobile usability? | Indexing only. One assertion per CHECK_NNN. Mobile-friendliness could be a separate check later. |
+
+### Parked / deferred
+
+  * **Cache-population hook** (writing `v16b_queries`/`v16b_pages`
+    per-domain) — add to `project seo` as either a side effect or a
+    new `--populate-cache` flag.
+  * **`W/w impressions Δ` dashboard column** — needs snapshot history;
+    revisit once per-domain caches accumulate multiple days' worth.
+  * **`--refresh` flag wiring** on `fleet seo --detail` — currently
+    reads cache only; doesn't refetch. Add when cache-population
+    hook lands.
+  * **Stretch goal: `project seo --coverage`** flag that supersedes
+    v13.B's existing top-10 block with full v16.C URL Inspection
+    detail — operator-facing nice-to-have, not in v16 tier scope.
+
+### User journey
+
+```
+$ lamill project check airsucks.com
+…
+  ✗ url-indexed     8/10 top URLs indexed · 2 non-indexed:
+                    /old (Crawled - currently not indexed);
+                    /gone (Not found (404)).
+
+$ lamill fleet dashboard
+ Domain               …   Cov %   Crawl-err   P2-opp
+ airsucks.com         …    80%        2          —    (no page cache yet)
+ lamillrentals.com    …      —        —          —    (no v16c cache)
+ homeloom.app         …    75%        3          5
+
+$ lamill fleet seo --detail
+…<per-site table>…
+
+🔎 Top queries (fleet-aggregated, 28d) (empty — no cached query data)
+📄 Top pages (fleet-aggregated, 28d) (empty — no cached page data)
+💡 Page-2 opportunities (fleet-summed) (empty — no qualifying pages...)
+```
+
+### Approval
+
+2026-05-20 — operator-driven design pass + same-day implementation
+across all four sub-phases. v16.A kickoff in the morning;
+v16.B/C/D shipped in one bundled commit late afternoon. Hard cutover
+on dropped per-property single-site dim views. Suite stayed green
+throughout (2303 → 2347; net +44 tests across the tier + an unrelated
+bootstrap typo-validation fix that ran in parallel).
+
+### Per-phase commits
+
+  * **v16.A** (`c56e390`) — Kickoff planning, five locked decisions.
+  * **v16.B/C/D** (`738d14c`) — Bundled implementation. Also
+    includes the unrelated bootstrap typo-validation bug fix and
+    the porkbun.csv refresh (4 newly-added domains).
+
+### Operational follow-ups (not gated on this tier)
+
+  * Populate per-domain GSC analytics cache (run `project seo` per
+    site, or wait for a cache-population hook in a follow-up phase).
+  * Once snapshot history accrues, add the `W/w impressions Δ`
+    dashboard column that was deferred.
+  * Rename `tests/test_v16c_bootstrap_owned_domain_check.py` →
+    `tests/test_bootstrap_owned_domain_check.py` (the v16c prefix
+    is misleading; the fix is unrelated to v16.C).
+
+---
+
 ## v15 — deploy verification (v15.A-F) — shipped 2026-05-20
 
 ### Problem

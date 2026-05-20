@@ -548,7 +548,7 @@ approach for v15.E, flag wiring, CLI symmetry restoration, locked
 to `docs/shipping-history.md § v15 — deploy verification` 2026-05-20
 as part of the v15 tier wrap — same pattern as v10 + v11 + v12 + v14.*
 
-### v16 — GSC fleet-level intelligence *(new 2026-05-19; absorbs v13.A; renumbered 2026-05-20, was v15; reshaped 2026-05-20 — dropped original v16.B/C/E single-property reinvention per `§ 2 Non-goals` audit; relabeled original v16.D→v16.B + v16.F→v16.C; kickoff inserted 2026-05-20 — bumped foundation/check/rollup to v16.B/C/D)*
+### v16 — GSC fleet-level intelligence ✅ *(new 2026-05-19; absorbs v13.A; renumbered 2026-05-20, was v15; reshaped 2026-05-20 — dropped original v16.B/C/E single-property reinvention per `§ 2 Non-goals` audit; relabeled original v16.D→v16.B + v16.F→v16.C; kickoff inserted 2026-05-20 — bumped foundation/check/rollup to v16.B/C/D; **tier complete 2026-05-20**)*
 
 GSC web UI handles single-property dim views (queries / pages /
 devices / trend) well — operator can browse `search.google.com/
@@ -569,12 +569,18 @@ non-goals — same family as the dropped GA4 Data API consumers.
 | # | Status | Feature |
 |---|---|---|
 | v16.A | ✅ | **Kickoff planning.** Locked five decisions 2026-05-20: (a) v16.C URL Inspection check inspects **sitemap URLs ranked by GSC impressions desc** (alphabetical fallback for zero-imp URLs) — works for new sites + prioritizes URLs that actually matter. (b) v16.D fleet-aggregated views surface via a **single `fleet seo --detail` flag** rather than compositional section flags — coherent unit, fewer flags. (c) Cache TTL stays **24h default** — matches existing `hosting_cache`/`seo_cache` conventions; GSC's own 2-3 day publishing lag dominates anyway. (d) v16.C binary check is **indexing-only** (`crawl_state != submitted_indexed`); mobile-usability data renders but doesn't fail the check (one assertion per CHECK_NNN). (e) Formally adopted the kickoff-phase convention — bumped existing v16.A/B/C → v16.B/C/D. See `#### Design notes` for the locked decisions; this matches the v14.A / v15.A kickoff precedent. |
-| v16.B | ⏳ | Foundation — `gsc.py` dimension-aware query helpers (`query_with_dims(property, days, dimensions, row_limit)`) + per-project cache module `gsc_detail_cache.py` writing `data/gsc/<domain>/<UTC-today>.json`. Persists fleet-aggregation inputs so v16.C/D read from cache without re-burning GSC quota. `--refresh` re-fetches; `is_stale` default 24h. Heavy reuse of existing OAuth + retry plumbing in `gsc.py`. |
-| v16.C | ⏳ | URL Inspection API wrapper + binary check (was v16.D). `gsc.inspect_url(property, url)` calls `urlInspection.index:inspect`, returns `(indexed, last_crawl_at, mobile_usability_verdict, crawl_state)` where `crawl_state` itemizes the GSC verdict — `submitted_indexed` / `crawled_not_indexed` / `discovered_not_indexed` / `not_found_404` / `redirect_error` / `server_error` / `blocked_by_robots`. Capped at top-N pages from the sitemap (default 10) so a 100+ page site doesn't burn the URL Inspection daily quota. Exposes the data as a **binary CHECK_NNN** in `project check` — fires `fail` when any inspected URL is in a non-`submitted_indexed` state. *(Optional `--coverage` flag on `project seo` is a stretch goal — supersedes v13.B's existing block; not required for the binary check.)* |
-| v16.D | ⏳ | Fleet-level GSC rollup (was v16.F pre-reshape, then v16.C briefly post-reshape; absorbs the aggregate signals from dropped original v16.B/C/E). New columns on `fleet dashboard`: Coverage % (indexed/submitted, from v16.C cache) · Crawl-errors count · W/w impressions delta · Page-2 opportunity count (fleet-summed). `fleet seo --detail` mode surfaces fleet-aggregated top queries / top pages / page-2 opportunities — *across the fleet*, not per-property (the GSC UI already does per-property). Reuses persisted GSC snapshots — no extra API quota when called within cache TTL. Renders condensed at narrow terminal widths. |
+| v16.B | ✅ | Foundation — `gsc.query_with_dims(service, site_url, *, dimensions, row_limit)` dimension-aware searchAnalytics wrapper. Reuses `query_totals`' OAuth + retry plumbing; supports any combination of GSC dimensions (query, page, device, country, date). Per-domain cache lives in the existing `gsc_detail_cache.py` (v13.B) — no new cache module needed; v16.C/D layer their data into new sections of the same per-domain JSON file. 7 new tests on `query_with_dims`. |
+| v16.C | ✅ | URL Inspection API wrapper + binary check. `CHECK_147 url-indexed` (deploy/warn) — fetches top-N pages ranked by GSC impressions (sitemap fallback for zero-imp sites), runs `urlInspection.index:inspect` per URL via the existing `gsc_recrawl.inspect_one_url`, fires `fail` when any URL is in a non-indexed `coverageState`. Indexed states: `"Submitted and indexed"` + `"Indexed, not submitted in sitemap"` (matches GSC's actual API response text, not the v13.B-era enum-token assumption — that mismatch was the v13.B bug logged 2026-05-20). Cache-aware: reads cached inspections when fresh (24h TTL), refetches via API otherwise. Mobile-usability data renders alongside but doesn't trigger fail — surgical check posture per v16.A. GSC layer errors (auth, property lookup, network) warn-skip rather than fail-grade. 11 new tests. |
+| v16.D | ✅ | Fleet-level GSC rollup. New `src/portfolio/gsc_rollup.py` — read-only fleet aggregation over the per-domain caches: `domain_coverage_stats()`, `domain_queries()`/`pages()`, `page_2_opp_count()`, `fleet_aggregated_top_queries()`, `fleet_aggregated_top_pages()`, `fleet_page_2_opportunities()`. `fleet dashboard` gains 3 columns (Cov % · Crawl-err · P2-opp) that read from the per-domain cache and render `—` when absent. `fleet seo --detail` flag appends three fleet-aggregated sections below the per-site table (🔎 Top queries, 📄 Top pages, 💡 Page-2 opportunities) — sections render "(empty)" when no domains have cached GSC data yet. **Trimmed from the locked design**: the `W/w impressions Δ` dashboard column was dropped — needs comparing across multi-day snapshots, deferred until snapshot history exists. Cache-population step (filling `v16b_queries`/`v16b_pages` per-domain sections) is a follow-up hook on `project seo` — gsc_rollup ships the read side. 15 new tests on the aggregation helpers. |
 
-#### Design notes
+*Tier-level design notes (problem statement, goals, non-goals,
+locked → as-shipped deltas, resolved open questions, user journey
+scenarios, effort tally, approval, kickoff-gate convention)
+migrated to `docs/shipping-history.md § v16 — GSC fleet-level
+intelligence` 2026-05-20 as part of the v16 tier wrap — same
+pattern as v10 + v11 + v12 + v14 + v15.*
 
+<!-- BEGIN v16-design-notes-purged
 **Problem statement.** Two operator-facing gaps `lamill` should close,
 both one or two GSC API calls away:
 
@@ -699,6 +705,7 @@ assignment approved 2026-05-19. Reshape approved 2026-05-20 per
 `§ 2 Non-goals` audit.
 
 **Kickoff gate.** Now adopted as the explicit `v16.A` phase (above) — 2026-05-20 locked the five decisions captured there. For consistency, v16+ (post-kickoff-convention) all carry the explicit `vN.A — kickoff planning` row; v15 also adopted it 2026-05-20. v13/v14 absorbed it as a one-line tier-preamble note since their letter slots were already assigned at shipping.
+END v16-design-notes-purged -->
 
 ### v17 — SEO check expansion *(new 2026-05-19; renumbered 2026-05-20, was v16)*
 
