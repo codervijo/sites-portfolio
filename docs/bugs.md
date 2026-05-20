@@ -65,6 +65,159 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — `new bootstrap` doesn't list all prompts upfront
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+The CLI starts asking questions one-by-one (Summary → Audience →
+ICP → Goals → Content strategy → registered? → registrar → growth
+hypothesis = 8 prompts total) with no advance notice.
+
+**Expected**
+
+Print a single up-front banner before any prompt fires, listing all
+8 questions that will be asked + a hint that any of them can be
+`Enter`-skipped (and the `--non-interactive` / `--<section>` flag
+escape hatches). Operator can either prep answers or hit Enter for
+defaults.
+
+**Actual**
+
+Operator gets ambushed prompt-by-prompt with no idea how many more
+are coming or what they cover.
+
+**Where (guess)**
+
+`src/portfolio/cli.py @new_app.command("bootstrap")` — between the
+`--force` validation step and the first prompt (likely the
+`_resolve_inventory_inputs()` / `_collect_operator_inputs()` call
+or wherever the orchestrator's interactive phase begins). Print a
+formatted table or bulleted list of the 8 upcoming questions before
+firing the first prompt.
+
+**Severity** — `minor`
+
+**Notes**
+
+Surfaced 2026-05-20 by operator. Pairs with the input-handling
+bugs logged below — knowing what's coming helps the operator
+prepare paragraph-length answers in advance.
+
+---
+
+### 2026-05-20 — `new bootstrap` prompt input overflow (multi-paragraph paste leaks to shell)
+
+**Repro**
+
+Run `lamill new bootstrap <domain>`. At the Growth Hypothesis prompt
+(or any other paragraph-style prompt), paste multi-paragraph text
+that contains literal newlines (e.g., the operator's growth-
+hypothesis text from the 2026-05-20 session containing 4
+paragraphs separated by blank lines).
+
+**Expected**
+
+The full multi-paragraph paste should be captured as one input
+field for that prompt — operator's growth hypothesis should land
+verbatim into `docs/growth.md` regardless of how many newlines
+it contains.
+
+**Actual**
+
+`typer.prompt(...)` accepts only the first line of the paste; the
+remaining paragraphs leak out of the prompt and the shell tries
+to execute them as commands:
+
+```
+The buyer is a developer or a CTO at a small team. They got a legal email…
+Command 'The' not found, did you mean:
+  command 'the' from deb the (3.3~rc1-3build1)
+…
+TAM is not the pitch. There are ~4M apps…
+TAM: command not found
+```
+
+**Where (guess)**
+
+Default `typer.prompt` / Click's `click.prompt` underlying impl
+reads until the first newline. For paragraph-style inputs (growth
+hypothesis, ICP, content strategy), we need a multiline editor
+or a delimiter-based capture. Three approaches:
+
+  1. **End-with-blank-line:** read lines until two consecutive
+     blank lines appear (operator types text, hits Enter twice
+     to finish).
+  2. **`$EDITOR` invocation:** drop the operator into `vi`/`nano`
+     with the prompt as a comment header; capture the buffer on
+     save+exit. Heavier, but handles arbitrary length.
+  3. **Click's `prompt(default="", show_default=False)` already
+     supports `confirmation_prompt`** but not multiline. Custom
+     multiline-prompt helper is the cleanest.
+
+`_collect_operator_inputs()` / `_collect_growth_hypothesis()` in
+`src/portfolio/cli.py` (or wherever those functions live) needs
+the multiline helper.
+
+**Severity** — `major`
+
+**Notes**
+
+Operator's pasted text didn't make it into the project, AND the
+shell tried to execute each leaked paragraph as a command. The
+bootstrap completed but with empty growth.md / partial AI_AGENTS
+sections. Workaround until fixed: pass content via per-section
+flags (`--summary "..."` / `--growth-hypothesis "..."`).
+
+---
+
+### 2026-05-20 — `new bootstrap` prompts don't validate input format
+
+**Repro**
+
+Vague — operator flagged "not understanding input" without a
+specific repro. Suspected cases:
+
+  1. Registrar prompt accepts arbitrary free text (`other` is the
+     only documented fallback but typos like `porbun` get accepted
+     verbatim and written into portfolio.json).
+  2. Y/n prompts may not handle whitespace / capitalization
+     gracefully — `Yes` or ` y` may behave differently than `y`.
+  3. Operator's session output showed the ICP prompt's instruction
+     text being LITERALLY captured as the answer in one case
+     (operator hit Enter at the prompt header then started typing
+     the instruction text from below) — suggests the prompt label
+     might span multiple lines confusingly.
+
+**Expected**
+
+Each prompt's accepted input set is documented in the prompt
+itself + validated. Whitespace-trimmed; case-insensitive where
+appropriate; rejection messages list the accepted values.
+
+**Actual**
+
+Free-text accepted without validation in at least the registrar
+prompt; behavior on whitespace / multiline pastes unclear.
+
+**Where (guess)**
+
+`_resolve_inventory_inputs()` / `_collect_operator_inputs()`
+prompt logic in `src/portfolio/cli.py`. Add explicit `validate=`
+arguments via Click or a custom `_prompt_choice()` wrapper that
+loops on invalid input.
+
+**Severity** — `minor`
+
+**Notes**
+
+Needs concrete repros from operator. Pairs with the multi-
+paragraph paste bug above — both are part of an overall "the
+prompt UX in bootstrap needs hardening" theme.
+
+---
+
 ### 2026-05-20 — `new bootstrap` accepts unregistered/typo'd domains silently
 
 **Repro**
