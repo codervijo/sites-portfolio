@@ -890,7 +890,7 @@ project creation (not a project-dir write, but irreversible).
 
 ### Projected CLI surface (current + planned)
 
-Full command tree at the end of v14, with shipped nodes marked ✅
+Full command tree at the end of v15, with shipped nodes marked ✅
 and planned nodes labeled with the phase that introduces them.
 
 ```
@@ -900,9 +900,9 @@ lamill
 │   ├── fix <name>                                   ✅ v6.D
 │   ├── seo <name>                                   ✅ v7.A
 │   ├── diagnose <name>                              ✅ v7.F
-│   ├── version <name>                               ⏳ v14.A — read local
+│   ├── version <name>                               ⏳ v15.A — read local
 │   │                                                          version.json
-│   └── deploy-status <name>                         ⏳ v14.B — HEAD vs deployed
+│   └── deploy-status <name>                         ⏳ v15.B — HEAD vs deployed
 │                                                              SHA (or fold into
 │                                                              `diagnose`?)
 │
@@ -977,10 +977,10 @@ lamill
 | v13.A | GSC trend correlation — namespace deferred (`fleet trends` vs `settings gsc trends`) |
 | v13.B | `fleet info list` (or `project list` — naming TBD) |
 | v13.C | LLM content seeding — postponed indefinitely; no surface change |
-| v14.A | `project version` |
-| v14.B | `project deploy-status` (or fold into `diagnose`?) |
-| v14.C | (deploy lag / build status surfaced via existing `fleet hosting`?) |
-| v14.D | `cleanup --refresh` / `--watch` flags (no new node) |
+| v15.A | `project version` |
+| v15.B | `project deploy-status` (or fold into `diagnose`?) |
+| v15.C | (deploy lag / build status surfaced via existing `fleet hosting`?) |
+| v15.D | `cleanup --refresh` / `--watch` flags (no new node) |
 
 #### Open CLI design questions
 
@@ -1006,11 +1006,11 @@ or signals "decide it when you get there" per-phase.
    inventory views; clean fit) vs `project list` (matches
    pre-v7.A name; was deprecated). Leaning `fleet info list` —
    confirm at v13.B kickoff.
-4. **v14.B deploy-status placement.** Standalone `project
+4. **v15.B deploy-status placement.** Standalone `project
    deploy-status <name>` vs fold the HEAD-vs-deployed check into
    the existing `project diagnose <name>` 5-layer probe. The
    diagnose path is closer to the existing UX shape; standalone
-   adds a discoverable verb. Defer until v14.B starts.
+   adds a discoverable verb. Defer until v15.B starts.
 
 ### `--verify` semantics (v12)
 

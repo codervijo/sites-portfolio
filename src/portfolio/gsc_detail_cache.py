@@ -15,8 +15,8 @@ Inspection); merits its own surface so the 24h TTL and the
 URL Inspection daily-quota budget can be reasoned about
 per-domain.
 
-Also reused by v15.A's planned per-project GSC analytics cache
-(same shape, same TTL convention). v15.A may extend the snapshot
+Also reused by v16.A's planned per-project GSC analytics cache
+(same shape, same TTL convention). v16.A may extend the snapshot
 schema with additional sections (queries / pages / devices / trend
 data); the loader's forward-compat clean drops unknown keys so
 older snapshots stay readable.

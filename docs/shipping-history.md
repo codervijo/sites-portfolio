@@ -102,7 +102,7 @@ what the primary missed.
 
 - Three-model consensus / N-way voting. Two perspectives + honest
   disagreement is the point; adding a third dilutes the signal.
-  (v21 reserved for future Gemini integration if revisited.)
+  (v22 reserved for future Gemini integration if revisited.)
 - Auto-resolution of disagreement. No "if audit confidence >
   primary confidence, audit wins" rules — those manufacture false
   certainty. The operator is the tiebreaker.

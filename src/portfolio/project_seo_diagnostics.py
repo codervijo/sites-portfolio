@@ -7,7 +7,7 @@ from GSC Sitemaps API + URL Inspection API; both via the existing
 
 Distinct from v5.D (which already populates the 1-row 28d
 aggregate that becomes the header line above this diagnostics
-block) and from v15.B+ analytics (queries / pages / devices /
+block) and from v16.B+ analytics (queries / pages / devices /
 trend — those live behind section flags).
 
 When the domain has no GSC property registered, returns a
@@ -193,7 +193,7 @@ def fetch_coverage_details(service, property_url: str, *,
     call `urlInspection.index.inspect` for each. Returns one
     `CoverageDetail` per URL.
 
-    `top_n=10` matches v15.D's planned default (also caps URL
+    `top_n=10` matches v16.D's planned default (also caps URL
     Inspection daily-quota burn — 200 calls/day per token; 10
     per project keeps the per-domain footprint small).
     """
