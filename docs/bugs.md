@@ -65,6 +65,129 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — `project check` groups `warn` results inconsistently across the rendered sections
+
+**Repro**
+
+    uv run lamill project check airsucks.com
+
+Run against a site whose CHECK_145 (deploy-fresh, severity=warn) and
+CHECK_146 (last-build-success, severity=warn) both return `warn`.
+
+**Expected**
+
+Both `warn` results land in the same section (either both under "Conformance
+failures" or both under "Skipped"), with consistent glyph treatment.
+Distinct sections for `pass` / `warn` / `fail` would also be acceptable.
+
+**Actual**
+
+The same severity (`warn`) renders into two different buckets depending
+on the message wording:
+
+```
+Conformance failures (7):
+  ...
+  ✗ CHECK_145 deploy-fresh — can't read live version.json
+    (https://airsucks.com/version.json → 404) — CHECK_144 surfaces the
+    underlying cause.
+...
+Skipped (26): ..., CHECK_146
+```
+
+CHECK_145 returned `warn` and landed in *Conformance failures* with a
+red ✗. CHECK_146 also returned `warn` but landed in *Skipped*. The
+only obvious difference: CHECK_146's message contained the literal
+substring `"skipped"`, CHECK_145's didn't.
+
+**Where (guess)**
+
+`src/portfolio/cli.py` — the `project check` renderer (search for
+"Conformance failures" string in cli.py). Likely keys "skipped"
+bucket off the message text rather than off the `CheckResult.status`
+field. Should be a simple status-based split:
+
+  - `pass` → "Passed"
+  - `warn` → "Warnings" (new section, OR merge with Skipped)
+  - `fail` → "Conformance failures"
+  - explicit skipped (status=`skip`?) → "Skipped"
+
+Need to confirm whether `CheckResult` even has a separate `skip`
+status or whether `warn`-with-"skipped"-in-message is the existing
+convention for skips.
+
+**Severity** — `cosmetic`
+
+**Notes**
+
+Surfaced 2026-05-20 during the v15.D/E hand-test on airsucks.com.
+Not a v15 regression — pre-existing renderer quirk that v15.D/E made
+visible by adding two new warn-severity checks. Renderer fix lifts
+all current warns + future warns consistently.
+
+---
+
+### 2026-05-20 — `project check` deploy summary line shows wrong platform for cf-workers sites
+
+**Repro**
+
+    uv run lamill project check airsucks.com
+
+`airsucks.com/lamill.toml` declares `platform = "cf-workers"`. The
+walker / `fleet hosting` agrees:
+
+    $ uv run lamill fleet hosting --provider cloudflare-workers
+    ... airsucks.com   cloudflare-workers   DEPLOYED ...
+
+**Expected**
+
+The header line should display the actual declared platform from
+`lamill.toml`:
+
+```
+Deployment:  cloudflare-workers  via: wrangler.jsonc
+```
+
+**Actual**
+
+```
+Deployment:  cloudflare-pages  via: wrangler.jsonc
+  Live: live-site (HTTP 200, 291ms)  → https://airsucks.com  2026-05-20.json
+```
+
+`cloudflare-pages` is wrong — airsucks.com is a CFW project (confirmed
+both by `lamill.toml` and the hosting walker). The `via: wrangler.jsonc`
+hint is right (CFW does use wrangler), so the inference path is partially
+correct, but it mislabels the platform.
+
+**Where (guess)**
+
+The `project check` deploy-summary renderer doesn't appear to read
+`lamill.toml [deploy].platform` directly — looks like it heuristically
+classifies based on the presence of `wrangler.jsonc` (→ historically
+cf-pages, before CFW became its own category). Search `src/portfolio/`
+for the "Deployment:" rendering line. Should switch to reading
+`lamill_toml.load(repo_dir).deploy.platform` as the authoritative
+source, falling back to inference only when the file is absent.
+
+Possible adjacent: CHECK_143 (deploy-drift) on the same run output
+shows `declared=cf-workers · actual unknown` — that check reads
+lamill.toml correctly, so it's specifically the *Deploy summary*
+renderer that's broken.
+
+**Severity** — `minor`
+
+**Notes**
+
+Surfaced 2026-05-20 during the v15.D/E hand-test on airsucks.com.
+Not v15-related — pre-existing renderer mismatch. Fix is likely a
+one-line change to source the platform field from `lamill.toml`.
+
+Pairs with the inconsistent `warn` rendering bug logged above (same
+operator run surfaced both).
+
+---
+
 ### 2026-05-20 — v13.B `project seo` GSC diagnostics — 3 rendering/classification issues
 
 **Repro**
