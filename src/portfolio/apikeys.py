@@ -56,6 +56,10 @@ KNOWN_KEYS: tuple[str, ...] = (
     "HOSTGATOR_USER_GATOR3164",
     "HOSTGATOR_TOKEN_GATOR4216",
     "HOSTGATOR_USER_GATOR4216",
+    "GITHUB_TOKEN",  # v15.I — REST API for repo create via `POST /user/repos`
+                     # (per ADR-0012). Falls back to `gh` CLI when unset; both
+                     # paths exit `new deploy` with a clear error when neither
+                     # is available.
 )
 
 
@@ -440,4 +444,43 @@ def probe_all() -> dict[str, ProbeResult]:
         else:
             out[user_key] = ProbeResult("missing", "")
 
+    # v15.I — GitHub REST API for repo create. Falls back to `gh` CLI
+    # when token unset; pipeline pre-flight handles both.
+    out["GITHUB_TOKEN"] = _probe_github(get_key("GITHUB_TOKEN") or "")
+
     return out
+
+
+def _probe_github(token: str) -> ProbeResult:
+    """GitHub REST API token probe — `GET /user` returns the
+    authenticated user's profile (40x on bad token; 200 on valid).
+
+    Token may be missing without being an error — v15.I's `new deploy`
+    falls back to the `gh` CLI when GITHUB_TOKEN is unset. The
+    `list` command surfaces 'missing' so the operator sees the state.
+    """
+    if not token:
+        return ProbeResult("missing", "")
+    try:
+        r = httpx.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=8.0,
+        )
+    except httpx.HTTPError as e:
+        return ProbeResult("invalid", f"{type(e).__name__}")
+    if r.status_code == 200:
+        try:
+            login = r.json().get("login") or "?"
+        except ValueError:
+            login = "?"
+        return ProbeResult("valid", f"login={login}")
+    if r.status_code == 401:
+        return ProbeResult("invalid", "401 unauthorized")
+    if r.status_code == 403:
+        return ProbeResult("invalid", "403 forbidden (token scope?)")
+    return ProbeResult("invalid", f"http {r.status_code}")

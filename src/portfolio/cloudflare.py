@@ -247,3 +247,400 @@ def purge_files(zone_id: str, urls: list[str], *,
         raise CloudflareAPIError(
             f"purge_cache returned success=false: {body.get('errors')}"
         )
+
+
+# ============================================================================
+# v15.I — git-integrated Pages deploy pipeline (ADR-0012)
+# ============================================================================
+#
+# Helpers used by `lamill new deploy <domain>` for the unified
+# `_deploy_cf_unified()` orchestrator. All operations are idempotent
+# (probe-then-mutate; never blind-create).
+#
+# Endpoints used:
+#   POST   /zones                                                       — create zone
+#   GET    /zones/{zone_id}                                             — fetch NS + status
+#   GET    /accounts/{id}/pages/projects/{name}                         — get project (idempotency probe)
+#   POST   /accounts/{id}/pages/projects                                — create with git source
+#   POST   /accounts/{id}/pages/projects/{name}/domains                 — attach custom domain
+#   GET    /accounts/{id}/pages/projects/{name}/deployments?per_page=1  — build poll
+#
+# CF auth: same `_client()` pattern as `resolve_zone_id` / `purge_files`
+# (token from `~/.config/portfolio/cloudflare/token`). Account-id comes
+# from `apikeys.get_key("CF_ACCOUNT_ID")` — operator sets it once via
+# `lamill settings apikeys set`. v15.I helpers take it as an explicit
+# parameter; the orchestrator in cli.py resolves it.
+
+
+from dataclasses import dataclass, field
+
+
+@dataclass(frozen=True)
+class ZoneInfo:
+    """Resolved or newly-created CF zone. `created=True` only when
+    this run made the POST /zones call."""
+    zone_id: str
+    name: str
+    name_servers: list[str]
+    status: str          # "active" | "pending" | "deactivated" | ...
+    created: bool = False
+
+
+def ensure_zone(domain: str, *,
+                account_id: str | None = None,
+                client: httpx.Client | None = None) -> ZoneInfo:
+    """Resolve OR create the CF zone for `domain`. Returns ZoneInfo
+    with `name_servers` populated (so the caller knows what NS to
+    push to the registrar) and `status`.
+
+    Detection: try existing `resolve_zone_id()` (cache → GET /zones).
+    Creation: on cache+API miss, POST /zones with {name, account.id}
+    if `account_id` provided; otherwise raise.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        try:
+            zone_id = resolve_zone_id(domain, client=c)
+            # Existing zone — fetch full record for NS + status.
+            return _fetch_zone_record(zone_id, client=c, created=False)
+        except CloudflareAPIError as e:
+            # "No CF zone found" → fall through to create.
+            if "no cf zone found" in str(e).lower():
+                if not account_id:
+                    raise CloudflareAPIError(
+                        f"Zone for {domain} does not exist and no "
+                        f"account_id supplied to create it. Pass "
+                        f"account_id via CF_ACCOUNT_ID."
+                    ) from e
+                return _create_zone(domain, account_id, client=c)
+            raise
+    finally:
+        if own_client:
+            c.close()
+
+
+def _fetch_zone_record(zone_id: str, *, client: httpx.Client,
+                       created: bool) -> ZoneInfo:
+    resp = client.get(f"/zones/{zone_id}")
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET /zones/{zone_id} → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"GET /zones/{zone_id} returned success=false: "
+            f"{body.get('errors')}"
+        )
+    result = body.get("result") or {}
+    return ZoneInfo(
+        zone_id=zone_id,
+        name=result.get("name", ""),
+        name_servers=list(result.get("name_servers") or []),
+        status=result.get("status", "unknown"),
+        created=created,
+    )
+
+
+def _create_zone(domain: str, account_id: str, *,
+                 client: httpx.Client) -> ZoneInfo:
+    resp = client.post(
+        "/zones",
+        json={"name": domain, "account": {"id": account_id}},
+    )
+    # 409 → zone might exist in a race; refetch defensively.
+    if resp.status_code == 409:
+        # Look up by name to recover.
+        return ensure_zone(domain, account_id=None, client=client)
+    if resp.status_code not in (200, 201):
+        raise CloudflareAPIError(
+            f"POST /zones (name={domain}) → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"POST /zones (name={domain}) success=false: "
+            f"{body.get('errors')}"
+        )
+    result = body.get("result") or {}
+    # Cache the new zone id.
+    cache = _load_zones_cache()
+    new_id = result.get("id")
+    if new_id:
+        cache[domain] = new_id
+        _save_zones_cache(cache)
+    return ZoneInfo(
+        zone_id=new_id or "",
+        name=result.get("name", domain),
+        name_servers=list(result.get("name_servers") or []),
+        status=result.get("status", "pending"),
+        created=True,
+    )
+
+
+@dataclass(frozen=True)
+class PagesProject:
+    """CF Pages project (also serves Workers Static Assets). The unified
+    `/accounts/{id}/pages/projects` API model.
+
+    `created=True` only when this run's POST /pages/projects call
+    created it (vs. detected via GET).
+    """
+    name: str
+    domains: list[str]               # custom domains attached
+    source_owner: str | None         # owner of the connected GH repo (if any)
+    source_repo: str | None          # repo name
+    production_branch: str
+    latest_deployment_id: str | None
+    created: bool = False
+
+
+def get_pages_project(name: str, *,
+                      account_id: str,
+                      client: httpx.Client | None = None) -> PagesProject | None:
+    """Idempotency probe. 404 → None; 200 → PagesProject; else raise."""
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.get(f"/accounts/{account_id}/pages/projects/{name}")
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code == 404:
+        return None
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET /pages/projects/{name} → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"GET /pages/projects/{name} success=false: {body.get('errors')}"
+        )
+    return _project_info_from_json(body.get("result") or {}, created=False)
+
+
+def create_pages_project_with_git(
+    name: str, *,
+    account_id: str,
+    gh_owner: str,
+    gh_repo: str,
+    production_branch: str = "main",
+    build_command: str = "pnpm run build",
+    destination_dir: str = "dist",
+    client: httpx.Client | None = None,
+) -> PagesProject:
+    """POST /accounts/{id}/pages/projects with `source.type=github`.
+
+    CF queues a build from the connected GH repo on create; subsequent
+    pushes to `production_branch` auto-deploy. Requires the CF GitHub
+    App to be installed in the operator's account (one-time dashboard
+    step at https://dash.cloudflare.com/?to=/:account/workers-and-pages/
+    create/connect-to-git).
+    """
+    own_client = client is None
+    c = _client(client=client)
+    body = {
+        "name": name,
+        "production_branch": production_branch,
+        "source": {
+            "type": "github",
+            "config": {
+                "owner": gh_owner,
+                "repo_name": gh_repo,
+                "production_branch": production_branch,
+                "deployments_enabled": True,
+                "production_deployments_enabled": True,
+            },
+        },
+        "build_config": {
+            "build_command": build_command,
+            "destination_dir": destination_dir,
+        },
+    }
+    try:
+        resp = c.post(
+            f"/accounts/{account_id}/pages/projects",
+            json=body,
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code not in (200, 201):
+        # Surface GitHub-App-missing errors with operator-actionable text.
+        text_lower = resp.text.lower()
+        if "github" in text_lower and (
+            "install" in text_lower or "not authorized" in text_lower
+            or "not configured" in text_lower
+        ):
+            raise CloudflareAPIError(
+                f"POST /pages/projects/{name} → HTTP {resp.status_code}: "
+                f"GitHub App not connected to this CF account. Install once "
+                f"at https://dash.cloudflare.com/?to=/:account/"
+                f"workers-and-pages/create/connect-to-git, authorize the "
+                f"repo {gh_owner}/{gh_repo}, then re-run `lamill new "
+                f"deploy {gh_repo}`. Full response: {resp.text[:200]}"
+            )
+        raise CloudflareAPIError(
+            f"POST /pages/projects/{name} → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    payload = resp.json()
+    if not payload.get("success"):
+        raise CloudflareAPIError(
+            f"POST /pages/projects/{name} success=false: "
+            f"{payload.get('errors')}"
+        )
+    return _project_info_from_json(payload.get("result") or {}, created=True)
+
+
+def attach_pages_custom_domain(
+    project_name: str, hostname: str, *,
+    account_id: str,
+    client: httpx.Client | None = None,
+) -> bool:
+    """Idempotent attach. Returns True if newly attached; False if
+    already present.
+
+    Pattern: GET project → inspect `domains` array → POST only when
+    `hostname` isn't already in the list. Defensive against CF's
+    undocumented idempotency behavior on duplicate POST.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        existing = get_pages_project(project_name, account_id=account_id, client=c)
+        if existing is None:
+            raise CloudflareAPIError(
+                f"Pages project {project_name} doesn't exist; can't "
+                f"attach domain {hostname}. Create the project first."
+            )
+        if hostname in existing.domains:
+            return False
+        resp = c.post(
+            f"/accounts/{account_id}/pages/projects/{project_name}/domains",
+            json={"name": hostname},
+        )
+    finally:
+        if own_client:
+            c.close()
+    # 409 → already attached in a race window — treat as success.
+    if resp.status_code == 409:
+        return False
+    if resp.status_code not in (200, 201):
+        raise CloudflareAPIError(
+            f"POST /pages/projects/{project_name}/domains → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"attach_pages_custom_domain success=false: {body.get('errors')}"
+        )
+    return True
+
+
+def latest_deployment_status(
+    project_name: str, *,
+    account_id: str,
+    client: httpx.Client | None = None,
+) -> tuple[str, str | None, str | None]:
+    """GET /accounts/{id}/pages/projects/{name}/deployments?per_page=1
+    → returns `(stage_name, stage_status, deployment_id)`.
+
+    `stage_status` ∈ {"success", "idle", "active", "failure", "canceled"};
+    `stage_name` is one of {"queued", "initialize", "clone_repo", "build",
+    "deploy"}. Returns `("", None, None)` if no deployments exist yet
+    (e.g., create just queued one but it hasn't started).
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.get(
+            f"/accounts/{account_id}/pages/projects/{project_name}/deployments",
+            params={"page": 1, "per_page": 1},
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET /pages/projects/{project_name}/deployments → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"deployment list success=false: {body.get('errors')}"
+        )
+    result = body.get("result") or []
+    if not result:
+        return ("", None, None)
+    dep = result[0]
+    latest = dep.get("latest_stage") or {}
+    return (
+        latest.get("name") or "",
+        latest.get("status"),
+        dep.get("id"),
+    )
+
+
+def poll_build(
+    project_name: str, *,
+    account_id: str,
+    timeout_s: int = 300,
+    interval_s: int = 5,
+    on_status: callable = None,
+    client: httpx.Client | None = None,
+) -> tuple[str, str | None]:
+    """Block until the latest deployment reaches a terminal state, OR
+    `timeout_s` elapses.
+
+    Returns `(stage_status, deployment_id)`. Terminal status values
+    are `success` / `failure` / `canceled`. On timeout, returns the
+    last-observed `(status, deployment_id)` even if non-terminal.
+
+    `on_status(stage, status)` is an optional callback invoked once
+    per poll iteration (use for live progress logging).
+    """
+    import time
+    terminal = {"success", "failure", "canceled"}
+    deadline = time.monotonic() + timeout_s
+    stage_name, stage_status, dep_id = "", None, None
+    while time.monotonic() < deadline:
+        stage_name, stage_status, dep_id = latest_deployment_status(
+            project_name, account_id=account_id, client=client,
+        )
+        if on_status is not None:
+            try:
+                on_status(stage_name, stage_status)
+            except Exception:
+                pass
+        if stage_status in terminal:
+            return stage_status, dep_id
+        time.sleep(interval_s)
+    return stage_status or "timeout", dep_id
+
+
+def _project_info_from_json(payload: dict, *, created: bool) -> PagesProject:
+    source = payload.get("source") or {}
+    source_config = source.get("config") or {}
+    latest = payload.get("latest_deployment") or {}
+    domains = payload.get("domains") or []
+    if not isinstance(domains, list):
+        domains = []
+    return PagesProject(
+        name=payload.get("name", ""),
+        domains=[str(d) for d in domains],
+        source_owner=source_config.get("owner"),
+        source_repo=source_config.get("repo_name"),
+        production_branch=payload.get("production_branch") or "main",
+        latest_deployment_id=(
+            latest.get("id") if isinstance(latest, dict) else None
+        ),
+        created=created,
+    )

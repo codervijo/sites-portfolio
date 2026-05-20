@@ -1846,8 +1846,13 @@ def bootstrap(
             chosen_platform = platform
         else:
             inferred = infer_from_existing_configs(project_dir)
+            # v15.I (ADR-0012): cf-workers is the new default. The
+            # unified Pages-API deploy pipeline serves both cf-pages
+            # and cf-workers via the same git-integrated flow, but
+            # cf-workers is the operator's preferred platform value
+            # going forward (it's where CF unified Workers + Pages).
             chosen_platform = (
-                inferred.platform if inferred is not None else "cf-pages"
+                inferred.platform if inferred is not None else "cf-workers"
             )
         _write_lamill_toml(
             project_dir,

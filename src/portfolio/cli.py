@@ -5711,15 +5711,21 @@ def _render_serp_json(payload: dict) -> None:
 @new_app.command("deploy")
 def new_deploy(
     domain: str = typer.Argument(..., help="Domain whose sites/<domain>/ project to deploy (e.g. kwizicle.com)"),
-    gh_owner: str = typer.Option("", "--gh-owner", help="GitHub username/org for the new repo (cf-pages only; auto-detected via `gh api user` if empty)"),
-    private: bool = typer.Option(False, "--private", help="Create the GitHub repo as private (cf-pages only; default: public)"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen; don't actually call APIs or run deploy commands"),
-    skip_verify: bool = typer.Option(False, "--skip-verify", help="Skip the local-config sanity check (cf-pages only)"),
-    skip_repo: bool = typer.Option(False, "--skip-repo", help="Skip GitHub repo creation (cf-pages only)"),
-    skip_pages: bool = typer.Option(False, "--skip-pages", help="Skip Cloudflare Pages project creation (cf-pages only)"),
+    gh_owner: str = typer.Option("", "--gh-owner", help="GitHub username/org for the new repo (auto-detected via GITHUB_TOKEN or `gh api user` if empty)"),
+    private: bool = typer.Option(False, "--private", help="Create the GitHub repo as private (default: public)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen; don't actually call APIs or write anything"),
+    yes: bool = typer.Option(False, "--yes", help="Auto-confirm interactive prompts (e.g. registrar NS update). v15.I — non-interactive mode."),
+    skip_verify: bool = typer.Option(False, "--skip-verify", help="Skip the local-config sanity check (cf-pages/cf-workers only)"),
+    skip_repo: bool = typer.Option(False, "--skip-repo", help="Skip GitHub repo creation (cf-pages/cf-workers only)"),
+    skip_pages: bool = typer.Option(False, "--skip-pages", help="Skip Cloudflare Pages project creation (cf-pages/cf-workers only)"),
     apply: bool = typer.Option(False, "--apply", help="Required to actually push files for hostgator/custom (dry-run default per ADR-0011)."),
 ) -> None:
-    """Deploy a sites/<domain>/ project. Dispatches by lamill.toml platform (v11.M)."""
+    """Deploy a sites/<domain>/ project. Dispatches by lamill.toml platform.
+
+    v15.I (ADR-0012): `cf-pages` and `cf-workers` both route through the
+    unified Pages-API git-integrated pipeline. No `wrangler deploy` calls.
+    Vercel + HostGator + custom paths unchanged.
+    """
     from .data import ROOT as DATA_ROOT
     from . import lamill_toml as _lt
 
@@ -5735,12 +5741,13 @@ def new_deploy(
         console.print(f"[red]lamill.toml invalid:[/] {e}")
         raise typer.Exit(2)
 
-    platform = decl.deploy.platform if decl else "cf-pages"
+    platform = decl.deploy.platform if decl else "cf-workers"
     if decl is None:
         console.print(
-            "[dim]No lamill.toml found — assuming platform=cf-pages "
-            "(legacy default). Run `lamill settings deploy set "
-            f"{domain} <platform>` to declare explicitly.[/]"
+            "[dim]No lamill.toml found — assuming platform=cf-workers "
+            "(v15.I default; was cf-pages pre-v15.I). Run `lamill "
+            f"settings deploy set {domain} <platform>` to declare "
+            "explicitly.[/]"
         )
 
     if platform == "none":
@@ -5751,21 +5758,20 @@ def new_deploy(
         )
         raise typer.Exit(2)
 
-    if platform == "cf-pages":
-        _deploy_cf_pages_v3c(
+    # v15.I — unified Pages-API path for cf-pages AND cf-workers.
+    if platform in ("cf-pages", "cf-workers"):
+        _deploy_cf_unified(
             domain=domain,
             project_dir=project_dir,
+            platform=platform,
             gh_owner=gh_owner,
             private=private,
             dry_run=dry_run,
+            yes=yes,
             skip_verify=skip_verify,
             skip_repo=skip_repo,
             skip_pages=skip_pages,
         )
-        return
-
-    if platform == "cf-workers":
-        _deploy_cf_workers(domain=domain, project_dir=project_dir, dry_run=dry_run)
         return
 
     if platform == "vercel":
@@ -5791,6 +5797,415 @@ def new_deploy(
         "manually via the platform's own tooling.[/]"
     )
     raise typer.Exit(2)
+
+
+# ============================================================================
+# v15.I — `_deploy_cf_unified()` orchestrator (ADR-0012)
+# ============================================================================
+#
+# 8 idempotent steps. Replaces both `_deploy_cf_pages_v3c()` and
+# `_deploy_cf_workers()` for `platform ∈ {cf-pages, cf-workers}`.
+# Pages-API + git-integration handles both unified.
+
+
+def _deploy_cf_unified(
+    *,
+    domain: str,
+    project_dir,
+    platform: str,
+    gh_owner: str,
+    private: bool,
+    dry_run: bool,
+    yes: bool,
+    skip_verify: bool,
+    skip_repo: bool,
+    skip_pages: bool,
+) -> None:
+    """v15.I — git-integrated CF deploy pipeline.
+
+    Pipeline (each step idempotent):
+      1. Pre-flight (creds + project-dir clean + slug resolution)
+      2. GH repo: get-or-create via REST API (or `gh` CLI fallback)
+      3. Git push: ensure origin remote + push main if local ahead
+      4. CF zone: resolve or create; surface NS records
+      5. Registrar NS: Porkbun auto-push if mismatch (other registrars
+         warn with target NS list)
+      6. CF Pages project: get-or-create with git source
+      7. CF Custom Domain: GET-then-POST attach if not in domains[]
+      8. Build poll + live probe
+
+    Each step prints `✓ exists, skipping` / `✓ created` / `↷ skipped: ...`
+    so the operator can see progress and what state pre-existed.
+    """
+    from pathlib import Path
+
+    from . import apikeys, cloudflare
+    from .bootstrap import _project_name
+    from .data import PORTFOLIO_JSON
+    from .gh_repo import (
+        GhAuthError, GhError, auth_path,
+        detect_gh_owner, ensure_origin_remote,
+        ensure_repo, push_to_origin,
+    )
+    from .porkbun_dns import (
+        PorkbunDnsError, get_porkbun_ns, ns_matches, update_porkbun_ns,
+    )
+
+    slug = _project_name(domain)
+    console.print(
+        f"[bold]v15.I — Deploy[/] [cyan]{domain}[/] "
+        f"[dim](platform={platform} · git-integrated CF Pages-API · "
+        f"slug={slug} · dry-run={dry_run})[/]"
+    )
+
+    # --- Step 0: Pre-flight --------------------------------------------------
+    console.print("\n[bold]0. Pre-flight[/]")
+
+    cf_token = (apikeys.get_key("CF_API_TOKEN") or "").strip()
+    cf_account = (apikeys.get_key("CF_ACCOUNT_ID") or "").strip()
+    if not cf_token or not cf_account:
+        console.print(
+            "  [red]✗[/] CF_API_TOKEN + CF_ACCOUNT_ID required.\n"
+            "  [dim]Set via `lamill settings apikeys set <KEY> <value>`.[/]"
+        )
+        raise typer.Exit(2)
+    console.print("  [green]✓[/] CF creds present")
+
+    gh_auth = auth_path()
+    if gh_auth == "none":
+        console.print(
+            "  [red]✗[/] Neither GITHUB_TOKEN nor `gh` CLI available.\n"
+            "  [dim]Set GITHUB_TOKEN via `lamill settings apikeys set "
+            "GITHUB_TOKEN <pat>`, or install gh + `gh auth login`.[/]"
+        )
+        raise typer.Exit(2)
+    console.print(f"  [green]✓[/] GitHub auth via {gh_auth}")
+
+    pb_key = (apikeys.get_key("PORKBUN_API_KEY") or "").strip()
+    pb_secret = (apikeys.get_key("PORKBUN_SECRET_API_KEY") or "").strip()
+    porkbun_creds = bool(pb_key and pb_secret)
+    if porkbun_creds:
+        console.print("  [green]✓[/] Porkbun creds present")
+    else:
+        console.print(
+            "  [yellow]↷[/] Porkbun creds missing — NS updates will be "
+            "warn-only (operator updates NS manually at registrar)"
+        )
+
+    # Resolve owner (token path or gh CLI).
+    if not gh_owner:
+        try:
+            gh_owner = detect_gh_owner()
+        except (GhAuthError, GhError) as e:
+            console.print(f"  [red]✗[/] Could not resolve GitHub owner: {e}")
+            raise typer.Exit(2)
+    console.print(f"  [green]✓[/] GitHub owner: [cyan]{gh_owner}[/]")
+    console.print(f"  [green]✓[/] CF project slug: [cyan]{slug}[/]")
+
+    if dry_run:
+        console.print(
+            "\n  [yellow]dry-run mode — subsequent steps will print "
+            "the plan but skip API/git writes.[/]"
+        )
+
+    # --- Step 1: GH repo -----------------------------------------------------
+    console.print("\n[bold]1. GitHub repo[/]")
+    if skip_repo:
+        console.print(f"  [yellow]↷[/] skipped (--skip-repo)")
+        gh_repo_name = slug
+        clone_url = f"git@github.com:{gh_owner}/{slug}.git"
+    elif dry_run:
+        console.print(
+            f"  [dim]would: ensure_repo({slug}, owner={gh_owner}, "
+            f"private={private})[/]"
+        )
+        gh_repo_name = slug
+        clone_url = f"git@github.com:{gh_owner}/{slug}.git"
+    else:
+        try:
+            repo = ensure_repo(slug, owner=gh_owner, private=private)
+        except (GhAuthError, GhError) as e:
+            console.print(f"  [red]✗[/] GitHub repo step failed: {e}")
+            raise typer.Exit(3)
+        verb = "created" if repo.created else "exists, skipping"
+        console.print(
+            f"  [green]✓[/] {verb}: [cyan]{repo.full_name}[/] "
+            f"[dim](visibility={'private' if repo.private else 'public'}; "
+            f"default_branch={repo.default_branch})[/]"
+        )
+        gh_repo_name = repo.name
+        clone_url = repo.clone_url_ssh
+
+    # --- Step 2: Git push ----------------------------------------------------
+    console.print("\n[bold]2. Git push origin/main[/]")
+    if skip_repo:
+        console.print(f"  [yellow]↷[/] skipped (--skip-repo)")
+    elif dry_run:
+        console.print(
+            f"  [dim]would: ensure origin → {clone_url}; "
+            f"git push -u origin main[/]"
+        )
+    else:
+        try:
+            added = ensure_origin_remote(Path(project_dir), clone_url)
+            verb = "added" if added else "already configured"
+            console.print(f"  [green]✓[/] origin {verb} → [cyan]{clone_url}[/]")
+            pushed = push_to_origin(Path(project_dir), branch="main")
+            if pushed:
+                console.print("  [green]✓[/] pushed local commits to origin/main")
+            else:
+                console.print("  [green]✓[/] origin/main already up-to-date")
+        except GhError as e:
+            console.print(f"  [red]✗[/] git push step failed: {e}")
+            raise typer.Exit(4)
+
+    # --- Step 3: CF zone -----------------------------------------------------
+    console.print(f"\n[bold]3. Cloudflare zone[/] [dim](for {domain})[/]")
+    if dry_run:
+        console.print(
+            f"  [dim]would: ensure_zone({domain}, account_id={cf_account[:8]}…)[/]"
+        )
+        target_ns: list[str] = []
+    else:
+        try:
+            zone = cloudflare.ensure_zone(domain, account_id=cf_account)
+        except cloudflare.CloudflareAPIError as e:
+            console.print(f"  [red]✗[/] CF zone step failed: {e}")
+            raise typer.Exit(5)
+        verb = "created" if zone.created else "exists, skipping"
+        console.print(
+            f"  [green]✓[/] zone {verb}: [cyan]{zone.name}[/] "
+            f"[dim](id={zone.zone_id[:12]}… · status={zone.status})[/]"
+        )
+        console.print(
+            f"  [dim]Cloudflare NS: {' '.join(zone.name_servers) or '<none>'}[/]"
+        )
+        target_ns = list(zone.name_servers)
+
+    # --- Step 4: Registrar NS ------------------------------------------------
+    console.print(f"\n[bold]4. Registrar NS[/] [dim](point {domain} at Cloudflare)[/]")
+    registrar = _lookup_registrar(domain) or "unknown"
+    if dry_run:
+        console.print(
+            f"  [dim]would: check + update NS at {registrar} to {target_ns}[/]"
+        )
+    elif not target_ns:
+        console.print("  [yellow]↷[/] no target NS yet (zone create deferred); skipping")
+    elif registrar.lower() != "porkbun":
+        console.print(
+            f"  [yellow]↷[/] domain registrar is [cyan]{registrar}[/] — "
+            f"`lamill new deploy` only auto-pushes NS to Porkbun.\n"
+            f"  [dim]Manual step: set NS at {registrar} to: "
+            f"{', '.join(target_ns)}[/]"
+        )
+    elif not porkbun_creds:
+        console.print(
+            f"  [yellow]↷[/] Porkbun creds missing — manual NS update.\n"
+            f"  [dim]Set NS at Porkbun to: {', '.join(target_ns)}[/]"
+        )
+    else:
+        try:
+            current_ns = get_porkbun_ns(
+                domain, api_key=pb_key, secret=pb_secret,
+            )
+        except PorkbunDnsError as e:
+            console.print(f"  [red]✗[/] could not read current Porkbun NS: {e}")
+            raise typer.Exit(6)
+        if ns_matches(current_ns, target_ns):
+            console.print(
+                f"  [green]✓[/] Porkbun NS already match Cloudflare "
+                f"[dim]({', '.join(current_ns)})[/]"
+            )
+        else:
+            console.print(
+                f"  [dim]Porkbun current: {', '.join(current_ns) or '<none>'}[/]\n"
+                f"  [dim]Cloudflare target: {', '.join(target_ns)}[/]"
+            )
+            confirm = True
+            if not yes:
+                confirm = typer.confirm(
+                    f"  Update NS at Porkbun for {domain}?", default=True,
+                )
+            if not confirm:
+                console.print(
+                    f"  [yellow]↷[/] NS update declined — pipeline will "
+                    f"continue, but the custom domain won't resolve until "
+                    f"NS points at Cloudflare."
+                )
+            else:
+                try:
+                    update_porkbun_ns(
+                        domain, api_key=pb_key, secret=pb_secret,
+                        ns_list=target_ns,
+                    )
+                except PorkbunDnsError as e:
+                    console.print(f"  [red]✗[/] Porkbun NS update failed: {e}")
+                    raise typer.Exit(7)
+                console.print("  [green]✓[/] NS updated at Porkbun")
+
+    # --- Step 5: CF Pages project --------------------------------------------
+    console.print("\n[bold]5. Cloudflare Pages project (git-integrated)[/]")
+    if skip_pages:
+        console.print(f"  [yellow]↷[/] skipped (--skip-pages)")
+    elif dry_run:
+        console.print(
+            f"  [dim]would: get_or_create pages project '{slug}' "
+            f"with github source={gh_owner}/{gh_repo_name}@main[/]"
+        )
+    else:
+        try:
+            project = cloudflare.get_pages_project(slug, account_id=cf_account)
+            if project is not None:
+                console.print(
+                    f"  [green]✓[/] project [cyan]{project.name}[/] exists, "
+                    f"skipping create [dim](source={project.source_owner}/"
+                    f"{project.source_repo}@{project.production_branch})[/]"
+                )
+            else:
+                project = cloudflare.create_pages_project_with_git(
+                    slug,
+                    account_id=cf_account,
+                    gh_owner=gh_owner,
+                    gh_repo=gh_repo_name,
+                    production_branch="main",
+                    build_command="pnpm run build",
+                    destination_dir="dist",
+                )
+                console.print(
+                    f"  [green]✓[/] project [cyan]{project.name}[/] created "
+                    f"[dim](source={project.source_owner}/"
+                    f"{project.source_repo}@{project.production_branch})[/]"
+                )
+        except cloudflare.CloudflareAPIError as e:
+            console.print(f"  [red]✗[/] Pages project step failed: {e}")
+            raise typer.Exit(8)
+
+    # --- Step 6: Custom Domain attach ----------------------------------------
+    console.print(f"\n[bold]6. Custom domain[/] [dim]({domain} → {slug})[/]")
+    if skip_pages:
+        console.print(f"  [yellow]↷[/] skipped (--skip-pages)")
+    elif dry_run:
+        console.print(
+            f"  [dim]would: attach {domain} to pages project {slug}[/]"
+        )
+    else:
+        try:
+            attached = cloudflare.attach_pages_custom_domain(
+                slug, domain, account_id=cf_account,
+            )
+        except cloudflare.CloudflareAPIError as e:
+            console.print(f"  [red]✗[/] custom domain step failed: {e}")
+            raise typer.Exit(9)
+        if attached:
+            console.print(f"  [green]✓[/] {domain} attached to {slug}")
+        else:
+            console.print(f"  [green]✓[/] {domain} already attached, skipping")
+
+    # --- Step 7: Build poll --------------------------------------------------
+    console.print("\n[bold]7. Build status[/]")
+    if dry_run:
+        console.print("  [dim]would: poll deployment until terminal[/]")
+    elif skip_pages:
+        console.print(f"  [yellow]↷[/] skipped (--skip-pages)")
+    else:
+        try:
+            stage, dep_id, _ = cloudflare.latest_deployment_status(
+                slug, account_id=cf_account,
+            )
+            if not stage:
+                console.print(
+                    "  [yellow]↷[/] no deployment yet — CF may still be "
+                    "queuing the build. Re-run `lamill new deploy` in a few "
+                    "minutes, or check the CF dashboard."
+                )
+            else:
+                console.print(
+                    f"  [dim]Current stage: {stage} status={dep_id}; "
+                    "polling for terminal state (~5min timeout)...[/]"
+                )
+
+                def _on_status(stage_name, status):
+                    console.print(
+                        f"  [dim]· {stage_name}: {status}[/]"
+                    )
+
+                final_status, dep_id_final = cloudflare.poll_build(
+                    slug, account_id=cf_account,
+                    timeout_s=300, interval_s=5,
+                    on_status=_on_status,
+                )
+                if final_status == "success":
+                    console.print(f"  [green]✓[/] build complete — deployment {dep_id_final}")
+                elif final_status == "failure":
+                    console.print(f"  [red]✗[/] build failed — check CF dashboard for {slug}")
+                elif final_status == "canceled":
+                    console.print(f"  [yellow]↷[/] build canceled")
+                else:
+                    console.print(
+                        f"  [yellow]↷[/] build still in flight after timeout "
+                        f"(last stage status: {final_status}). Re-poll later."
+                    )
+        except cloudflare.CloudflareAPIError as e:
+            console.print(f"  [yellow]↷[/] build poll error: {e}")
+
+    # --- Step 8: Live probe --------------------------------------------------
+    console.print(f"\n[bold]8. Live probe[/] [dim](https://{domain}/)[/]")
+    if dry_run:
+        console.print("  [dim]would: GET https://<domain>/[/]")
+    else:
+        try:
+            import httpx
+            r = httpx.get(
+                f"https://{domain}/",
+                timeout=5.0, follow_redirects=True,
+            )
+            if 200 <= r.status_code < 400:
+                console.print(
+                    f"  [green]✓[/] {r.status_code} {r.reason_phrase} "
+                    f"[dim]({len(r.text)} bytes)[/]"
+                )
+            else:
+                console.print(
+                    f"  [yellow]↷[/] {r.status_code} {r.reason_phrase} — "
+                    "may indicate NS propagation in flight or SSL not yet "
+                    "provisioned. Re-probe in 5-30 min."
+                )
+        except httpx.HTTPError as e:
+            console.print(
+                f"  [yellow]↷[/] live probe failed: {type(e).__name__}: {e} — "
+                "expected within ~30min of NS update (DNS propagation + "
+                "edge SSL provisioning)."
+            )
+
+    console.print(
+        f"\n[green]Deploy complete.[/] [dim]All 8 steps ran. "
+        f"https://{domain}/ should resolve once DNS + SSL settle "
+        f"(5-30 min from NS update).[/]\n"
+    )
+
+
+def _lookup_registrar(domain: str) -> str | None:
+    """Read `data/portfolio.json` to find which registrar holds
+    `domain`. Returns the lowercased registrar name or None if the
+    domain isn't tracked."""
+    from .data import PORTFOLIO_JSON
+    import json
+
+    if not PORTFOLIO_JSON.is_file():
+        return None
+    try:
+        data = json.loads(PORTFOLIO_JSON.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    domains = data.get("domains") if isinstance(data, dict) else None
+    if not isinstance(domains, list):
+        return None
+    for d in domains:
+        if not isinstance(d, dict):
+            continue
+        if (d.get("name") or "").lower() == domain.lower():
+            return (d.get("registrar") or "").lower() or None
+    return None
 
 
 def _deploy_cf_pages_v3c(
