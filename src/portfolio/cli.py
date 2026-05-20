@@ -3541,6 +3541,29 @@ def new_bootstrap(
             )
             raise typer.Exit(2)
 
+    # Bug-fix 2026-05-20 — pre-flight banner: when running fully
+    # interactively, print all 9 prompts the operator is about to be
+    # asked so they can prep paragraph-length answers or hit Enter to
+    # skip. Skipped when `--non-interactive` or when all per-section
+    # flag values are supplied (no prompts would fire anyway).
+    _render_bootstrap_preflight(
+        domain=domain,
+        non_interactive=non_interactive,
+        git_url=git_url,
+        summary=summary, audience=audience, icp=icp, goal=goal,
+        content_strategy=content_strategy,
+        growth_hypothesis=growth_hypothesis,
+        registered=registered, registrar=registrar,
+    )
+
+    # Bug-fix 2026-05-20 — Lovable repo URL prompt. Asked FIRST so the
+    # operator's UI is in place before the AI_AGENTS docs are filled
+    # in (those docs should be able to reference the actual code).
+    # Skipped when `--git-url` is already supplied or `--non-interactive`.
+    git_url = _resolve_git_url(
+        flag_value=git_url, non_interactive=non_interactive,
+    )
+
     operator_inputs = _collect_operator_inputs(
         summary=summary, audience=audience, icp=icp,
         goal=goal, content_strategy=content_strategy,
@@ -3590,6 +3613,168 @@ def new_bootstrap(
 # CLI code.
 
 
+# Bug-fix 2026-05-20 — multi-line prompt helper. `typer.prompt` (via
+# Click) reads to the first newline only, so multi-paragraph pastes
+# overflow into the shell and try to run as commands. This helper
+# reads stdin until two consecutive blank lines (Enter twice) OR an
+# EOF (Ctrl-D). Used for paragraph-style operator-input prompts in
+# `new bootstrap`: Summary, ICP, Content strategy, Growth hypothesis.
+
+def _prompt_multiline(label: str, *, hint: str | None = None) -> str:
+    """Read multi-line input until two blank lines or EOF.
+
+    Behavior:
+      - Prints `label` (rich markup OK) and the optional `hint`.
+      - Reads `sys.stdin` line-by-line until either:
+          * Two consecutive blank lines (operator hit Enter twice), OR
+          * EOF (Ctrl-D / closed stream)
+      - Strips trailing blank lines; returns the joined text. Empty
+        input (immediate Enter-Enter or EOF) → "".
+
+    Single-line answers still work: type the line, hit Enter, hit
+    Enter again to terminate.
+    """
+    import sys
+
+    if label:
+        console.print(label)
+    if hint:
+        console.print(f"  [dim]{hint}[/]")
+
+    lines: list[str] = []
+    blank_run = 0
+    while True:
+        try:
+            line = sys.stdin.readline()
+        except (KeyboardInterrupt, EOFError):
+            break
+        if line == "":   # EOF (Ctrl-D)
+            break
+        # `readline` keeps the trailing newline; strip it but only
+        # the trailing newline, not internal whitespace.
+        stripped = line.rstrip("\n").rstrip("\r")
+        if stripped == "":
+            blank_run += 1
+            if blank_run >= 2:
+                break
+            lines.append("")
+            continue
+        blank_run = 0
+        lines.append(stripped)
+
+    # Drop trailing blank lines from the captured buffer.
+    while lines and lines[-1] == "":
+        lines.pop()
+    return "\n".join(lines)
+
+
+# Bug-fix 2026-05-20 — Lovable GitHub repo URL prompt. The operator's
+# common workflow is: design UI in Lovable.dev → Lovable exports a
+# GitHub repo → bootstrap clones that repo as a new sites/<domain>/
+# project. The `--git-url` flag already wires this through the
+# `--from-genai` path; this helper adds the interactive surface.
+
+def _resolve_git_url(*, flag_value: str, non_interactive: bool,
+                     max_attempts: int = 3) -> str:
+    """Return the Lovable-repo URL the operator wants to clone (or "").
+
+    Resolution order:
+      1. `--git-url <url>` flag → returned verbatim (no prompt).
+      2. `--non-interactive` → "" (blank-scaffold path).
+      3. Else: interactive prompt. Empty input → "" (blank-scaffold).
+         Non-empty input must start with `http://`, `https://`, or
+         `git@`; otherwise re-prompt up to `max_attempts` times before
+         warning-and-skipping.
+    """
+    if flag_value:
+        return flag_value
+    if non_interactive:
+        return ""
+
+    console.print(
+        "\n[bold]Lovable GitHub repo URL[/]"
+        " [dim](Enter to skip and scaffold blank)[/]"
+    )
+    for _ in range(max_attempts):
+        raw = typer.prompt(
+            "  >", default="", show_default=False,
+        ).strip()
+        if not raw:
+            return ""
+        if re.match(r"^https?://", raw) or re.match(r"^git@", raw):
+            return raw
+        console.print(
+            "  [yellow]Expected an https:// URL or a git@host:path "
+            "shape; try again or hit Enter to skip.[/]"
+        )
+    console.print(
+        "  [yellow]3 invalid attempts; skipping — bootstrap will "
+        "scaffold a blank project.[/]"
+    )
+    return ""
+
+
+# Bug-fix 2026-05-20 — pre-flight banner. Print the full list of
+# prompts BEFORE the first prompt fires so the operator can prep
+# paragraph-length answers or hit Enter to skip. Skipped when running
+# non-interactively or when every per-section flag is supplied (no
+# prompts would fire anyway).
+
+def _render_bootstrap_preflight(
+    *, domain: str, non_interactive: bool, git_url: str,
+    summary: str, audience: str, icp: str, goal: str,
+    content_strategy: str, growth_hypothesis: str,
+    registered: bool | None, registrar: str,
+) -> None:
+    """Print a single banner listing all 9 upcoming prompts.
+
+    No-op when:
+      - `non_interactive=True` (no prompts fire)
+      - Every section already has a flag value AND `git_url` is set
+        AND `registered`+`registrar` are set (no prompts fire)
+    """
+    if non_interactive:
+        return
+    all_supplied = (
+        bool(git_url)
+        and bool(summary.strip()) and bool(audience.strip())
+        and bool(icp.strip()) and bool(goal.strip())
+        and bool(content_strategy.strip())
+        and bool(growth_hypothesis.strip())
+        and registered is not None and bool(registrar)
+    )
+    if all_supplied:
+        return
+
+    console.print(
+        f"\n[bold]About to bootstrap [cyan]{domain}[/].[/] "
+        "You'll be asked 9 questions:\n"
+    )
+    rows = [
+        ("1.", "Lovable GitHub repo URL", "Enter to skip; scaffolds blank"),
+        ("2.", "Summary", "one paragraph"),
+        ("3.", "Audience", "one sentence"),
+        ("4.", "ICP", "specific ideal customer"),
+        ("5.", "Goals", "1-2 sentences"),
+        ("6.", "Content strategy", "page types · topics · format mix"),
+        ("7.", "Domain registered?", "Y/n"),
+        ("8.", "Registrar", "porkbun / godaddy / namecheap / other"),
+        ("9.", "Growth hypothesis", "one paragraph"),
+    ]
+    for num, label, hint in rows:
+        console.print(
+            f"  {num} [bold]{label:<32}[/] [dim]({hint})[/]"
+        )
+    console.print(
+        "\n  [dim]Skip individual prompts with --<flag>; "
+        "skip all with --non-interactive.[/]"
+    )
+    console.print(
+        "  [dim]Paragraph prompts (1, 2, 4, 6, 9): "
+        "finish with Enter twice or Ctrl-D.[/]"
+    )
+
+
 # v9.D — growth-hypothesis prompt. Single prompt for one paragraph
 # that seeds docs/growth.md's first dated entry.
 
@@ -3604,23 +3789,26 @@ def _resolve_growth_hypothesis(*, flag_value: str,
          prompt.
       2. `--non-interactive` → empty (docs/growth.md gets the
          pre-v9.D default first entry).
-      3. Else: interactive prompt. Empty answer → empty result.
+      3. Else: interactive multi-line prompt. Empty answer → empty
+         result.
+
+    Uses the multi-line prompt helper (bug-fix 2026-05-20) so
+    multi-paragraph pastes don't overflow into the shell.
     """
     if flag_value.strip():
         return flag_value.strip()
     if non_interactive:
         return ""
-    console.print(
+    return _prompt_multiline(
         "\n[bold]Growth hypothesis[/]"
-        " [dim](v9.D — seeds docs/growth.md's first dated entry)[/]"
+        " [dim](v9.D — seeds docs/growth.md's first dated entry)[/]",
+        hint=(
+            "One paragraph: what's your bet for how this site reaches "
+            "its audience? Press Enter twice (or Ctrl-D) when done. "
+            "Hit Enter twice immediately to skip — growth.md will get "
+            "the default \"site scaffolded\" first entry."
+        ),
     )
-    console.print(
-        "  [dim]One paragraph: what's your bet for how this site reaches "
-        "its audience? Press Enter to skip — growth.md will get the "
-        "default \"site scaffolded\" first entry.[/]"
-    )
-    answer = typer.prompt("  >", default="", show_default=False).strip()
-    return answer
 
 
 # v9.C — domain-registration prompt + portfolio.json auto-update.
@@ -3701,15 +3889,39 @@ def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
         ).strip().lower()
         registered = answer not in ("n", "no")
     if not registrar:
-        registrar = typer.prompt(
-            f"  Registrar [{'/'.join(_REGISTRARS)}]",
-            default="porkbun", show_default=False,
-        ).strip().lower()
-        if registrar not in _REGISTRARS:
-            registrar = "other"
+        # Bug-fix 2026-05-20 — registrar prompt was accepting free
+        # text; tighten to the canonical set with up to 3 retries
+        # then fall back to "other". Case-insensitive + whitespace-
+        # stripped.
+        registrar = _prompt_registrar()
 
     return {"action": "append", "registered": registered,
             "registrar": registrar}
+
+
+def _prompt_registrar(max_attempts: int = 3) -> str:
+    """Interactive registrar prompt with retry-on-invalid.
+
+    Accepts (case-insensitive, whitespace-stripped): porkbun / godaddy
+    / namecheap / other. After `max_attempts` invalid responses, falls
+    back to "other" rather than raising — keeps the bootstrap flow
+    moving forward.
+    """
+    for _ in range(max_attempts):
+        raw = typer.prompt(
+            f"  Registrar [{'/'.join(_REGISTRARS)}]",
+            default="porkbun", show_default=False,
+        )
+        candidate = raw.strip().lower()
+        if candidate in _REGISTRARS:
+            return candidate
+        console.print(
+            f"  [yellow]Accepted: {', '.join(_REGISTRARS)}[/]"
+        )
+    console.print(
+        "  [dim]3 invalid attempts; defaulting to 'other'.[/]"
+    )
+    return "other"
 
 
 def _apply_inventory_decision(domain: str, decision: dict) -> None:
@@ -3801,9 +4013,25 @@ def _collect_operator_inputs(*,
             " [dim](press Enter to skip; "
             "section will render `(to be filled in)`)[/]"
         )
+        # Bug-fix 2026-05-20 — paragraph-style sections (Summary, ICP,
+        # Content strategy) use the multi-line prompt helper so
+        # multi-paragraph pastes don't overflow into the shell. The
+        # one-line sections (Audience, Goals) stay on `typer.prompt`.
+        multiline_sections = {"Summary", "ICP", "Content strategy"}
         for spec in pending_for_prompt:
-            console.print(f"\n  [cyan]{spec.heading}[/] — [dim]{spec.description}[/]")
-            answer = typer.prompt("  >", default="", show_default=False).strip()
+            if spec.heading in multiline_sections:
+                answer = _prompt_multiline(
+                    f"\n  [cyan]{spec.heading}[/] — [dim]{spec.description}[/]",
+                    hint="Hit Enter twice when done, or Ctrl-D. "
+                         "Enter twice immediately to skip.",
+                ).strip()
+            else:
+                console.print(
+                    f"\n  [cyan]{spec.heading}[/] — [dim]{spec.description}[/]"
+                )
+                answer = typer.prompt(
+                    "  >", default="", show_default=False,
+                ).strip()
             if answer:
                 inputs[spec.heading] = answer
 

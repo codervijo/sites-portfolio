@@ -214,12 +214,15 @@ def test_resolve_growth_hypothesis_non_interactive_no_flag_is_empty(monkeypatch)
 
 
 def test_resolve_growth_hypothesis_interactive_prompts(monkeypatch):
+    """Bug-fix 2026-05-20: growth hypothesis is a paragraph-style
+    prompt so it now uses `_prompt_multiline`, not `typer.prompt`.
+    Patch the helper directly."""
     prompts_called = []
 
-    def fake_prompt(prompt_str, default="", show_default=True):
-        prompts_called.append(prompt_str)
+    def fake_multiline(label, *, hint=None):
+        prompts_called.append(label)
         return "my interactive bet"
-    monkeypatch.setattr(typer, "prompt", fake_prompt)
+    monkeypatch.setattr(cli_mod, "_prompt_multiline", fake_multiline)
     result = cli_mod._resolve_growth_hypothesis(
         flag_value="", non_interactive=False,
     )
@@ -228,9 +231,9 @@ def test_resolve_growth_hypothesis_interactive_prompts(monkeypatch):
 
 
 def test_resolve_growth_hypothesis_empty_prompt_returns_empty(monkeypatch):
-    """Pressing Enter on the interactive prompt → empty result.
+    """Pressing Enter twice on the interactive prompt → empty result.
     docs/growth.md falls back to default first entry."""
-    monkeypatch.setattr(typer, "prompt", lambda *a, **k: "")
+    monkeypatch.setattr(cli_mod, "_prompt_multiline", lambda *a, **k: "")
     result = cli_mod._resolve_growth_hypothesis(
         flag_value="", non_interactive=False,
     )

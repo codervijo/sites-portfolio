@@ -89,13 +89,21 @@ def test_collect_non_interactive_skips_all_prompts(monkeypatch):
 
 def test_collect_prompts_for_missing_sections_only(monkeypatch):
     """One flag value supplied → that section skips the prompt; the
-    other 4 sections get prompted in canonical order."""
+    other 4 sections get prompted in canonical order.
+
+    Bug-fix 2026-05-20: paragraph-style sections (Summary / ICP /
+    Content strategy) use `_prompt_multiline`; one-line sections
+    (Audience / Goals) stay on `typer.prompt`. Patch both."""
     prompts_called = []
 
     def fake_prompt(prompt_str, default="", show_default=True):
         prompts_called.append(prompt_str)
         return "answer"
     monkeypatch.setattr(typer, "prompt", fake_prompt)
+    monkeypatch.setattr(
+        cli_mod, "_prompt_multiline",
+        lambda *a, **k: (prompts_called.append(a[0] if a else "") or "answer"),
+    )
     inputs = _collect(summary="From flag.")
     assert inputs["Summary"] == "From flag."
     assert inputs["Audience"] == "answer"
@@ -112,6 +120,7 @@ def test_collect_empty_prompt_answer_renders_placeholder_downstream(monkeypatch)
     helper itself just preserves the empty string; the placeholder
     behavior lives in `_ai_agents_md`."""
     monkeypatch.setattr(typer, "prompt", lambda *a, **k: "")
+    monkeypatch.setattr(cli_mod, "_prompt_multiline", lambda *a, **k: "")
     inputs = _collect()
     assert inputs["Summary"] == ""
 
@@ -121,22 +130,31 @@ def test_collect_strips_whitespace_around_flag_values(monkeypatch):
     Strip so the rendered AI_AGENTS.md doesn't carry blank lines
     inside the section body."""
     monkeypatch.setattr(typer, "prompt", lambda *a, **k: "")
+    monkeypatch.setattr(cli_mod, "_prompt_multiline", lambda *a, **k: "")
     inputs = _collect(summary="   padded   \n", non_interactive=True)
     assert inputs["Summary"] == "padded"
 
 
 def test_collect_strips_whitespace_around_prompt_answer(monkeypatch):
+    """Bug-fix 2026-05-20: Summary now uses `_prompt_multiline`.
+    Audience (typer.prompt) still strips; both helpers' answers land
+    in the inputs dict via the same `.strip()` path."""
     monkeypatch.setattr(typer, "prompt",
                         lambda *a, **k: "   trailing-spaces   ")
+    monkeypatch.setattr(cli_mod, "_prompt_multiline",
+                        lambda *a, **k: "   trailing-spaces   ")
     inputs = _collect()
+    # Both Summary (multiline) and Audience (typer.prompt) end up
+    # stripped — `_prompt_multiline` returns text without trailing
+    # newlines and the operator-inputs collector strips around it.
     assert inputs["Summary"] == "trailing-spaces"
+    assert inputs["Audience"] == "trailing-spaces"
 
 
 def test_collect_prompts_in_canonical_order(monkeypatch):
     """The interactive prompts should ask in the same order the
     sections appear in the canonical schema — preserves operator's
     mental model between the bootstrap flow and the rendered file."""
-    headings_prompted = []
 
     def fake_prompt(prompt_str, default="", show_default=True):
         # The cli.py prompt is bare ("  >") because the heading is
@@ -147,7 +165,6 @@ def test_collect_prompts_in_canonical_order(monkeypatch):
     # Track via a sentinel injected in console.print since that's
     # where the heading shows up.
     headings = []
-    orig_print = cli_mod.console.print
 
     def capture_print(*args, **kw):
         for a in args:
@@ -158,6 +175,14 @@ def test_collect_prompts_in_canonical_order(monkeypatch):
                     headings.append(h)
 
     monkeypatch.setattr(typer, "prompt", fake_prompt)
+    # Bug-fix 2026-05-20: paragraph prompts now use `_prompt_multiline`.
+    # It prints the label itself, so we capture headings from that
+    # call too (the label arg is a rich-markup string containing
+    # `[cyan]Summary[/]`).
+    def fake_multiline(label, *, hint=None):
+        capture_print(label)
+        return ""
+    monkeypatch.setattr(cli_mod, "_prompt_multiline", fake_multiline)
     monkeypatch.setattr(cli_mod.console, "print", capture_print)
     _collect()
     assert headings == ["Summary", "Audience", "ICP", "Goals", "Content strategy"]

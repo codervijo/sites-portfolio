@@ -274,11 +274,15 @@ def test_resolve_inventory_interactive_no(monkeypatch, tmp_path):
 
 
 def test_resolve_inventory_interactive_invalid_registrar_falls_back(monkeypatch, tmp_path):
-    """Operator types an unrecognized registrar at the interactive
-    prompt → defaults to "other" rather than rejecting (interactive
-    UX shouldn't punish typos as hard as the flag layer)."""
+    """Operator types unrecognized registrars at the interactive
+    prompt → after 3 invalid attempts, defaults to "other" rather
+    than rejecting (interactive UX shouldn't punish typos as hard
+    as the flag layer).
+
+    Bug-fix 2026-05-20: the registrar prompt now retries up to 3
+    times with an "Accepted: ..." hint before falling back."""
     _patch_portfolio_json(monkeypatch, tmp_path)
-    answers = iter(["y", "weird-host"])
+    answers = iter(["y", "weird-host", "weird-host2", "weird-host3"])
     monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers))
     decision = cli_mod._resolve_inventory_inputs(
         domain="new.dev", registered=None, registrar="",
