@@ -65,15 +65,80 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — `new bootstrap` doesn't prompt for Lovable's GitHub repo URL
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+Operator's workflow is typically: design the UI in Lovable.dev →
+Lovable exports a GitHub repo → clone-and-scaffold that repo as a
+new sites/<domain>/ project. Bootstrap already supports this via
+the `--git-url <repo-url>` flag (which `git clone`s the URL into
+`sites/<domain>/genai/` and runs the `--from-genai` path), but the
+interactive flow doesn't ask for it.
+
+**Expected**
+
+Bootstrap interactive flow should ask:
+
+```
+Lovable GitHub repo URL (or Enter to skip and scaffold blank):
+  >: https://github.com/user/agesdk-dev-ui
+```
+
+When provided, bootstrap follows the existing `--git-url` path
+(clones into `genai/`, applies CF Pages safety fixes, etc.). When
+empty, falls through to the standard blank-scaffold template.
+
+Add as the FIRST prompt (before the AI_AGENTS sections) so the
+operator's UI work is already in place before they fill in the
+docs that should reference it.
+
+**Actual**
+
+Only the 8 prompts listed above (Summary / Audience / ICP / Goals /
+Content strategy / Registered / Registrar / Growth hypothesis).
+The `--git-url` flag is documented in `--help` but never
+surfaces interactively.
+
+**Where (guess)**
+
+`src/portfolio/cli.py @new_app.command("bootstrap")` — add a
+9th prompt at the top of the interactive flow (before the
+v9.B operator-input sections kick in). Prompt accepts:
+  - Empty (Enter) → skip → blank scaffold
+  - `https://github.com/...` URL → set `git_url` arg → follow
+    the `--from-genai` path
+  - Optionally validate URL shape (`re.match(r'^https?://')`).
+
+**Severity** — `major`
+
+Operator's most common bootstrap flow uses Lovable; missing this
+prompt forces them to remember the `--git-url` flag or run
+bootstrap twice.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator. Pairs with the pre-flight
+question listing bug (the upfront list needs to include this new
+prompt, becoming 9 questions total). Also adjacent to the multi-
+paragraph paste bug (a URL is single-line so isn't hit by the
+overflow issue, but the same prompt helper refactor could
+benefit).
+
+---
+
 ### 2026-05-20 — `new bootstrap` doesn't list all prompts upfront
 
 **Repro**
 
     lamill new bootstrap agesdk.dev
 
-The CLI starts asking questions one-by-one (Summary → Audience →
-ICP → Goals → Content strategy → registered? → registrar → growth
-hypothesis = 8 prompts total) with no advance notice.
+The CLI starts asking questions one-by-one (Lovable-repo-URL →
+Summary → Audience → ICP → Goals → Content strategy → registered?
+→ registrar → growth hypothesis = 9 prompts total once the Lovable
+prompt lands per the bug above) with no advance notice.
 
 **Expected**
 
