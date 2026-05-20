@@ -383,108 +383,13 @@ Risks` for the technical design.**
 | v12.D | ✅ | Reconciliation + REVIEW_REQUIRED first-class verdict. New `reconciliation.py` module: pure logic, no I/O. `reconcile(primary, audit) → Reconciliation`. Full → primary verdict + confidence preserved, no caveats. Partial → primary verdict, confidence downgraded one notch (HIGH→MEDIUM→LOW→LOW saturates), caveats = audit.specific_concerns. Disagree → `REVIEW_REQUIRED` (new fourth verdict token), confidence LOW, caveats surfaced. Intentionally NO auto-resolution per the human-tiebreaker principle. `requires_review` convenience property. Primary + audit dataclasses preserved on the result for the v12.E renderer to show side-by-side. 20 tests. |
 | v12.E | ✅ | CLI `--verify` flag + `--audit-model` override (default `gpt-4o`) wired into `new research` orchestrator. New `_run_audit_pass_and_reconcile()` helper runs after primary pass; new `_render_reconciliation_block()` renders below the primary block (full/partial/disagree shapes; REVIEW_REQUIRED in magenta to distinguish from red NO-GO). Same-model rejection: errors when `--audit-model X` matches the primary's `model_id`. Cache-aware: `from_cache + audit` short-circuits the audit on subsequent runs. Persists `audit` + `audit_pass_meta` + `reconciliation` blocks into the cluster snapshot. 17 tests. |
 | v12.F | ✅ | Polish — cost ledger + `verify_by_default` + granular cache invalidation. (a) `costs` block on the cluster snapshot — `{primary_usd, audit_usd, total_usd, currency}` — populated idempotently by `_update_cost_summary(payload)` after each pass writes its meta. Render-footer shows breakdown when both passes contributed; omitted on zero-cost / old snapshots. (b) `verify_by_default` field on `OperatorProfile` (loaded from `lamill.toml [operator]`); new `--no-verify` CLI flag overrides for a single run. `effective_verify = (verify or profile.verify_by_default) and not no_verify`. (c) New `--invalidate {none, interpretive, audit, all}` CLI flag; granular per-pass cache short-circuit on a cached cluster. `--no-cache` (boolean) still bypasses the SerpAPI cluster cache wholesale. 30 tests. |
-| v12.G | ⏳ | Docs. Update `docs/CLAUDE.md`, `AI_AGENTS.md`, `docs/Prompts.md`, `lamill new research --help` to reflect v12.A-F capabilities. "When to use `--verify`" guidance. ~1h. |
+| v12.G | ✅ | Docs sync — closes v12 tier. Migrated v12 tier-level design notes (problem, goals, non-goals, user journey, resolved 12.A-J open questions, effort+approval) from `prd.md` to `docs/shipping-history.md § v12` following the v10 + v11 wrap pattern. Added per-phase entries in `shipping-history.md` for v12.A (fleshed out from placeholder) and v12.B/C/D/E/F (new). Updated `architecture.md § 3 Mechanisms (Research module)` with the v12.A-G end-state (cost notes, `--invalidate` semantics, REVIEW_REQUIRED dispatch, audit-failure semantics). Rewrote `architecture.md § 4 Schemas` cluster-snapshot block to reflect the actual field shape that shipped (`primary_verdict` + `primary_pass_meta` + `audit` + `audit_pass_meta` + `reconciliation` + `costs`) — replaced the v2.1 prediction with the as-shipped additive schema. Added `lamill new research --verify` capability line to `AI_AGENTS.md § Current capabilities`. Doc-only. |
 
-#### Design notes
-
-**Problem statement.** The mechanical gates (Phase 1/2/3) plus the
-primary interpretive pass (v8.I) catch many bad-niche signals, but
-both share blind spots — a SERP where 3 of 10 results are
-programmatic-template URLs that don't quite match the v2 regex
-library; intent misclassification when SERP features (Local Pack vs
-transactional snippets) contradict the surface-level read; the "KD
-trap" (low keyword difficulty + a top-3 entirely owned by
-incumbents); unfalsifiable moats passing the human-input gate. The
-empirical claim: different model families have different blind spots.
-Catching the disagreement is the signal — a second LLM in adversarial
-mode that steel-mans the opposite conclusion surfaces what the
-primary missed.
-
-**Goals.**
-- Add an **adversarial audit pass** using a *different* model
-  (GPT-4o default) that steel-mans the opposite verdict.
-- **Reconciliation surfaces disagreement** rather than auto-picking
-  a winner. `REVIEW_REQUIRED` is a first-class verdict for the
-  disagree case (alongside GO / NICHE-DOWN / NO-GO).
-- **Opt-in cost.** Default is primary-only. The audit pass + recon
-  is gated behind `--verify`.
-- **Versioned prompts.** Both prompts live at repo-root `prompts/`,
-  versioned (`_v1.md`, `_v2.md`, ...), and snapshots record which
-  version produced their verdict.
-- **Both verdicts always cached.** Even if `--verify` was off,
-  re-running on cached data with `--verify` produces an audit
-  without re-fetching SERP.
-
-**Non-goals.**
-- Three-model consensus / N-way voting. Two perspectives + honest
-  disagreement is the point; adding a third dilutes the signal.
-- Auto-resolution of disagreement. No "if audit confidence > primary
-  confidence, audit wins" rules — those manufacture false certainty.
-- Prompt-version A/B testing harness. Versioning lets us track which
-  prompt produced what, but empirical comparison is a future feature.
-- Audit-only mode (no primary, only adversarial). Audit's
-  steel-man-the-opposite role doesn't make sense without a primary.
-
-**User journey scenarios.**
-
-```
-# Default (primary only) — Phase 4a; cost ~$0.01-0.02 per run
-$ lamill new research "ev charger installation cost"
-... [gate output] ...
-  Verdict: NICHE-DOWN (Sonnet, MEDIUM confidence)
-  Reasoning: [2-4 paragraphs from primary]
-  Run with --verify to add adversarial audit (~$0.05).
-
-# Verify mode — audit fully agrees
-$ lamill new research "ev charger installation cost" --verify
-  Verdict: NICHE-DOWN
-  ✓ Primary  (claude-sonnet-4-7, MEDIUM confidence)
-  ✓ Audit    (gpt-4o, agrees, HIGH confidence)
-  Final confidence: MEDIUM (lower of two)
-
-# Verify mode — audit partially disagrees
-  Verdict: NICHE-DOWN
-  ✓ Primary  (claude-sonnet-4-7, MEDIUM)
-  ⚠ Audit raises 2 concerns (gpt-4o, MEDIUM):
-     - "Primary missed Reddit presence in 2 cluster queries"
-     - "Pollution from muscle-car SERPs may be larger than counted"
-  Final confidence: LOW (downgraded from MEDIUM)
-  Caveats from audit: [each specific_concern]
-
-# Verify mode — models disagree (high signal)
-  ⚠⚠ REVIEW REQUIRED — models disagree
-  Primary (claude-sonnet-4-7, HIGH): NICHE-DOWN
-  Audit   (gpt-4o, HIGH): NO-GO
-  This is a high-signal disagreement. Read both arguments
-  and decide manually. Snapshot at <path>.
-
-# Re-audit a cached primary
-$ lamill new research "ev charger installation cost" --verify --no-cache=audit
-  (Reads cached Phase 4a, runs Phase 4b fresh, runs Phase 4c.)
-```
-
-**Resolved open questions** (all answered 2026-05-16; recorded here
-for archeology — none gate v12 implementation).
-
-| # | Question | Resolution |
-|---|---|---|
-| 12.A | Where do `prompts/` live? | **`prompts/` at repo root** (option 2). First-class status alongside `tests/` and `docs/`. Operator edits prompts directly. |
-| 12.B | Audit model default — GPT-4o, Gemini, or operator's choice? | **GPT-4o default.** No Gemini integration in v1 — defer the third-provider HTTP wrapper + third env var. Different-model invariant is met with Anthropic (CLI) + OpenAI. |
-| 12.C | Does the audit see the primary's `blind_spot_self_report`? | **Blind to it.** The audit's value is uncovering what the primary missed; visibility into the self-report risks anchoring on the same concerns. Field is still stored on the snapshot. |
-| 12.D | `--verify` default-on in operator profile? | **Yes, via operator profile only** (not a sticky state file). `verify_by_default: bool` (default false) in `sites/portfolio/lamill.toml [operator]`. CLI `--verify` overrides to true; `--no-verify` overrides to false. |
-| 12.E | Audit failure handling — fail the run, proceed primary-only, or block the verdict? | **Proceed primary-only** with a prominent "audit pass failed" caveat. Snapshot records `audit_pass.error`. Don't waste the primary's verdict on a transient audit issue. |
-| 12.F | Snapshot retention for audit pass — same as primary (kept forever, git-tracked)? | **Yes.** Audit responses are part of the verdict's provenance. |
-| 12.G | Template-substitution engine — Jinja2, `str.format()`, or custom `{{var}}` regex? | **Custom `{{var}}` regex.** Stdlib; no curly-brace collision with code-block examples in prompts; substitution validator doubles as a no-unfilled-placeholders check. |
-| 12.H | `--model` + `--audit-model` same-model behavior — reject loudly, reject with suggestion, or allow with warning? | **Reject loudly with a helpful suggestion** in the error message. The whole point of the audit is to use a different model. |
-| 12.I | Prompt versioning policy — when does `_v1.md` become `_v2.md`? | **Bump to `_v2.md` only when the change would meaningfully alter the verdict on cached data.** Typo / wording / formatting tweaks stay at `_v1.md`. New failure-mode checks, structural instruction changes, or output-shape edits bump the version. Snapshots store `prompt_version`; mismatch with current `_vN.md` is treated as "stale verdict — re-render via `--no-cache=interpretive`." |
-| 12.J | Cumulative cost-tracking field on snapshots? | **Yes** — record `estimated_cost_usd` on each pass (`interpretive_pass.estimated_cost_usd` and `audit_pass.estimated_cost_usd`). Pulled from provider response headers when available, estimated from token counts otherwise. Unblocks a future cost-ledger aggregation without re-fetching. |
-
-**Effort estimate.** v12.B-G ~13-18h total. v12.B parser ~2h, v12.C
-runner ~3h, v12.D reconciliation ~2h, v12.E CLI wire-up ~3h, v12.F
-polish ~3h, v12.G docs ~1h. (v12.A audit prompt rendering shipped
-2026-05-17.)
-
-**Approval.** Approved 2026-05-16. Implementation may proceed.
+*Tier-level design notes (problem statement, goals, non-goals, user
+journey scenarios, resolved 12.A-J open questions, effort, approval)
+migrated to `docs/shipping-history.md § v12 — adversarial audit pass
++ reconciliation` on 2026-05-19 as part of v12.G — same pattern as
+v10 + v11 wraps.*
 v8.D shipped 2026-05-15; v8.E-J shipped 2026-05-16/17 (full primary
 interpretive pass + audit payload builder); v12.A shipped 2026-05-17.
 

@@ -300,7 +300,7 @@ custom branches (prints file count + bytes + target path).
 existing flag semantics (cf-pages has its own per-step interactive
 confirms; cf-workers + vercel apply immediately).
 
-### Research module (v8.E–v8.J + v12.A onward)
+### Research module (v8.E–v8.J + v12.A–G — tier complete 2026-05-19)
 
 Three-stage pipeline added to `new research`:
 
@@ -309,32 +309,60 @@ Three-stage pipeline added to `new research`:
    mechanical-gates payload, calls `run_claude_text()` (Claude CLI
    subprocess, not the Anthropic SDK — avoids a second API-key
    surface, rides the operator's existing Claude subscription quota).
-   Parses markdown response into `ParsedVerdict`.
+   Parses markdown response into `ParsedVerdict`. Cost on cluster
+   snapshot at `primary_pass_meta.cost_usd` (typically ~$0.04).
 
 2. **Phase 4b — Adversarial audit pass** (`audit_pass.py`). Renders
-   `prompts/adversarial_audit_v1.md`. Calls OpenAI (GPT-4o default;
-   `ANTHROPIC_API_KEY`-style strict-different-model invariant —
-   `--model X --audit-model X` is rejected loudly with the
-   correlated-blind-spot rationale). Parses into `ParsedAudit`.
+   `prompts/adversarial_audit_v1.md`. Calls OpenAI Responses API
+   (`POST /v1/responses`; gpt-4o default; override via
+   `--audit-model`). Strict-different-model invariant:
+   `--audit-model X` matching the primary's `model_id` is rejected
+   loudly (exit 2) with the correlated-blind-spot rationale. Parses
+   into `ParsedAudit` (different schema than primary —
+   agreement_level / confidence / specific_concerns /
+   counter_verdict / audit_self_check). Cost computed from token
+   usage × per-model pricing table (gpt-4o / gpt-4o-mini /
+   gpt-4-turbo / gpt-4.1; dated aliases prefix-match the base
+   model). Cost on snapshot at `audit_pass_meta.cost_usd` (typically
+   ~$0.012).
 
-3. **Phase 4c — Reconciliation** (no LLM call). Pure-logic
-   reconciliation per the truth table:
-   - `agreement_level=full` → primary verdict; confidence = min(primary, audit)
-   - `agreement_level=partial` → primary verdict; confidence
-     downgraded one notch (HIGH→MEDIUM, MEDIUM→LOW, LOW→LOW)
-   - `agreement_level=disagree` → `REVIEW_REQUIRED` (first-class
-     verdict alongside GO / NICHE-DOWN / NO-GO)
+3. **Phase 4c — Reconciliation** (`reconciliation.py`, no LLM call).
+   Pure-logic reconciliation per `agreement_level`:
+   - `full` → primary verdict; confidence preserved verbatim (no
+     min-aggregation — audit confirming a primary's LOW-confidence
+     call doesn't make the underlying data stronger)
+   - `partial` → primary verdict; confidence downgraded one notch
+     (HIGH→MEDIUM, MEDIUM→LOW, LOW→LOW saturates); caveats from
+     `audit.specific_concerns`
+   - `disagree` → `REVIEW_REQUIRED` (first-class verdict alongside
+     GO / NICHE-DOWN / NO-GO; confidence LOW); caveats surfaced; no
+     auto-resolution per the human-tiebreaker principle.
 
 Both prompts live at repo-root `prompts/` (first-class, alongside
 `tests/` and `docs/`). Versioned `<purpose>_v<N>.md`. Snapshots
 record `prompt_version`; mismatch with the current `_vN.md` is
-"stale verdict — re-render via `--no-cache=interpretive`."
+"stale verdict — re-render via `--invalidate interpretive`."
 
 The audit pass is **opt-in** behind `--verify`. Default mode is
-primary-only (cost ~$0.01-0.02/run); verify mode adds GPT-4o
-(~$0.05-0.10/run). Operator-profile flag `verify_by_default` (in
-`sites/portfolio/lamill.toml [operator]`) flips the default;
-`--no-verify` overrides.
+primary-only (cost ~$0.04/run); verify mode adds the audit pass
+(~$0.012 at gpt-4o pricing → total ~$0.05/run). Operator-profile
+flag `verify_by_default` (in `sites/portfolio/lamill.toml
+[operator]`) flips the default to verify-always;
+`--no-verify` overrides per-run.
+
+Granular cache invalidation via `--invalidate {interpretive, audit,
+all}` skips the per-pass cache short-circuit while keeping the
+SerpAPI cluster cache (different from `--no-cache`, which bypasses
+that cache entirely). Lets the operator re-tune prompts against
+the same SERP data without re-burning SerpAPI quota.
+
+Render-footer summary shows total LLM cost (and per-pass breakdown
+when both passes contributed) from the snapshot's `costs` block
+(v12.F).
+
+ADR-0011 governs remote-host writes (v11.N's UAPI uploader);
+v12's audit pass is a read-only LLM call against an external API
+and does NOT touch any write surface — no ADR was needed for v12.
 
 ### Prompt loader
 
@@ -492,69 +520,98 @@ search corpus).
 
 #### `data/serp/<YYYY-MM-DD>/clusters/<cluster-hash>.json`
 
-Research-cluster snapshot. Schema `research-cluster-v2.1` (additive
-bump from v2):
+Research-cluster snapshot. Cumulative shape across v8.D (cluster +
+gates), v8.I (primary pass), v12.E (audit + reconciliation), v12.F
+(costs). All fields are additive — old readers ignore unknown keys,
+new readers tolerate missing keys (snapshots pre-dating a phase
+don't carry that phase's fields).
 
 ```json
 {
-  "schema": "research-cluster-v2.1",
-  "cluster_queries": ["..."],
-  "operator_profile_snapshot": { /* ... */ },
-  "gates": { /* Phase 1/2/3 mechanical outputs */ },
-  "raw_top_10_per_query": [ /* ... */ ],
+  "topic":              "<operator-supplied topic>",
+  "cluster_queries":    ["..."],
+  "per_query_results":  [ /* SerpAPI raw — top-10 organic + features */ ],
+  "from_cache":         false,
+  "fetched_at":         "2026-05-19T07:02:23+00:00",
 
-  "interpretive_pass": {
-    "model": "claude-sonnet-4-7",
-    "prompt_version": "niche_evaluation_v1",
-    "rendered_prompt_hash": "<sha256-prefix>",
-    "raw_response": "<full markdown response, verbatim>",
-    "estimated_cost_usd": 0.012,
-    "parsed": {
-      "verdict": "NICHE-DOWN",
-      "confidence": "MEDIUM",
-      "reasoning": "...",
-      "moat_required": true,
-      "moat_prompt": "...",
-      "reductions": ["..."],
-      "operator_fit_warnings": ["..."],
-      "blind_spot_self_report": "..."
-    }
+  /* v8.D Phase 2 — mechanical gates + verdict */
+  "gates": {
+    "gate_1_market":  { "status": "PASS" /* ... */ },
+    "gate_2_serp":    { /* ... */ },
+    "gate_3_moat":    { /* ... */ }
+  },
+  "operator_fit":             { /* ... */ },
+  "verdict":                  "GO",       /* mechanical verdict */
+  "suggested_reductions":     [],
+  "moat_required":            false,
+  "moat_provided":            null,
+
+  /* v8.I — primary interpretive pass (Claude CLI) */
+  "primary_verdict": {
+    "verdict":               "NICHE-DOWN",
+    "confidence":            "MEDIUM",
+    "reasoning":             "...",
+    "moat_required":         true,
+    "moat_prompt":           "...",
+    "reductions":            ["..."],
+    "operator_fit_warnings": ["..."],
+    "blind_spot_self_report":"..."
+  },
+  "primary_pass_meta": {
+    "prompt_version":  "v1",            /* matches niche_evaluation_v1.md */
+    "model_id":        "claude-cli",
+    "rendered_prompt": "<full text sent>",
+    "cost_usd":        0.0423,
+    "duration_s":      5.2
   },
 
-  "audit_pass": {
-    "ran": true,
-    "model": "gpt-4o",
-    "prompt_version": "adversarial_audit_v1",
-    "rendered_prompt_hash": "<sha256-prefix>",
-    "raw_response": "<full markdown response, verbatim>",
-    "estimated_cost_usd": 0.043,
-    "error": null,
-    "parsed": {
-      "agreement_level": "partial",
-      "confidence": "MEDIUM",
-      "specific_concerns": ["..."],
-      "counter_verdict": null,
-      "audit_self_check": "..."
-    }
+  /* v12.E — adversarial audit pass (OpenAI; optional, --verify-gated) */
+  "audit": {
+    "agreement_level":           "partial",        /* full | partial | disagree */
+    "confidence":                "MEDIUM",         /* audit's own confidence */
+    "specific_concerns":         ["..."],
+    "counter_verdict_token":     "",               /* only on disagree */
+    "counter_verdict_reasoning": "",
+    "audit_self_check":          "..."
+  },
+  "audit_pass_meta": {
+    "prompt_version":  "v1",            /* matches adversarial_audit_v1.md */
+    "model_id":        "gpt-4o",
+    "rendered_prompt": "<full text sent>",
+    "cost_usd":        0.0120,
+    "duration_s":      8.4
   },
 
+  /* v12.D + v12.E — reconciliation (computed; no LLM call) */
   "reconciliation": {
-    "ran": true,
-    "final_verdict": "NICHE-DOWN",
+    "final_verdict":    "NICHE-DOWN",   /* GO | NICHE-DOWN | NO-GO | REVIEW_REQUIRED */
     "final_confidence": "LOW",
-    "disagreement_surfaced": false,
-    "review_required": false
+    "caveats":          ["..."]         /* populated on partial + disagree */
+  },
+
+  /* v12.F — rolled-up LLM cost ledger */
+  "costs": {
+    "primary_usd": 0.0423,
+    "audit_usd":   0.0120,
+    "total_usd":   0.0543,
+    "currency":    "USD"
   }
 }
 ```
 
-Schema bump v2 → v2.1 is additive; existing v2 readers ignore new
-fields. Caches written by v2-only research load without re-fetch.
+**Forward / backward compat.** The schema has no embedded `"schema":
+"vN.X"` field; consumers tolerate the additive evolution by checking
+`field in payload` before reading. Snapshots from before any phase
+shipped simply lack that phase's keys; the renderer skips the
+corresponding section.
 
-`audit_pass.ran=true` with `audit_pass.error="..."` and
-`reconciliation.ran=false` records audit-failure cases (audit API
-down / unparseable response / refusal). Primary verdict is still
-valid signal.
+**Audit-failure semantics.** When `--verify` is set but the audit
+pass throws `AuditPassError` (network error / parse failure /
+unexpected response shape), the wiring logs a yellow warning and
+returns without populating `audit` / `audit_pass_meta` /
+`reconciliation`. Primary verdict + `primary_pass_meta` + (partial)
+`costs` are still valid signal — the operator gets the primary's
+read; only the second opinion is missing.
 
 #### `data/hosting/<YYYY-MM-DD>.json` (v11.A — planned)
 

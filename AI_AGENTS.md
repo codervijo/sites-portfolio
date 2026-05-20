@@ -126,6 +126,7 @@ Run from `sites/portfolio/`:
 - `make run ARGS="project status <name>"` — single-project status (v1.A/v1.B); fuzzy resolves against `data/portfolio.json`; `--json` for machine consumption
 - `make run ARGS="domain suggest <topic>"` — multi-strategy LLM brainstorm + RDAP/Porkbun availability + price (v2.A/v2.B; Power 1)
 - `make run ARGS='bootstrap <domain>'` — scaffold a sites/* project to ship-ready; `--from-genai` copies a Lovable-style export from `<domain>/genai/` up; `--git-url=<url>` clones first; CF Pages safety fixes auto-applied (v3.A; Power 2)
+- `lamill new research <topic> [--verify] [--audit-model gpt-4o] [--no-verify] [--invalidate {none,interpretive,audit,all}]` — multi-keyword SerpAPI cluster + mechanical gates (v8.D) + primary interpretive pass (Claude CLI, v8.I) + adversarial audit pass (OpenAI; v12.A-C; opt-in via `--verify`) + reconciliation surfacing `REVIEW_REQUIRED` when the two models disagree (v12.D-E). `verify_by_default = true` in `sites/portfolio/lamill.toml [operator]` flips audit-on; `--no-verify` opts out per-run (v12.F).
 
 ## Conventions this project enforces on siblings
 
