@@ -393,27 +393,117 @@ v10 + v11 wraps.*
 v8.D shipped 2026-05-15; v8.E-J shipped 2026-05-16/17 (full primary
 interpretive pass + audit payload builder); v12.A shipped 2026-05-17.
 
-### v13 — analytical roll-ups *(renumbered 2026-05-17 PM; v13.A absorbed by v15.C 2026-05-19)*
+### v13 — per-project GSC diagnostics *(retheme 2026-05-20; was "analytical roll-ups"; v13.A absorbed by v15.C 2026-05-19; old v13.B `project list` roll-up + draft GSC-ownership-conformance retheme both dropped 2026-05-20; old v13.C moved to v14.E)*
 
-`project list` aggregate verdict-counts view + optional LLM content
-seeding (postponed indefinitely). All read-only / informational.
-v13.A (GSC trend correlation) was folded into v15.C on 2026-05-19 —
-the trend view is one section in a richer compositional `project seo`
-view, sharing the per-project GSC cache with the other v15 sections.
+Diagnostics drill-down for `lamill project seo <domain>`. When
+`fleet focus` flags "GSC: sitemap parse errors (4)" or "Stale CF
+edge cache" for a site, today there's no command to see *what
+specifically* is broken — operator must open the GSC web UI.
+v13 closes that loop: `project seo <domain>` becomes a one-shot
+diagnostics view by default (no flag), itemizing sitemap parse
+errors, manual actions, mobile usability, and per-URL coverage
+failures with actionable hints.
+
+This is the **diagnostics** angle on `project seo`. Distinct from
+v15's **analytics** angle (impressions / clicks / position /
+trend / opportunities — what's working). Both live on the same
+command; v13's content is the new no-flag default, v15's
+content is composed in via section flags (`--queries`, `--pages`,
+`--trend`, …).
+
+Behavior change: today's `project seo <domain>` renders only a
+1-row 28-day aggregate. After v13.B, the aggregate stays as a
+header line above the new diagnostics block. Backwards-
+incompatible for any consumer that scraped the 1-row output —
+but scripts should use `--json` (which v15.B is planned to add).
+
+**Kickoff gate.** Before starting `v13.B`, re-validate the plan
+against existing GSC infrastructure (auth scope, cache shape) +
+what `fleet focus`'s existing sitemap-error detector reports
+(don't duplicate; rendering should be consistent across the two
+surfaces).
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
 | v13.A | ✅ *(absorbed by v15.C 2026-05-19)* | GSC trend correlation — folded into v15.C `project seo --trend`. Same scope (PERSISTED `data/gsc/` snapshots, w/w deltas) but lives with its peer GSC-detail flags rather than alone in a separate analytical tier. |
-| v13.B | ⏳ | Roll-up. `portfolio project list` · `--stale N` filter · `--json` · aggregate verdict counts. |
-| v13.C | ⏸ | Optional LLM content seeding. `--seed-content` flag on `portfolio new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1-2 supporting pages from the topic (similar prompt pipeline to v2.A) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style. *Postponed indefinitely (2026-05-04 user call); v3.D built first.* |
+| v13.B | ⏳ | Per-project diagnostics as the new `project seo <domain>` default. GSC Sitemaps API wrapper (per-sitemap status, parse errors, last-fetch). URL Inspection API wrapper (per-URL coverage; capped at top-N URLs from sitemaps — 200/day quota). Manual-actions + mobile-usability + security-issues sub-blocks. Hints generator emitting actionable next-steps per finding ("re-deploy with valid XML; run `project fix --apply` to clear CF cache"; "expand thin content or remove from sitemap"). Cache at `data/gsc/<domain>/<UTC-today>.json` (24h TTL, matches `hosting_cache` / `seo_cache`). Backwards-incompatible default-output change; existing 1-row aggregate stays as a header line above the diagnostics. ~3-4h. |
 
-### v14 — deploy verification *(renumbered 2026-05-17 PM; deprioritized)*
+#### Design notes
+
+**Sample output.**
+
+```text
+$ lamill project seo homeloom.app
+
+  Property: https://homeloom.app/  ·  Verified ✓  ·  Last fetch: 2026-05-19
+  28-day totals: 466 imp · 12 clicks · 2.6% CTR · pos 16.5
+
+  📋 Sitemaps (3 submitted)
+    ✓ /sitemap.xml          OK     · 47 URLs · 47 indexed · fetched 1d ago
+    ✗ /sitemap-pages.xml    ERROR  · "Unparseable XML at line 14" · last OK 12d ago
+    ⚠ /sitemap-blog.xml     WARN   · 12 URLs · 8 indexed · 4 crawled-not-indexed
+
+  🚨 Manual actions: none
+  📱 Mobile usability: 47 of 47 URLs pass
+
+  📊 Coverage (47 of 51 submitted URLs indexed — 92%)
+    ✗ /about                crawled-not-indexed       (last crawled 3d ago)
+    ✗ /pricing              discovered-not-indexed
+    ✗ /docs/old-guide       404-not-found
+    ✗ /api/v1               redirect-error
+
+  💡 Hints
+    · /sitemap-pages.xml parse error → re-deploy with valid XML; current
+      build is probably serving a stale prerender. Run
+      `lamill project fix homeloom.app --apply` to clear CF edge cache.
+    · /about crawled-not-indexed → likely thin content; expand to ≥300
+      words or remove from sitemap.
+
+  Run with --queries · --pages · --trend · --opportunities for analytics (v15)
+```
+
+**Why no flag.** The operator wants diagnostics surfaced
+unconditionally when running `project seo <domain>`. Hiding them
+behind a `--diagnose` flag would defeat the workflow — `fleet
+focus` flags a site, operator runs `project seo <site>`,
+diagnostics must be there. Flag-gating would be one more thing to
+remember.
+
+**Relationship to other GSC tiers.**
+| Tier | Angle | Surface |
+|---|---|---|
+| v5.D | Runtime live SEO probe | `project seo` 1-row aggregate (today) |
+| **v13** | **Diagnostics (what's broken)** | **`project seo` default block** |
+| v15.B/C | Analytics — queries / pages / trend | `project seo --<flag>` |
+| v15.D | Per-URL coverage rich view | `project seo --coverage` |
+| v15.F | Fleet-level GSC rollup | `fleet dashboard` columns |
+| v22 | Fleet-level sitemap status | `fleet seo` |
+
+Some overlap with v15.D (URL Inspection coverage) and v22.B (Sitemaps
+API). The kickoff gate validates that v15.D / v22.B aren't
+prematurely committing to the same Sitemaps API wrapper — v13.B
+ships first; v15.D / v22.B reuse what lands here.
+
+**Open questions** (resolved at v13.B kickoff):
+| # | Question |
+|---|---|
+| 13.A | Cap on per-URL coverage detail — top 10 / 25 / all submitted URLs? Default 10 (matches v15.D's planned default). |
+| 13.B | Hints — hardcoded mapping by error type vs LLM-generated per finding? Hardcoded first (deterministic, no LLM cost); LLM-generated could be a v13.B+ polish. |
+| 13.C | Domain has no GSC property — show "not registered" hint + suggest manual setup vs error out? Show hint; defer auto-registration to a future tier (the old v13 GSC-ownership theme is parked for revisit). |
+| 13.D | `fleet focus` ↔ `project seo` consistency — when focus says "GSC: sitemap parse errors (4)", the diagnostics block should show those exact 4 errors. Wire the focus detector to the same sitemap-API call (or shared cache) so the counts match. |
+
+### v14 — deploy verification + content seeding *(renumbered 2026-05-17 PM; deprioritized; absorbed v13.C 2026-05-20)*
 
 Build-time stamping convention + HEAD vs deployed SHA + Pages/Vercel
-API integration. Heavy overlap with v11's `fleet hosting`; revisit
-scope when this tier's slot comes up.
+API integration (v14.A-D — original tier scope; heavy overlap with
+v11's `fleet hosting`; revisit at v14.A kickoff). v14.E holds the
+postponed LLM content seeding sub-phase, moved from v13.C 2026-05-20
+when v13 was rethemed to diagnostics. Content seeding is orthogonal
+to deploy verification but lives here for parking — alternative
+would be a dedicated reserved-slot tier, which over-indexes on a
+single postponed-indefinitely sub-phase.
 
 #### Phases
 
@@ -423,6 +513,7 @@ scope when this tier's slot comes up.
 | v14.B | ⏳ | HEAD vs deployed. Deploy-freshness signal · `deploy-fresh` conformance check · reads `version.json` from live URL. |
 | v14.C | ⏳ | Build status + deploy lag. Deploy lag (push → live) · last build status via Cloudflare/Vercel API · `last-build-success` conformance · *requires platform tokens — major new infra*. |
 | v14.D | ⏳ | Domain-list refresh tooling. Flag-only enhancements to existing `cleanup` (no new commands): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct `$EDITOR` on `data/portfolio.json` is the no-tooling path. |
+| v14.E | ⏸ | *(moved from v13.C 2026-05-20)* Optional LLM content seeding. `--seed-content` flag on `lamill new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1-2 supporting pages from the topic (similar prompt pipeline to v2.A) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style. *Postponed indefinitely (2026-05-04 user call); kept parked for archeology — not on the active queue. v12 audit-pass infrastructure could make a future revival cheaper (cross-model validation), but no plan to revisit yet.* |
 
 ### v15 — rich GSC `project seo` view *(new 2026-05-19; absorbs v13.A)*
 
@@ -488,7 +579,8 @@ all-or-nothing dump.
 
 **Non-goals.**
 
-- Cross-project aggregation (that's v13.B's `project list` view).
+- Cross-project aggregation (that's covered by `fleet dashboard`
+  + the v15.F fleet-rollup columns + `fleet info summary`).
 - Persistent trend storage beyond the 24h cache + the existing
   `data/gsc/<date>.json` snapshots (long-horizon analytics is a
   different tier).
