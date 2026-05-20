@@ -903,9 +903,9 @@ lamill
 │   ├── fix <name>                                   ✅ v6.D
 │   ├── seo <name>                                   ✅ v7.A (+ v13.B GSC diagnostics)
 │   ├── diagnose <name>                              ✅ v7.F
-│   ├── version <name>                               ⏳ v15.A — read local
+│   ├── version <name>                               ⏳ v15.B — read local
 │   │                                                          version.json
-│   └── deploy-status <name>                         ⏳ v15.B — HEAD vs deployed
+│   └── deploy-status <name>                         ⏳ v15.C — HEAD vs deployed
 │                                                              SHA (or fold into
 │                                                              `diagnose`?)
 │
@@ -968,10 +968,10 @@ lamill
 | v12.B-G | `new validate --verify` / `--no-verify` / `--audit-model <id>` / `--invalidate {none, interpretive, audit, all}` flags (no new node) |
 | v13.B | `project seo <domain>` gains the GSC-diagnostics default block (sitemaps + coverage + hints). |
 | **v14.B** | **Hard-cutover CLI rename — see tree above. No new functionality; reshape only.** |
-| v15.A | `project version` |
-| v15.B | `project deploy-status` (or fold into `diagnose`?) |
-| v15.C | (deploy lag / build status surfaced via existing `fleet hosting`?) |
-| v15.D | `fleet sync --refresh` / `--watch` flags (no new node) |
+| v15.B | `project version` |
+| v15.C | `project deploy-status` (or fold into `diagnose`?) |
+| v15.D | (deploy lag / build status surfaced via existing `fleet hosting`?) |
+| v15.E | `fleet sync --refresh` / `--watch` flags (no new node) |
 | v16.B-F | `project seo --queries` / `--pages` / `--devices` / `--trend` / `--coverage` / `--opportunities` / `--full` section flags. |
 | v17.B-E | 14 new conformance checks (CHECK_081-088 + 096-101 + 102-105). |
 | v18.B | `new bootstrap --ga4 G-XXXXXX` flag · `project fix` gains `inject-ga4` remediation. |
@@ -984,11 +984,11 @@ lamill
 
 Resolve before the relevant phase ships.
 
-1. **v15.B deploy-status placement.** Standalone `project
+1. **v15.C deploy-status placement.** Standalone `project
    deploy-status <name>` vs fold the HEAD-vs-deployed check into
    the existing `project diagnose <name>` 5-layer probe. The
    diagnose path is closer to the existing UX shape; standalone
-   adds a discoverable verb. Defer until v15.B starts.
+   adds a discoverable verb. Defer until v15.C starts.
 
 ### `--verify` semantics (v12)
 

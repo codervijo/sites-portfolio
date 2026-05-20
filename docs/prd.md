@@ -393,7 +393,7 @@ v10 + v11 wraps.*
 v8.D shipped 2026-05-15; v8.E-J shipped 2026-05-16/17 (full primary
 interpretive pass + audit payload builder); v12.A shipped 2026-05-17.
 
-### v13 — per-project GSC diagnostics *(retheme 2026-05-20; was "analytical roll-ups"; v13.A absorbed by v16.C 2026-05-19; old v13.B `project list` roll-up + draft GSC-ownership-conformance retheme both dropped 2026-05-20; old v13.C moved to v15.E)*
+### v13 — per-project GSC diagnostics *(retheme 2026-05-20; was "analytical roll-ups"; v13.A absorbed by v16.C 2026-05-19; old v13.B `project list` roll-up + draft GSC-ownership-conformance retheme both dropped 2026-05-20; old v13.C moved to v15.F)*
 
 Diagnostics drill-down for `lamill project seo <domain>`. When
 `fleet focus` flags "GSC: sitemap parse errors (4)" or "Stale CF
@@ -518,8 +518,8 @@ target tree, and decides the cutover style before any code moves.
 ### v15 — deploy verification + content seeding *(renumbered 2026-05-17 PM; deprioritized; absorbed v13.C 2026-05-20; renumbered 2026-05-20, was v14)*
 
 Build-time stamping convention + HEAD vs deployed SHA + Pages/Vercel
-API integration (v15.A-D — original tier scope; heavy overlap with
-v11's `fleet hosting`; revisit at v15.A kickoff). v15.E holds the
+API integration (v15.B-E — original tier scope; heavy overlap with
+v11's `fleet hosting`; revisit at v15.A kickoff). v15.F holds the
 postponed LLM content seeding sub-phase, moved from v13.C 2026-05-20
 when v13 was rethemed to diagnostics. Content seeding is orthogonal
 to deploy verification but lives here for parking — alternative
@@ -530,11 +530,12 @@ single postponed-indefinitely sub-phase.
 
 | # | Status | Feature |
 |---|---|---|
-| v15.A | ⏳ | Build-time stamping. Convention: every sites/* project writes `version.json` at build (commit + built_at) · new conformance check: `has-version-stamp`. |
-| v15.B | ⏳ | HEAD vs deployed. Deploy-freshness signal · `deploy-fresh` conformance check · reads `version.json` from live URL. |
-| v15.C | ⏳ | Build status + deploy lag. Deploy lag (push → live) · last build status via Cloudflare/Vercel API · `last-build-success` conformance · *requires platform tokens — major new infra*. |
-| v15.D | ⏳ | Domain-list refresh tooling. Flag-only enhancements to existing `cleanup` (no new commands): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct `$EDITOR` on `data/portfolio.json` is the no-tooling path. |
-| v15.E | ⏸ | *(moved from v13.C 2026-05-20)* Optional LLM content seeding. `--seed-content` flag on `lamill new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1-2 supporting pages from the topic (similar prompt pipeline to v2.A) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style. *Postponed indefinitely (2026-05-04 user call); kept parked for archeology — not on the active queue. v12 audit-pass infrastructure could make a future revival cheaper (cross-model validation), but no plan to revisit yet.* |
+| v15.A | ⏳ | **Kickoff planning.** Re-validate the v15.B-E tier scope against v11's `fleet hosting` — substantial overlap (`fleet hosting` already surfaces deploy state from CF/Vercel; some `last-build-success` signals may already be available without new infra). Decide whether `last-build-success` (v15.D) is standalone or folds into `fleet hosting`; resolve standalone `project deploy-status` vs fold-into-`diagnose` open question. Confirm v15.E flag wiring under the new `fleet sync` name (post-v14.B rename). Lock the final v15.B-E plan. ~0.5-1h. |
+| v15.B | ⏳ | Build-time stamping. Convention: every sites/* project writes `version.json` at build (commit + built_at) · new conformance check: `has-version-stamp`. |
+| v15.C | ⏳ | HEAD vs deployed. Deploy-freshness signal · `deploy-fresh` conformance check · reads `version.json` from live URL. |
+| v15.D | ⏳ | Build status + deploy lag. Deploy lag (push → live) · last build status via Cloudflare/Vercel API · `last-build-success` conformance · *requires platform tokens — major new infra*. |
+| v15.E | ⏳ | Domain-list refresh tooling. Flag-only enhancements to existing `cleanup` (no new commands): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct `$EDITOR` on `data/portfolio.json` is the no-tooling path. |
+| v15.F | ⏸ | *(moved from v13.C 2026-05-20)* Optional LLM content seeding. `--seed-content` flag on `lamill new bootstrap`: OpenAI gpt-4o-mini generates a starter home page + 1-2 supporting pages from the topic (similar prompt pipeline to v2.A) · cached by topic-hash · user reviews + commits manually before pushing · skipped by default since some projects are app-style. *Postponed indefinitely (2026-05-04 user call); kept parked for archeology — not on the active queue. v12 audit-pass infrastructure could make a future revival cheaper (cross-model validation), but no plan to revisit yet.* |
 
 ### v16 — rich GSC `project seo` view *(new 2026-05-19; absorbs v13.A; renumbered 2026-05-20, was v15)*
 
@@ -964,9 +965,9 @@ load-bearing checks and where each landed.
 | `cf-pages-deployable` | frozen-lockfile install OK; no stray gitlinks; no `_redirects` SPA fallback | v5.C / CHECK_050-056 |
 | `domain-dir-match` | dir name matches a portfolio.json domain (or override map) | v5.A |
 | `gsc-verified` | dir's eTLD is a verified GSC property | v10.E *(renumbered 2026-05-18 — was v10.B → v9.B)* |
-| `has-version-stamp` | project writes `version.json` at build time | v15.A *(renumbered 2026-05-17 PM — was v13.A → v12.A → v10.A)* |
-| `deploy-fresh` | HEAD SHA matches deployed SHA | v15.B *(renumbered 2026-05-17 PM — was v13.B → v12.B → v10.B)* |
-| `last-build-success` | last Cloudflare/Vercel build succeeded | v15.C *(renumbered 2026-05-17 PM — was v13.C → v12.C → v10.C)* |
+| `has-version-stamp` | project writes `version.json` at build time | v15.B *(renumbered 2026-05-17 PM — was v13.A → v12.A → v10.A; bumped from v15.A 2026-05-20 for kickoff slot)* |
+| `deploy-fresh` | HEAD SHA matches deployed SHA | v15.C *(renumbered 2026-05-17 PM — was v13.B → v12.B → v10.B; bumped from v15.B 2026-05-20)* |
+| `last-build-success` | last Cloudflare/Vercel build succeeded | v15.D *(renumbered 2026-05-17 PM — was v13.C → v12.C → v10.C; bumped from v15.C 2026-05-20)* |
 | `ai-agents-md-has-canonical-sections` | AI_AGENTS.md has all 10 canonical H2 sections | v9.A *(new 2026-05-17)* |
 | `cf-edge-cache-fresh` (CHECK_057) | live origin's `/`, `/robots.txt`, `/sitemap*.xml` don't return 200 for paths absent from `dist/` (with `follow_redirects=False`) | v7.H |
 
