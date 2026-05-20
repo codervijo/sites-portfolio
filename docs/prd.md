@@ -535,12 +535,80 @@ that do).
 
 | # | Status | Feature |
 |---|---|---|
-| v15.A | ⏳ | **Kickoff planning.** Re-validate the v15.B-F tier scope against v11's `fleet hosting` — substantial overlap (`fleet hosting` already surfaces deploy state from CF/Vercel; some `last-build-success` signals may already be available without new infra). Decide whether `last-build-success` (v15.E) is standalone or folds into `fleet hosting` (and into `project hosting` per-site). Lock the per-row content of the new `project hosting <domain>` verb (v15.B) — which fields surface vs hide for one-site view. Confirm v15.F flag wiring under the new `fleet sync` name (post-v14.B rename). ~0.5-1h. |
+| v15.A | ✅ | **Kickoff planning.** Locked four decisions 2026-05-20: (a) `project hosting <domain>` uses **vertical-sections layout** (matches v13.B's `project seo` GSC-diagnostics pattern; sections grow incrementally as v15.D + v15.E land). (b) v15.E `last-build-success` **folds into the existing `fleet hosting` walker** — surface as a new `Last build` column on `fleet hosting` + matching row on `project hosting`; no new platform-API infra. CF Pages + Vercel deployment-list endpoints already return this state; CF Workers and HostGator render `—` (no build concept). (c) v15.F ships **both** `--refresh` (live Porkbun pull; GoDaddy/Namecheap deferred until account-API setup) and `--watch` (filesystem watcher on `data/domains/*.csv`) on `fleet sync`. (d) Sequential execution A→B→C→D→E→F. See `#### Design notes` for the locked `project hosting` mockup. |
 | v15.B | ⏳ | **CLI symmetry — `project hosting <domain>`** (new verb) + **drop `fleet hosting --only`** (hard cutover, matching v14.B posture). Single-domain view of the existing fleet-hosting probe data: platform / account / branch / deploy id / commit / deployed-at / build status. Re-uses the existing `_fleet_hosting_impl` machinery — extract the single-domain branch into `_project_hosting_impl`, share the hosting-cache reads. Becomes the surface for v15.D (deploy-fresh) and v15.E (last-build-success) — both signals are per-site and belong on `project hosting`, not on `project diagnose` (diagnose = "what's broken"; hosting = "what's the state"). ~1-2h. |
 | v15.C | ⏳ | Build-time stamping. Convention: every sites/* project writes `version.json` at build (commit + built_at) · new conformance check: `has-version-stamp`. |
 | v15.D | ⏳ | HEAD vs deployed. Deploy-freshness signal · `deploy-fresh` conformance check · reads `version.json` from live URL · **surfaces in `project hosting <domain>`** (new v15.B verb), not standalone `project deploy-status` and not folded into `project diagnose`. |
-| v15.E | ⏳ | Build status + deploy lag. Deploy lag (push → live) · last build status via Cloudflare/Vercel API · `last-build-success` conformance · **surfaces as a `Last build` column in `fleet hosting` + a `Last build` row in `project hosting <domain>`** · v15.A decides whether to also add platform-token-driven infra or stick to what `fleet hosting` already reads. |
-| v15.F | ⏳ | Domain-list refresh tooling. Flag-only enhancements to existing `fleet sync` (no new commands): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap require account API setup) into `data/domains/<reg>.csv` before merging. `--watch` re-merges whenever a CSV in `data/domains/` changes on disk. Direct `$EDITOR` on `data/portfolio.json` is the no-tooling path. |
+| v15.E | ⏳ | Build status + deploy lag. Deploy lag (push → live) · last build status via Cloudflare/Vercel deployment-list APIs · `last-build-success` conformance · **surfaces as a `Last build` column in `fleet hosting` + a `Last build` row in `project hosting <domain>`** · folded into the existing `_fleet_hosting_impl` walker per v15.A — no new platform-API infra. CF Workers + HostGator render `—`. |
+| v15.F | ⏳ | Domain-list refresh tooling. Flag-only enhancements to existing `fleet sync` (no new commands): `--refresh` pulls live from registrar APIs (Porkbun ready; GoDaddy/Namecheap deferred until account-API setup) into `data/domains/<reg>.csv` before merging. `--watch` runs a filesystem watcher on `data/domains/*.csv` and re-merges on change. Direct `$EDITOR` on `data/portfolio.json` remains the no-tooling path. |
+
+#### Design notes
+
+**`project hosting <domain>` locked output (sections grow as later phases land).**
+
+```text
+$ lamill project hosting airsucks.com
+
+  Property: airsucks.com  ·  platform: cloudflare-workers
+  Account: vijo  ·  branch: main
+
+  📦 Deploy
+    ✓ DEPLOYED       2026-05-19 08:34 (12h ago)
+    Commit:          a693d96
+    Deploy ID:       abc-123
+
+  📋 Freshness                                                  ← v15.D adds
+    HEAD @           a693d96
+    Live @           a693d96    ✓ in sync
+
+  🔧 Build                                                      ← v15.E adds
+    ✓ last build:    2026-05-19 08:31 (12h 3m ago) · 1m 22s · 0 recent failures
+
+  📌 Domains
+    airsucks.com (canonical)
+```
+
+After v15.B ships, sections 📦 Deploy + 📌 Domains exist; 📋 Freshness + 🔧 Build are stubbed empty until v15.D + v15.E. v15.D adds the Freshness section; v15.E adds the Build section.
+
+**v15.E fold approach (no new infra).** `_fleet_hosting_impl`'s
+existing per-provider walkers already query deployment-list endpoints
+(CF Pages: `/accounts/{id}/pages/projects/{name}/deployments`; Vercel:
+`/v6/deployments?app={name}`) and read deploy state. v15.E adds one
+field — `last_build_success: Optional[bool]` — to the shared
+`HostingRow` dataclass. CF Workers + HostGator return `None` (no
+build concept). The `Last build` column on `fleet hosting` renders:
+`✓ <when>` for True, `✗ <when>` for False, `—` for None.
+
+**v15.F flag wiring.**
+- `lamill fleet sync` — unchanged default behavior; reads
+  `data/domains/<reg>.csv` files, merges into `data/portfolio.json`.
+- `lamill fleet sync --refresh` — calls Porkbun's `/domain/listAll`
+  endpoint, writes/overwrites `data/domains/porkbun.csv`, then runs
+  the standard merge. GoDaddy + Namecheap CSVs remain manual until
+  those registrars' account-API setup lands (operator's call).
+- `lamill fleet sync --watch` — blocks; uses `watchdog` to monitor
+  `data/domains/*.csv` for mtime changes; re-runs the merge on each
+  change. Ctrl-C exits. Composes with `--refresh` (initial sync
+  then watch) or not.
+
+**CLI symmetry restored by v15.B.**
+
+```
+project check   ↔ fleet check
+project seo     ↔ fleet seo
+project fix     ↔ fleet fix
+project hosting ↔ fleet hosting    (NEW — v15.B)
+project diagnose (no fleet equivalent — diagnose is per-site by nature)
+```
+
+`fleet hosting --only <domain>` flag deletes in the same v15.B
+commit. Hard cutover, matching v14.B's posture for `new suggest`/
+`new research`/`settings project`/`fleet info`.
+
+**Execution order.** A (this kickoff) ✅ → B (new verb + drop flag)
+→ C (build stamping) → D (deploy-fresh in `project hosting`) → E
+(last-build-success on both surfaces) → F (`fleet sync` flags).
+Total estimate ~6-9h. B is the unblocker for D/E.
 
 ### v16 — GSC fleet-level intelligence *(new 2026-05-19; absorbs v13.A; renumbered 2026-05-20, was v15; reshaped 2026-05-20 — dropped v16.B/C/E single-property reinvention per `§ 2 Non-goals` audit; relabel v16.D→v16.B, v16.F→v16.C)*
 
