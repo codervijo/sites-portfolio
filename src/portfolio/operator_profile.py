@@ -40,6 +40,7 @@ CADENCE_VALUES = ("weekly", "monthly", "quarterly")
 
 DEFAULT_WORKFLOW = "mixed"
 DEFAULT_CADENCE = "monthly"
+DEFAULT_VERIFY_BY_DEFAULT = False
 
 
 @dataclass
@@ -47,6 +48,10 @@ class OperatorProfile:
     expertise: list[str] = field(default_factory=list)
     workflow_preference: str = DEFAULT_WORKFLOW
     motivation_cadence: str = DEFAULT_CADENCE
+    # v12.F — when True, `lamill new research` runs the adversarial
+    # audit pass automatically (as if --verify was passed). Override
+    # per-run with --no-verify. Adds ~$0.01-0.02 per research call.
+    verify_by_default: bool = DEFAULT_VERIFY_BY_DEFAULT
 
     @property
     def configured(self) -> bool:
@@ -56,6 +61,8 @@ class OperatorProfile:
             self.workflow_preference != DEFAULT_WORKFLOW
         ) or (
             self.motivation_cadence != DEFAULT_CADENCE
+        ) or (
+            self.verify_by_default != DEFAULT_VERIFY_BY_DEFAULT
         )
 
 
@@ -94,6 +101,10 @@ def load_operator_profile(path: Path | None = None) -> OperatorProfile:
             CADENCE_VALUES,
             DEFAULT_CADENCE,
         ),
+        verify_by_default=_clean_bool(
+            section.get("verify_by_default"),
+            DEFAULT_VERIFY_BY_DEFAULT,
+        ),
     )
 
 
@@ -106,6 +117,22 @@ def _clean_str_list(value: object) -> list[str]:
 def _clean_enum(value: object, allowed: tuple[str, ...], default: str) -> str:
     if isinstance(value, str) and value.strip().lower() in allowed:
         return value.strip().lower()
+    return default
+
+
+def _clean_bool(value: object, default: bool) -> bool:
+    """TOML-aware boolean coerce. Real `bool` passes through; string
+    forms ('true'/'false') tolerated for hand-edited TOMLs; anything
+    else falls through to default — matches the loader's general
+    "never raise on bad input" posture."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if s in ("true", "yes", "1"):
+            return True
+        if s in ("false", "no", "0"):
+            return False
     return default
 
 

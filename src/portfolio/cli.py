@@ -3946,11 +3946,24 @@ def new_research(
              "Adds ~$0.01-0.02 per run. Surfaces REVIEW_REQUIRED when "
              "the two models disagree.",
     ),
+    no_verify: bool = typer.Option(
+        False, "--no-verify",
+        help="Disable audit pass for this run, overriding the operator "
+             "profile's `verify_by_default` flag in `lamill.toml [operator]`.",
+    ),
     audit_model: str = typer.Option(
         "gpt-4o", "--audit-model",
         help="OpenAI model id for the audit pass (only used with --verify). "
              "Must resolve to a different model than the primary — same-model "
              "audit defeats the model-family-diversity goal.",
+    ),
+    invalidate: str = typer.Option(
+        "none", "--invalidate",
+        help="Granular cache invalidation on a cached cluster snapshot: "
+             "'interpretive' re-runs the primary pass, 'audit' re-runs the "
+             "audit pass, 'all' re-runs both. Default 'none' (cached passes "
+             "are reused). Use --no-cache to bypass the SerpAPI cluster "
+             "cache entirely.",
     ),
 ) -> None:
     """v8.D — multi-keyword cluster SERP research.
@@ -4097,18 +4110,41 @@ def new_research(
     # carry a `primary_verdict` — the operator paid the ~5-15s on the
     # previous run, no need to re-pay. Failure is non-fatal: the
     # mechanical verdict above is still useful on its own.
+    # v12.F — granular cache invalidation. `--invalidate` strings
+    # opt individual passes out of the cache short-circuit without
+    # bypassing the SerpAPI cluster cache (that's still `--no-cache`).
+    # `--invalidate=all` invalidates both passes; this is the natural
+    # "re-run the LLM passes against the same cached SERP data"
+    # workflow when re-tuning prompts or comparing models.
+    invalidate_normalized = (invalidate or "none").strip().lower()
+    invalidate_interpretive = invalidate_normalized in ("interpretive", "all")
+    invalidate_audit        = invalidate_normalized in ("audit", "all")
+
+    # v12.F — `verify_by_default` operator-profile flag. Single load
+    # here used for the audit-gate decision; `_run_audit_pass_and_
+    # reconcile` reloads inside itself for the audit payload. Two
+    # cheap TOML reads beat threading the profile through a dozen
+    # call sites.
+    from .operator_profile import load_operator_profile as _load_op_profile
+    op_profile = _load_op_profile()
+    effective_verify = (
+        (verify or op_profile.verify_by_default) and not no_verify
+    )
+
     cache_has_primary = (
         payload.get("from_cache") and payload.get("primary_verdict")
+        and not invalidate_interpretive
     )
     if not cache_has_primary:
         _run_primary_interpretive_pass(topic, payload, console=console)
 
     # v12.E — adversarial audit pass + reconciliation. Default-off
-    # (operator opts in via --verify). Default model gpt-4o provides
-    # model-family diversity from the Claude-CLI primary; --audit-model
-    # overrides. Persists into the cluster snapshot so cache hits skip
-    # the audit on subsequent runs.
-    if verify and "primary_verdict" in payload:
+    # (operator opts in via --verify or `verify_by_default = true`).
+    # Default model gpt-4o provides model-family diversity from the
+    # Claude-CLI primary; --audit-model overrides. Persists into the
+    # cluster snapshot so cache hits skip the audit on subsequent
+    # runs unless `--invalidate audit` (or `=all`) is set.
+    if effective_verify and "primary_verdict" in payload:
         # Same-model rejection. The audit's value is model-family
         # diversity; using the primary's model collapses that into
         # "ask twice and hope for variance," defeating the point of
@@ -4127,6 +4163,7 @@ def new_research(
 
         cache_has_audit = (
             payload.get("from_cache") and payload.get("audit")
+            and not invalidate_audit
         )
         if not cache_has_audit:
             _run_audit_pass_and_reconcile(
@@ -4203,6 +4240,10 @@ def _run_primary_interpretive_pass(topic: str, payload: dict, *, console) -> Non
         f"[dim](cost=${result.cost_usd:.4f}, "
         f"duration={result.duration_s:.1f}s)[/]"
     )
+
+    # v12.F — refresh the snapshot's `costs` block. Idempotent; audit
+    # pass updates it again later if --verify ran.
+    _update_cost_summary(payload)
 
     try:
         save_cluster_snapshot(topic, payload)
@@ -4302,6 +4343,11 @@ def _run_audit_pass_and_reconcile(topic: str, payload: dict, *,
         f"duration={result.duration_s:.1f}s)[/]"
     )
 
+    # v12.F — refresh the snapshot's `costs` block to include the
+    # audit pass. Primary's cost was added when the primary helper
+    # ran; this call rolls them up together.
+    _update_cost_summary(payload)
+
     try:
         save_cluster_snapshot(topic, payload)
     except OSError as e:
@@ -4316,6 +4362,30 @@ def _confidence_color(confidence: str) -> str:
     return {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}.get(
         confidence, "white",
     )
+
+
+def _update_cost_summary(payload: dict) -> None:
+    """v12.F — recompute the cluster-snapshot `costs` block from the
+    individual pass metas. Idempotent; safe to call after either
+    pass writes its meta. Aggregates only LLM costs — SerpAPI quota
+    consumption is tracked separately in `data/serp/_quota.json`
+    (a monthly ledger, not a per-run line item) so mixing them
+    here would double-count.
+
+    Block shape: `{primary_usd, audit_usd, total_usd, currency}`.
+    Missing pass metas contribute 0.0. The `currency` field is
+    fixed to USD today; surfaced for future-proofing (no current
+    plan to charge in anything else, but pinning the unit is
+    cheap insurance).
+    """
+    primary = (payload.get("primary_pass_meta") or {}).get("cost_usd", 0.0) or 0.0
+    audit   = (payload.get("audit_pass_meta")   or {}).get("cost_usd", 0.0) or 0.0
+    payload["costs"] = {
+        "primary_usd": float(primary),
+        "audit_usd":   float(audit),
+        "total_usd":   float(primary + audit),
+        "currency":    "USD",
+    }
 
 
 def _run_gates_with_prompt(cluster: dict, *, console,
@@ -4490,6 +4560,24 @@ def _render_research_v2_full(payload: dict, console) -> None:
         console.print(f"  [yellow]Fetch errors ({len(fetch_errors)}):[/]")
         for err in fetch_errors[:3]:
             console.print(f"    · {err}")
+
+    # v12.F — cost-summary footer. Renders when at least one LLM pass
+    # ran (primary or audit); skips on snapshots predating v12.F that
+    # don't carry the `costs` block.
+    costs = payload.get("costs")
+    if costs and costs.get("total_usd", 0.0) > 0:
+        primary_usd = costs.get("primary_usd", 0.0)
+        audit_usd   = costs.get("audit_usd",   0.0)
+        total_usd   = costs.get("total_usd",   0.0)
+        # Show the breakdown only when both passes contributed; on a
+        # primary-only run, the single number is enough.
+        if audit_usd > 0:
+            console.print(
+                f"  [dim]LLM cost: ${total_usd:.4f} "
+                f"(primary ${primary_usd:.4f}, audit ${audit_usd:.4f})[/]"
+            )
+        else:
+            console.print(f"  [dim]LLM cost: ${total_usd:.4f}[/]")
 
 
 def _gate_marker(label: str) -> str:
