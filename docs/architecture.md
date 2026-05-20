@@ -127,11 +127,30 @@ catalog): idempotent payload, dry-run default, per-site allowlist,
 stage-then-rename where the platform allows it, no credentials in
 the payload.
 
-The cf-pages / cf-workers / vercel branches of `new deploy` also
-trigger remote-side state changes (CF Pages project creation, push
-to wrangler / vercel) but the bytes flow through `gh` / `pnpm` /
-`vercel` CLIs the operator already trusts — they're not portfolio's
-own write surface in the ADR-0011 sense.
+### 2.3 External API state changes (cf-pages / cf-workers / vercel deploys)
+
+The cf-pages / cf-workers / vercel branches of `new deploy` trigger
+remote-side state changes (per ADR-0012 + the v15.I unified pipeline):
+
+- **CF zone create** via `POST /zones`
+- **Registrar NS update** via `POST /domain/updateNs` (Porkbun only;
+  other registrars warn-instruct)
+- **GitHub repo create** via `POST /user/repos` (or `gh` CLI fallback)
+- **CF Pages project create** via `POST /accounts/{id}/pages/projects`
+  with `source.type=github` — registers the GH repo with CF; future
+  pushes auto-deploy
+- **CF custom-domain attach** via `POST /accounts/{id}/pages/projects/
+  {name}/domains`
+- **Git push** (`git push -u origin main`) for the initial commit
+- **Vercel deploy** via `vercel deploy --prod` shell-out (vercel
+  platform only)
+
+None of these write to sibling `sites/<domain>/` project directories
+(ADR-0003 scope) or to a cPanel host (ADR-0011 scope). They mutate
+external SaaS state, which is its own audit surface — each step is
+logged to stdout with the API path / state change, and each step is
+idempotent (re-running detects existing state and prints
+`✓ exists, skipping`).
 
 ## 3. Mechanisms
 
@@ -232,7 +251,7 @@ Provider error surfaces follow `prd.md` v11 Design notes — resolution 11.H:
 - 5xx / rate-limit → per-row `error` field on affected domains;
   renders with `?` glyph.
 
-### Active deploy verb (v11.M-N — `new deploy <domain>`)
+### Active deploy verb (v11.M-N — `new deploy <domain>`; v15.I unification per ADR-0012)
 
 `new deploy` is a polymorphic dispatcher in `cli.py::new_deploy` —
 reads `<sites/<domain>/lamill.toml>.deploy.platform` and routes to
@@ -240,20 +259,27 @@ the right deploy implementation. Branches:
 
 | `platform` | Mechanism | Module |
 |---|---|---|
-| `cf-pages` | First-time setup via `CloudflarePagesDeploy` (v3.C) — interactive confirms at each step | `cli.py::_deploy_cf_pages_v3c` + `deploy.py::CloudflarePagesDeploy` |
-| `cf-workers` | Shells out to `pnpm run deploy` in `sites/<domain>/` (delegates to wrangler) | `deploy.py::deploy_cf_workers_via_shell` |
+| `cf-pages` / `cf-workers` (v15.I+) | **Unified git-integrated CF Pages-API pipeline** per ADR-0012. Creates GH repo via `POST /user/repos` (or `gh` CLI fallback) → creates CF zone via `POST /zones` → updates registrar NS (Porkbun via `POST /domain/updateNs`; other registrars warn-instruct) → creates CF Pages project with `source.type=github` git source via `POST /accounts/{id}/pages/projects` → attaches custom domain via `POST /accounts/{id}/pages/projects/{name}/domains` → polls build status via `GET /accounts/{id}/pages/projects/{name}/deployments?per_page=1` (`latest_stage.status`). Idempotent at every step; honors `--dry-run` and `--yes`. **No `wrangler deploy` call.** | `cli.py::_deploy_cf_unified` + `cloudflare.py` (extended) + `gh_repo.py` + `porkbun_dns.py` |
 | `vercel` | Shells out to `vercel deploy --prod` | `deploy.py::deploy_vercel_via_shell` |
 | `hostgator` / `custom` | cPanel UAPI uploader with stage-then-rename atomicity (ADR-0011) | `cli.py::_deploy_hostgator_v11n` + `hosting.py::deploy_hg_files` |
 | `netlify` / `github-pages` | Not yet implemented — exits with a clear "track in a future v11.X" message | — |
 | `none` | Rejects with a `settings deploy set` hint | — |
-| (missing `lamill.toml`) | Assumes `cf-pages` (legacy default) with a notice — backward-compat with pre-v10.A repos | — |
+| (missing `lamill.toml`) | Assumes `cf-workers` (v15.I bootstrap default; was `cf-pages` pre-v15.I) with a notice — backward-compat with pre-v10.A repos | — |
 
-The cf-workers + vercel branches delegate to the canonical CLIs
-rather than re-implementing wrangler's assets-upload pipeline or
-vercel's file-hashing pipeline against raw HTTP. Both pipelines
-have years of edge cases baked into them; replicating that surface
-in portfolio is a maintenance trap. The shell helpers take a
-`runner=` injection seam so tests don't fork real subprocesses.
+**v15.I changed the CF deploy story** (ADR-0012). The v11.M era had
+two separate CF branches (`cf-pages` → first-time-setup orchestrator;
+`cf-workers` → `pnpm run deploy` wrangler one-shot). The split was a
+mismatch with the operator's actual fleet, which is uniformly
+git-integrated. The new unified pipeline serves both platform values
+via the same CF Pages-API endpoints (CF unified Workers & Pages
+under one API surface in 2024-2026). No `wrangler` call appears in
+the deploy code path anymore — pure REST + git push.
+
+The vercel branch still shells out to `vercel deploy --prod` for
+its CLI's hash-and-upload pipeline; this stays per-platform because
+replicating Vercel's file-hashing logic against raw HTTP is a
+maintenance trap. The shell helpers take a `runner=` injection seam
+so tests don't fork real subprocesses.
 
 The HostGator / custom branch is the only one that adds a new
 remote-host write surface (ADR-0011). It runs through three layers:
@@ -973,6 +999,10 @@ lamill
 | v15.D | `deploy-fresh` conformance check + 📋 Freshness section in `project hosting <domain>`. |
 | v15.E | `Last build` column on `fleet hosting` + 🔧 Build section on `project hosting <domain>` (folds into existing `_fleet_hosting_impl` walker — no new platform-API infra). |
 | v15.F | `fleet sync --refresh` (live Porkbun pull) + `--watch` (filesystem watcher) flags (no new node). |
+| v15.G | Kickoff doc-only (extends v15 tier with G-J; locks decisions captured in ADR-0012 + ADR-0013). |
+| v15.H | Bootstrap stack normalization (no new CLI verb — internal `bootstrap.py` translation hook on `--git-url` path; ADR-0013). |
+| v15.I | **`new deploy <domain>` end-to-end automation (no `wrangler deploy`; git-integrated CF Pages-API; ADR-0012).** Unified `_deploy_cf_unified()` orchestrator replaces `_deploy_cf_pages_v3c` + `_deploy_cf_workers`. New `--yes` flag on `new deploy` for auto-confirming NS updates. Bootstrap default platform flips `cf-pages` → `cf-workers`. |
+| v15.J | Docs-sync wrap (no CLI surface change). |
 | v16.C | URL Inspection API wrapper + binary check_NNN (`project check` fails when URL not indexed). |
 | v16.D | Fleet-level GSC rollup — new `fleet dashboard` columns (Coverage % / Crawl errors / W/w imp Δ / Page-2 opp count) + `fleet seo --detail` mode for fleet-aggregated top queries / top pages. |
 | v17.B-E | 14 new conformance checks (CHECK_081-088 + 096-101 + 102-105). |
@@ -1010,14 +1040,18 @@ Resolve before the relevant phase ships.
 | **OpenAI** | `new domain` brainstorm; `audit_pass` (v12) | `OPENAI_API_KEY` (Bearer) | 429 with `Retry-After` |
 | **Anthropic (Claude CLI subprocess)** | `interpretive_pass` primary (v8); Tier 2 fixers (v6.E) | Operator's existing Claude subscription via local CLI | Different I/O shape from direct API; cost model per local subscription, not per-token |
 | **Anthropic API** | Reserved — direct-API switch path for primary pass | `ANTHROPIC_API_KEY` (header `x-api-key` + `anthropic-version`) | Per-provider rate-limit dialect; not currently exercised |
-| **Cloudflare** | Pages projects, Workers, DNS lookups | `CF_API_TOKEN` + `CF_ACCOUNT_ID` | Pagination on Pages projects list |
+| **Cloudflare — fleet walker** | v11.A `fleet hosting` walker — `/accounts/{id}/pages/projects`, `/workers/scripts`, `/workers/domains` | `CF_API_TOKEN` + `CF_ACCOUNT_ID` | Pagination on Pages projects list |
+| **Cloudflare — zones** | v11/v15.I — `resolve_zone_id` (existing) · `ensure_zone` (v15.I; `POST /zones` for create) | `CF_API_TOKEN` + `CF_ACCOUNT_ID` | Zone create returns `name_servers` array for operator to set at registrar |
+| **Cloudflare — Pages-API (v15.I unified deploy)** | `new deploy` for `platform ∈ {cf-pages, cf-workers}` per ADR-0012 — `POST /accounts/{id}/pages/projects` with `source.type=github` for git-integrated create · `GET /accounts/{id}/pages/projects/{name}` idempotency probe · `POST /accounts/{id}/pages/projects/{name}/domains` custom-domain attach (GET-then-POST, no documented idempotency) · `GET /accounts/{id}/pages/projects/{name}/deployments?per_page=1` for build poll (`latest_stage.status` ∈ {success, idle, active, failure, canceled}) | `CF_API_TOKEN` + `CF_ACCOUNT_ID` | **CF GitHub App** must be installed once per CF account at `https://dash.cloudflare.com/?to=/:account/workers-and-pages/create/connect-to-git` (one-time dashboard step; not API-automatable). Pipeline detects + surfaces clear error when missing. |
 | **Vercel** | v11.A `fleet hosting` walker | `VERCEL_TOKEN` (Bearer) | Personal token sees only personal account; multi-team out of scope (`prd.md` v11 Design notes — 11.A) |
 | **CrUX (Chrome UX Report)** | `seo_runtime` field data | `CRUX_API_KEY` | `no-data` for personal-portfolio-scale origins (expected; not a bug) |
 | **SerpAPI** | `new validate` real SERP fetch | `SERPAPI_KEY` | Monthly quota tracked in `data/serp/_quota.json` |
-| **Google Search Console** | `gsc.py` ranking + impressions | OAuth (`GOOGLE_OAUTH_*`) | 28-day rolling window for the operator's verified properties |
-| **Porkbun** | Availability + pricing + registration | `PORKBUN_API_KEY` + `PORKBUN_SECRET_API_KEY` | Registration is the only registrar API the tool calls; GoDaddy/Namecheap are CSV-export only |
+| **Google Search Console** | `gsc.py` ranking + impressions; URL Inspection (v16.C) | OAuth (`GOOGLE_OAUTH_*`) | 28-day rolling window; URL Inspection 2000/day quota |
+| **GitHub REST API** | v15.I — `POST /user/repos` repo create (primary path; Bearer auth via `GITHUB_TOKEN`); `GET /repos/{owner}/{repo}` idempotency probe; `gh` CLI fallback when `GITHUB_TOKEN` missing | `GITHUB_TOKEN` (Bearer; `Accept: application/vnd.github+json` + `X-GitHub-Api-Version`) | Personal-account repos via `/user/repos`; org repos via `/orgs/{org}/repos` (not currently exercised) |
+| **Porkbun — availability** | `new domain` brainstorm — domain check + price | `PORKBUN_API_KEY` + `PORKBUN_SECRET_API_KEY` | `/domain/checkAvailability` returns 404 — uses `/pricing/get` + RDAP fallback instead |
+| **Porkbun — registrar inventory** | v15.F — `fleet sync --refresh` — `POST /domain/listAll` | Same | Returns up to 1000 domains per page; pagination via `start` |
+| **Porkbun — DNS (v15.I)** | `new deploy` — `POST /domain/getNs/{domain}` + `POST /domain/updateNs/{domain}` for NS read + push per ADR-0012's registrar-NS-automation step | Same | Idempotency NOT documented for `updateNs`; pipeline does GET-then-update-if-mismatch |
 | **RDAP** | Availability fallback | Anonymous | Authoritative WHOIS replacement |
-| **GitHub** | Repo creation in `new deploy` | `gh` CLI delegation | The tool shells out to `gh`; no direct API client |
 
 ### Rate-limit handling
 
