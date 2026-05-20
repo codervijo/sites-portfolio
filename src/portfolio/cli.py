@@ -6108,6 +6108,93 @@ def project_diagnose(
     render(d, console)
 
 
+# v15.B — per-project hosting verb. Restores symmetry with
+# `project check ↔ fleet check`, `project seo ↔ fleet seo`. Replaces
+# the old `fleet hosting --only <domain>` single-domain probe with
+# a vertical-sections renderer (📦 Deploy + 📌 Domains; 📋 Freshness
+# and 🔧 Build land in v15.D/E).
+@project_app.command("hosting")
+def project_hosting(
+    domain: str = typer.Argument(..., help="Domain (e.g. airsucks.com)"),
+    refresh: bool = typer.Option(
+        False, "--refresh",
+        help="Re-probe the providers even if a fresh fleet snapshot exists.",
+    ),
+    json_out: bool = typer.Option(
+        False, "--json",
+        help="Emit JSON instead of the vertical-sections view.",
+    ),
+) -> None:
+    """Single-domain hosting view — provider, deploy state, branch.
+
+    Reads the fleet hosting snapshot when fresh; re-probes with
+    `--refresh` or when the snapshot is stale / missing. The
+    single-domain probe never overwrites the fleet snapshot.
+
+    Output is a stacked-sections view (vs `fleet hosting`'s table)
+    so each section can grow as v15.D/E add freshness + build state.
+    """
+    _project_hosting_impl(
+        domain=domain.lower(), refresh=refresh,
+        json_out=json_out, console=console,
+    )
+
+
+def _project_hosting_impl(
+    *, domain: str, refresh: bool, json_out: bool, console,
+) -> None:
+    """Body of `project hosting`. Carved out so tests can drive it
+    directly without the typer surface."""
+    from . import hosting_cache
+    from .hosting import run_hosting
+    from .project_hosting_render import render_project_hosting
+
+    fleet_domains = {d.name.lower() for d in load_domains()}
+
+    # Cache lookup mirrors `fleet hosting`'s logic but ALWAYS filters
+    # to one domain at render time. The fleet snapshot is the source
+    # of truth when fresh; --refresh forces a single-domain probe that
+    # leaves the fleet snapshot alone.
+    snapshot_path = hosting_cache.latest_snapshot()
+    cache_eligible = (
+        not refresh
+        and snapshot_path is not None
+        and not hosting_cache.is_stale(snapshot_path)
+    )
+
+    if cache_eligible:
+        snap = hosting_cache.load_snapshot(snapshot_path)
+        result = hosting_cache.result_from_snapshot(snap)
+        source = f"snapshot {snapshot_path.name}"
+    else:
+        # Single-domain probe — passes `only_domain=` so walkers
+        # short-circuit emission. Does NOT persist to the fleet
+        # snapshot (would clobber a multi-domain cache with one row).
+        result = run_hosting(fleet_domains, only_domain=domain)
+        source = f"single-domain probe ({domain})"
+
+    # Filter rows to the requested domain. Conflict cases keep every
+    # matching row so the renderer can flag the drift.
+    matched_rows = [r for r in result.rows if r.domain.lower() == domain]
+
+    if json_out:
+        import json as _json
+        from dataclasses import asdict
+        payload = {
+            "domain": domain,
+            "source": source,
+            "rows": [asdict(r) for r in matched_rows],
+            "skipped": dict(result.skipped),
+        }
+        typer.echo(_json.dumps(payload, indent=2))
+        return
+
+    render_project_hosting(
+        domain=domain, rows=matched_rows, skipped=result.skipped,
+        source=source, console=console,
+    )
+
+
 @settings_deploy_app.command("set")
 def settings_deploy_set(
     name: str = typer.Argument(..., metavar="DOMAIN",
@@ -6307,8 +6394,6 @@ def fleet_seo(
 def fleet_hosting(
     refresh: bool = typer.Option(False, "--refresh",
                                  help="Re-walk providers even if a fresh snapshot exists."),
-    only_domain: str = typer.Option("", "--only",
-                                    help="Single-domain probe; bypasses snapshot cache."),
     provider: str = typer.Option("", "--provider",
                                  help="Filter rows: vercel | cloudflare-pages | cloudflare-workers | hostgator."),
     json_out: bool = typer.Option(False, "--json",
@@ -6322,16 +6407,23 @@ def fleet_hosting(
         help="With --apply-declarations: actually write the files. Dry-run by default.",
     ),
 ) -> None:
-    """Unified Vercel + Cloudflare Pages + Cloudflare Workers + HostGator hosting view."""
+    """Unified Vercel + Cloudflare Pages + Cloudflare Workers + HostGator hosting view.
+
+    v15.B hard-cutover: the legacy `--only <domain>` flag was removed
+    in favor of the new per-project verb `lamill project hosting
+    <domain>`, which renders a vertical-sections view instead of a
+    one-row table. No alias — old invocations now fail with typer's
+    standard "no such option" error.
+    """
     _fleet_hosting_impl(
-        refresh=refresh, only_domain=only_domain,
+        refresh=refresh,
         provider=provider, json_out=json_out,
         apply_declarations=apply_declarations, apply=apply,
     )
 
 
 def _fleet_hosting_impl(
-    *, refresh: bool, only_domain: str, provider: str, json_out: bool,
+    *, refresh: bool, provider: str, json_out: bool,
     apply_declarations: bool = False, apply: bool = False,
 ) -> None:
     """Body of `fleet hosting`. Carved out for testability — the Typer
@@ -6365,12 +6457,13 @@ def _fleet_hosting_impl(
     # intersect-filter; non-fleet domains drop silently.
     fleet_domains = {d.name.lower() for d in load_domains()}
 
-    # Cache eligibility: `--refresh` and `--only` both force a fresh
-    # walk. Otherwise, use the latest snapshot if it's < 24h old.
+    # Cache eligibility: `--refresh` forces a fresh walk. Otherwise,
+    # use the latest snapshot if it's < 24h old. (v15.B removed the
+    # `--only` single-domain branch — that lives at `project hosting`
+    # now.)
     snapshot_path = hosting_cache.latest_snapshot()
     cache_eligible = (
         not refresh
-        and not only_domain
         and snapshot_path is not None
         and not hosting_cache.is_stale(snapshot_path)
     )
@@ -6380,16 +6473,9 @@ def _fleet_hosting_impl(
         result = hosting_cache.result_from_snapshot(snap)
         source = f"snapshot {snapshot_path.name}"
     else:
-        result = run_hosting(
-            fleet_domains, only_domain=only_domain or None,
-        )
-        # Only persist when this is a fleet-wide refresh — single-domain
-        # probes shouldn't overwrite the snapshot with a one-row result.
-        if not only_domain:
-            written = hosting_cache.save_snapshot(result)
-            source = f"fresh walk → {written.name}"
-        else:
-            source = f"single-domain probe ({only_domain})"
+        result = run_hosting(fleet_domains)
+        written = hosting_cache.save_snapshot(result)
+        source = f"fresh walk → {written.name}"
 
     # `--apply-declarations` branches before any filtering — the
     # apply path needs HG rows only and uses its own renderer.

@@ -4,11 +4,14 @@ Stubs at the `run_hosting` + `hosting_cache` boundary. Tests focus
 on:
   - cache-eligibility logic (fresh snapshot reused; stale → re-walk)
   - --refresh forces re-walk
-  - --only forces single-domain probe (bypasses cache + doesn't
-    overwrite the snapshot)
   - --provider filters rows post-walker
   - --json emits the typed shape
   - Unknown --provider value rejected with exit code 2
+
+v15.B hard-cutover: the `--only <domain>` flag was removed from
+`fleet hosting`. Single-domain probes live at `project hosting
+<domain>` now (see `test_project_hosting_cli.py`). The "rejects
+--only" test below asserts the old flag fails outright.
 """
 from __future__ import annotations
 
@@ -49,7 +52,11 @@ def _patch_fleet_domains(monkeypatch, names: list[str]) -> None:
 def _patch_run_hosting(monkeypatch, *, result: HostingResult,
                        capture: dict | None = None):
     """Replace `hosting.run_hosting` with a stub. `capture` records
-    the call args (fleet_domains, only_domain) for assertion."""
+    the call args (fleet_domains, only_domain) for assertion.
+
+    `only_domain` is accepted for back-compat with `project hosting`
+    (the per-project verb that still uses it); `fleet hosting` no
+    longer passes it post-v15.B."""
     def _stub(fleet_domains, *, only_domain=None):
         if capture is not None:
             capture["fleet_domains"] = set(fleet_domains)
@@ -156,50 +163,18 @@ def test_fleet_hosting_refresh_flag_forces_walk_even_when_fresh(monkeypatch, tmp
     assert capture["fleet_domains"] == {"airsucks.com"}
 
 
-def test_fleet_hosting_only_domain_bypasses_cache(monkeypatch, tmp_path):
-    """--only DOMAIN always re-walks (single-domain probes shouldn't
-    read or overwrite the fleet-wide snapshot)."""
-    hosting_dir = _stub_hosting_cache(monkeypatch, tmp_path)
-    hosting_dir.mkdir(parents=True)
-    from datetime import datetime, timezone
-    fresh_ts = datetime.now(timezone.utc).isoformat()
-    (hosting_dir / "today.json").write_text(json.dumps({
-        "fetched_at": fresh_ts, "rows": [], "skipped": {},
-    }))
-    _patch_fleet_domains(monkeypatch, ["airsucks.com", "calcengine.site"])
-    capture: dict = {}
-    _patch_run_hosting(monkeypatch, result=HostingResult(), capture=capture)
-
-    out = runner.invoke(cli.app, ["fleet", "hosting",
-                                  "--only", "airsucks.com", "--json"])
-    assert out.exit_code == 0, out.output
-    assert capture["only_domain"] == "airsucks.com"
-    # The pre-existing snapshot file should NOT be overwritten.
-    body = json.loads(out.output)
-    assert "single-domain probe" in body["source"]
-
-
-def test_fleet_hosting_only_domain_does_not_overwrite_snapshot(monkeypatch, tmp_path):
-    """Critical invariant — single-domain probe must leave the fleet
-    snapshot file alone (otherwise the operator's full snapshot gets
-    clobbered by a one-row probe)."""
-    hosting_dir = _stub_hosting_cache(monkeypatch, tmp_path)
-    hosting_dir.mkdir(parents=True)
-    snap_path = hosting_dir / "today.json"
-    original_body = '{"fetched_at": "old", "rows": [{"domain":"keep.com"}], "skipped":{}}'
-    snap_path.write_text(original_body)
-
+def test_fleet_hosting_only_flag_rejected_post_v15b(monkeypatch, tmp_path):
+    """v15.B hard-cutover guard — `--only` is no longer a valid flag
+    on `fleet hosting`. Old invocations now fail with typer's
+    standard "no such option" error (exit code 2). Single-domain
+    probes live at `project hosting <domain>` instead."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
     _patch_fleet_domains(monkeypatch, ["airsucks.com"])
-    _patch_run_hosting(
-        monkeypatch,
-        result=HostingResult(rows=[HostingRow(domain="airsucks.com",
-                                              provider=PROVIDER_VERCEL)]),
-    )
+    _patch_run_hosting(monkeypatch, result=HostingResult())
     out = runner.invoke(cli.app, ["fleet", "hosting",
-                                  "--only", "airsucks.com", "--json"])
-    assert out.exit_code == 0, out.output
-    # Original snapshot unchanged.
-    assert snap_path.read_text() == original_body
+                                  "--only", "airsucks.com"])
+    assert out.exit_code == 2
+    assert "no such option" in out.output.lower() or "--only" in out.output
 
 
 def test_fleet_hosting_walk_persists_snapshot(monkeypatch, tmp_path):
