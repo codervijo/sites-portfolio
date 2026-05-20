@@ -65,6 +65,62 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — tech-debt audit pass
+
+**Repro**
+    (no single command — broad codebase concern)
+
+**Expected**
+The codebase has accumulated tech-debt across 22 shipped tiers
+(v1-v12) over ~6 weeks of rapid feature work. Operator wants a
+deliberate pass to identify what's worth cleaning up vs leaving
+in place.
+
+**Actual**
+No tech-debt review has been done. Candidate areas to audit (not
+yet prioritized):
+- `cli.py` size — currently 6700+ lines; lots of inline helpers
+  that could move out (e.g., `_run_*_pass` helpers could live in
+  the relevant `interpretive_pass.py` / `audit_pass.py` modules).
+- Duplicate OpenAI HTTP code — `serp.call_openai` + `audit_pass._call_openai_chat`
+  diverged in v12.C; consolidate when cost-ledger work needs the
+  same shape elsewhere (already flagged in v12.C commit body).
+- Inconsistent cache modules — `seo_cache.py` / `hosting_cache.py` /
+  `serp_query_cache.py` / `serpapi_quota.py` all do roughly the
+  same thing (JSON file in `data/`, daily rollover). A shared
+  base would reduce drift risk.
+- `CHECK_NNN` skip-conditions — many checks early-return `warn`
+  with "not a web project — skipped" or "no index.html — skipped".
+  Pattern repeats ~24 times; could centralize via a decorator or
+  helper function.
+- Test fixtures repetition — several test files re-implement
+  `_minimal_cluster()` / `_minimal_payload()` near-identically.
+  Shared fixture in a `conftest.py` would deduplicate.
+- Cross-cutting renderer helpers in `cli.py` — `_fmt_int`,
+  `_fmt_pct`, `_fmt_pos`, `_color_value`, `_verdict_marker`, etc.
+  scattered; could move to a `render_helpers.py` module.
+- Stale `data/gsc/2026-04-29.json` snapshot — only one GSC
+  snapshot, 3+ weeks old; either refresh or document why it's
+  intentionally stale.
+
+**Where (guess)**
+Project-wide. Suggest starting from the top-noise items
+(`cli.py` size + check skip-conditions repetition).
+
+**Severity**
+`minor` — none of these block functionality; payoff is
+maintainability + future-velocity, not user-visible.
+
+**Notes**
+- Don't conflate this with the per-bug list above — those are
+  user-visible defects; this is internal hygiene.
+- Operator memory `[[feedback-no-self-conformance]]` forbids
+  adding `CHECK_NNN` for portfolio itself. Use pytest / git hooks
+  for any tech-debt enforcement here.
+- Could be a low-priority tier (v23+?) or just an inline cleanup
+  pass between feature tiers when motivation strikes. Operator to
+  decide scoping.
+
 ### 2026-05-18 — `settings project set-deploy` fails for sites/ dirs missing from portfolio.json
 
 **Repro**

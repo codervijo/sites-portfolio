@@ -4787,6 +4787,246 @@ def _render_reconciliation_block(payload: dict, console) -> None:
     console.print()
 
 
+# ---------- v13.B — per-project GSC diagnostics ----------
+
+
+_SITEMAP_STATUS_GLYPH = {
+    "OK":      ("✓", "green"),
+    "WARN":    ("⚠", "yellow"),
+    "PENDING": ("…", "dim"),
+    "ERROR":   ("✗", "red"),
+}
+
+
+def _coverage_glyph(state: str | None) -> tuple[str, str]:
+    """Map URL Inspection coverage_state → (glyph, rich-color).
+    `submitted_indexed` is the happy path; everything else is a
+    failure mode the renderer should call out."""
+    if not state:
+        return ("?", "dim")
+    if state == "submitted_indexed":
+        return ("✓", "green")
+    return ("✗", "red")
+
+
+def _hint_severity_color(severity: str) -> str:
+    return {"error": "red", "warn": "yellow", "info": "dim"}.get(
+        severity, "default",
+    )
+
+
+def _human_age_from_iso(iso: str | None) -> str:
+    """`2026-05-19T07:02:23+00:00` → `1d ago` etc. Returns `—` on
+    parse failure or None. Same shape as the rest of the CLI's
+    age renderers (1h / 1d / 12d / 4w / 8y)."""
+    if not iso:
+        return "—"
+    try:
+        from datetime import datetime, timezone
+        ts = datetime.fromisoformat(iso)
+        now = datetime.now(timezone.utc)
+        delta = now - ts
+        secs = int(delta.total_seconds())
+        if secs < 3600:
+            return f"{max(1, secs // 60)}m ago"
+        if secs < 86400:
+            return f"{secs // 3600}h ago"
+        if secs < 86400 * 14:
+            return f"{secs // 86400}d ago"
+        if secs < 86400 * 90:
+            return f"{secs // (86400 * 7)}w ago"
+        return f"{secs // (86400 * 365)}y ago"
+    except (ValueError, TypeError):
+        return "—"
+
+
+def _render_project_seo_diagnostics(diag, console) -> None:
+    """v13.B — render the diagnostics block (sitemaps + coverage +
+    hints) for one domain. Accepts a `ProjectSeoDiagnostics`
+    dataclass instance OR a dict reconstructed from the cache;
+    duck-typed access (`getattr`/`.get`) keeps both shapes
+    supported."""
+    # Normalize access — works for both dataclass and dict.
+    def _get(obj, key, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    not_registered = _get(diag, "not_registered", False)
+    property_url   = _get(diag, "property_url", "")
+    sitemaps       = _get(diag, "sitemaps", []) or []
+    coverage       = _get(diag, "coverage", []) or []
+    hints          = _get(diag, "hints", []) or []
+
+    console.print()
+    if not_registered:
+        # Single-line "not in GSC" + the registration hint. No
+        # sitemap / coverage block — nothing to show.
+        console.print(
+            "  [yellow]Property:[/] [dim]not registered in GSC[/]"
+        )
+        for h in hints:
+            text = _get(h, "text", "")
+            console.print(f"  [dim]💡 {text}[/]")
+        console.print()
+        return
+
+    console.print(f"  [bold cyan]GSC diagnostics[/]")
+    if property_url:
+        console.print(f"    [dim]Property: {property_url}[/]")
+
+    # 📋 Sitemaps
+    if sitemaps:
+        console.print(f"    [bold]📋 Sitemaps[/] [dim]({len(sitemaps)} submitted)[/]")
+        for sm in sitemaps:
+            status = _get(sm, "status", "OK")
+            path   = _get(sm, "path", "?")
+            errs   = _get(sm, "errors", 0)
+            warns  = _get(sm, "warnings", 0)
+            last_dl = _get(sm, "last_downloaded")
+            summary = _get(sm, "error_summary", "")
+            glyph, color = _SITEMAP_STATUS_GLYPH.get(status, ("·", "white"))
+            line = (
+                f"      [{color}]{glyph} {status:<8}[/] [bold]{path:<32}[/] "
+            )
+            tail_bits: list[str] = []
+            if errs:
+                tail_bits.append(f"{errs} error(s)")
+            if warns:
+                tail_bits.append(f"{warns} warning(s)")
+            if last_dl:
+                tail_bits.append(f"fetched {_human_age_from_iso(last_dl)}")
+            if summary:
+                tail_bits.append(summary)
+            if tail_bits:
+                line += "[dim]" + "  ·  ".join(tail_bits) + "[/]"
+            console.print(line)
+    else:
+        console.print(
+            "    [yellow]📋 Sitemaps[/] [dim]none submitted[/]"
+        )
+
+    # 📊 Coverage
+    if coverage:
+        # Headline: how many indexed of how many inspected.
+        indexed_count = sum(
+            1 for c in coverage
+            if (_get(c, "coverage_state") or "").lower() == "submitted_indexed"
+        )
+        total = len(coverage)
+        pct = (indexed_count * 100 // total) if total else 0
+        console.print(
+            f"    [bold]📊 Coverage[/] "
+            f"[dim](top {total} inspected — {indexed_count}/{total} indexed, {pct}%)[/]"
+        )
+        for cv in coverage:
+            state = (_get(cv, "coverage_state") or "").lower()
+            url   = _get(cv, "url", "?")
+            verdict = _get(cv, "verdict")
+            last_crawl = _get(cv, "last_crawl_at")
+            err = _get(cv, "error")
+            glyph, color = _coverage_glyph(state)
+            # Truncate long URLs from the middle so the prefix +
+            # path leaf both stay visible.
+            display_url = url if len(url) <= 38 else url[:18] + "…" + url[-19:]
+            state_display = state or ("error" if err else "unknown")
+            line = (
+                f"      [{color}]{glyph}[/] "
+                f"[bold]{display_url:<38}[/] "
+                f"[dim]{state_display:<24}[/]"
+            )
+            tail_bits: list[str] = []
+            if verdict and verdict != "PASS":
+                tail_bits.append(f"verdict={verdict}")
+            if last_crawl:
+                tail_bits.append(f"crawled {_human_age_from_iso(last_crawl)}")
+            if err:
+                tail_bits.append(err[:40])
+            if tail_bits:
+                line += "  [dim]" + " · ".join(tail_bits) + "[/]"
+            console.print(line)
+    else:
+        console.print(
+            "    [dim]📊 Coverage  (no URLs inspected — sitemap unreachable)[/]"
+        )
+
+    # 💡 Hints
+    if hints:
+        console.print(f"    [bold]💡 Hints[/]")
+        for h in hints:
+            severity = _get(h, "severity", "info")
+            text = _get(h, "text", "")
+            color = _hint_severity_color(severity)
+            # Soft-wrap long hints at 70 chars with 6-space indent.
+            from textwrap import fill as _fill
+            wrapped = _fill(
+                text, width=72, initial_indent="", subsequent_indent="        ",
+            )
+            console.print(f"      [{color}]·[/] {wrapped}")
+
+    console.print()
+
+
+def _run_project_seo_diagnostics(domain: str, *, top_n: int,
+                                 refresh: bool, console) -> None:
+    """v13.B — load (or fetch) per-project GSC diagnostics and
+    render the block. Cache-aware: reads
+    `data/gsc/<domain>/<UTC-today>.json` if fresh and `--refresh`
+    wasn't set; otherwise calls `build_diagnostics()` and writes
+    a new snapshot.
+
+    Non-fatal on failure — the v5.D 1-row aggregate above this
+    block is still useful on its own; the diagnostics being
+    unavailable shouldn't crash the operator's workflow.
+    """
+    from .gsc_detail_cache import (
+        is_stale, latest_snapshot, load_snapshot, save_snapshot,
+    )
+    from .project_seo_diagnostics import build_diagnostics
+
+    # Cache lookup — when fresh and not --refresh, render from
+    # cache and skip the GSC roundtrips.
+    if not refresh:
+        latest = latest_snapshot(domain)
+        if latest is not None and not is_stale(latest):
+            try:
+                cached = load_snapshot(latest)
+                console.print(
+                    f"  [dim]GSC diagnostics: cached {latest.name} "
+                    f"(use --refresh to re-fetch)[/]"
+                )
+                _render_project_seo_diagnostics(cached, console)
+                return
+            except (OSError, ValueError) as e:
+                console.print(
+                    f"  [dim]warn: could not load cached diagnostics ({e}); "
+                    f"re-fetching[/]"
+                )
+
+    console.print(
+        f"  [cyan]Fetching GSC diagnostics ({domain})...[/] "
+        f"[dim](URL Inspection × top {top_n})[/]"
+    )
+    try:
+        diag = build_diagnostics(domain, top_n=top_n)
+    except Exception as e:    # noqa: BLE001 — GSC / OAuth errors variety
+        console.print(
+            f"  [yellow]✗ Diagnostics skipped: {type(e).__name__}: {e}[/]"
+        )
+        return
+
+    # Persist for cache reuse — convert dataclass to a plain dict.
+    from dataclasses import asdict
+    try:
+        save_snapshot(domain, asdict(diag))
+    except OSError as e:
+        console.print(
+            f"  [dim]warn: could not persist diagnostics snapshot: {e}[/]"
+        )
+
+    _render_project_seo_diagnostics(diag, console)
+
+
 def _render_gates_block(payload: dict, console) -> None:
     """v8.D Phase 2 — gate findings + verdict + suggested reductions."""
     gates = payload.get("gates", {})
@@ -5830,13 +6070,32 @@ def project_seo(
     name: str = typer.Argument(..., metavar="DOMAIN",
                                help="Domain (single-domain runtime SEO probe)"),
     days: int = typer.Option(28, "--days"),
-    refresh: bool = typer.Option(False, "--refresh"),
+    refresh: bool = typer.Option(False, "--refresh",
+                                 help="Bypass cache; re-fetch SEO probe + GSC diagnostics"),
     sort_by: str = typer.Option("impressions", "--sort"),
+    top_n: int = typer.Option(10, "--top",
+                              help="Top-N URLs to inspect for coverage detail "
+                                   "(v13.B; caps URL Inspection quota burn)"),
 ) -> None:
-    """Runtime SEO probe (HTTP + GSC + CrUX) for one domain."""
-    _run_check_seo_mode(days=days, only_domain=name.lower(),
+    """Per-project SEO view — runtime probe + GSC diagnostics.
+
+    Renders the 1-row 28-day aggregate header (v5.D) followed by
+    the v13.B diagnostics block: per-sitemap status, top-N URL
+    coverage from URL Inspection API, and actionable hints. When
+    `fleet focus` flags a site (e.g., "sitemap parse errors") this
+    command shows what specifically is broken.
+
+    Caches GSC diagnostics per-domain at `data/gsc/<domain>/<date>.json`
+    with a 24h TTL. `--refresh` re-fetches.
+    """
+    domain = name.lower()
+    # Existing 1-row aggregate header (v5.D).
+    _run_check_seo_mode(days=days, only_domain=domain,
                         sort_by=sort_by, only="wip", concurrency=20,
                         refresh=refresh)
+    # v13.B diagnostics block below the header.
+    _run_project_seo_diagnostics(domain, top_n=top_n,
+                                 refresh=refresh, console=console)
 
 
 @project_app.command("diagnose")
