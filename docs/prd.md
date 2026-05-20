@@ -542,8 +542,9 @@ a time, not scripting cross-project aggregations.
 | v15.A | ⏳ | Foundation — `gsc.py` dimension-aware query helpers (`query_with_dims(property, days, dimensions, row_limit)`) + per-project cache module `gsc_detail_cache.py` writing `data/gsc/<domain>/<UTC-today>.json`. Persists all v15-fetched dim-rows together so subsequent section flags read from cache without re-burning GSC quota. `--refresh` re-fetches; `is_stale` default 24h (matches `hosting_cache`/`seo_cache` conventions). Heavy reuse of existing OAuth + retry plumbing in `gsc.py`. |
 | v15.B | ⏳ | `--queries` + `--pages` + `--devices` section flags. Each adds one rich-table section to the `project seo` output keyed by dimension (`query` / `page` / `device`). Default `--top 10` for `--queries` and `--pages`; `--devices` is a flat 3-row table (mobile / desktop / tablet). Per-query / per-page columns: Imp · Clicks · CTR · Pos. Sort by impressions desc. Pos < 10 marked `✓ top-10`; pos 11-30 marked `⚠ page-2`. |
 | v15.C | ⏳ | `--trend` section flag (was v13.A). Renders 4 weekly buckets by default (`--weeks N` overrides). Columns: Week of · Imp · Clicks · Pos · Δimp · Δpos. w/w deltas use the same persisted `data/gsc/<domain>/` snapshots — gracefully degrades when fewer than 2 weeks of history exist (shows "—" in delta columns). |
-| v15.D | ⏳ | URL Inspection API wrapper + `--coverage` section flag. `gsc.inspect_url(property, url)` calls `urlInspection.index:inspect`, returns `(indexed, last_crawl_at, mobile_usability_verdict)`. Capped at top-N pages from the `--pages` section's output (default 10) so a 100+ page site doesn't burn the URL Inspection daily quota. `--coverage --refresh` re-inspects; default 7-day TTL on coverage rows (longer than the 24h for analytics since coverage state changes less often). |
+| v15.D | ⏳ | URL Inspection API wrapper + `--coverage` section flag. `gsc.inspect_url(property, url)` calls `urlInspection.index:inspect`, returns `(indexed, last_crawl_at, mobile_usability_verdict, crawl_state)` where `crawl_state` itemizes the GSC verdict — `submitted_indexed` / `crawled_not_indexed` / `discovered_not_indexed` / `not_found_404` / `redirect_error` / `server_error` / `blocked_by_robots`. Capped at top-N pages from the `--pages` section's output (default 10) so a 100+ page site doesn't burn the URL Inspection daily quota. `--coverage --refresh` re-inspects; default 7-day TTL on coverage rows (longer than the 24h for analytics since coverage state changes less often). Also exposes the same data as a **binary CHECK_NNN** in `project check` — fires `fail` when any inspected URL is in a non-`submitted_indexed` state (operator gets surfaced in both the rich rendering and the binary check sweep). |
 | v15.E | ⏳ | Derived opportunities + `--opportunities` + `--full` composite flag. New `project_seo_detail.py` module — pure derivation over the persisted cache. Four signal kinds: page-2 wins (pos 11-30, imp ≥50), CTR underperformers (page CTR < site-median × 0.5), content gaps (CTR > 10% AND imp < 50), cannibalisation (same query → ≥2 pages with overlapping intent). Surfaced as a bulleted block at the end. `--full` is a composite flag — renders every section in a fixed order (`trend / queries / pages / devices / coverage / opportunities`). Tests cover the derived-signal thresholds + the composite flag's section ordering. |
+| v15.F | ⏳ | Fleet-level GSC rollup — new columns on `fleet dashboard` and richer rows in `fleet seo`. Coverage % (indexed/submitted, from v15.D cache) · Crawl-errors count · W/w impressions delta · Page-2 opportunity count. Reuses persisted GSC snapshots — no extra API quota when called within cache TTL. Renders condensed at narrow terminal widths (drops least-actionable column first). |
 
 #### Design notes
 
@@ -668,6 +669,244 @@ the operator's actual properties.
 **Approval.** Shape C (compositional section flags) + v15 tier
 assignment approved 2026-05-19. Implementation queued behind v11.H-K
 (read-only walker cluster wrap-up) unless operator queue-jumps it.
+
+**Kickoff gate.** Before starting `v15.A`, re-validate the plan
+above against learnings from `v11` + `v12` (the most recently
+shipped tiers). The pattern: incoming tier's first concrete sub-
+phase only begins after one revisit of its plan with current
+context. For new tiers v16+ this gate is the explicit `vN.A`
+phase (see below); v14 and v15 absorb it as a one-line tier-
+preamble note since their letter slots are already assigned.
+
+### v16 — SEO check expansion *(new 2026-05-19)*
+
+Extend `src/portfolio/checks/seo/` beyond the current 24 checks
+(060-079 static + 090-095 live) to close coverage gaps identified
+2026-05-19. 14 new universal checks (foundational-tag enrichment,
+robustness, live-runtime) plus a WordPress-specific lane to handle
+the operator's 2-3 active WP sites. Each check is a new
+`check_NNN_<slug>.py` file in the existing registry, auto-discovered
+by `src/portfolio/checks/registry.py`. **See `docs/architecture.md
+§ 3 Mechanisms (check catalog) / § 5 CLI surface` for the full
+catalog conventions (post-implementation).**
+
+`v16.A` kickoff phase re-validates the candidate-check list against
+whatever shipped in v15 (some overlap possible — e.g., per-page
+coverage signal may already live in v15.D's URL Inspection wrapper,
+in which case the equivalent v16 check thins out).
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v16.A | ⏳ | **Kickoff planning.** Re-validate v16.B-E candidate checks against v15 final shape (which signals already covered? which check thresholds need tuning given live-fleet data?). Lock the final 14 checks. ~0.5h. |
+| v16.B | ⏳ | Foundational-tag enrichment — 4 static checks. CHECK_081 title-length-in-range (30-65 chars). CHECK_082 exactly-one-h1. CHECK_083 og-completeness (`og:title` + `og:description` + `og:image` + `og:url` + `og:type` all present). CHECK_084 json-ld-org-has-logo-and-sameAs. ~1.5h. |
+| v16.C | ⏳ | Robustness checks — 4 static checks. CHECK_085 canonical-points-to-production-https (no localhost / staging). CHECK_086 no-noindex-on-production (`meta robots` doesn't include `noindex`). CHECK_087 image-alt-coverage (≥80% of `<img>` tags have non-empty alt). CHECK_088 twitter-card-type-set (`summary` or `summary_large_image`). ~1.5h. |
+| v16.D | ⏳ | Live runtime checks — 6 checks. CHECK_096 https-only (no mixed http content in rendered HTML + linked resources). CHECK_097 404-returns-proper-status (random-path probe returns 404, not soft-200). CHECK_098 sitemap-urls-all-200 (sampled). CHECK_099 sitemap-freshness (`lastmod` within 90d). CHECK_100 robots-allows-crawling (no global `Disallow: /`). CHECK_101 apex-www-redirect-symmetry (one canonical form, not split). ~2-3h. |
+| v16.E | ⏳ | WordPress-specific lane — 4 WP-only checks. CHECK_102 yoast-or-rankmath-present (one SEO plugin, not zero). CHECK_103 no-yoast-rankmath-conflict (not both). CHECK_104 wp-jsonld-website-with-searchaction (WordPress should emit WebSite schema with SearchAction). CHECK_105 wp-oembed-cleanup (oEmbed discovery links not bloating `<head>`). Gated on detecting WP (existing generator/title heuristics). ~1.5h. |
+
+#### Design notes
+
+**Why universal-first, WP-second.** The 14 universal checks (B/C/D)
+apply to every site regardless of stack — Vite/Astro/CFW/WP all
+render the same SEO tags. Shipping universal first lets the
+operator's pre-deploy quality bar rise across the whole fleet in
+one tier. WordPress lane (E) lands after because it requires WP-
+specific detection logic plus Yoast/RankMath plugin awareness that
+doesn't generalize.
+
+**Out of scope (deferred):**
+- Per-page coverage (currently checks homepage only) — that's a
+  separate "multi-page check sweep" concern; v16 stays single-page.
+- GSC-coverage check (% submitted indexed) — already in v15.D.
+- Lighthouse / Core Web Vitals — v19 tier.
+- Performance budgets (bundle size, image count) — likely v19 as well.
+
+### v17 — Google Analytics 4 integration *(new 2026-05-19; deferred behind v15 + v16)*
+
+GA4 Data API gives signals GSC can't: per-page user behavior
+(engagement time, bounce rate, scroll depth), traffic-source mix
+(organic vs direct vs referral vs paid), conversion funnels (when
+events configured). Currently only 1 fleet site (`washcalc.app` →
+`G-HP39MQPM2M`) has a confirmed-extractable GA4 measurement ID;
+2-3 more (`homeloom.app`, `streamsgalaxy.com`) load gtag async so
+IDs aren't in cached body excerpts. The integration ROI is gated
+on fleet GA4 coverage broadening — `v17.B` (install helper) ships
+first to drive that coverage; `v17.C+` (Data API consumers) ship
+once meaningful data exists across more sites.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v17.A | ⏳ | **Kickoff planning.** Re-validate plan against v15 final shape + fleet GA4-coverage audit results (operator audits which sites have GA4 installed before v17.B). Lock auth choice: service account (recommended) vs OAuth. ~0.5h. |
+| v17.B | ⏳ | GA4 install helper. `new bootstrap` injects a gtag block given a `--ga4 G-XXXXXX` flag (or pulls from `[analytics]` block in `lamill.toml`). `project fix` adds an `inject-ga4` remediation for existing sites missing analytics. Drives fleet GA4 coverage broader so v17.C-F have data. ~1-2h. |
+| v17.C | ⏳ *(deferred)* | GA4 Data API foundation — service-account auth · property catalog (`apikeys` plumbing for `GA4_SERVICE_ACCOUNT_JSON` + property-ID-per-domain in `lamill.toml [analytics]`) · `ga4.run_report(property, dimensions, metrics, date_range)` caller · `data/ga4/<domain>/<UTC-today>.json` cache (mirrors `gsc_detail_cache.py`) · `GA4Error` exception. ~4-5h. |
+| v17.D | ⏳ *(deferred)* | Per-page metrics — `project seo --analytics` section flag. Page views · Avg engagement time · Bounce rate · Entrances · Exits per URL. Composes with existing v15 flags. ~1-2h. |
+| v17.E | ⏳ *(deferred)* | Fleet-level GA4 rollup — new dashboard columns: Active users (28d), Sessions, Engagement rate. Surfaces in `fleet dashboard` alongside the v15.F GSC columns. ~1-2h. |
+| v17.F | ⏳ *(deferred)* | Acquisition + funnel — traffic-source mix per site (organic / direct / referral / social / paid), landing-page → conversion paths (where events configured). ~2-3h. |
+
+#### Design notes
+
+**Auth recommendation: service account.** Single JSON key, added as
+Viewer to each GA4 property. Easier for daemon-mode (no token
+refresh dance). Confirmed at v17.A kickoff.
+
+**Pre-flight blockers** (resolved at v17.A kickoff):
+- Which fleet sites have GA4 installed today? Audit run 2026-05-19
+  found 1 confirmed + 2-3 likely. Updated audit reads at v17.A.
+- Are conversion events (`form_submit`, `purchase`, …) configured?
+  Without them, conversion-rate metrics are zero across the fleet —
+  v17.F surfaces zeros, which is honest but uninteresting.
+
+**Hard limits** (GA4 API):
+- ~25k tokens/day per Google Cloud project quota (fine for daily polling)
+- Sampling kicks in on >10M event queries (not an issue for these sites)
+- Organic-search keywords always "not provided" since 2013 (that's why GSC exists)
+- 14-month max history on standard properties
+
+### v18 — Google Trends integration *(new 2026-05-19)*
+
+Google Trends gives search-interest direction (rising / flat /
+declining), seasonality, related queries, geographic concentration —
+signal complementary to GSC (current performance) and GA4 (user
+behavior). No official Google API; the integration uses **SerpAPI's
+`google_trends` engine** as the primary path (reuses existing
+`SERPAPI_KEY` + `serpapi_quota.py` monthly ledger) with **`pytrends`
+as a fallback** when SerpAPI quota is exhausted.
+
+`v18.B` (foundation) ships first as a standalone wrapper + cache; B-F
+(CLI, wiring into suggest/research/seo, geo+comparison views) are
+sketched in design notes but not committed to the Phases table until
+v18.A kickoff re-validates them against learnings from v15-v17.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v18.A | ⏳ | **Kickoff planning.** Re-validate v18.B foundation + B-F future-expansion list against v15/v16/v17 final shape. Decide pytrends-fallback trigger (quota-exhaustion-only vs first-attempt-parallel). Resolve open question 18.D (ADR-0012 for trends-as-cluster-signal schema bind). ~0.5h. |
+| v18.B | ⏳ | Foundation — `gtrends.py` SerpAPI `google_trends` engine wrapper · `data/gtrends/<topic-hash>.json` per-topic cache (mirrors `serp_query_cache.py` shape) · `is_stale(max_age_hours=24)` · integrates with existing `serpapi_quota.consume_quota()` · `pytrends` fallback path · `GTrendsError` exception · primitive table renderer for the standalone `lamill trends <topic>` test invocation. ~2-3h. |
+
+#### Design notes
+
+**Future expansion (v18.C-F+).** Not in Phases table until v18.A
+re-scopes:
+
+- `lamill trends <topic>` rich CLI — interest-over-time + related-
+  queries (top + rising) + `--region` + `--timeframe {7d, 30d, 90d,
+  12m, 5y, all}` + `--json`.
+- Wire into `new suggest` shortlist — per-candidate "interest
+  direction" badge (📈 rising / ➡️ flat / 📉 declining) from 12-month
+  slope. Reject topics on clear downtrends pre-purchase.
+- Wire into `new research` (v8) cluster snapshot — trend signal for
+  the cluster's primary query, persisted alongside SERP data,
+  surfaced in interpretive_pass payload so the LLM weighs trajectory.
+  **Schema-evolution gate: ADR-0012** binds the `trends` block to
+  the `research-cluster-v2.1` schema.
+- Wire into `project seo --trends` — new section flag (v15-compatible)
+  showing seasonality + rising related queries for an existing site's
+  primary topic.
+- Geographic + comparison views — `lamill trends <topic> --geo` /
+  `--vs <competitor>`.
+
+**Open questions** (resolved at v18.A kickoff):
+| # | Question |
+|---|---|
+| 18.A | Cache TTL — 24h matches `hosting_cache` / `seo_cache`; lock there? |
+| 18.B | Default timeframe — 12m (signal/noise sweet spot) vs 5y (long-horizon seasonality). |
+| 18.C | Interest-direction threshold — proposed `>10%/month` rising, `<-10%/month` declining. |
+| 18.D | Cluster-snapshot schema bind — **ADR-0012** when v18 wires into v8. |
+| 18.E | Single primary topic per site — `[hosting].primary_topic` config vs auto-pick from top GSC query. |
+| 18.F | `pytrends` fallback trigger — quota-exhaustion-only vs parallel-call. |
+
+### v19 — Lighthouse + CrUX (performance lab + field) *(new 2026-05-19)*
+
+Synthetic and field-data performance/CWV signal. `lamill project speed
+<domain>` renders Lighthouse (lab via PageSpeed Insights API) + CrUX
+(field via Chrome UX Report API) side-by-side. PSI gives controlled
+synthetic measurements regardless of traffic; CrUX gives what real
+users actually experience (gated on the site having enough traffic
+— the `~10k+ monthly Chrome-visits threshold` that left CrUX
+returning `no-data` for portfolio-scale origins at the v5.D
+deferral point may now be cleared for the launched sites).
+
+`CRUX_API_KEY` is already in `apikeys` known-keys list (from v7.A's
+apikeys-management work); PSI API needs a separate key
+(`PSI_API_KEY` — free tier sufficient for daily polling).
+
+`v19.A` kickoff re-checks CrUX coverage against current fleet — if
+still 0-data on most sites, v19.B (PSI lab) carries the tier and
+v19.C (CrUX field) becomes optional.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v19.A | ⏳ | **Kickoff planning.** Re-probe CrUX `no-data` status against current fleet (was deferred 2026-05-09; some sites have launched + accumulated traffic since). Lock whether v19.C is in-tier or deferred. ~0.5h + probe time. |
+| v19.B | ⏳ | PSI API wrapper + `project speed --lab` flag. Lighthouse scores (Performance / Accessibility / Best Practices / SEO) · CWV lab metrics (LCP / INP / CLS / FCP / TTFB) · Per-domain cache `data/perf/<domain>/<UTC-today>.json`. ~2h. |
+| v19.C | ⏳ | CrUX API wrapper + `project speed --field` flag. Real-user CWV from Chrome UX Report. Origin-level (URL) + form-factor (mobile / desktop) breakdown. ~1-2h. |
+| v19.D | ⏳ | Performance budget checks + dashboard column. CHECK_NNN performance-budget — fail when LCP > 2.5s (lab) or INP > 200ms (lab). `fleet dashboard` gains a `Perf` column. ~1h. |
+
+#### Design notes
+
+**Lab vs field distinction.**
+- **Lab (PSI/Lighthouse):** synthetic, controlled, runs regardless
+  of traffic. Useful for pre-deploy validation and comparing builds.
+- **Field (CrUX):** real user data Google ranks on. Required for
+  ranking signal but gated on traffic threshold.
+
+Both surfaced so the operator can compare. Disagreement (lab passes,
+field fails) usually means the lab profile doesn't match real user
+device/network mix.
+
+### v20 — Indexing API hook *(new 2026-05-19)*
+
+Post-deploy ping to `https://indexing.googleapis.com/v3/urlNotifications:publish`
+requesting reindex per changed URL. Officially supported only for
+JobPosting + LiveStream content per Google's docs, but empirically
+works for general URLs as a "we updated this, please re-crawl" signal.
+Reuses GSC OAuth (same scope: `https://www.googleapis.com/auth/indexing`).
+
+Wires into `new deploy` as an optional post-deploy step — natural fit
+now that v11.M-N's polymorphic deploy verb is in place.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v20.A | ⏳ | **Kickoff planning.** Validate empirical effectiveness for general URLs (Google warns it's officially job/livestream-only) against operator's launched sites. Lock the OAuth-scope addition. ~0.5h. |
+| v20.B | ⏳ | `indexing.publish(url, type='URL_UPDATED')` wrapper + `lamill new deploy --reindex [<url>...]` flag. Without specific URLs, defaults to the project's homepage + sitemap. Optional `[deploy].reindex_on_deploy` flag in `lamill.toml` for default-on behavior. Quota-aware (200 calls/day per token). ~1h. |
+
+### v21 — *(reserved — Gemini integration for audit-pass model diversity, skipped 2026-05-19; may revisit)*
+
+Originally proposed as a third LLM family in v12's verify mode
+(Claude primary + GPT-4o audit + Gemini cross-check) to strengthen
+REVIEW_REQUIRED signal via 3-way model disagreement. Operator opted
+out 2026-05-19 in favor of v19/v20/v22. Slot reserved so re-
+introduction doesn't require renumbering.
+
+#### Phases
+
+*None — tier reserved.*
+
+### v22 — GSC Sitemaps + per-URL Indexing status *(new 2026-05-19)*
+
+Two GSC API surfaces not covered by v15: the **Sitemaps API**
+(`/webmasters/v3/sites/{site}/sitemaps`) for tracking submitted-
+sitemap status (lastSubmitted, lastDownloaded, errors, warnings)
+and the **Search Console API `index` endpoint** for index-status-
+inspection at the per-URL level. Distinct from v15.D's URL
+Inspection: Sitemaps API is bulk + lower-quota; URL Inspection
+(v15.D) is per-URL + higher-detail. Both surfaces useful for
+different operator workflows.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v22.A | ⏳ | **Kickoff planning.** Re-check API surface coverage against what v15.D actually shipped. If v15.D's URL Inspection already covers per-URL index status sufficiently, v22 shrinks to just the Sitemaps API. ~0.5h. |
+| v22.B | ⏳ | GSC Sitemaps API wrapper + `project seo --sitemaps` section flag (composable with v15). Shows submitted sitemaps with last-fetch / error counts / warning counts per site. ~1h. |
+| v22.C | ⏳ | Per-URL bulk-index-status integration into `fleet dashboard` (indexed/submitted column augmentation from v15.F). ~1h. |
 
 ## 7. Conformance rules for all websites
 
