@@ -24,6 +24,214 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v15 — deploy verification (v15.A-F) — shipped 2026-05-20
+
+### Problem
+
+After v11's read-only hosting walker shipped (Vercel + CF Pages +
+CF Workers + HostGator), the operator could see deploy state across
+the fleet — but only at the platform level. Two adjacent gaps
+remained:
+
+  * **Deploy freshness was invisible.** A site could look "deployed"
+    via `fleet hosting` while the live build was three commits
+    behind local HEAD. No way to detect that drift from the CLI;
+    operator had to manually visit the site or compare commit SHAs
+    in the platform UI.
+  * **Build-success was hidden in a column most users skim past.**
+    The existing `Failures` column on `fleet hosting` showed
+    consecutive-build-failure counts but didn't fail-grade a site
+    at the per-project conformance layer.
+
+Plus an unrelated one v14 absorbed:
+
+  * **Registrar CSV churn.** `fleet sync` ran the merge but the
+    Porkbun CSV had to be manually re-exported when ownership
+    changed. No live-pull option.
+
+### Design rationale
+
+Five threads:
+
+  1. **Build artifact convention** (v15.C) — every Vite-based
+     `sites/*` build emits `dist/version.json` with `{schema, commit,
+     built_at}`. Plugin source canonical at `~/work/projects/builder/
+     vite-version-stamp.ts`; sites *inline a copy* in their own
+     `vite.config.{ts,js,mjs}` because CF Pages + Vercel build
+     environments clone only the site repo (no symlinked or shared
+     plugin file). One-time per-site cost; protects every
+     downstream check.
+  2. **Per-site verb symmetry** (v15.B) — `project hosting <domain>`
+     restored the `project X ↔ fleet X` shape that v14.B already
+     enforces for `check`, `seo`, `fix`. `fleet hosting --only`
+     was a fleet verb pretending to be per-project; hard cutover.
+  3. **Read-side helper centralization** (v15.D) — `version_stamp.py`
+     owns `/version.json` fetch + parse + HEAD-vs-live comparison;
+     CHECK_144/145/146 + the project-hosting renderer all read
+     from one place.
+  4. **No new platform infra** (v15.E) — `last-build-success`
+     reads the `fleet hosting` snapshot's `latest_deploy_status`.
+     Folding rather than adding new API tokens / clients.
+  5. **Light watch tooling** (v15.F) — mtime polling instead of
+     a `watchdog` dependency. Good enough for CSV-edit cadence;
+     the simplest thing that works.
+
+### Locked → as-shipped deltas
+
+A few decisions resolved differently between v15.A kickoff and the
+v15.E ship:
+
+  * v15.A locked: "v15.E adds a `Last build` column to `fleet
+    hosting` + a `Last build` row to `project hosting`." 
+    Shipped: **neither** — both surfaces already showed the signal
+    via the existing `Deploy state` / `Last Success` / `Failures`
+    columns and the 📦 Deploy block respectively. Adding dedicated
+    framing would duplicate the same data. Operator can revisit.
+  * v15.A locked: "v15.E folds into the `_fleet_hosting_impl`
+    walker via a `last_build_success: bool` field on `HostingRow`."
+    Shipped: **derived live in CHECK_146 from the existing
+    `latest_deploy_status` field** rather than added as a new
+    HostingRow field — equivalent signal, no schema churn.
+  * v15.A locked: "`--watch` uses `watchdog`." 
+    Shipped: **mtime polling at 2s default interval** — avoids
+    the new dependency for a feature whose cadence doesn't need
+    real-time fidelity.
+
+### Locked target shape (post-v15.B)
+
+`lamill project hosting <domain>` renders:
+
+```
+$ lamill project hosting airsucks.com
+
+  Property: airsucks.com  ·  platform: cloudflare-workers
+  Account: vijo  ·  branch: main
+
+  📦 Deploy           (v15.B)
+    ✓ DEPLOYED       2026-05-19 08:34 (12h ago)
+    Commit:          a693d96
+    Deploy ID:       abc-123
+
+  📋 Freshness        (v15.D)
+    HEAD @           a693d96
+    Live @           a693d96    ✓ in sync
+
+  📌 Domains          (v15.B)
+    airsucks.com (canonical)
+```
+
+### Conformance checks added
+
+  * **CHECK_144 `has-version-stamp`** (deploy/warn) — fetches
+    `/version.json`, validates shape. Fails on 404 / non-200 /
+    non-JSON / missing fields. Warns on transport errors.
+  * **CHECK_145 `deploy-fresh`** (deploy/warn) — compares local
+    HEAD to live commit. Fails on drift; warns when one side
+    undetermined.
+  * **CHECK_146 `last-build-success`** (deploy/warn) — reads the
+    `fleet hosting` cache. Passes on READY/SUCCESS/ACTIVE; fails
+    on ERROR/CANCELED with consecutive-failures count; warns on
+    in-flight or provider-has-no-build-pipeline.
+
+### CLI surface added
+
+  * `lamill project hosting <domain>` — new per-project verb.
+  * `lamill fleet hosting --only <domain>` — **removed** (hard
+    cutover; symmetry-restoring).
+  * `lamill fleet sync --refresh` — Porkbun live pull.
+  * `lamill fleet sync --watch [--interval N]` — mtime watcher.
+
+### Resolved open questions
+
+| # | Question | Resolution |
+|---|---|---|
+| 15.A.1 | `project hosting <domain>` layout — table or vertical sections? | Vertical sections — matches v13.B's `project seo` GSC-diagnostics pattern. |
+| 15.A.2 | v15.E source — new platform-API infra or fold into existing walker? | Fold into existing walker. Derived live in CHECK_146 rather than added as a HostingRow field. |
+| 15.A.3 | v15.F flag wiring — both `--refresh` + `--watch`? | Both shipped. `--watch` uses mtime polling (no `watchdog` dep). |
+| 15.A.4 | Execution order | Sequential A→B→C→D→E→F. |
+| 15.B.1 | Plugin distribution — published npm package, shared file, or inline? | Inline source in each site's vite.config. Canonical reference at `~/work/projects/builder/vite-version-stamp.ts`. |
+
+### Parked / deferred
+
+  * **Per-site rollout of the v15.C inline plugin.** Only
+    `airsucks.com` got the inline plugin in this tier. Remaining
+    12 vite-config sites need the same edit + a redeploy before
+    CHECK_144 passes. Operational follow-up, not a phase.
+  * **GoDaddy + Namecheap `--refresh`.** Both need their account-
+    side API setup before `fleet sync --refresh` can pull them.
+    Porkbun is the only registrar with a working pull today.
+  * **Vendoring the v15.C plugin as a published npm package
+    (`@lamill/version-stamp`).** Would simplify per-site updates
+    once drift becomes a real cost. Currently inline-per-site is
+    fine for a one-operator fleet of ~13 vite sites.
+  * **Dedicated `Last build` column on `fleet hosting` and 🔧
+    Build section on `project hosting`.** Skipped because the
+    existing surfaces already carry the signal. Revisit if a
+    different framing proves valuable.
+
+### User journey
+
+```
+# Before v15: operator knows the site is "deployed" but not whether
+# it's the latest commit or whether the last build succeeded.
+
+# After v15:
+
+$ lamill project check airsucks.com
+…
+  ✓ has-version-stamp      version.json served · commit a693d96 · built 2026-05-20T...
+  ✓ deploy-fresh           HEAD matches live · a693d96
+  ✓ last-build-success     last build READY · 2026-05-20T08:31:00+00:00
+
+$ lamill project hosting airsucks.com
+  <renders 📦 Deploy + 📋 Freshness + 📌 Domains>
+
+$ lamill fleet sync --refresh
+  Porkbun listAll → data/domains/porkbun.csv ...
+  ✓ wrote 54 rows to porkbun.csv
+  <continues with the regular merge>
+
+$ lamill fleet sync --watch
+  Watching data/domains/ for CSV changes (interval=2.0s) — Ctrl-C to exit.
+  <runs continuously, re-merging on change>
+```
+
+### Approval
+
+2026-05-20 — operator-driven design pass + same-day implementation
+across all six sub-phases (v15.A kickoff in the morning; v15.B
+shipped mid-day; v15.C-F shipped late afternoon). Hard cutover for
+the `--only` removal. Suite stayed green throughout (2261 → 2303,
+net +42 tests across the tier).
+
+### Per-phase commits
+
+  * **v15.A** (`e3f4e28`) — Kickoff planning, four locked decisions.
+  * **v15.B** (`39a52bf`) — `project hosting` verb + drop
+    `fleet hosting --only`. 11 new tests; suite 2251 → 2261.
+  * **v15.C** (`d594a6b`) — build-time stamping convention +
+    CHECK_144. Paired with builder repo commit `53a09d8`
+    (canonical plugin source). 14 new tests; suite 2261 → 2275.
+  * **v15.D/E/F** (`7c4736e`) — bundled three sub-phases:
+    CHECK_145 + 📋 Freshness section · CHECK_146 · `fleet sync`
+    `--refresh` / `--watch` flags. 28 new tests; suite 2275 → 2303.
+
+### Operational follow-ups (not gated on this tier)
+
+  * Inline the v15.C plugin in the remaining 12 vite-config sites:
+    `civictools.app`, `cricketfansite.com`, `csinorcal.church`,
+    `homeloom.app`, `isitholiday.today`, `keralavotemap.site`,
+    `kwizicle.com`, `lamill.io`, `lamillrentals.com`, `levents`,
+    `voltloop.site`, `washcalc.app`. Each needs the same vite.config
+    edit pattern as `airsucks.com` (commit `90a5f9e` in that
+    repo's git).
+  * Redeploy each migrated site so `/version.json` actually
+    appears on the live URL.
+  * Run `lamill project check` per site to verify CHECK_144 /
+    CHECK_145 / CHECK_146 land green.
+
+---
+
 ## v14 — CLI rethink after drift (v14.A-C) — shipped 2026-05-20
 
 ### Problem

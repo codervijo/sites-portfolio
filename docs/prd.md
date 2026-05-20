@@ -515,7 +515,7 @@ target tree, and decides the cutover style before any code moves.
 
 *Tier-level design notes (locked target tree, migration map, deliberate keeps, parked items, resolved open questions) migrated to `docs/shipping-history.md § v14 — CLI rethink after drift` 2026-05-20 as part of v14.C — same pattern as v10 + v11 + v12 wraps.*
 
-### v15 — deploy verification *(renumbered 2026-05-17 PM; deprioritized; absorbed v13.C 2026-05-20 then dropped same day; renumbered 2026-05-20, was v14; v15.F LLM content seeding dropped 2026-05-20 per `§ 2 Non-goals` audit — automating content bypasses the operator's scarce-hours scaling lever; new v15.B inserted 2026-05-20 for `project hosting` CLI symmetry, bumped v15.B-E → v15.C-F)*
+### v15 — deploy verification ✅ *(renumbered 2026-05-17 PM; deprioritized; absorbed v13.C 2026-05-20 then dropped same day; renumbered 2026-05-20, was v14; v15.F LLM content seeding dropped 2026-05-20 per `§ 2 Non-goals` audit — automating content bypasses the operator's scarce-hours scaling lever; new v15.B inserted 2026-05-20 for `project hosting` CLI symmetry, bumped v15.B-E → v15.C-F; **tier complete 2026-05-20**)*
 
 Build-time stamping convention + HEAD vs deployed SHA + Pages/Vercel
 API integration (v15.C-F — original tier scope; heavy overlap with
@@ -542,73 +542,11 @@ that do).
 | v15.E | ✅ | Build status. New conformance check **CHECK_146 `last-build-success`** (deploy/warn) — reads the operator's `fleet hosting` cache and surfaces the `latest_deploy_status` per-project. Passes on READY/SUCCESS/ACTIVE; fails on ERROR/CANCELED with consecutive-failures count; warns when in-flight / no snapshot / CFW or HG provider (no build pipeline). Folded purely into the existing snapshot; no new platform-API infra per v15.A. **No new `Last build` column on `fleet hosting`** — the existing `Deploy state` + `Last Success` + `Failures` columns already surface the same signal; adding a column would be redundant. **No new 🔧 Build section on `project hosting <domain>`** — same reasoning; the existing 📦 Deploy block already shows status/when/failures. Operator can revisit if a dedicated framing proves valuable. 9 new tests on CHECK_146; suite 2283 → 2292. |
 | v15.F | ✅ | Domain-list refresh tooling. `lamill fleet sync` gains two flags: `--refresh` (pulls live Porkbun owned-domain list via the API, writes `data/domains/porkbun.csv`, then runs the existing CSV merge) and `--watch` (polls `data/domains/*.csv` mtimes at `--interval` seconds, re-runs merge on any change, Ctrl-C exits — no `watchdog` dep, mtime polling is good enough for the CSV-edit cadence). GoDaddy/Namecheap deferred until those registrars' account-API setup lands. New `src/portfolio/porkbun_list.py` module wraps `domain/listAll` (handles missing creds / network / non-200 / non-SUCCESS / shape errors via typed `PorkbunListError`). 11 new tests on porkbun_list (watch loop is integration-tested manually); suite 2292 → 2303. |
 
-#### Design notes
-
-**`project hosting <domain>` locked output (sections grow as later phases land).**
-
-```text
-$ lamill project hosting airsucks.com
-
-  Property: airsucks.com  ·  platform: cloudflare-workers
-  Account: vijo  ·  branch: main
-
-  📦 Deploy
-    ✓ DEPLOYED       2026-05-19 08:34 (12h ago)
-    Commit:          a693d96
-    Deploy ID:       abc-123
-
-  📋 Freshness                                                  ← v15.D adds
-    HEAD @           a693d96
-    Live @           a693d96    ✓ in sync
-
-  🔧 Build                                                      ← v15.E adds
-    ✓ last build:    2026-05-19 08:31 (12h 3m ago) · 1m 22s · 0 recent failures
-
-  📌 Domains
-    airsucks.com (canonical)
-```
-
-After v15.B ships, sections 📦 Deploy + 📌 Domains exist; 📋 Freshness + 🔧 Build are stubbed empty until v15.D + v15.E. v15.D adds the Freshness section; v15.E adds the Build section.
-
-**v15.E fold approach (no new infra).** `_fleet_hosting_impl`'s
-existing per-provider walkers already query deployment-list endpoints
-(CF Pages: `/accounts/{id}/pages/projects/{name}/deployments`; Vercel:
-`/v6/deployments?app={name}`) and read deploy state. v15.E adds one
-field — `last_build_success: Optional[bool]` — to the shared
-`HostingRow` dataclass. CF Workers + HostGator return `None` (no
-build concept). The `Last build` column on `fleet hosting` renders:
-`✓ <when>` for True, `✗ <when>` for False, `—` for None.
-
-**v15.F flag wiring.**
-- `lamill fleet sync` — unchanged default behavior; reads
-  `data/domains/<reg>.csv` files, merges into `data/portfolio.json`.
-- `lamill fleet sync --refresh` — calls Porkbun's `/domain/listAll`
-  endpoint, writes/overwrites `data/domains/porkbun.csv`, then runs
-  the standard merge. GoDaddy + Namecheap CSVs remain manual until
-  those registrars' account-API setup lands (operator's call).
-- `lamill fleet sync --watch` — blocks; uses `watchdog` to monitor
-  `data/domains/*.csv` for mtime changes; re-runs the merge on each
-  change. Ctrl-C exits. Composes with `--refresh` (initial sync
-  then watch) or not.
-
-**CLI symmetry restored by v15.B.**
-
-```
-project check   ↔ fleet check
-project seo     ↔ fleet seo
-project fix     ↔ fleet fix
-project hosting ↔ fleet hosting    (NEW — v15.B)
-project diagnose (no fleet equivalent — diagnose is per-site by nature)
-```
-
-`fleet hosting --only <domain>` flag deletes in the same v15.B
-commit. Hard cutover, matching v14.B's posture for `new suggest`/
-`new research`/`settings project`/`fleet info`.
-
-**Execution order.** A (this kickoff) ✅ → B (new verb + drop flag)
-→ C (build stamping) → D (deploy-fresh in `project hosting`) → E
-(last-build-success on both surfaces) → F (`fleet sync` flags).
-Total estimate ~6-9h. B is the unblocker for D/E.
+*Tier-level design notes (locked target shape, migration map, fold
+approach for v15.E, flag wiring, CLI symmetry restoration, locked
+→ as-shipped deltas, resolved open questions, parked items) migrated
+to `docs/shipping-history.md § v15 — deploy verification` 2026-05-20
+as part of the v15 tier wrap — same pattern as v10 + v11 + v12 + v14.*
 
 ### v16 — GSC fleet-level intelligence *(new 2026-05-19; absorbs v13.A; renumbered 2026-05-20, was v15; reshaped 2026-05-20 — dropped original v16.B/C/E single-property reinvention per `§ 2 Non-goals` audit; relabeled original v16.D→v16.B + v16.F→v16.C; kickoff inserted 2026-05-20 — bumped foundation/check/rollup to v16.B/C/D)*
 
