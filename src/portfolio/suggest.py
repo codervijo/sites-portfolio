@@ -136,10 +136,10 @@ PORTFOLIO_ENV_TEMPLATE = """\
 # portfolio.env — secrets for portfolio CLI features.
 # Loaded by python-dotenv at runtime. Do not commit this file (it's in .gitignore).
 
-# Required for `portfolio new suggest` brainstorm (v2.A)
+# Required for `lamill new domain` brainstorm (v2.A)
 OPENAI_API_KEY=
 
-# Optional for `portfolio new suggest` availability+price (v2.B).
+# Optional for `lamill new domain` availability+price (v2.B).
 # When unset, the CLI falls back to RDAP (free, no keys, availability only — no price).
 PORKBUN_API_KEY=
 PORKBUN_SECRET_API_KEY=
@@ -159,9 +159,9 @@ CF_ACCOUNT_ID=
 # show as empty but HTTP and GSC columns still work.
 CRUX_API_KEY=
 
-# Optional for `lamill new research <topic>` real-SERP data (v8.D).
+# Optional for `lamill new validate <topic>` real-SERP data (v8.D).
 # Sign up free at https://serpapi.com/ (250 queries/month on the free tier;
-# ~50 cluster runs/month at 5 queries each). When unset, `new research`
+# ~50 cluster runs/month at 5 queries each). When unset, `new validate`
 # falls back to GPT-only synthesis with a "NOT REAL SERP DATA" banner.
 SERPAPI_KEY=
 """

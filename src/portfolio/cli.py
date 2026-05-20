@@ -33,10 +33,6 @@ app.add_typer(new_app, name="new")
 # old paths (`info status`, `check git --domain`, etc.) are kept as
 # deprecation aliases that print a one-line nudge and forward.
 fleet_app = typer.Typer(help="Cross-portfolio ops.", no_args_is_help=True)
-fleet_info_app = typer.Typer(
-    help="Read-only inventory views (summary, expiring, cleanup).",
-    no_args_is_help=True,
-)
 settings_app = typer.Typer(help="Setup / debug.", no_args_is_help=True)
 settings_catalog_app = typer.Typer(help="Inspect the check catalog.",
                                    no_args_is_help=True)
@@ -45,7 +41,7 @@ settings_gsc_app = typer.Typer(help="Google Search Console integration.",
 settings_apikeys_app = typer.Typer(help="Manage credentials in portfolio.env.",
                                    no_args_is_help=True)
 settings_operator_app = typer.Typer(
-    help="Operator profile (used by `new research` fit-checks).",
+    help="Operator profile (used by `new validate` fit-checks).",
     no_args_is_help=True,
 )
 settings_cloudflare_app = typer.Typer(
@@ -56,12 +52,11 @@ settings_serpapi_app = typer.Typer(
     help="SerpAPI quota ledger — show local state + sync with SerpAPI's records.",
     no_args_is_help=True,
 )
-settings_project_app = typer.Typer(
-    help="Per-project metadata — `set-launched`, `set-deploy`, `show-deploy`.",
+settings_deploy_app = typer.Typer(
+    help="Per-project deploy declaration — `set`, `show`, `set-launched`.",
     no_args_is_help=True,
 )
 app.add_typer(fleet_app, name="fleet")
-fleet_app.add_typer(fleet_info_app, name="info")
 app.add_typer(settings_app, name="settings")
 settings_app.add_typer(settings_catalog_app, name="catalog")
 settings_app.add_typer(settings_gsc_app, name="gsc")
@@ -69,7 +64,7 @@ settings_app.add_typer(settings_apikeys_app, name="apikeys")
 settings_app.add_typer(settings_operator_app, name="operator")
 settings_app.add_typer(settings_cloudflare_app, name="cloudflare")
 settings_app.add_typer(settings_serpapi_app, name="serpapi-quota")
-settings_app.add_typer(settings_project_app, name="project")
+settings_app.add_typer(settings_deploy_app, name="deploy")
 
 
 @app.callback(invoke_without_command=True)
@@ -141,7 +136,7 @@ def focus(
 
     # Build domain → site-age map for the freshness-window suppression.
     # Reuses the dashboard's helper: prefers Domain.launched (manual via
-    # `settings project set-launched`); falls back to first-commit-date inference
+    # `settings deploy set-launched`); falls back to first-commit-date inference
     # for projects without an explicit launched date.
     domain_site_age = {
         d.name.lower(): _site_age_days(d.name, d.launched)
@@ -297,7 +292,7 @@ def info_drift() -> None:
     if report.csv_only:
         for domain, registrar in report.csv_only:
             console.print(f"   {domain}  [dim]({registrar})[/]")
-        console.print(f"   [dim]→ run 'portfolio fleet info cleanup' to consolidate[/]")
+        console.print(f"   [dim]→ run 'lamill fleet sync' to consolidate[/]")
     else:
         console.print("   [dim]—[/]")
     console.print()
@@ -311,7 +306,7 @@ def info_drift() -> None:
                 f"   {ed.domain}  [dim]({ed.registrar})[/]  "
                 f"csv={ed.csv_expires} json={ed.json_expires}"
             )
-        console.print(f"   [dim]→ run 'portfolio fleet info cleanup' to refresh[/]")
+        console.print(f"   [dim]→ run 'lamill fleet sync' to refresh[/]")
     else:
         console.print("   [dim]—[/]")
     console.print()
@@ -358,7 +353,7 @@ def info_drift() -> None:
         console.print("   [dim]—[/]")
 
 
-# info_cleanup — kept as implementation for `fleet info cleanup`.
+# info_cleanup — kept as implementation for `fleet sync`.
 def info_cleanup(refresh_rdap: bool = False) -> None:
     """Build canonical data/portfolio.json from registrar CSVs + plan.md classifications.
 
@@ -419,7 +414,7 @@ def info_cleanup(refresh_rdap: bool = False) -> None:
         )
 
 
-# info_summary — kept as implementation for `fleet info summary`.
+# info_summary — kept as implementation for `fleet domains --summary`.
 def info_summary() -> None:
     """Print a portfolio overview."""
     domains = load_domains()
@@ -482,7 +477,7 @@ def info_summary() -> None:
         console.print(f"\n[yellow]In plan but not in registrar data ({len(only_plan)}):[/] " + ", ".join(only_plan))
 
 
-# info_expiring — kept as implementation for `fleet info expiring`.
+# info_expiring — kept as implementation for `fleet domains --expiring`.
 def info_expiring(within: int = typer.Option(180, "--within", "-w", help="Days from today")) -> None:
     """List domains expiring within N days."""
     today = date.today()
@@ -1884,7 +1879,7 @@ def _render_project_status(result: dict) -> None:
         )
 
 
-# info_list — kept as implementation for `fleet info summary --verbose`.
+# info_list — kept as implementation for `fleet domains --summary --verbose`.
 def info_list(
     grouped: bool = typer.Option(False, "--grouped", "-g",
                                  help="Group by plan category (subsumes the old `info category` command)"),
@@ -1949,8 +1944,8 @@ def info_list(
         console.print(t)
 
 
-@new_app.command("suggest")
-def new_suggest(
+@new_app.command("domain")
+def new_domain(
     topic: str = typer.Argument("", help="The product idea or topic to brainstorm domain names for (prompted if omitted)"),
     tlds: str = typer.Option(
         "",
@@ -3282,7 +3277,7 @@ def _render_grid(rows, columns: list[str], show_renewal: bool = False,
 
     When `topic` is provided, renders a one-line title above the table
     so the operator can scan the grid with the original topic in
-    eyeshot — same affordance as `new research`'s Topic line. Optional
+    eyeshot — same affordance as `new validate`'s Topic line. Optional
     for backward compatibility with any caller that doesn't have the
     topic in scope.
     """
@@ -3715,7 +3710,7 @@ def _apply_inventory_decision(domain: str, decision: dict) -> None:
         elif result == "no-file":
             console.print(
                 f"[yellow]  ⚠ portfolio.json missing — run "
-                f"`lamill fleet info cleanup` to bootstrap the inventory, "
+                f"`lamill fleet sync` to bootstrap the inventory, "
                 f"then re-run this command (or add the row manually).[/]"
             )
 
@@ -3781,8 +3776,8 @@ def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:
     pass/fail, predicted live URL, grouped next-step commands.
 
     When `topic` is non-empty, a one-line `Topic:` header is printed
-    first — same operator-facing affordance as `new research` /
-    `new suggest`. Empty topic omits the line.
+    first — same operator-facing affordance as `new validate` /
+    `new domain`. Empty topic omits the line.
     """
     if topic:
         console.print(f"[bold]Topic:[/] [cyan]{topic}[/]\n")
@@ -3920,8 +3915,8 @@ def _render_bootstrap_conformance(domain: str) -> None:
             )
 
 
-@new_app.command("research")
-def new_research(
+@new_app.command("validate")
+def new_validate(
     topic: str = typer.Argument("", help="Topic to research (prompted if omitted)"),
     synthesis_only: bool = typer.Option(
         False, "--synthesis-only",
@@ -4000,7 +3995,7 @@ def new_research(
             "Two ways to proceed:\n"
             "  1. Set the key:  [cyan]lamill settings apikeys set SERPAPI_KEY <your-key>[/]\n"
             "     Free tier: https://serpapi.com/ (250 queries/month)\n"
-            "  2. Skip SerpAPI: [cyan]lamill new research <topic> --synthesis-only[/]\n"
+            "  2. Skip SerpAPI: [cyan]lamill new validate <topic> --synthesis-only[/]\n"
             "     (LLM-only synthesis; heuristic verdicts, not real SERP data)"
         )
         raise typer.Exit(2)
@@ -5268,14 +5263,14 @@ def new_deploy(
     if decl is None:
         console.print(
             "[dim]No lamill.toml found — assuming platform=cf-pages "
-            "(legacy default). Run `lamill settings project set-deploy "
+            "(legacy default). Run `lamill settings deploy set "
             f"{domain} <platform>` to declare explicitly.[/]"
         )
 
     if platform == "none":
         console.print(
             f"[red]Platform is `none` for {domain}.[/]\n"
-            f"[dim]Run `lamill settings project set-deploy {domain} <platform>` "
+            f"[dim]Run `lamill settings deploy set {domain} <platform>` "
             "to choose a deploy target first.[/]"
         )
         raise typer.Exit(2)
@@ -6113,8 +6108,8 @@ def project_diagnose(
     render(d, console)
 
 
-@settings_project_app.command("set-deploy")
-def settings_project_set_deploy(
+@settings_deploy_app.command("set")
+def settings_deploy_set(
     name: str = typer.Argument(..., metavar="DOMAIN",
                                help="Domain (e.g. airsucks.com)"),
     platform: str = typer.Argument(..., metavar="PLATFORM",
@@ -6176,8 +6171,8 @@ def settings_project_set_deploy(
     )
 
 
-@settings_project_app.command("show-deploy")
-def settings_project_show_deploy(
+@settings_deploy_app.command("show")
+def settings_deploy_show(
     name: str = typer.Argument(..., metavar="DOMAIN",
                                help="Domain (e.g. airsucks.com)"),
     as_json: bool = typer.Option(False, "--json",
@@ -6190,8 +6185,7 @@ def settings_project_show_deploy(
     domains plus the optional [hosting] / [backend] / [notes]
     blocks. `--json` emits the raw payload as JSON (paired with
     `to_dict()` from `lamill_toml`). When no `lamill.toml` exists
-    the command exits 0 with a hint to run `settings project
-    set-deploy`.
+    the command exits 0 with a hint to run `settings deploy set`.
     """
     from .project_deploy import show_deploy
     rc = show_deploy(name, as_json=as_json, console=console)
@@ -6199,8 +6193,8 @@ def settings_project_show_deploy(
         raise typer.Exit(rc)
 
 
-@settings_project_app.command("set-launched")
-def settings_project_set_launched(
+@settings_deploy_app.command("set-launched")
+def settings_deploy_set_launched(
     name: str = typer.Argument(..., metavar="DOMAIN",
                                help="Domain"),
     launched_date: str = typer.Argument(
@@ -6250,9 +6244,44 @@ def fleet_focus(
 def fleet_domains(
     only: str = typer.Option("wip", "--only", "-o"),
     concurrency: int = typer.Option(20, "--concurrency", "-c"),
+    summary: bool = typer.Option(
+        False, "--summary",
+        help="Portfolio overview — category counts + value rollup. Add --verbose for the per-domain table.",
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v",
+        help="With --summary: also render the per-domain table.",
+    ),
+    expiring: int = typer.Option(
+        0, "--expiring",
+        help="Filter to domains expiring within N days (e.g. --expiring 180). Mutually exclusive with --summary.",
+    ),
 ) -> None:
-    """Fetch each domain over HTTP and classify it (live-site / forwarder /
-    parked / dead) → snapshot in data/checks/."""
+    """Operate on the fleet at the domain level.
+
+    Default: fetch each domain over HTTP and classify (live-site /
+    forwarder / parked / dead) → snapshot in data/checks/.
+
+    `--summary`: portfolio overview (category counts + value rollup).
+    `--summary --verbose`: same + per-domain table.
+
+    `--expiring N`: list domains expiring within N days.
+    """
+    if summary and expiring:
+        console.print("[red]--summary and --expiring are mutually exclusive.[/]")
+        raise typer.Exit(2)
+
+    if summary:
+        info_summary()
+        if verbose:
+            console.print()
+            info_list()
+        return
+
+    if expiring:
+        info_expiring(within=expiring)
+        return
+
     check_live(only=only, concurrency=concurrency, domain="")
 
 
@@ -6618,7 +6647,7 @@ def fleet_repos(
              "for sites with multiple platform-config files, picking "
              "via vercel > cf-pages > cf-workers > netlify priority "
              "and embedding a notes warning. Default refuses ambiguous "
-             "cases — operator must run `settings project set-deploy` "
+             "cases — operator must run `settings deploy set` "
              "manually.",
     ),
 ) -> None:
@@ -6697,31 +6726,8 @@ def fleet_dashboard(
     run_dashboard(scope=scope, sort=sort, refresh=refresh, console=console)
 
 
-# fleet info subgroup
-
-
-@fleet_info_app.command("summary")
-def fleet_info_summary(
-    verbose: bool = typer.Option(False, "--verbose", "-v",
-                                 help="Add the per-domain table."),
-) -> None:
-    """Portfolio overview — category counts + value rollup. `--verbose` adds the per-domain table."""
-    info_summary()
-    if verbose:
-        console.print()
-        info_list()
-
-
-@fleet_info_app.command("expiring")
-def fleet_info_expiring(
-    within: int = typer.Option(180, "--within", "-w"),
-) -> None:
-    """Domains expiring within N days."""
-    info_expiring(within=within)
-
-
-@fleet_info_app.command("cleanup")
-def fleet_info_cleanup(
+@fleet_app.command("sync")
+def fleet_sync(
     refresh_rdap: bool = typer.Option(
         False, "--refresh-rdap",
         help="Also fetch RDAP creation_date per domain (~0.5s each, ~15s for full fleet)."
@@ -6965,7 +6971,7 @@ def settings_operator_show() -> None:
 
     Shows "no profile configured" if the file or [operator] section is
     absent. When configured, prints each field on its own line. Used by
-    `new research` to apply expertise / workflow / cadence fit-checks
+    `new validate` to apply expertise / workflow / cadence fit-checks
     on top of the three gates.
     """
     from .operator_profile import LAMILL_TOML, load_operator_profile

@@ -1,6 +1,6 @@
 """v8.A + v8.B — SERP research for new projects (AI-only synthesis).
 
-`lamill new research <topic>` — analyzes the likely SERP landscape for a
+`lamill new validate <topic>` — analyzes the likely SERP landscape for a
 topic using gpt-4o-mini from training data (NOT real-time SERP), surfaces
 ranking patterns + content-type breakdown + decision aid (ship/mixed/skip).
 

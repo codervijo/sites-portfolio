@@ -1,8 +1,8 @@
 """Tests for the `Topic:` title line at the top of the
 `new bootstrap` summary report.
 
-Operator-facing affordance — same shape as `new research` and
-`new suggest`. The renderer is a long sequence of `console.print`
+Operator-facing affordance — same shape as `new validate` and
+`new domain`. The renderer is a long sequence of `console.print`
 calls that touch the filesystem (tree + conformance); these tests
 patch the heavy downstream helpers so the assertions focus on the
 Topic-line behavior at the top.

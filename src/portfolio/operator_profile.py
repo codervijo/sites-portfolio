@@ -48,7 +48,7 @@ class OperatorProfile:
     expertise: list[str] = field(default_factory=list)
     workflow_preference: str = DEFAULT_WORKFLOW
     motivation_cadence: str = DEFAULT_CADENCE
-    # v12.F — when True, `lamill new research` runs the adversarial
+    # v12.F — when True, `lamill new validate` runs the adversarial
     # audit pass automatically (as if --verify was passed). Override
     # per-run with --no-verify. Adds ~$0.01-0.02 per research call.
     verify_by_default: bool = DEFAULT_VERIFY_BY_DEFAULT

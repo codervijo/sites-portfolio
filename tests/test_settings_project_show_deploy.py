@@ -1,4 +1,4 @@
-"""Tests for v10.B slice 2 — `settings project show-deploy` CLI.
+"""Tests for v10.B slice 2 — `settings deploy show` CLI (renamed in v14.B; was `settings project show-deploy`).
 
 Covers: resolution (known / unknown / ambiguous), missing
 `lamill.toml` (exit 0 + helpful message), malformed file (exit 1),
@@ -50,7 +50,7 @@ def fake_fleet(monkeypatch, tmp_path: Path):
 def test_show_deploy_unknown_domain_exits_1(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
-        app, ["settings", "project", "show-deploy", "doesnotexist.com"],
+        app, ["settings", "deploy", "show", "doesnotexist.com"],
     )
     assert result.exit_code == 1, result.stdout
     assert "not found" in result.stdout
@@ -59,18 +59,18 @@ def test_show_deploy_unknown_domain_exits_1(fake_fleet):
 def test_show_deploy_missing_lamill_toml_exits_0_with_hint(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
-        app, ["settings", "project", "show-deploy", "airsucks.com"],
+        app, ["settings", "deploy", "show", "airsucks.com"],
     )
     assert result.exit_code == 0, result.stdout
     assert "no deploy declaration" in result.stdout
-    assert "set-deploy" in result.stdout
+    assert "settings deploy set" in result.stdout
 
 
 def test_show_deploy_missing_json_emits_null(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["settings", "project", "show-deploy", "airsucks.com", "--json"],
+        ["settings", "deploy", "show", "airsucks.com", "--json"],
     )
     assert result.exit_code == 0, result.stdout
     assert result.stdout.strip() == "null"
@@ -83,7 +83,7 @@ def test_show_deploy_malformed_existing_file_exits_1(fake_fleet):
     )
     runner = CliRunner()
     result = runner.invoke(
-        app, ["settings", "project", "show-deploy", "airsucks.com"],
+        app, ["settings", "deploy", "show", "airsucks.com"],
     )
     assert result.exit_code == 1, result.stdout
     assert "malformed" in result.stdout
@@ -99,7 +99,7 @@ def test_show_deploy_renders_minimal_lamill_toml(fake_fleet):
 
     runner = CliRunner()
     result = runner.invoke(
-        app, ["settings", "project", "show-deploy", "airsucks.com"],
+        app, ["settings", "deploy", "show", "airsucks.com"],
     )
     assert result.exit_code == 0, result.stdout
     flat = " ".join(result.stdout.split())
@@ -145,7 +145,7 @@ def test_show_deploy_renders_full_payload(fake_fleet):
 
     runner = CliRunner()
     result = runner.invoke(
-        app, ["settings", "project", "show-deploy", "hybridautopart.com"],
+        app, ["settings", "deploy", "show", "hybridautopart.com"],
     )
     assert result.exit_code == 0, result.stdout
     flat = " ".join(result.stdout.split())
@@ -175,7 +175,7 @@ def test_show_deploy_renders_explicit_account_dash_when_absent(fake_fleet):
           LamillToml(deploy=DeployBlock(platform="vercel")))
     runner = CliRunner()
     result = runner.invoke(
-        app, ["settings", "project", "show-deploy", "airsucks.com"],
+        app, ["settings", "deploy", "show", "airsucks.com"],
     )
     assert result.exit_code == 0, result.stdout
     flat = " ".join(result.stdout.split())
@@ -192,7 +192,7 @@ def test_show_deploy_truncates_long_notes(fake_fleet):
     )
     runner = CliRunner()
     result = runner.invoke(
-        app, ["settings", "project", "show-deploy", "airsucks.com"],
+        app, ["settings", "deploy", "show", "airsucks.com"],
     )
     assert result.exit_code == 0, result.stdout
     # Truncation can happen via my manual "..." OR rich's column "…".
@@ -212,7 +212,7 @@ def test_show_deploy_json_emits_minimal_payload(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["settings", "project", "show-deploy", "airsucks.com", "--json"],
+        ["settings", "deploy", "show", "airsucks.com", "--json"],
     )
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
@@ -246,7 +246,7 @@ def test_show_deploy_json_emits_full_payload(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["settings", "project", "show-deploy", "airsucks.com", "--json"],
+        ["settings", "deploy", "show", "airsucks.com", "--json"],
     )
     assert result.exit_code == 0, result.stdout
     p = json.loads(result.stdout)
@@ -264,7 +264,7 @@ def test_show_deploy_json_emits_null_on_missing_file(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["settings", "project", "show-deploy", "airsucks.com", "--json"],
+        ["settings", "deploy", "show", "airsucks.com", "--json"],
     )
     assert result.exit_code == 0, result.stdout
     assert result.stdout.strip() == "null"
@@ -274,7 +274,7 @@ def test_show_deploy_json_unknown_domain_emits_null_and_exits_1(fake_fleet):
     runner = CliRunner()
     result = runner.invoke(
         app,
-        ["settings", "project", "show-deploy", "doesnotexist.com", "--json"],
+        ["settings", "deploy", "show", "doesnotexist.com", "--json"],
     )
     assert result.exit_code == 1, result.stdout
     # First line is `null` so a downstream `jq` pipe doesn't break.

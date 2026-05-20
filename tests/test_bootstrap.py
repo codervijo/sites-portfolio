@@ -293,7 +293,7 @@ def test_template_path_passes_day_zero_catalog(tmp_path):
         "CHECK_028",  # last-deploy-date (no deploy yet)
         "CHECK_031",  # has-pnpm-lock (user runs `make deps` after)
         "CHECK_041",  # dir-matches-portfolio-entry (user runs `lamill
-                      # fleet info cleanup` to rebuild inventory after
+                      # fleet sync` to rebuild inventory after
                       # the new dir exists)
         "CHECK_042",  # live-final-url-matches-domain (no live snapshot
                       # covers a freshly-scaffolded dir; closes after
@@ -872,7 +872,7 @@ def test_bootstrap_platform_flag_accepts_non_hosting_platforms(tmp_path):
 @pytest.mark.parametrize("platform", ("hostgator", "custom"))
 def test_bootstrap_platform_flag_rejects_hosting_required(tmp_path, platform):
     """`--platform hostgator|custom` rejects at bootstrap with a
-    pointer to `settings project set-deploy` (the only command that
+    pointer to `settings deploy set` (the only command that
     knows how to prompt for the required hosting fields)."""
     with pytest.raises(BootstrapError, match="can't be set at bootstrap"):
         bootstrap(

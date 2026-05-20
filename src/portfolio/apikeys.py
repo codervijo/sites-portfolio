@@ -39,7 +39,7 @@ KNOWN_KEYS: tuple[str, ...] = (
     "CF_API_TOKEN",
     "CF_ACCOUNT_ID",
     "CRUX_API_KEY",
-    "SERPAPI_KEY",   # v8.D — real-SERP fetcher for `new research`
+    "SERPAPI_KEY",   # v8.D — real-SERP fetcher for `new validate`
     "VERCEL_TOKEN",  # v11.A — Vercel provider walker for `fleet hosting`
     # v11.A — per-account HostGator API tokens + cPanel usernames.
     # cPanel API tokens are account-scoped; one token per HG account

@@ -26,7 +26,7 @@ This module currently exposes:
 
 Subsequent commits add:
   - reconciliation + REVIEW_REQUIRED first-class verdict — v12.D
-  - CLI `--verify` wiring + render integration in `new research` —
+  - CLI `--verify` wiring + render integration in `new validate` —
     v12.E
 
 Why a separate module from `interpretive_pass.py`: the prompts are
@@ -403,7 +403,7 @@ class OpenAIChatResult:
 class AuditPassError(RuntimeError):
     """Raised when the audit pass fails end-to-end: OpenAI HTTP call
     errored, response was empty, or markdown couldn't be parsed into
-    a `ParsedAudit`. The orchestrator (v12.E `new research --verify`)
+    a `ParsedAudit`. The orchestrator (v12.E `new validate --verify`)
     catches and surfaces the underlying cause."""
 
 

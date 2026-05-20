@@ -28,7 +28,7 @@ def test_fails_when_lamill_toml_missing(tmp_path: Path):
     assert result.status == "fail"
     assert "missing lamill.toml" in result.message
     # Failure message points the operator at the fix command.
-    assert "set-deploy" in result.message
+    assert "settings deploy set" in result.message
 
 
 def test_warn_when_archived_tombstone(tmp_path: Path):

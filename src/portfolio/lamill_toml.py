@@ -322,7 +322,7 @@ def write(repo_path: Path, payload: LamillToml) -> None:
     file. Comments are NOT preserved — tomli-w doesn't carry them
     through a round-trip, and operator edits go through `$EDITOR`
     directly (the writer is only invoked from `new bootstrap`,
-    `settings project set-deploy`, and the migration sweep — paths
+    `settings deploy set`, and the migration sweep — paths
     where the operator hasn't hand-annotated the file yet).
     """
     target = repo_path / LAMILL_TOML_FILENAME

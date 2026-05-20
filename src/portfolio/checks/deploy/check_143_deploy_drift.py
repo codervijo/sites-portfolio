@@ -187,7 +187,7 @@ def run(repo_path: str) -> CheckResult:
         message=(
             f"DRIFT — declared={declared} but actual={actual} ({signal}). "
             f"Either update `lamill.toml` via "
-            f"`lamill settings project set-deploy {domain} {actual}` or "
+            f"`lamill settings deploy set {domain} {actual}` or "
             f"migrate the live site back to {declared}."
         ),
     )

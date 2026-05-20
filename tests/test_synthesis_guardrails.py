@@ -1,4 +1,4 @@
-"""Tests for v8.D — synthesis-output guardrails on `new research`.
+"""Tests for v8.D — synthesis-output guardrails on `new validate`.
 
 The synthesis-fallback path (--synthesis-only OR auto-fallback after
 SerpAPI quota exhausts) used to render competitive verdicts —

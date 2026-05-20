@@ -44,12 +44,12 @@ def test_v7a_find_command_returns_known_keys():
     assert cmd.cli_args == ["fleet", "focus"]
 
     cmd = find_command("10")
-    assert cmd is not None and cmd.label == "fleet info summary"
-    assert cmd.cli_args == ["fleet", "info", "summary"]
+    assert cmd is not None and cmd.label == "fleet domains --summary"
+    assert cmd.cli_args == ["fleet", "domains", "--summary"]
 
     cmd = find_command("13")
-    assert cmd is not None and cmd.label == "new suggest"
-    assert cmd.cli_args == ["new", "suggest"]
+    assert cmd is not None and cmd.label == "new domain"
+    assert cmd.cli_args == ["new", "domain"]
 
     cmd = find_command("16")
     assert cmd is not None and cmd.label == "settings apikeys list"
@@ -62,23 +62,23 @@ def test_v4d_find_command_returns_none_for_unknown_key():
     assert find_command("") is None
 
 
-def test_v7a_menu_includes_expected_commands():
-    """Every command in the v7.A spec is in the menu."""
+def test_v14_menu_includes_expected_commands():
+    """Every command in the v14 spec is in the menu."""
     labels = {c.label for _, cmds in MENU_GROUPS for c in cmds}
     for required in (
         "project check", "project fix", "project seo",
         "fleet focus", "fleet check", "fleet seo", "fleet domains",
         "fleet fix", "fleet drift",
-        "fleet info summary", "fleet info expiring", "fleet info cleanup",
-        "new suggest", "new bootstrap", "new deploy",
+        "fleet domains --summary", "fleet domains --expiring", "fleet sync",
+        "new domain", "new bootstrap", "new deploy",
         "settings apikeys list", "settings catalog list", "settings gsc status",
     ):
         assert required in labels, f"missing {required}"
-    # Explicitly verify retired commands aren't there.
+    # Explicitly verify retired commands aren't there (v14 hard cutover).
     for removed in ("focus", "check live", "check git", "check seo",
-                    "info summary", "info status", "info expiring",
-                    "info list", "info cleanup", "info wip", "info category"):
-        assert removed not in labels, f"{removed} should not be in v7.A menu"
+                    "fleet info summary", "fleet info expiring", "fleet info cleanup",
+                    "new suggest", "new research"):
+        assert removed not in labels, f"{removed} should not be in v14 menu"
 
 
 # ---------- render_top_menu ----------
@@ -101,20 +101,20 @@ def test_v4d_render_top_menu_includes_descriptions():
     with menu.console.capture() as cap:
         render_top_menu()
     out = cap.get()
-    assert "Portfolio overview" in out   # fleet info summary description
-    assert "Validation-mode" in out       # new suggest description
+    assert "Portfolio overview" in out   # fleet domains --summary description
+    assert "Brainstorm" in out            # new domain description
 
 
 # ---------- collect_args ----------
 
 
-def test_v7a_collect_args_no_positionals_no_options(monkeypatch):
-    """A command with neither (e.g. fleet info cleanup, key 12) returns
+def test_v14_collect_args_no_positionals_no_options(monkeypatch):
+    """A command with neither (e.g. fleet sync, key 12) returns
     just its base cli_args."""
-    cmd = find_command("12")  # fleet info cleanup — no positionals or options
+    cmd = find_command("12")  # fleet sync — no positionals or options
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    assert args == ["fleet", "info", "cleanup"]
+    assert args == ["fleet", "sync"]
 
 
 def test_v7a_collect_args_required_positional(monkeypatch):
@@ -134,28 +134,28 @@ def test_v7a_collect_args_required_positional_empty_returns_none(monkeypatch):
     assert args is None
 
 
-def test_v7a_collect_args_walks_options_when_user_says_no(monkeypatch):
-    """User declines defaults → walk through optionals one at a time."""
-    cmd = find_command("11")  # fleet info expiring (--within option)
+def test_v14_collect_args_walks_options_when_user_says_no(monkeypatch):
+    """User declines defaults → walk through optionals one at a time.
+    Uses key 10 (fleet domains --summary) which has --verbose option."""
+    cmd = find_command("10")  # fleet domains --summary (--verbose option)
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: False)
-    monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "60")
+    monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "y")
     args = collect_args(cmd)
-    assert "--within" in args
-    assert "60" in args
+    assert "--verbose" in args
 
 
-def test_v7a_collect_args_skipped_optional_uses_default(monkeypatch):
+def test_v14_collect_args_skipped_optional_uses_default(monkeypatch):
     """User accepts defaults → no option flags appended."""
-    cmd = find_command("11")  # fleet info expiring
+    cmd = find_command("10")  # fleet domains --summary
     monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    assert args == ["fleet", "info", "expiring"]
-    assert "--within" not in args
+    assert args == ["fleet", "domains", "--summary"]
+    assert "--verbose" not in args
 
 
-def test_v7a_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
+def test_v14_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
     """A (y/n)-described option in y mode → emit `--flag` alone (no value)."""
-    cmd = find_command("13")  # new suggest (--browse, --with-abstract are y/n)
+    cmd = find_command("13")  # new domain (--browse, --with-abstract are y/n)
     # Sequence: positional "topic", then walk options:
     # --max-price (skip), --browse "y", --with-abstract "n"
     prompt_iter = iter(["my topic", "", "y", "n"])
@@ -169,14 +169,13 @@ def test_v7a_collect_args_boolean_flag_yes_emits_bare_flag(monkeypatch):
     assert "--with-abstract" not in args
 
 
-def test_v7a_collect_args_non_boolean_option_emits_flag_value_pair(monkeypatch):
-    """A non-(y/n) option emits both --flag and the user-typed value."""
-    cmd = find_command("11")  # fleet info expiring (--within is non-boolean)
-    monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: False)
+def test_v14_collect_args_positional_for_expiring(monkeypatch):
+    """`fleet domains --expiring` takes N as a positional."""
+    cmd = find_command("11")  # fleet domains --expiring (N positional)
     monkeypatch.setattr("portfolio.menu.typer.prompt", lambda *a, **kw: "30")
+    monkeypatch.setattr("portfolio.menu.typer.confirm", lambda *a, **kw: True)
     args = collect_args(cmd)
-    i = args.index("--within")
-    assert args[i + 1] == "30"
+    assert args == ["fleet", "domains", "--expiring", "30"]
 
 
 # ---------- dispatch ----------
@@ -224,8 +223,8 @@ def test_v4d_run_menu_handles_unknown_choice_then_quit(monkeypatch):
     run_menu()  # the unknown key gets the "Type 1-14 or q." reprint
 
 
-def test_v7a_run_menu_dispatches_simple_command_then_quits(monkeypatch):
-    """Pick 12 (fleet info cleanup, no positionals/options), then q."""
+def test_v14_run_menu_dispatches_simple_command_then_quits(monkeypatch):
+    """Pick 12 (fleet sync, no positionals/options), then q."""
     prompts = iter(["12", "q"])
     monkeypatch.setattr("portfolio.menu.typer.prompt",
                         lambda *a, **kw: next(prompts))
@@ -238,7 +237,7 @@ def test_v7a_run_menu_dispatches_simple_command_then_quits(monkeypatch):
 
     monkeypatch.setattr("portfolio.menu.subprocess.run", fake_run)
     run_menu()
-    assert captured["cmd"] == ["portfolio", "fleet", "info", "cleanup"]
+    assert captured["cmd"] == ["portfolio", "fleet", "sync"]
 
 
 def test_v7a_run_menu_cancelled_positional_returns_to_menu(monkeypatch):

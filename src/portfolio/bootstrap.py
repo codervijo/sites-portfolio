@@ -1669,7 +1669,7 @@ def bootstrap(
                     f"time — it requires a [hosting] section that "
                     f"bootstrap doesn't prompt for. Bootstrap with the "
                     f"default platform first, then run `lamill settings "
-                    f"project set-deploy {domain} {platform}` to "
+                    f"deploy set {domain} {platform}` to "
                     f"populate the cpanel + FTP breadcrumbs."
                 )
             chosen_platform = platform

@@ -40,7 +40,7 @@ class Domain:
     # (registrar-account date) and `domain_created` (global RDAP).
     launched: date | None = None
     # Global RDAP creation_date — when the domain was first registered
-    # by *anyone*. Populated by `fleet info cleanup --refresh-rdap`.
+    # by *anyone*. Populated by `fleet sync --refresh-rdap`.
     domain_created: date | None = None
 
     @property
@@ -383,7 +383,7 @@ def append_domain_row(
       "added"     — new row appended
       "exists"    — row for `name` already present; no change
       "no-file"   — portfolio.json doesn't exist (cold start; caller
-                    runs `fleet info cleanup` first)
+                    runs `fleet sync` first)
 
     Conservative placeholders fill fields a future Porkbun-CSV refresh
     (or the `--sync-porkbun` API path TBD) will overwrite with
@@ -453,7 +453,7 @@ def append_domain_row(
 def update_domain_field(name: str, field_name: str, value) -> bool:
     """Set a single field on one domain's portfolio.json entry. Atomic.
 
-    Used by `settings project set-launched` and the RDAP refresh path to mutate
+    Used by `settings deploy set-launched` and the RDAP refresh path to mutate
     a single record without rebuilding from CSV. Returns True if the
     domain was found and updated. `value` should be a JSON-serializable
     primitive (date objects auto-ISO-format).

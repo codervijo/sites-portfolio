@@ -1,5 +1,5 @@
 """Tests for v8.I — wire the primary interpretive pass into the
-`new research` orchestrator + render the verdict block.
+`new validate` orchestrator + render the verdict block.
 
 Two surfaces tested:
   1. `_run_primary_interpretive_pass(topic, payload, console)` —

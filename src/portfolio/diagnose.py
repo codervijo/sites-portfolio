@@ -464,7 +464,7 @@ def synthesize(d: Diagnosis) -> None:
         d.root_cause = (
             "No DNS records found for this domain. Either the nameservers "
             "have nothing configured, or the domain isn't actually registered "
-            "(check `lamill new suggest` to verify availability)."
+            "(check `lamill new domain` to verify availability)."
         )
         d.fix_steps = [
             "Confirm the domain exists in your registrar inventory.",

@@ -1,5 +1,5 @@
 """Tests for v12.E — wire the audit pass + reconciliation into the
-`new research` orchestrator + render the reconciliation block.
+`new validate` orchestrator + render the reconciliation block.
 
 Two surfaces tested:
   1. `_run_audit_pass_and_reconcile(topic, payload, *, audit_model,

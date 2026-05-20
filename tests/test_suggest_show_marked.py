@@ -1,5 +1,5 @@
 """Tests for the new `s. Show marked names as full grid` menu option
-in `lamill new suggest`'s post-grid menu.
+in `lamill new domain`'s post-grid menu.
 
 Renders the shortlist as a full registrar grid (same columns as the
 main grid) so the operator can compare marked names side-by-side

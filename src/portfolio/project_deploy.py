@@ -1,7 +1,7 @@
 """v10.B — CLI surfaces for the `lamill.toml` deploy declaration.
 
-Implements `settings project set-deploy` (create/update) and
-`settings project show-deploy` (inspect). Thin layer on top of
+Implements `settings deploy set` (create/update) and
+`settings deploy show` (inspect). Thin layer on top of
 `lamill_toml`'s pure data API (v10.A).
 
 `set_deploy()`:
@@ -112,7 +112,7 @@ def set_deploy(
     except ParseError as e:
         cons.print(f"[red]Existing lamill.toml is malformed:[/] {e}")
         cons.print(
-            "[dim]Fix or remove the existing file before running set-deploy.[/]"
+            "[dim]Fix or remove the existing file before running `settings deploy set`.[/]"
         )
         raise typer.Exit(1) from e
 
@@ -370,7 +370,7 @@ def _resolve_hosting(
     return HostingBlock(**fields)
 
 
-# ---- show-deploy ----------------------------------------------------
+# ---- settings deploy show -------------------------------------------
 
 
 def show_deploy(
@@ -436,7 +436,7 @@ def show_deploy(
                 f"[dim]{res.matched} — no deploy declaration.[/]"
             )
             cons.print(
-                f"[dim](Run `lamill settings project set-deploy "
+                f"[dim](Run `lamill settings deploy set "
                 f"{res.matched} <platform>` to create one.)[/]"
             )
         return 0
@@ -580,7 +580,7 @@ def migrate_deploy_declarations(
       vercel > cf-pages > cf-workers > netlify priority order and
       embeds a `[notes].text` warning in the generated file.
     - `manual` — no signals + not archived. Operator must run
-      `lamill settings project set-deploy <domain> <platform>`.
+      `lamill settings deploy set <domain> <platform>`.
 
     `sites_root` overrides the default sites/ root (for tests).
     `plan` overrides the portfolio.json plan dict (for tests; live
@@ -642,8 +642,8 @@ def _classify_site(
             action="skipped_manual",
             notes=(
                 "no platform-config files (wrangler.jsonc / vercel.json / "
-                f"netlify.toml) found; run `lamill settings project "
-                f"set-deploy {domain} <platform>` interactively"
+                f"netlify.toml) found; run `lamill settings deploy "
+                f"set {domain} <platform>` interactively"
             ),
         )
 
@@ -668,7 +668,7 @@ def _classify_site(
                 f"multiple platform configs detected ({', '.join(present)}); "
                 "re-run with --include-ambiguous to write via priority "
                 "(vercel > cf-pages > cf-workers > netlify), or run "
-                f"`lamill settings project set-deploy {domain} <platform>` "
+                f"`lamill settings deploy set {domain} <platform>` "
                 "manually"
             ),
         )

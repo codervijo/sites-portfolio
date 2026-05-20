@@ -50,7 +50,7 @@ def run(repo_path: str) -> CheckResult:
         status="fail",
         message=(
             f"missing {LAMILL_TOML_FILENAME} — declare deploy target via "
-            f"`lamill settings project set-deploy {base.name} <platform>` "
+            f"`lamill settings deploy set {base.name} <platform>` "
             f"(or `lamill fleet repos --add-deploy-declarations --apply` "
             f"for unambiguous bulk migration)"
         ),

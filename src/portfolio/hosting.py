@@ -1529,7 +1529,7 @@ def hosting_footer_summary(
 # Scoped missing-only per resolution 11.N — never overwrites an
 # existing declaration. Drift between declared and live state stays
 # the operator's call (surface via CHECK_143; remediate via
-# `lamill settings project set-deploy`).
+# `lamill settings deploy set`).
 #
 # CF Pages / Vercel sites don't need this — v10.C's filesystem
 # inference (`fleet repos --add-deploy-declarations`) already

@@ -6,7 +6,7 @@ here. v5.F regrouped the menu around the new command tree:
 
   Focus  — where to focus today (top 5 priorities) [coming in v5.F.1]
   Check  — live, git, and SEO catalog runs
-  New    — add new domains / projects (suggest, bootstrap, deploy)
+  New    — add new domains / projects (validate, domain, bootstrap, deploy)
   Info   — read-only views (summary, status, expiring, wip, list, …)
 
 Dispatch via subprocess (rather than in-process invocation) keeps each
@@ -33,7 +33,7 @@ console = Console()
 @dataclass
 class CmdSpec:
     """One menu entry. `cli_args` is the base subcommand prefix (e.g.
-    ['domain', 'suggest']); positionals + walked options append to it.
+    ['new', 'domain']); positionals + walked options append to it.
     `positionals` is a list of (label, description) — required unless the
     description leads with 'optional'. `options` is a list of (flag,
     description, default-as-display-string)."""
@@ -87,18 +87,18 @@ MENU_GROUPS: list[tuple[str, list[CmdSpec]]] = [
                          ("--yes", "Skip confirmation (y/n)", "n")]),
         CmdSpec("9", "fleet drift", "Cross-source inconsistencies report",
                 ["fleet", "drift"]),
-        CmdSpec("10", "fleet info summary", "Portfolio overview (counts, value)",
-                ["fleet", "info", "summary"],
+        CmdSpec("10", "fleet domains --summary", "Portfolio overview (counts, value)",
+                ["fleet", "domains", "--summary"],
                 options=[("--verbose", "Add full domain list (y/n)", "n")]),
-        CmdSpec("11", "fleet info expiring", "Domains expiring within N days",
-                ["fleet", "info", "expiring"],
-                options=[("--within", "Days from today", "180")]),
-        CmdSpec("12", "fleet info cleanup", "Rebuild data/portfolio.json from CSVs",
-                ["fleet", "info", "cleanup"]),
+        CmdSpec("11", "fleet domains --expiring", "Domains expiring within N days",
+                ["fleet", "domains", "--expiring"],
+                positionals=[("N", "days from today (e.g. 180)")]),
+        CmdSpec("12", "fleet sync", "Rebuild data/portfolio.json from CSVs",
+                ["fleet", "sync"]),
     ]),
     ("New", [
-        CmdSpec("13", "new suggest", "Validation-mode brainstorm + grid + decide",
-                ["new", "suggest"],
+        CmdSpec("13", "new domain", "Brainstorm + grid + decide a domain for a topic",
+                ["new", "domain"],
                 positionals=[("topic", "product idea or short description")],
                 options=[("--max-price", "Filter price > N USD/yr", "20"),
                          ("--browse", "Use legacy per-strategy flow (y/n)", "n"),

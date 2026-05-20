@@ -180,7 +180,7 @@ def test_dispatch_platform_none_rejects_with_set_deploy_hint(
     r = runner.invoke(app, ["new", "deploy", "undeclared.com"])
     assert r.exit_code == 2
     assert "Platform is `none`" in r.output
-    assert "set-deploy" in r.output
+    assert "settings deploy set" in r.output
 
 
 def test_dispatch_cf_pages_routes_into_v3c_flow(tmp_path, monkeypatch):

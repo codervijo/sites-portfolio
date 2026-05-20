@@ -1,7 +1,7 @@
-"""Tests for the `Topic:` title line on the `new suggest` registrar grid.
+"""Tests for the `Topic:` title line on the `new domain` registrar grid.
 
 Operator-facing affordance — when scanning the grid, the topic is on
-its own one-liner just above the table (same shape as `new research`).
+its own one-liner just above the table (same shape as `new validate`).
 Mirrors the renderer tests in test_synthesis_guardrails.py; the
 fixture builds a single minimal GridRow so the renderer has something
 to draw.
