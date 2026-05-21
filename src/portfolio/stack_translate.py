@@ -27,6 +27,7 @@ Writes:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -231,7 +232,167 @@ def validate_translation(project_dir: Path) -> ValidationResult:
     # `wrangler dev` etc.). The v15.I deploy pipeline owns the
     # remote CF config; the local wrangler.jsonc is fine + expected.
 
+    # v15.S — dep-import consistency. The translator can faithfully
+    # port a `@import "tailwindcss"` line from genai/'s CSS but
+    # forget to add the matching dep to package.json. Caught
+    # disclosur.dev (2026-05-20): ported globals.css carried the v4
+    # import; package.json only had astro + @astrojs/sitemap; dev
+    # server failed at "Unable to resolve `@import \"tailwindcss\"`".
+    # The validator must catch dep–import drift, not just shape.
+    src_dir = project_dir / "src"
+    if pkg_path.exists() and src_dir.is_dir():
+        tw_usage = _detect_tailwind_usage(src_dir)
+        if tw_usage["any"] and "tailwindcss" not in deps:
+            issues.append(
+                "package.json: source references tailwindcss "
+                f"(e.g. {tw_usage['evidence']}) but 'tailwindcss' is "
+                "not in dependencies — translator should have ported "
+                "the dep from genai/package.json"
+            )
+        if tw_usage["v4_import"] and "@tailwindcss/vite" not in deps:
+            issues.append(
+                "package.json: source uses Tailwind v4 "
+                f"(`@import \"tailwindcss\"` in {tw_usage['evidence']}) "
+                "but '@tailwindcss/vite' is not in dependencies — "
+                "Tailwind v4 requires the Vite plugin"
+            )
+
     return ValidationResult(ok=not issues, issues=issues)
+
+
+# v15.S — tailwind usage detection. Walked from validate_translation.
+# Returns evidence + flags so the validator can produce specific
+# operator-facing messages instead of generic "missing dep".
+_TW_V4_IMPORT = re.compile(r'@import\s+["\']tailwindcss["\']')
+_TW_V3_DIRECTIVE = re.compile(r'@tailwind\s+(base|components|utilities)\b')
+_TW_SCAN_SUFFIXES = (".css", ".scss", ".sass", ".pcss")
+
+
+def _detect_tailwind_usage(src_dir: Path) -> dict[str, object]:
+    """Scan `src_dir` for Tailwind usage signals.
+
+    Returns dict with:
+      - `any` (bool): tailwind referenced anywhere
+      - `v4_import` (bool): Tailwind v4 `@import "tailwindcss"` form
+        (which requires `@tailwindcss/vite` + the v4 plugin wiring)
+      - `evidence` (str): first matching file path (relative) for
+        operator-facing error messages
+
+    Scans `.css`/`.scss`/`.sass`/`.pcss` files only. Bounded scope
+    (no node_modules, no genai/, no tests).
+    """
+    result: dict[str, object] = {
+        "any": False, "v4_import": False, "evidence": "",
+    }
+    for path in src_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in _TW_SCAN_SUFFIXES:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = path.relative_to(src_dir.parent)
+        if _TW_V4_IMPORT.search(text):
+            result["any"] = True
+            result["v4_import"] = True
+            if not result["evidence"]:
+                result["evidence"] = str(rel)
+            return result  # v4 is the strictest finding
+        if _TW_V3_DIRECTIVE.search(text):
+            result["any"] = True
+            if not result["evidence"]:
+                result["evidence"] = str(rel)
+    return result
+
+
+# v15.S — sweep Claude's atomic-write tmp artifacts. The `claude` CLI
+# Write tool writes via `<name>.tmp.<pid>.<hex>` then renames; under
+# certain failure modes (timeout, partial state, parallel writes) the
+# rename gets skipped and the .tmp.* file lingers. Astro's dev server
+# then emits `Unsupported file type` warnings on every reload.
+# Caught disclosur.dev (2026-05-20): three .astro.tmp.* files in
+# src/pages/dashboard/ after a successful port_to_astro call.
+_TMP_ARTIFACT = re.compile(r"\.tmp\.\d+\.[0-9a-f]+$")
+
+
+def sweep_tmp_artifacts(project_dir: Path) -> list[str]:
+    """Remove leftover Claude atomic-write artifacts under `project_dir`.
+
+    Matches files whose name ends in `.tmp.<digits>.<hex>` anywhere
+    under the project root (except `node_modules/`, `genai/`,
+    `.git/` — which are read-only or vendored and shouldn't have
+    been touched anyway).
+
+    Returns the list of relative paths swept (for logging). Empty
+    list is the normal post-translation case.
+    """
+    swept: list[str] = []
+    skip_dirs = {"node_modules", "genai", ".git", "dist", ".astro"}
+    for path in project_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if any(part in skip_dirs for part in path.relative_to(project_dir).parts):
+            continue
+        if _TMP_ARTIFACT.search(path.name):
+            try:
+                path.unlink()
+                swept.append(str(path.relative_to(project_dir)))
+            except OSError:
+                pass
+    return swept
+
+
+# v15.S — pnpm v11 build-script allowlist. Caught disclosur.dev
+# (2026-05-20): pnpm install in a freshly-translated project hit
+# `[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: esbuild, sharp`
+# and silently wrote a stub `pnpm-workspace.yaml` with placeholder
+# `allowBuilds:` lines into the project root — which then overrides
+# the parent sites/pnpm-workspace.yaml. Operator has to delete the
+# stub + re-run install, OR run interactive `pnpm approve-builds`.
+#
+# Fix: lamill pre-seeds a correct per-project pnpm-workspace.yaml
+# at the end of every translate/port so pnpm never enters the
+# interactive approval flow. The allowlist matches the parent
+# sites/pnpm-workspace.yaml — universal across the Astro+Vite stack
+# (esbuild is Vite's bundler; sharp is Astro's image optimizer).
+_PNPM_WORKSPACE_CONTENT = """\
+# Generated by lamill v15.S — pre-approved build-script allowlist
+# so `pnpm install` doesn't enter the interactive approve-builds
+# flow on first run. Add packages here if a new dep needs its
+# install scripts to run (rare for Astro+Vite projects).
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+"""
+
+
+def write_pnpm_workspace_yaml(project_dir: Path) -> bool:
+    """Write a pre-approved `pnpm-workspace.yaml` to `project_dir/` if
+    one doesn't already exist (or if the existing one has the broken
+    `allowBuilds:` placeholder text that pnpm's interactive flow leaves
+    behind).
+
+    Returns True iff the file was written. Idempotent — if a valid
+    operator-customized file is already present, leaves it alone.
+    """
+    target = project_dir / "pnpm-workspace.yaml"
+    if target.exists():
+        # Don't clobber operator-customized files. The only case we
+        # overwrite: pnpm's interactive-flow stub with placeholder
+        # text ("set this to true or false").
+        try:
+            existing = target.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+        if "set this to true or false" not in existing:
+            return False  # operator-customized — leave alone
+    try:
+        target.write_text(_PNPM_WORKSPACE_CONTENT, encoding="utf-8")
+        return True
+    except OSError:
+        return False
 
 
 def translate_to_astro(
@@ -273,13 +434,21 @@ def translate_to_astro(
     # modify existing files. v15.H needs to write NEW Astro+Vite
     # scaffolding at project root + create directories like
     # `src/pages/`, so add Write + Bash.
-    return run_claude(
+    result = run_claude(
         prompt,
         cwd=project_dir,
         budget_usd=budget_usd,
         timeout_s=timeout_s,
         allowed_tools="Read Write Edit Glob Grep Bash",
     )
+    # v15.S — sweep Claude's atomic-write tmp artifacts whether the
+    # subprocess succeeded or failed. On failure they leak; on success
+    # most are cleaned but partial-rename races still leave some.
+    sweep_tmp_artifacts(project_dir)
+    # v15.S — pre-seed pnpm-workspace.yaml so `pnpm install` doesn't
+    # enter the interactive approve-builds flow on first run.
+    write_pnpm_workspace_yaml(project_dir)
+    return result
 
 
 # v15.M — port translator timeout default. The synchronous full-
@@ -323,13 +492,20 @@ def port_to_astro(
         )
 
     prompt = _build_port_prompt(project_dir, source_stack, source_signals)
-    return run_claude(
+    result = run_claude(
         prompt,
         cwd=project_dir,
         budget_usd=budget_usd,
         timeout_s=timeout_s,
         allowed_tools="Read Write Edit Glob Grep Bash",
     )
+    # v15.S — sweep Claude's atomic-write tmp artifacts. See
+    # translate_to_astro() for full rationale.
+    sweep_tmp_artifacts(project_dir)
+    # v15.S — pre-seed pnpm-workspace.yaml so `pnpm install` doesn't
+    # enter the interactive approve-builds flow on first run.
+    write_pnpm_workspace_yaml(project_dir)
+    return result
 
 
 def _build_port_prompt(
@@ -371,13 +547,48 @@ scaffold:
 
 ## Do NOT touch
 
-  - `package.json` at root — the existing one is correct.
-  - `astro.config.mjs` — leave alone (add to it only if you must
-    register a new Astro integration like `@astrojs/react`).
   - `tsconfig.json` / `vite.config.*` — leave alone.
   - `wrangler.jsonc` if present — that's deploy config, not your
     concern.
   - Anything inside `genai/` — read-only reference.
+
+## You MAY (and often must) edit
+
+  - `package.json` — to add CSS toolchain deps (Tailwind / PostCSS /
+    Sass) that the source uses. See "CSS toolchain" section below.
+    Do NOT change `astro`, `vite`, or scripts the scaffold set up.
+  - `astro.config.mjs` — to register integrations and plugins the
+    ported code needs (e.g. `@astrojs/react`, `@tailwindcss/vite`).
+    Preserve existing config; add, don't replace.
+
+## CSS toolchain — port deps + plugin wiring
+
+The scaffold's `package.json` does NOT include CSS toolchain deps
+(Tailwind, PostCSS, Sass) — those depend on what the source uses
+and are your responsibility to port. Drift here is the most common
+post-port failure (caught `disclosur.dev` 2026-05-20: ported
+`@import "tailwindcss"` without adding `tailwindcss` to deps).
+
+Rule: **any CSS import or directive you port must have its dep in
+`package.json`** AND its plugin wired into `astro.config.mjs`.
+
+  - `genai/package.json` has `tailwindcss` → add to root `package.json`
+  - `genai/package.json` has `@tailwindcss/vite` (Tailwind v4) → add
+    BOTH `tailwindcss` and `@tailwindcss/vite` to root `package.json`;
+    in `astro.config.mjs` add:
+    ```js
+    import tailwindcss from "@tailwindcss/vite";
+    export default defineConfig({{ vite: {{ plugins: [tailwindcss()] }} }});
+    ```
+  - `tailwind-merge`, `clsx`, `class-variance-authority` → port if
+    ported `.tsx`/`.astro` files import them
+  - `postcss`, `autoprefixer` → port if `genai/postcss.config.*`
+    exists; copy the config file too
+  - `sass`, `sass-embedded`, `less`, `stylus` → port if any
+    `.scss`/`.sass`/`.less`/`.styl` files are being ported
+
+The lamill v15.S validator rejects port output that references
+`tailwindcss` in src/styles/ without the matching dep.
 
 ## Drop with TODO markers
 
@@ -437,9 +648,12 @@ preserve it as the original-source reference for archeology.
    and `vite` in dependencies. Build script: `"build": "astro build"`.
    Dev script: `"dev": "astro dev"`. Preserve any operator-facing
    scripts from the source (e.g. `lint`, `format`, `test:seo`).
+   **CSS toolchain deps MUST be ported** from `genai/package.json`
+   if the source uses them — see "CSS toolchain" section below.
 2. `astro.config.mjs` — minimal Astro 5+ config. Include the
    `@astrojs/react` integration if the source has React components
-   you're preserving as islands. Set `output: "static"`.
+   you're preserving as islands. Set `output: "static"`. **Wire any
+   CSS toolchain Vite plugin** here (see "CSS toolchain" below).
 3. `src/pages/` — one `.astro` file per route. Use Astro's
    file-based routing convention.
 4. `src/components/` — preserve component organization from the
@@ -450,6 +664,31 @@ preserve it as the original-source reference for archeology.
 6. `src/styles/` — preserve Tailwind / global CSS verbatim.
 7. `public/` — copy static assets unchanged from `genai/public/`.
 8. `tsconfig.json` — if the source uses TypeScript.
+
+## CSS toolchain — port deps + plugin wiring
+
+If `genai/package.json` lists any of these, port them to the new
+`package.json` AND wire the corresponding plugin into
+`astro.config.mjs`. This is a frequent translation gap and the
+validator will reject the output if you miss it.
+
+  - `tailwindcss` (any version) → keep `tailwindcss` in dependencies
+  - `@tailwindcss/vite` (Tailwind v4) → keep BOTH `tailwindcss` and
+    `@tailwindcss/vite`. In `astro.config.mjs` add:
+    ```js
+    import tailwindcss from "@tailwindcss/vite";
+    export default defineConfig({{ vite: {{ plugins: [tailwindcss()] }} }});
+    ```
+  - `tailwind-merge`, `clsx`, `class-variance-authority` → port if
+    any ported `.tsx` / `.astro` file imports them
+  - `postcss`, `autoprefixer` → port if `postcss.config.*` exists in
+    source; copy the config file too
+  - `sass`, `sass-embedded`, `less`, `stylus` → port if any `.scss`/
+    `.sass`/`.less`/`.styl` files are being ported
+
+The matching rule: **any CSS import or directive ported to the target
+must have its dep present in `package.json`**. Tailwind v4's
+`@import "tailwindcss"` is the highest-frequency case to watch.
 
 ## Drop with TODO markers
 
