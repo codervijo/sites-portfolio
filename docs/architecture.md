@@ -1513,13 +1513,79 @@ provider's rows still render normally.
 Refactors recommended during design but not yet scheduled. Carried
 here so they don't get lost.
 
-*(None active right now.)*
+### `cli.py` monolith — split into scope-first modules
 
-The `LLMClient` protocol — `{call(system, user) -> str}` with
-`AnthropicClient` / `OpenAIClient` / `GeminiClient` implementations
-— is named as a candidate refactor (see §10 Research module risks —
-rate-limit handling differs by provider) but not scheduled. Trigger:
-a third LLM provider lands.
+**Current state.** `src/portfolio/cli.py` is **8,782 lines** as of
+2026-05-21 — 4× the next-largest module (`hosting.py` at 2,054).
+Nearly every phase touches it; today's bug-fix run alone hit four
+unrelated stretches (MENU_ITEMS at line 2079, Step 5.5 DNS purge at
+6263, HG-extra column at 7782, footer aggregation at 7943).
+Grep+offset Read is the only navigation that works at this size.
+
+**Proposed split.** Mirrors the existing scope-first CLI structure
+(`project` / `fleet` / `new` / `settings`):
+
+```
+src/portfolio/cli/__init__.py     ← typer app registration + global flags
+src/portfolio/cli/project.py      ← project {check, fix, seo, hosting, translate}
+src/portfolio/cli/fleet.py        ← fleet {check, focus, live, seo, hosting, sync, dashboard, fix}
+src/portfolio/cli/new.py          ← new {bootstrap, deploy, domain, validate}
+src/portfolio/cli/settings.py     ← settings {catalog, gsc, apikeys, deploy}
+src/portfolio/cli/domain.py       ← domain suggest + the menu loop
+src/portfolio/cli/_render.py      ← shared renderers (_render_menu, _render_bootstrap_preflight, _hg_accounts_disk_summary, ...)
+```
+
+**Trigger.** Don't undertake mid-tier. Schedule for a clear gap —
+after v23 wraps and before the next feature tier kicks off. v14.B's
+hard-cutover CLI restructure proved this style of work is tractable;
+this is a larger cousin of that pattern.
+
+**Risk.** High (lots of cross-references inside one file; helper
+functions used by multiple command groups need careful placement in
+`_render.py` vs. specific modules). Test discovery needs to follow.
+
+### Platform-name enum drift
+
+**Current state.** Three modules with three spellings for the same
+deploy-platform values:
+
+| Module | Spelling | Origin |
+|---|---|---|
+| `lamill_toml.PLATFORM_VALUES` | `cf-pages` / `cf-workers` | v10.A schema |
+| `hosting.PROVIDER_*` constants | `cloudflare-pages` / `cloudflare-workers` | v11.A walkers |
+| `project.PLATFORM_MARKERS` | `cloudflare-pages` only (no workers row) | pre-v15 marker map |
+
+v15.S-followup added a `_LAMILL_PLATFORM_TO_DETECT` translation map
+in `project.py` (2026-05-21) to patch the cf-workers `project check`
+deploy-summary bug — but that's symptom-treating. Every new deploy-
+platform addition will hit the same drift.
+
+**Proposed fix.** One canonical `src/portfolio/platforms.py` module
+exposing:
+
+  - A single `PLATFORM` enum / constants list.
+  - One short-form (lamill.toml `cf-pages` style) and one long-form
+    (`cloudflare-pages` style) per platform, plus the translation.
+  - The marker map (file → platform), keyed off the same enum.
+
+`lamill_toml.py`, `hosting.py`, `project.py`, `dashboard.py` all
+import from `platforms.py` instead of defining their own constants.
+
+**Trigger.** Either (a) a new deploy platform lands (`fly.io`,
+`render.com`, etc.) and the drift bites again, or (b) folded into
+the cli.py monolith split since `project.py` would already be
+opened during that work.
+
+**Cost.** ~2-3h careful renaming + cross-module audit + test pass.
+Low risk per-file but breadth is wide.
+
+### `LLMClient` protocol (existing carryover)
+
+`{call(system, user) -> str}` with `AnthropicClient` /
+`OpenAIClient` / `GeminiClient` implementations — named as a
+candidate refactor (see §10 Research module risks — rate-limit
+handling differs by provider) but not scheduled. Trigger: a third
+LLM provider lands.
 
 ---
 

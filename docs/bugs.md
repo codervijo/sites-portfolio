@@ -606,62 +606,6 @@ above so the bug record stands alone.
 
 ---
 
-### 2026-05-20 — tech-debt audit pass
-
-**Repro**
-    (no single command — broad codebase concern)
-
-**Expected**
-The codebase has accumulated tech-debt across 22 shipped tiers
-(v1-v12) over ~6 weeks of rapid feature work. Operator wants a
-deliberate pass to identify what's worth cleaning up vs leaving
-in place.
-
-**Actual**
-No tech-debt review has been done. Candidate areas to audit (not
-yet prioritized):
-- `cli.py` size — currently 6700+ lines; lots of inline helpers
-  that could move out (e.g., `_run_*_pass` helpers could live in
-  the relevant `interpretive_pass.py` / `audit_pass.py` modules).
-- Duplicate OpenAI HTTP code — `serp.call_openai` + `audit_pass._call_openai_chat`
-  diverged in v12.C; consolidate when cost-ledger work needs the
-  same shape elsewhere (already flagged in v12.C commit body).
-- Inconsistent cache modules — `seo_cache.py` / `hosting_cache.py` /
-  `serp_query_cache.py` / `serpapi_quota.py` all do roughly the
-  same thing (JSON file in `data/`, daily rollover). A shared
-  base would reduce drift risk.
-- `CHECK_NNN` skip-conditions — many checks early-return `warn`
-  with "not a web project — skipped" or "no index.html — skipped".
-  Pattern repeats ~24 times; could centralize via a decorator or
-  helper function.
-- Test fixtures repetition — several test files re-implement
-  `_minimal_cluster()` / `_minimal_payload()` near-identically.
-  Shared fixture in a `conftest.py` would deduplicate.
-- Cross-cutting renderer helpers in `cli.py` — `_fmt_int`,
-  `_fmt_pct`, `_fmt_pos`, `_color_value`, `_verdict_marker`, etc.
-  scattered; could move to a `render_helpers.py` module.
-- Stale `data/gsc/2026-04-29.json` snapshot — only one GSC
-  snapshot, 3+ weeks old; either refresh or document why it's
-  intentionally stale.
-
-**Where (guess)**
-Project-wide. Suggest starting from the top-noise items
-(`cli.py` size + check skip-conditions repetition).
-
-**Severity**
-`minor` — none of these block functionality; payoff is
-maintainability + future-velocity, not user-visible.
-
-**Notes**
-- Don't conflate this with the per-bug list above — those are
-  user-visible defects; this is internal hygiene.
-- Operator memory `[[feedback-no-self-conformance]]` forbids
-  adding `CHECK_NNN` for portfolio itself. Use pytest / git hooks
-  for any tech-debt enforcement here.
-- Could be a low-priority tier (v23+?) or just an inline cleanup
-  pass between feature tiers when motivation strikes. Operator to
-  decide scoping.
-
 ### 2026-05-18 — `settings deploy set` fails for sites/ dirs missing from portfolio.json
 
 **Repro**
@@ -990,6 +934,40 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-20 — tech-debt audit pass
+
+**Expected**
+A deliberate pass over the codebase to identify what's worth
+cleaning up vs leaving in place, after 22 shipped tiers of rapid
+feature work.
+
+**Fixed in** — 2026-05-21: audit done. Major findings landed in
+`docs/architecture.md § 11 Tracked refactors`:
+
+  1. **`cli.py` monolith** — 8,782 lines; 4× the next-largest
+     module. Proposed split into scope-first modules
+     (`cli/project.py`, `cli/fleet.py`, etc.). Trigger: gap between
+     feature tiers (post-v23).
+  2. **Platform-name enum drift** — three modules with three
+     spellings (`cf-pages` vs `cloudflare-pages` etc.); symptom-
+     treating translation map added in `project.py` 2026-05-21
+     during the bug fix run. Proposed canonical
+     `src/portfolio/platforms.py` module.
+  3. **v15.K dead-code cleanup confirmed complete** —
+     `_deploy_cf_pages_v3c` / `_deploy_cf_workers` /
+     `deploy_cf_workers_via_shell` all gone from source. Stale
+     comment in `prd.md:546` corrected this commit.
+
+Secondary items from the original wishlist (still valid but lower
+priority): cache modules consolidation, render-helpers move,
+CHECK_NNN skip-condition decorator, duplicate OpenAI HTTP code,
+test-fixture repetition, `stack_translate.py` prompt extraction.
+Pick up between feature tiers; none block functionality. Per
+`[[feedback_no_self_conformance]]`, use pytest / git hooks for any
+tech-debt enforcement on portfolio itself — never new `CHECK_NNN`.
+
+---
 
 ### 2026-05-20 — Deploy Step 5.5 (DNS purge) continues on auth failure instead of pausing for manual cleanup
 
