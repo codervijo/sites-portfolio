@@ -268,11 +268,17 @@ def translate_to_astro(
         )
 
     prompt = _build_translation_prompt(project_dir, detection)
+    # v15.L hotfix — extended toolset for file CREATION.
+    # The default Tier-2-fixer set (Read/Edit/Glob/Grep) can only
+    # modify existing files. v15.H needs to write NEW Astro+Vite
+    # scaffolding at project root + create directories like
+    # `src/pages/`, so add Write + Bash.
     return run_claude(
         prompt,
         cwd=project_dir,
         budget_usd=budget_usd,
         timeout_s=timeout_s,
+        allowed_tools="Read Write Edit Glob Grep Bash",
     )
 
 

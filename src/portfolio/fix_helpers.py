@@ -165,17 +165,25 @@ class ClaudeResult:
 
 def run_claude(prompt: str, *, cwd: Path,
                budget_usd: float = _DEFAULT_BUDGET_USD,
-               timeout_s: int = _DEFAULT_TIMEOUT_S) -> ClaudeResult:
-    """Run `claude -p <prompt>` non-interactively in `cwd` with restricted
-    tools (Read/Edit/Glob/Grep — no Bash, no network beyond model calls)
-    and a hard budget cap. Returns parsed ClaudeResult."""
+               timeout_s: int = _DEFAULT_TIMEOUT_S,
+               allowed_tools: str | None = None) -> ClaudeResult:
+    """Run `claude -p <prompt>` non-interactively in `cwd` with
+    restricted tools and a hard budget cap. Returns ClaudeResult.
+
+    `allowed_tools` defaults to the Tier-2-fixer set
+    (Read/Edit/Glob/Grep — no Write, no Bash, no network beyond
+    model calls). Callers that need to create new files (e.g. v15.H
+    stack translation creating Astro+Vite files at project root)
+    pass an extended set like `"Read Write Edit Glob Grep Bash"`.
+    """
     if not claude_available():
         return ClaudeResult(ok=False, cost_usd=0.0, duration_s=0.0,
                             error="claude-not-found", raw_output="")
+    tools = allowed_tools if allowed_tools is not None else _ALLOWED_TOOLS
     cmd = [
         "claude", "-p", prompt,
         "--output-format", "json",
-        "--allowedTools", _ALLOWED_TOOLS,
+        "--allowedTools", tools,
         "--max-budget-usd", str(budget_usd),
     ]
     try:
