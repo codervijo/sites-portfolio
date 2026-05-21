@@ -598,25 +598,40 @@ def attach_workers_custom_domain(
     environment: str = "production",
     client: httpx.Client | None = None,
 ) -> bool:
-    """v15.P — attach `hostname` as a custom domain to a Workers
-    Service.
+    """v15.P / v15.Q — attach `hostname` as a custom domain to a
+    Workers Service. **GET-then-PUT** for idempotency (v15.Q): list
+    existing `/workers/domains` mappings and skip PUT if the
+    (hostname, service) pair is already attached.
 
-    PUT `/accounts/{id}/workers/domains` (idempotent — re-PUTting
-    the same mapping is a no-op per CF docs). Body:
-      `{service, hostname, environment, zone_id}`.
+    Why GET-then-PUT: operator's real-world testing 2026-05-20
+    showed PUT returning 403 even for tokens with `Workers
+    Scripts:Edit`. The pre-existing mappings in the account were
+    likely created via dashboard (no API write needed). v15.Q lets
+    operators set up custom domains via dashboard, then re-run
+    `lamill new deploy` — Step 6 detects the existing attachment
+    via the read-only GET and skips the (potentially 403-bound)
+    PUT entirely.
 
-    Returns True if a new attachment was created; False if the
-    mapping already existed (best-effort — CF's response doesn't
-    distinguish, so we probe via `_fetch_workers_domains` first to
-    decide). For a freshly-PUT mapping or a re-attach, CF returns
-    200/201 with the resolved Worker Domain object.
+    Body for PUT (when reached): `{service, hostname, environment,
+    zone_id}`.
 
-    `zone_id` is required (Workers Custom Domains are scoped to
-    a CF zone). Caller resolves via `ensure_zone()` upstream.
+    Returns True if PUT was issued + succeeded; False if the
+    mapping was already present (GET-detected; PUT skipped).
     """
     own_client = client is None
     c = _client(client=client)
     try:
+        # v15.Q — GET existing mappings; skip PUT if (hostname, service) present.
+        list_resp = c.get(f"/accounts/{account_id}/workers/domains")
+        if list_resp.status_code == 200:
+            body = list_resp.json()
+            for d in (body.get("result") or []):
+                if (
+                    d.get("hostname") == hostname
+                    and d.get("service") == service_name
+                ):
+                    return False  # Already attached — skip PUT.
+        # Either GET failed (don't block on it) or pair not found — PUT.
         resp = c.put(
             f"/accounts/{account_id}/workers/domains",
             json={

@@ -400,6 +400,40 @@ def test_attach_workers_custom_domain_put_body():
     assert body["environment"] == "production"
 
 
+def test_attach_workers_custom_domain_skips_put_when_already_attached():
+    """v15.Q — GET-then-PUT idempotency. When the (hostname, service)
+    pair already exists in the workers/domains list, skip PUT entirely
+    (returns False) — avoids 403s for operators who attached via
+    dashboard but lack write permission for the PUT endpoint."""
+    from portfolio.cloudflare import attach_workers_custom_domain
+
+    put_calls = {"n": 0}
+
+    def handler(req):
+        if req.method == "GET" and req.url.path.endswith("/accounts/acct/workers/domains"):
+            return httpx.Response(200, json={
+                "success": True,
+                "result": [
+                    {"hostname": "agesdk.dev", "service": "agesdk",
+                     "zone_id": "zone123", "id": "existing-mapping"},
+                ],
+            })
+        if req.method == "PUT":
+            put_calls["n"] += 1
+            return httpx.Response(403, text="should-not-be-called")
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    attached = attach_workers_custom_domain(
+        "agesdk", "agesdk.dev",
+        account_id="acct",
+        zone_id="zone123",
+        client=client,
+    )
+    assert attached is False  # Already attached.
+    assert put_calls["n"] == 0  # PUT was NOT called.
+
+
 def test_attach_workers_custom_domain_403_raises():
     from portfolio.cloudflare import attach_workers_custom_domain, CloudflareAPIError
 
