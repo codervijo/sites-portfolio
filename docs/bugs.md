@@ -567,67 +567,6 @@ all current warns + future warns consistently.
 
 ---
 
-### 2026-05-20 — `project check` deploy summary line shows wrong platform for cf-workers sites
-
-**Repro**
-
-    uv run lamill project check airsucks.com
-
-`airsucks.com/lamill.toml` declares `platform = "cf-workers"`. The
-walker / `fleet hosting` agrees:
-
-    $ uv run lamill fleet hosting --provider cloudflare-workers
-    ... airsucks.com   cloudflare-workers   DEPLOYED ...
-
-**Expected**
-
-The header line should display the actual declared platform from
-`lamill.toml`:
-
-```
-Deployment:  cloudflare-workers  via: wrangler.jsonc
-```
-
-**Actual**
-
-```
-Deployment:  cloudflare-pages  via: wrangler.jsonc
-  Live: live-site (HTTP 200, 291ms)  → https://airsucks.com  2026-05-20.json
-```
-
-`cloudflare-pages` is wrong — airsucks.com is a CFW project (confirmed
-both by `lamill.toml` and the hosting walker). The `via: wrangler.jsonc`
-hint is right (CFW does use wrangler), so the inference path is partially
-correct, but it mislabels the platform.
-
-**Where (guess)**
-
-The `project check` deploy-summary renderer doesn't appear to read
-`lamill.toml [deploy].platform` directly — looks like it heuristically
-classifies based on the presence of `wrangler.jsonc` (→ historically
-cf-pages, before CFW became its own category). Search `src/portfolio/`
-for the "Deployment:" rendering line. Should switch to reading
-`lamill_toml.load(repo_dir).deploy.platform` as the authoritative
-source, falling back to inference only when the file is absent.
-
-Possible adjacent: CHECK_143 (deploy-drift) on the same run output
-shows `declared=cf-workers · actual unknown` — that check reads
-lamill.toml correctly, so it's specifically the *Deploy summary*
-renderer that's broken.
-
-**Severity** — `minor`
-
-**Notes**
-
-Surfaced 2026-05-20 during the v15.D/E hand-test on airsucks.com.
-Not v15-related — pre-existing renderer mismatch. Fix is likely a
-one-line change to source the platform field from `lamill.toml`.
-
-Pairs with the inconsistent `warn` rendering bug logged above (same
-operator run surfaced both).
-
----
-
 ### 2026-05-20 — v13.B `project seo` GSC diagnostics — 3 rendering/classification issues
 
 **Repro**
@@ -1113,6 +1052,39 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-20 — `project check` deploy summary line shows wrong platform for cf-workers sites
+
+**Repro**
+
+    uv run lamill project check airsucks.com
+
+**Expected**
+`Deployment: cloudflare-workers` (the platform declared in
+`lamill.toml [deploy].platform`).
+
+**Actual**
+`Deployment: cloudflare-pages` — `detect_platform()` matched the
+`("cloudflare-pages", "wrangler.jsonc")` marker entry and didn't
+consult lamill.toml. Marker map predates CFW becoming its own
+deploy surface; CFW projects still carry `wrangler.jsonc` for local
+`wrangler dev`.
+
+**Fixed in** — 2026-05-21: `project.detect_platform()` now reads
+`lamill.toml [deploy].platform` first via `lamill_toml.load()`. New
+`_LAMILL_PLATFORM_TO_DETECT` map translates `cf-workers` →
+`cloudflare-workers`, `cf-pages` → `cloudflare-pages`, etc.
+Evidence trail surfaces `lamill.toml:[deploy].platform` so operators
+can see which signal won. ParseError → silent fall-through to
+existing marker-based detection (no crash on malformed declarations).
+`platform = "none"` also falls through (operator hasn't declared,
+markers are still the best guess). 8 new tests in
+`tests/test_project_detect_platform.py` (cf-workers beats marker,
+cf-pages, vercel, netlify, hostgator-with-hosting, no-file
+fallthrough, malformed-toml fallthrough, none-falls-through). Suite
+2507 → 2515.
+
+---
 
 ### 2026-05-19 — HG-extra `disk N MB` is account-level total, looks per-domain
 

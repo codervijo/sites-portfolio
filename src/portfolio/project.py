@@ -31,6 +31,25 @@ PLATFORM_MARKERS: tuple[tuple[str, str], ...] = (
     ("netlify", "netlify.toml"),
 )
 
+# 2026-05-21: lamill.toml `[deploy].platform` enum → rendered string.
+# `lamill_toml.PLATFORM_VALUES` uses the short forms (`cf-pages`,
+# `cf-workers`); marker-based detection + downstream consumers
+# (hosting.py, dashboard.py) use the long forms (`cloudflare-pages`,
+# `cloudflare-workers`). detect_platform() reads lamill.toml first
+# and translates so the `project check` deploy summary matches what
+# the operator declared — fixing the cf-workers sites that were
+# previously inferred as `cloudflare-pages` from wrangler.jsonc.
+_LAMILL_PLATFORM_TO_DETECT: dict[str, str] = {
+    "cf-pages": "cloudflare-pages",
+    "cf-workers": "cloudflare-workers",
+    "vercel": "vercel",
+    "netlify": "netlify",
+    "github-pages": "github-pages",
+    "hostgator": "hostgator",
+    "custom": "custom",
+    "none": "n/a",
+}
+
 
 @dataclass
 class ProjectResolution:
@@ -250,11 +269,30 @@ def detect_platform(project_dir: Path) -> dict:
     evidence: list[str] = []
     platform: str | None = None
 
-    for plat, marker in PLATFORM_MARKERS:
-        if (project_dir / marker).exists():
-            evidence.append(marker)
-            if platform is None:
-                platform = plat
+    # 2026-05-21 — lamill.toml [deploy].platform is the OPERATOR's
+    # declaration; trust it over marker inference. Without this, cf-
+    # workers sites (which still carry a wrangler.jsonc for local
+    # `wrangler dev`) were rendered as cloudflare-pages because the
+    # marker map only knew that file from the CFP era. Fall through
+    # to marker detection only if lamill.toml is missing / malformed
+    # / declares `none`.
+    try:
+        from .lamill_toml import load as _load_lamill_toml, ParseError
+        lt = _load_lamill_toml(project_dir)
+    except Exception:
+        lt = None
+    if lt is not None:
+        declared = _LAMILL_PLATFORM_TO_DETECT.get(lt.deploy.platform)
+        if declared is not None and declared != "n/a":
+            platform = declared
+            evidence.append("lamill.toml:[deploy].platform")
+
+    if platform is None:
+        for plat, marker in PLATFORM_MARKERS:
+            if (project_dir / marker).exists():
+                evidence.append(marker)
+                if platform is None:
+                    platform = plat
 
     if platform is None and pkg_data:
         deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
