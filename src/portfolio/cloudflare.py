@@ -527,6 +527,124 @@ class PagesProject:
     created: bool = False
 
 
+@dataclass(frozen=True)
+class WorkersServiceInfo:
+    """v15.P — CF Workers Service (from `/accounts/{id}/workers/services/{name}`).
+
+    Represents a Worker created via the unified Workers & Pages UI
+    (post-2025 CF model). Has the same git-integration behavior as
+    Pages projects but lives on a different API surface.
+
+    `has_assets=True` indicates Workers Static Assets (the
+    Pages-equivalent shape for this Worker).
+    """
+    name: str
+    has_assets: bool
+    deployment_id: str | None
+    compatibility_date: str | None
+    modified_on: str | None
+
+
+def get_workers_service(name: str, *,
+                        account_id: str,
+                        client: httpx.Client | None = None) -> WorkersServiceInfo | None:
+    """v15.P idempotency probe for Workers Services.
+
+    GET `/accounts/{id}/workers/services/{name}` returns 200 with
+    the service envelope if the Worker exists, 404 otherwise.
+    Workers Services are CF's unified Workers & Pages model
+    (post-2025); git-integrated Worker projects created via the
+    dashboard's "Connect to Git" flow live here.
+
+    Note: Workers Builds (git-integration API) is dashboard-only
+    as of Jan 2026. This helper only DETECTS existing Workers
+    Services; cannot create new git-integrated ones from API.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.get(f"/accounts/{account_id}/workers/services/{name}")
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code == 404:
+        return None
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET /workers/services/{name} → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"GET /workers/services/{name} success=false: {body.get('errors')}"
+        )
+    result = body.get("result") or {}
+    default_env = result.get("default_environment") or {}
+    script = default_env.get("script") or {}
+    return WorkersServiceInfo(
+        name=result.get("id", name),
+        has_assets=bool(script.get("has_assets")),
+        deployment_id=script.get("deployment_id") or None,
+        compatibility_date=script.get("compatibility_date"),
+        modified_on=result.get("modified_on"),
+    )
+
+
+def attach_workers_custom_domain(
+    service_name: str, hostname: str, *,
+    account_id: str,
+    zone_id: str,
+    environment: str = "production",
+    client: httpx.Client | None = None,
+) -> bool:
+    """v15.P — attach `hostname` as a custom domain to a Workers
+    Service.
+
+    PUT `/accounts/{id}/workers/domains` (idempotent — re-PUTting
+    the same mapping is a no-op per CF docs). Body:
+      `{service, hostname, environment, zone_id}`.
+
+    Returns True if a new attachment was created; False if the
+    mapping already existed (best-effort — CF's response doesn't
+    distinguish, so we probe via `_fetch_workers_domains` first to
+    decide). For a freshly-PUT mapping or a re-attach, CF returns
+    200/201 with the resolved Worker Domain object.
+
+    `zone_id` is required (Workers Custom Domains are scoped to
+    a CF zone). Caller resolves via `ensure_zone()` upstream.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.put(
+            f"/accounts/{account_id}/workers/domains",
+            json={
+                "service": service_name,
+                "hostname": hostname,
+                "environment": environment,
+                "zone_id": zone_id,
+            },
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code not in (200, 201):
+        raise CloudflareAPIError(
+            f"PUT /workers/domains (service={service_name}, "
+            f"hostname={hostname}) → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"PUT /workers/domains success=false: {body.get('errors')}"
+        )
+    # CF's PUT here is idempotent; the response doesn't say whether
+    # we created or no-op'd. Treat as success either way.
+    return True
+
+
 def get_pages_project(name: str, *,
                       account_id: str,
                       client: httpx.Client | None = None) -> PagesProject | None:

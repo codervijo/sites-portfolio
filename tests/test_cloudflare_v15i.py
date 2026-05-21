@@ -326,6 +326,96 @@ def test_latest_deployment_status_success():
     assert dep_id == "dep123"
 
 
+# ---- v15.P — Workers Service detection + custom domain attach ----
+
+
+def test_get_workers_service_200():
+    from portfolio.cloudflare import get_workers_service
+
+    def handler(req):
+        if req.url.path.endswith("/accounts/acct/workers/services/agesdk"):
+            return httpx.Response(200, json={
+                "success": True,
+                "result": {
+                    "id": "agesdk",
+                    "modified_on": "2026-05-21T05:46:00Z",
+                    "default_environment": {
+                        "environment": "production",
+                        "script": {
+                            "id": "agesdk",
+                            "has_assets": True,
+                            "compatibility_date": "2026-05-20",
+                            "deployment_id": "dep-abc",
+                        },
+                    },
+                },
+            })
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    info = get_workers_service("agesdk", account_id="acct", client=client)
+    assert info is not None
+    assert info.name == "agesdk"
+    assert info.has_assets is True
+    assert info.compatibility_date == "2026-05-20"
+
+
+def test_get_workers_service_404():
+    from portfolio.cloudflare import get_workers_service
+
+    def handler(req):
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    assert get_workers_service("missing", account_id="acct", client=client) is None
+
+
+def test_attach_workers_custom_domain_put_body():
+    from portfolio.cloudflare import attach_workers_custom_domain
+
+    captured = {}
+
+    def handler(req):
+        if req.method == "PUT" and req.url.path.endswith("/accounts/acct/workers/domains"):
+            import json as _json
+            captured["body"] = _json.loads(req.read())
+            return httpx.Response(200, json={
+                "success": True,
+                "result": {"id": "dom1", "hostname": "agesdk.dev", "service": "agesdk"},
+            })
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    attached = attach_workers_custom_domain(
+        "agesdk", "agesdk.dev",
+        account_id="acct",
+        zone_id="zone123",
+        client=client,
+    )
+    assert attached is True
+    body = captured["body"]
+    assert body["service"] == "agesdk"
+    assert body["hostname"] == "agesdk.dev"
+    assert body["zone_id"] == "zone123"
+    assert body["environment"] == "production"
+
+
+def test_attach_workers_custom_domain_403_raises():
+    from portfolio.cloudflare import attach_workers_custom_domain, CloudflareAPIError
+
+    def handler(req):
+        return httpx.Response(403, text='{"success":false,"errors":[]}')
+
+    client = _client_for(handler)
+    with pytest.raises(CloudflareAPIError, match="HTTP 403"):
+        attach_workers_custom_domain(
+            "agesdk", "agesdk.dev",
+            account_id="acct",
+            zone_id="zone123",
+            client=client,
+        )
+
+
 # ---- v15.N — probe_token_scopes ----
 
 

@@ -6122,56 +6122,98 @@ def _deploy_cf_unified(
                     raise typer.Exit(7)
                 console.print("  [green]✓[/] NS updated at Porkbun")
 
-    # --- Step 5: CF Pages project --------------------------------------------
-    console.print("\n[bold]5. Cloudflare Pages project (git-integrated)[/]")
+    # --- Step 5: CF project (Pages OR Workers) ------------------------------
+    # v15.P — auto-detect surface. CF unified Workers + Pages in 2025 but
+    # the APIs are still separate. Operator's "Connect to Git" via the
+    # unified UI usually creates a Workers Service (newer surface);
+    # legacy projects (kwizicle / voltloop / etc.) are on Pages. Probe
+    # both; route Step 6+ accordingly. `cf_surface` carries the choice.
+    console.print("\n[bold]5. Cloudflare project (Pages OR Workers Service)[/]")
+    cf_surface = "unknown"  # "pages" | "workers" | "unknown"
     if skip_pages:
         console.print(f"  [yellow]↷[/] skipped (--skip-pages)")
     elif dry_run:
         console.print(
-            f"  [dim]would: get_or_create pages project '{slug}' "
-            f"with github source={gh_owner}/{gh_repo_name}@main[/]"
+            f"  [dim]would: probe Pages then Workers for '{slug}'; "
+            f"create Pages if neither exists (Workers create requires CF dashboard)[/]"
         )
     else:
         try:
             project = cloudflare.get_pages_project(slug, account_id=cf_account)
             if project is not None:
+                cf_surface = "pages"
                 console.print(
-                    f"  [green]✓[/] project [cyan]{project.name}[/] exists, "
+                    f"  [green]✓[/] Pages project [cyan]{project.name}[/] exists, "
                     f"skipping create [dim](source={project.source_owner}/"
                     f"{project.source_repo}@{project.production_branch})[/]"
                 )
             else:
-                project = cloudflare.create_pages_project_with_git(
-                    slug,
-                    account_id=cf_account,
-                    gh_owner=gh_owner,
-                    gh_repo=gh_repo_name,
-                    production_branch="main",
-                    build_command="pnpm run build",
-                    destination_dir="dist",
-                )
-                console.print(
-                    f"  [green]✓[/] project [cyan]{project.name}[/] created "
-                    f"[dim](source={project.source_owner}/"
-                    f"{project.source_repo}@{project.production_branch})[/]"
-                )
+                # Try Workers Services.
+                worker = cloudflare.get_workers_service(slug, account_id=cf_account)
+                if worker is not None:
+                    cf_surface = "workers"
+                    console.print(
+                        f"  [green]✓[/] Workers Service [cyan]{worker.name}[/] "
+                        f"exists, skipping create "
+                        f"[dim](has_assets={worker.has_assets} · compat_date="
+                        f"{worker.compatibility_date})[/]"
+                    )
+                    console.print(
+                        f"  [dim]Note: Workers Builds Git integration is "
+                        f"dashboard-only (CF API limitation as of Jan 2026). "
+                        f"Pipeline detected the existing service + will route "
+                        f"Step 6 through Workers API.[/]"
+                    )
+                else:
+                    # Neither exists. Try to create Pages (legacy fallback).
+                    project = cloudflare.create_pages_project_with_git(
+                        slug,
+                        account_id=cf_account,
+                        gh_owner=gh_owner,
+                        gh_repo=gh_repo_name,
+                        production_branch="main",
+                        build_command="pnpm run build",
+                        destination_dir="dist",
+                    )
+                    cf_surface = "pages"
+                    console.print(
+                        f"  [green]✓[/] Pages project [cyan]{project.name}[/] created "
+                        f"[dim](source={project.source_owner}/"
+                        f"{project.source_repo}@{project.production_branch})[/]"
+                    )
         except cloudflare.CloudflareAPIError as e:
-            console.print(f"  [red]✗[/] Pages project step failed: {e}")
+            console.print(f"  [red]✗[/] CF project step failed: {e}")
+            console.print(
+                "  [dim]If create 403'd: CF's new Workers & Pages unified UI "
+                "creates Workers Services by default. Create the project in "
+                "the CF dashboard (Workers & Pages → + Add → Workers → "
+                "Connect to Git), then re-run — Step 5 will detect it.[/]"
+            )
             raise typer.Exit(8)
 
     # --- Step 6: Custom Domain attach ----------------------------------------
-    console.print(f"\n[bold]6. Custom domain[/] [dim]({domain} → {slug})[/]")
+    # v15.P — dispatch on cf_surface. Pages: POST /pages/projects/{name}/domains.
+    # Workers: PUT /workers/domains with {service, hostname, zone_id}.
+    console.print(f"\n[bold]6. Custom domain[/] [dim]({domain} → {slug} · surface={cf_surface})[/]")
     if skip_pages:
         console.print(f"  [yellow]↷[/] skipped (--skip-pages)")
     elif dry_run:
         console.print(
-            f"  [dim]would: attach {domain} to pages project {slug}[/]"
+            f"  [dim]would: attach {domain} to {cf_surface} '{slug}'[/]"
         )
     else:
         try:
-            attached = cloudflare.attach_pages_custom_domain(
-                slug, domain, account_id=cf_account,
-            )
+            if cf_surface == "workers":
+                attached = cloudflare.attach_workers_custom_domain(
+                    slug, domain,
+                    account_id=cf_account,
+                    zone_id=zone.zone_id,
+                )
+            else:
+                # cf_surface == "pages" or "unknown" (try Pages path).
+                attached = cloudflare.attach_pages_custom_domain(
+                    slug, domain, account_id=cf_account,
+                )
         except cloudflare.CloudflareAPIError as e:
             console.print(f"  [red]✗[/] custom domain step failed: {e}")
             raise typer.Exit(9)
@@ -6181,11 +6223,25 @@ def _deploy_cf_unified(
             console.print(f"  [green]✓[/] {domain} already attached, skipping")
 
     # --- Step 7: Build poll --------------------------------------------------
+    # v15.P — only polls the Pages API. For Workers Services, build
+    # status lives on a different endpoint (Workers Builds API,
+    # dashboard-only as of Jan 2026). Skip with a clear note + point
+    # the operator at the dashboard.
     console.print("\n[bold]7. Build status[/]")
     if dry_run:
         console.print("  [dim]would: poll deployment until terminal[/]")
     elif skip_pages:
         console.print(f"  [yellow]↷[/] skipped (--skip-pages)")
+    elif cf_surface == "workers":
+        console.print(
+            "  [yellow]↷[/] skipped (Workers Services build status is "
+            "dashboard-only as of Jan 2026; CF Workers Builds API not yet "
+            "publicly programmable)."
+        )
+        console.print(
+            f"  [dim]Watch builds at: "
+            f"https://dash.cloudflare.com/{cf_account[:8]}.../workers/services/view/{slug}/production/builds[/]"
+        )
     else:
         try:
             stage, dep_id, _ = cloudflare.latest_deployment_status(
