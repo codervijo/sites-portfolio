@@ -150,22 +150,25 @@ def test_dispatch_invalid_lamill_toml_exits_2(tmp_path, monkeypatch):
     assert "lamill.toml invalid" in r.output
 
 
-def test_dispatch_missing_lamill_toml_defaults_cf_pages(
+def test_dispatch_missing_lamill_toml_defaults_cf_workers(
     tmp_path, monkeypatch
 ):
+    """v15.I per ADR-0012 — when lamill.toml is missing, default
+    platform is now cf-workers (was cf-pages). Both route through
+    the same unified pipeline; the default value change is
+    user-facing in the "assuming platform=..." notice."""
     sites_root = _patch_data_root(monkeypatch, tmp_path)
     project = sites_root / "legacy.com"
     project.mkdir()
-    # No lamill.toml — should print the "assuming cf-pages" notice
-    # then hit the CF Pages flow, which immediately demands
-    # CF_API_TOKEN / CF_ACCOUNT_ID. Stub load_env to return empty so
-    # we hit the exit-2 path without going further into CF API land.
-    import portfolio.suggest as suggest_mod
-    monkeypatch.setattr(suggest_mod, "load_env", lambda: {})
+    # Stub apikeys to make pre-flight fail fast (no CF creds) so we
+    # hit the exit-2 path without going further into CF API land.
+    import portfolio.apikeys as apikeys_mod
+    monkeypatch.setattr(apikeys_mod, "get_key", lambda k: "")
     runner = CliRunner()
     r = runner.invoke(app, ["new", "deploy", "legacy.com"])
-    assert "assuming platform=cf-pages" in r.output
-    assert "CF_API_TOKEN" in r.output  # routed into CF Pages path
+    assert "assuming platform=cf-workers" in r.output
+    # Routed into unified pipeline — pre-flight demands CF_API_TOKEN.
+    assert "CF_API_TOKEN" in r.output
     assert r.exit_code == 2
 
 
@@ -183,92 +186,49 @@ def test_dispatch_platform_none_rejects_with_set_deploy_hint(
     assert "settings deploy set" in r.output
 
 
-def test_dispatch_cf_pages_routes_into_v3c_flow(tmp_path, monkeypatch):
+def test_dispatch_cf_pages_routes_into_unified(tmp_path, monkeypatch):
+    """v15.I per ADR-0012 — cf-pages routes through `_deploy_cf_unified`
+    (same as cf-workers). Pre-flight bails on missing CF creds with
+    exit-2; that proves the unified path was taken."""
     sites_root = _patch_data_root(monkeypatch, tmp_path)
     project = sites_root / "kwizicle.com"
     project.mkdir()
     _write_lamill_toml(project, platform="cf-pages")
-    # Stub env to fail-fast inside _deploy_cf_pages_v3c; this proves
-    # we routed there rather than into a wrong branch.
-    import portfolio.suggest as suggest_mod
-    monkeypatch.setattr(suggest_mod, "load_env", lambda: {})
+    # Stub apikeys.get_key to return empty so unified pre-flight fails.
+    import portfolio.apikeys as apikeys_mod
+    monkeypatch.setattr(apikeys_mod, "get_key", lambda k: "")
     runner = CliRunner()
     r = runner.invoke(app, ["new", "deploy", "kwizicle.com"])
     assert r.exit_code == 2
     assert "CF_API_TOKEN" in r.output
+    # v15.I banner identifies the unified path.
+    assert "v15.I" in r.output or "git-integrated" in r.output
 
 
-def test_dispatch_cf_workers_invokes_shell_helper(tmp_path, monkeypatch):
+def test_dispatch_cf_workers_routes_into_unified(tmp_path, monkeypatch):
+    """v15.I — cf-workers also routes through `_deploy_cf_unified`
+    (replaces the old wrangler-shell path)."""
     sites_root = _patch_data_root(monkeypatch, tmp_path)
     project = sites_root / "airsucks.com"
     project.mkdir()
     _write_lamill_toml(project, platform="cf-workers")
-
-    calls = {}
-
-    def fake_shell(project_dir, *, dry_run=False, runner=None):
-        calls["project_dir"] = project_dir
-        calls["dry_run"] = dry_run
-        return StepResult(step="cf-workers-shell", ok=True, detail="ran")
-
-    import portfolio.deploy as deploy_mod
-    monkeypatch.setattr(
-        deploy_mod, "deploy_cf_workers_via_shell", fake_shell
-    )
+    import portfolio.apikeys as apikeys_mod
+    monkeypatch.setattr(apikeys_mod, "get_key", lambda k: "")
     runner = CliRunner()
     r = runner.invoke(app, ["new", "deploy", "airsucks.com"])
-    assert r.exit_code == 0
-    assert calls["project_dir"] == project
-    assert calls["dry_run"] is False
-    assert "platform=cf-workers" in r.output
-    assert "Deploy complete" in r.output
+    assert r.exit_code == 2
+    assert "CF_API_TOKEN" in r.output
+    # No wrangler/pnpm reference — v15.I unified path doesn't shell out.
+    assert "pnpm run deploy" not in r.output
 
 
-def test_dispatch_cf_workers_dry_run_passes_flag(tmp_path, monkeypatch):
-    sites_root = _patch_data_root(monkeypatch, tmp_path)
-    project = sites_root / "voltloop.com"
-    project.mkdir()
-    _write_lamill_toml(project, platform="cf-workers")
-
-    calls = {}
-
-    def fake_shell(project_dir, *, dry_run=False, runner=None):
-        calls["dry_run"] = dry_run
-        return StepResult(
-            step="cf-workers-shell", ok=True, skipped=True,
-            detail="DRY-RUN — would run …",
-        )
-
-    import portfolio.deploy as deploy_mod
-    monkeypatch.setattr(
-        deploy_mod, "deploy_cf_workers_via_shell", fake_shell
-    )
-    runner = CliRunner()
-    r = runner.invoke(app, ["new", "deploy", "voltloop.com", "--dry-run"])
-    assert r.exit_code == 0
-    assert calls["dry_run"] is True
-    assert "DRY-RUN" in r.output
-
-
-def test_dispatch_cf_workers_shell_failure_exits_6(tmp_path, monkeypatch):
-    sites_root = _patch_data_root(monkeypatch, tmp_path)
-    project = sites_root / "kwizicle.com"
-    project.mkdir()
-    _write_lamill_toml(project, platform="cf-workers")
-
-    def fake_shell(project_dir, *, dry_run=False, runner=None):
-        return StepResult(
-            step="cf-workers-shell", ok=False,
-            detail="`pnpm run deploy` exited with code 1",
-        )
-
-    import portfolio.deploy as deploy_mod
-    monkeypatch.setattr(
-        deploy_mod, "deploy_cf_workers_via_shell", fake_shell
-    )
-    runner = CliRunner()
-    r = runner.invoke(app, ["new", "deploy", "kwizicle.com"])
-    assert r.exit_code == 6
+# v15.I (ADR-0012) replaced `_deploy_cf_workers()` shell-out with the
+# unified Pages-API pipeline. Three obsolete tests removed:
+#   - test_dispatch_cf_workers_invokes_shell_helper
+#   - test_dispatch_cf_workers_dry_run_passes_flag
+#   - test_dispatch_cf_workers_shell_failure_exits_6
+# The unified path is exercised via test_porkbun_dns, test_gh_repo,
+# test_cloudflare_v15i unit-level (httpx-stubbed).
 
 
 def test_dispatch_vercel_invokes_shell_helper(tmp_path, monkeypatch):

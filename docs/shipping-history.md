@@ -184,6 +184,165 @@ bootstrap typo-validation fix that ran in parallel).
 
 ---
 
+## v15.G-J addendum — deploy pipeline rewrite — shipped 2026-05-20
+
+Same-day extension of v15. v15.A-F (deploy *verification*) wrapped
+earlier; the operator's testing surfaced a deeper need —
+**deploy itself** for cf-workers/cf-pages was split between two
+divergent paths (`_deploy_cf_pages_v3c()` for git-integrated CF Pages;
+`_deploy_cf_workers()` for `wrangler deploy` one-shot). The split was
+a mismatch with the operator's actual fleet (all 6 CF sites are
+git-integrated). v15.G-J unifies them.
+
+### Problem
+
+Two adjacent gaps:
+
+1. **`new deploy` for cf-workers didn't do CD.** It ran `pnpm run
+   deploy` → `wrangler deploy` as a one-shot. Future re-deploys
+   required either re-running the command or hand-wiring GitHub
+   Actions. Inconsistent with cf-pages (which got git-integrated
+   CD on first deploy).
+
+2. **`agesdk.dev` came in as TanStack Start** (via Lovable's
+   default export). The operator's "Astro + Vite only" policy
+   wasn't enforced — `_copy_from_genai()` blindly copied any stack
+   verbatim to root. Without policy, every Lovable export quirk
+   surfaced as a per-project edge case.
+
+### Design rationale
+
+Three threads:
+
+1. **Unify CF deploys onto one Pages-API pipeline.** CF unified
+   Workers + Pages in 2024-2026 (same dashboard, same API surface
+   for git-integrated builds). The `/accounts/{id}/pages/projects`
+   endpoint serves both static Pages and Workers Static Assets
+   projects with `source.type=github`. No `wrangler` involvement
+   needed; CF builds in its infrastructure on push.
+
+2. **Astro+Vite as the stack policy** for `sites/*`. The v3.A blank
+   template already produces this shape; the gap is `--git-url`'s
+   blind-copy behavior. Solution: spawn `claude` subprocess to
+   translate non-Astro repos. Same Tier-2-fixer pattern as ADR-0006.
+
+3. **No new commands.** Everything happens under `new deploy`. No
+   `project migrate-platform <domain>`, no `cf zone create`. The
+   pipeline is idempotent at every step, so re-running on a partially-
+   deployed site picks up where it left off.
+
+Two ADRs codify these:
+  - **ADR-0012** — No `wrangler deploy`; git-integrated CF Pages-API
+  - **ADR-0013** — Astro+Vite only stack; Claude-subprocess translation
+
+### Locked → as-shipped deltas
+
+  * **v15.H translation budget**: locked at `$0.50` default; operator's
+    `agesdk.dev` (real-world TanStack→Astro) hit `error_max_budget_usd`
+    after 22 turns / $0.524. Default needs bumping; budget-flag
+    addition logged in `docs/bugs.md` as v15.K candidate.
+  * **Failure rollback**: v15.H added the translation step but didn't
+    add `shutil.rmtree(project_dir)` on `StackTranslationError`. v15.G
+    plan didn't call this out explicitly; operator surfaced it in
+    testing. Logged in `docs/bugs.md` as v15.K candidate too.
+  * **`_deploy_cf_pages_v3c()` + `_deploy_cf_workers()` deletion**:
+    v15.I planned to "delete and replace"; shipped as
+    "leave-as-dead-code". Safe to clean up later; not a functional
+    issue.
+
+### CLI surface added
+
+  * **`new deploy --yes`** — auto-confirm NS update at registrar.
+    Non-interactive mode for CI/scripts.
+  * **Bootstrap default platform**: `cf-pages` → `cf-workers` (per
+    ADR-0012). Existing `lamill.toml`s with `platform = "cf-pages"`
+    still work — they route through the same unified pipeline.
+
+### Conformance checks added
+
+None. v15.G-J is plumbing, not assertion.
+
+### Resolved open questions
+
+| # | Question | Resolution |
+|---|---|---|
+| 15.G.1 | Migrate the 5 existing cf-pages sites? | Leave as-is. They already match the new model (git-integrated, same Pages-API). Relabel optional. |
+| 15.G.2 | airsucks.com (cf-workers TanStack)? | Leave. Predates the Astro-only policy. |
+| 15.G.3 | What does `new deploy` do when CF GitHub App isn't installed? | Pre-flight detects via the `pages/projects` create response; surface a clear "install once at <dashboard URL>" message + exit. |
+| 15.G.4 | Multi-stack support pathway? | New ADR per stack. Don't pre-bolt N-stack scaffolding into v15.H. |
+| 15.G.5 | TanStack server.ts translation? | Drop with `TODO:` markers in `src/lib/server-todo.md`. Operator hand-ports server logic outside the translation. |
+
+### Parked / deferred (logged in `docs/bugs.md`)
+
+  * **Failure-rollback for all `new` commands** — major. Operator
+    hit this on `agesdk.dev`. v15.K candidate.
+  * **Translation budget cap** — bump default + add `--budget` flag.
+  * **`genai/node_modules` Docker-ownership** — `shutil.rmtree` from
+    host can't delete Docker-created files. Needs best-effort skip
+    or Docker exec.
+  * **Old `_deploy_cf_pages_v3c` / `_deploy_cf_workers` cleanup** —
+    safe to delete; left in tree for now.
+
+### User journey
+
+```
+# Fresh bootstrap from a Lovable TanStack export:
+$ lamill new bootstrap agesdk.dev --git-url git@github.com:user/lovable-ui.git
+About to bootstrap agesdk.dev. You'll be asked 9 questions: ...
+<smart-paste 9-section response>
+genai/ stack is `tanstack-start` (...); translating to Astro+Vite
+via Claude subprocess (ADR-0013)...
+[Claude runs ~$0.20-0.50 for translation]
+v15.H validator: ✓ astro dep + astro.config + src/pages + no banned
+Bootstrap complete.
+
+# Then deploy end-to-end:
+$ lamill new deploy agesdk.dev
+v15.I — Deploy agesdk.dev (platform=cf-workers · git-integrated CF Pages-API)
+0. Pre-flight     ✓ CF creds · ✓ GitHub auth via token · ✓ Porkbun creds
+1. GitHub repo    ✓ created: codervijo/agesdk-dev (public, default_branch=main)
+2. Git push       ✓ pushed local commits to origin/main
+3. CF zone        ✓ created: agesdk.dev (status=pending)
+                  Cloudflare NS: dom.ns.cloudflare.com kristina.ns.cloudflare.com
+4. Registrar NS   porkbun · NS mismatch · Update NS at Porkbun? [Y/n]: Y
+                  ✓ NS updated at Porkbun
+5. CF Pages       ✓ project agesdk-dev created (source=codervijo/agesdk-dev@main)
+6. Custom domain  ✓ agesdk.dev attached to agesdk-dev
+7. Build poll     · queued: idle · build: active · deploy: success
+                  ✓ build complete — deployment a1b2c3d4
+8. Live probe     ↷ 0 — likely NS propagation in flight, re-probe in 5-30 min
+
+Deploy complete. https://agesdk.dev/ should resolve once DNS + SSL settle.
+```
+
+### Approval
+
+Operator-driven across one session 2026-05-20. v15.G kickoff
+locked 6 decisions; v15.H built stack-translation; v15.I built the
+deploy pipeline; v15.J wrapped docs. Two ADRs written + decisions/
+README.md indexed. Suite stayed green throughout (+74 new tests:
+26 stack_translate + 48 unified deploy).
+
+### Per-phase commits
+
+  * **v15.G** (`ad8739d` + `152897b`) — Doc plan + ADRs + ✅ mark.
+  * **v15.H** (`2ac4d21`) — Stack translation via Claude subprocess.
+  * **v15.I** (`fde446c`) — Unified deploy pipeline (gh_repo +
+    porkbun_dns + extended cloudflare + `_deploy_cf_unified`).
+  * **v15.J** — This commit (docs wrap).
+
+### Operational follow-ups (not gated on this tier)
+
+  * Set `GITHUB_TOKEN` via `lamill settings apikeys set GITHUB_TOKEN
+    <pat>` (or have `gh auth login` done — fallback works).
+  * Install Cloudflare GitHub App at
+    `https://dash.cloudflare.com/?to=/:account/workers-and-pages/
+    create/connect-to-git` (one-time per CF account).
+  * `agesdk.dev` re-bootstrap pending — operator's last attempt hit
+    the budget cap; v15.K should fix that before retry.
+
+---
+
 ## v15 — deploy verification (v15.A-F) — shipped 2026-05-20
 
 ### Problem
