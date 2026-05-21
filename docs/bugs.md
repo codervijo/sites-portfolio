@@ -65,6 +65,94 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — All `new` commands leave residue when they fail mid-flight
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+Operator pasted the multi-section LLM response; smart-paste fired
+correctly; the v15.H stack-translation step started; Claude
+subprocess hit the `$0.50` budget cap mid-translation
+(`error_max_budget_usd` after 22 turns / $0.524). bootstrap raised
+`StackTranslationError` and exited. State after:
+
+    sites/agesdk.dev/
+    └── genai/              ← the cloned TanStack source
+
+No project scaffolding, no commit, no portfolio.json update — but
+the `genai/` clone is sitting there waiting for the operator to
+either re-run (which fails because `--git-url` won't clobber an
+existing dir) or manually delete it.
+
+**Expected**
+
+Every `new` command (`bootstrap`, `deploy`, future) implements
+**transactional rollback**: when any step after the project-dir
+creation fails, clean up everything the command wrote so the
+operator can re-run from clean state.
+
+For `new bootstrap`:
+  - On `BootstrapError` / `StackTranslationError` / KeyboardInterrupt
+    raised after `project_dir.mkdir(parents=True)`, remove
+    `project_dir` entirely.
+  - Pre-existing dirs (operator had something there) detect at
+    pre-flight + refuse — already protected today.
+  - Smart-paste extras (registrar/registered/growth) that landed in
+    `portfolio.json` should also roll back if scaffolding fails
+    later in the same run. Cleanest: defer `portfolio.json` write
+    until AFTER scaffolding completes successfully.
+
+For `new deploy`:
+  - On failure mid-pipeline, the GH repo, CF zone, CF Pages project,
+    NS update are NOT trivially reversible (external SaaS state).
+    Don't try to delete them — the v15.I pipeline is already
+    idempotent so re-running picks up where it left off. Surface
+    the partial-state summary on exit.
+
+**Actual**
+
+`new bootstrap`'s failure-path doesn't roll back. Operator must
+manually `rm -rf` `sites/<domain>/` to retry. The `genai/` subdir
+is the most common residue because translation happens after the
+clone step but before the scaffolding step.
+
+**Where (guess)**
+
+`src/portfolio/bootstrap.py` `bootstrap()` function — wrap the
+post-`project_dir.mkdir` body in a try/except that on any
+exception (other than `BootstrapError("already exists")`):
+
+  1. Logs the failure stage to stderr.
+  2. Runs `shutil.rmtree(project_dir, ignore_errors=True)`.
+  3. Re-raises.
+
+**Severity** — `major`
+
+Operator's first real-world `--git-url` run hit this. Manual
+cleanup is annoying + the failure mode is hidden ("why won't
+bootstrap work? oh, there's a `genai/` dir lying around from
+yesterday").
+
+**Notes**
+
+Surfaced 2026-05-20 by operator after v15.H + smart-paste shipped.
+Pairs with a related concern: the `--budget-usd 0.50` default for
+v15.H translations is too low for real-world TanStack→Astro
+translations (operator's `agesdk.dev` exceeded $0.524 after 22
+turns). Bump default to `2.00` or `5.00` USD, OR add a `--budget`
+flag to `new bootstrap` so the operator can override per-run.
+
+Also worth: `genai/node_modules/` is Docker-owned (root-owned from
+the host's perspective) and `shutil.rmtree` won't be able to remove
+it without `sudo`. Rollback for `genai/` may need to either skip
+`node_modules/` (best-effort cleanup) or shell out to a Docker
+exec that owns those files.
+
+Tier candidate: v15.K (after wrap) or fold into v17.
+
+---
+
 ### 2026-05-20 — `new bootstrap` should generate a copy-paste LLM prompt first
 
 **Repro**
