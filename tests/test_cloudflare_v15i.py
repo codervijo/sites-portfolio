@@ -326,6 +326,109 @@ def test_latest_deployment_status_success():
     assert dep_id == "dep123"
 
 
+# ---- v15.R — DNS records list/delete + conflict purge ----
+
+
+def test_list_dns_records():
+    from portfolio.cloudflare import list_dns_records
+
+    def handler(req):
+        if req.method == "GET" and req.url.path.endswith("/zones/z1/dns_records"):
+            return httpx.Response(200, json={
+                "success": True,
+                "result": [
+                    {"id": "r1", "type": "A", "name": "example.com",
+                     "content": "1.2.3.4", "proxied": True},
+                    {"id": "r2", "type": "CNAME", "name": "www.example.com",
+                     "content": "example.com", "proxied": False},
+                ],
+            })
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    records = list_dns_records("z1", client=client)
+    assert len(records) == 2
+    assert records[0].type == "A"
+    assert records[0].name == "example.com"
+    assert records[0].content == "1.2.3.4"
+
+
+def test_delete_dns_record():
+    from portfolio.cloudflare import delete_dns_record
+
+    def handler(req):
+        if req.method == "DELETE" and req.url.path.endswith("/zones/z1/dns_records/r99"):
+            return httpx.Response(200, json={"success": True, "result": {"id": "r99"}})
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    delete_dns_record("z1", "r99", client=client)  # no return value; no exception = pass
+
+
+def test_purge_conflicting_root_records_removes_a_aaaa_cname_on_root_and_wildcard():
+    from portfolio.cloudflare import purge_conflicting_root_records
+
+    deleted_ids: list[str] = []
+
+    def handler(req):
+        if req.method == "GET" and req.url.path.endswith("/zones/z1/dns_records"):
+            return httpx.Response(200, json={
+                "success": True,
+                "result": [
+                    # All conflicting (root + wildcard + www, A/AAAA/CNAME):
+                    {"id": "r1", "type": "A", "name": "agesdk.dev",
+                     "content": "44.227.76.166", "proxied": True},
+                    {"id": "r2", "type": "AAAA", "name": "agesdk.dev",
+                     "content": "::1", "proxied": True},
+                    {"id": "r3", "type": "CNAME", "name": "*.agesdk.dev",
+                     "content": "pixie.porkbun.com", "proxied": True},
+                    {"id": "r4", "type": "CNAME", "name": "www.agesdk.dev",
+                     "content": "pixie.porkbun.com", "proxied": True},
+                    # NOT conflicting — preserved:
+                    {"id": "r5", "type": "MX", "name": "agesdk.dev",
+                     "content": "mail.example.com", "proxied": False},
+                    {"id": "r6", "type": "TXT", "name": "agesdk.dev",
+                     "content": "v=spf1 ...", "proxied": False},
+                    {"id": "r7", "type": "A", "name": "blog.agesdk.dev",
+                     "content": "5.6.7.8", "proxied": True},  # subdomain, not root
+                ],
+            })
+        if req.method == "DELETE":
+            rec_id = req.url.path.rsplit("/", 1)[-1]
+            deleted_ids.append(rec_id)
+            return httpx.Response(200, json={"success": True, "result": {"id": rec_id}})
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    deleted = purge_conflicting_root_records("z1", "agesdk.dev", client=client)
+    # Only r1-r4 deleted (root A, root AAAA, wildcard CNAME, www CNAME).
+    assert sorted(deleted_ids) == ["r1", "r2", "r3", "r4"]
+    assert len(deleted) == 4
+    # MX/TXT/blog-subdomain preserved.
+    assert "r5" not in deleted_ids
+    assert "r6" not in deleted_ids
+    assert "r7" not in deleted_ids
+
+
+def test_purge_conflicting_root_records_empty_when_clean_zone():
+    from portfolio.cloudflare import purge_conflicting_root_records
+
+    def handler(req):
+        if req.method == "GET":
+            return httpx.Response(200, json={
+                "success": True,
+                "result": [
+                    {"id": "r1", "type": "TXT", "name": "example.com",
+                     "content": "v=spf1 ...", "proxied": False},
+                ],
+            })
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    deleted = purge_conflicting_root_records("z1", "example.com", client=client)
+    assert deleted == []
+
+
 # ---- v15.P — Workers Service detection + custom domain attach ----
 
 

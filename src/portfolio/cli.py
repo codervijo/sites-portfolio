@@ -5981,6 +5981,43 @@ def _deploy_cf_unified(
     console.print(f"  [green]✓[/] GitHub owner: [cyan]{gh_owner}[/]")
     console.print(f"  [green]✓[/] CF project slug: [cyan]{slug}[/]")
 
+    # v15.R — Porkbun per-domain API access pre-check. The account-
+    # level API key works for /domain/listAll (v15.F refresh) but
+    # each domain has a SEPARATE per-domain toggle. Catch this at
+    # Step 0 so the operator isn't surprised mid-pipeline.
+    if porkbun_creds and not dry_run:
+        registrar_now = _lookup_registrar(domain) or ""
+        if registrar_now.lower() == "porkbun":
+            try:
+                from .porkbun_dns import get_porkbun_ns, PorkbunDnsError
+                get_porkbun_ns(domain, api_key=pb_key, secret=pb_secret)
+            except PorkbunDnsError as e:
+                if "API_ACCESS_DISABLED" in str(e) or "not opted in" in str(e):
+                    console.print(
+                        f"  [red]✗[/] Porkbun per-domain API access disabled for "
+                        f"[cyan]{domain}[/].\n"
+                        f"\n  [bold yellow]Manual enable required:[/]\n"
+                        f"    1. Open: [link]https://porkbun.com/account/domains[/link]\n"
+                        f"    2. Click on [cyan]{domain}[/]\n"
+                        f"    3. Scroll to [bold]API ACCESS[/] section\n"
+                        f"    4. Toggle [bold]API Access[/] to [bold]ON[/] → Save\n"
+                        f"  [dim]Then re-run `lamill new deploy {domain} --yes`. "
+                        f"Account-level API works (v15.F sync uses it) but "
+                        f"per-domain toggle defaults OFF for newly-registered "
+                        f"domains — each domain enables once.[/]"
+                    )
+                    raise typer.Exit(2)
+                else:
+                    # Other error (network, etc.) — non-fatal pre-flight.
+                    console.print(
+                        f"  [yellow]↷[/] Porkbun NS probe failed (continuing): {e}"
+                    )
+            else:
+                console.print(
+                    f"  [green]✓[/] Porkbun per-domain API access enabled for "
+                    f"[cyan]{domain}[/]"
+                )
+
     if dry_run:
         console.print(
             "\n  [yellow]dry-run mode — subsequent steps will print "
@@ -6050,6 +6087,23 @@ def _deploy_cf_unified(
             zone = cloudflare.ensure_zone(domain, account_id=cf_account)
         except cloudflare.CloudflareAPIError as e:
             console.print(f"  [red]✗[/] CF zone step failed: {e}")
+            # v15.R — surface exact "Connect a domain" URL when zone
+            # creation 403s (operator's token typically lacks
+            # account-level Zone:Create; the action lives in the
+            # dashboard's "+ Add" dropdown).
+            if "403" in str(e) or "zone.create" in str(e):
+                console.print(
+                    f"\n  [bold yellow]Manual zone creation required:[/]\n"
+                    f"    1. Open: [link]https://dash.cloudflare.com[/link] "
+                    f"(account = Foundervijo@gmail.com's Account)\n"
+                    f"    2. Top-right blue [bold]+ Add[/] dropdown → "
+                    f"[bold]Connect a domain[/]\n"
+                    f"    3. Enter [cyan]{domain}[/] → Free plan → Continue\n"
+                    f"    4. CF auto-creates the zone (status=pending) and "
+                    f"shows NS records\n"
+                    f"  [dim]Then re-run `lamill new deploy {domain} --yes` "
+                    f"— Step 3 will resolve via cache + skip create.[/]"
+                )
             raise typer.Exit(5)
         verb = "created" if zone.created else "exists, skipping"
         console.print(
@@ -6183,13 +6237,59 @@ def _deploy_cf_unified(
                     )
         except cloudflare.CloudflareAPIError as e:
             console.print(f"  [red]✗[/] CF project step failed: {e}")
+            # v15.R — exact dashboard URLs for the manual "Connect to
+            # Git" step (Workers Builds Git Integration API isn't
+            # public as of Jan 2026; cloudflare/workers-sdk#12058).
             console.print(
-                "  [dim]If create 403'd: CF's new Workers & Pages unified UI "
-                "creates Workers Services by default. Create the project in "
-                "the CF dashboard (Workers & Pages → + Add → Workers → "
-                "Connect to Git), then re-run — Step 5 will detect it.[/]"
+                f"\n  [bold yellow]Manual project creation required:[/]\n"
+                f"    1. Open: [link]https://dash.cloudflare.com/{cf_account}/workers-and-pages[/link]\n"
+                f"    2. Click [bold]+ Add → Workers → Connect to Git[/]\n"
+                f"       (NOT 'Pages' — CF's unified UI creates Workers Services "
+                f"by default for git-integrated projects)\n"
+                f"    3. Authorize the Cloudflare GitHub App on "
+                f"[cyan]{gh_owner}/{gh_repo_name}[/] if asked\n"
+                f"    4. Select repo [cyan]{gh_owner}/{gh_repo_name}[/]\n"
+                f"    5. Worker name: [cyan]{slug}[/] (must match — lamill's slug)\n"
+                f"    6. Production branch: [cyan]main[/]\n"
+                f"    7. Build command: [cyan]pnpm run build[/]\n"
+                f"    8. Build output: [cyan]dist[/]\n"
+                f"    9. Save and Deploy\n"
+                f"  [dim]Then re-run `lamill new deploy {domain} --yes` — "
+                f"Step 5 will detect the Workers Service + route Step 6 "
+                f"through the Workers API.[/]"
             )
             raise typer.Exit(8)
+
+    # --- Step 5.5: Purge conflicting DNS records (v15.R) --------------------
+    # When CF auto-adds a zone via "Connect a domain" UI, it populates
+    # parking placeholders (A/CNAME on root + wildcard pointing at the
+    # registrar's parking page). Those conflict with Workers Custom
+    # Domain attach in Step 6 with "Hostname already has externally
+    # managed DNS records". Auto-purge here using the operator's
+    # DNS:Edit permission (which CF's token-create UI grants by
+    # default for zone-scoped tokens).
+    if not skip_pages and not dry_run and cf_surface == "workers":
+        console.print(f"\n[bold]5.5 Purge conflicting DNS records[/] [dim]({domain})[/]")
+        try:
+            deleted = cloudflare.purge_conflicting_root_records(
+                zone.zone_id, domain,
+            )
+        except cloudflare.CloudflareAPIError as e:
+            console.print(
+                f"  [yellow]↷[/] DNS purge probe failed (continuing): {e}"
+            )
+        else:
+            if not deleted:
+                console.print(
+                    "  [green]✓[/] no conflicting root/wildcard A/AAAA/CNAME "
+                    "records found"
+                )
+            else:
+                for d in deleted:
+                    console.print(
+                        f"  [green]✓[/] removed: [cyan]{d.type}[/] "
+                        f"[dim]{d.name} → {d.content}[/]"
+                    )
 
     # --- Step 6: Custom Domain attach ----------------------------------------
     # v15.P — dispatch on cf_surface. Pages: POST /pages/projects/{name}/domains.
@@ -6216,6 +6316,22 @@ def _deploy_cf_unified(
                 )
         except cloudflare.CloudflareAPIError as e:
             console.print(f"  [red]✗[/] custom domain step failed: {e}")
+            # v15.R — surface exact dashboard URL inline for the
+            # 403-on-PUT path (token lacks the specific permission
+            # despite Workers Scripts:Edit at Account scope; CF's
+            # permission model for workers/domains is more granular
+            # than the UI label suggests).
+            if cf_surface == "workers":
+                console.print(
+                    f"\n  [bold yellow]Manual attach required:[/]\n"
+                    f"    1. Open this URL:\n"
+                    f"       [link]https://dash.cloudflare.com/{cf_account}/workers/services/view/{slug}/production/domains[/link]\n"
+                    f"    2. Click [bold]+ Add → Custom Domain[/]\n"
+                    f"    3. Enter [cyan]{domain}[/] → Save\n"
+                    f"  [dim]Then re-run `lamill new deploy {domain} --yes` — "
+                    f"Step 6 will detect the attachment via GET-then-PUT "
+                    f"(v15.Q) and skip cleanly.[/]"
+                )
             raise typer.Exit(9)
         if attached:
             console.print(f"  [green]✓[/] {domain} attached to {slug}")

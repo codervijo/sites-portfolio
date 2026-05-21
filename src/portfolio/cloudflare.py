@@ -906,3 +906,120 @@ def _project_info_from_json(payload: dict, *, created: bool) -> PagesProject:
         ),
         created=created,
     )
+
+
+# ============================================================================
+# v15.R — DNS records read + delete (auto-cleanup of conflicting records)
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class DnsRecord:
+    """v15.R — one row from `/zones/{id}/dns_records`."""
+    record_id: str
+    type: str          # "A" | "AAAA" | "CNAME" | "MX" | "TXT" | "NS" | ...
+    name: str          # FQDN (e.g. "agesdk.dev" or "www.agesdk.dev")
+    content: str       # IP / target hostname / etc.
+    proxied: bool
+
+
+def list_dns_records(
+    zone_id: str, *,
+    client: httpx.Client | None = None,
+) -> list[DnsRecord]:
+    """List DNS records in a zone. CF caps per_page at 50000 but our
+    use case rarely exceeds 20 records per zone."""
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.get(
+            f"/zones/{zone_id}/dns_records",
+            params={"per_page": 100},
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET /zones/{zone_id}/dns_records → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"dns_records list success=false: {body.get('errors')}"
+        )
+    out: list[DnsRecord] = []
+    for r in (body.get("result") or []):
+        out.append(DnsRecord(
+            record_id=r.get("id", ""),
+            type=r.get("type", ""),
+            name=r.get("name", ""),
+            content=r.get("content", ""),
+            proxied=bool(r.get("proxied")),
+        ))
+    return out
+
+
+def delete_dns_record(
+    zone_id: str, record_id: str, *,
+    client: httpx.Client | None = None,
+) -> None:
+    """Delete a single DNS record by id."""
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.delete(f"/zones/{zone_id}/dns_records/{record_id}")
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"DELETE /zones/{zone_id}/dns_records/{record_id} → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"delete_dns_record success=false: {body.get('errors')}"
+        )
+
+
+def purge_conflicting_root_records(
+    zone_id: str, domain: str, *,
+    client: httpx.Client | None = None,
+) -> list[DnsRecord]:
+    """v15.R — delete DNS records that would conflict with a Workers
+    Custom Domain attach on the root domain.
+
+    Targets A / AAAA / CNAME records where `name` matches:
+      - `<domain>` (the root itself)
+      - `*.<domain>` (wildcard subdomain)
+      - `www.<domain>` (operator's parking page often has this)
+
+    Returns the list of records that were deleted (for caller-side
+    reporting / audit).
+
+    Used before Step 6 (Workers Custom Domain attach) to avoid the
+    "Hostname already has externally managed DNS records" error.
+    Token must have DNS:Edit on the zone (operator's "lamillio
+    build token" has Zone-scope DNS:Edit on All Zones).
+    """
+    own_client = client is None
+    c = _client(client=client)
+    deleted: list[DnsRecord] = []
+    try:
+        records = list_dns_records(zone_id, client=c)
+        targets = {domain, f"*.{domain}", f"www.{domain}"}
+        conflicting_types = {"A", "AAAA", "CNAME"}
+        for r in records:
+            if r.type not in conflicting_types:
+                continue
+            if r.name not in targets:
+                continue
+            delete_dns_record(zone_id, r.record_id, client=c)
+            deleted.append(r)
+    finally:
+        if own_client:
+            c.close()
+    return deleted
