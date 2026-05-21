@@ -326,6 +326,93 @@ def test_latest_deployment_status_success():
     assert dep_id == "dep123"
 
 
+# ---- v15.N — probe_token_scopes ----
+
+
+def test_probe_token_scopes_all_ok():
+    """Happy path — every probe returns 200, scope_report.ok=True."""
+    from portfolio.cloudflare import probe_token_scopes
+
+    def handler(req):
+        if req.url.path.endswith("/user/tokens/verify"):
+            return httpx.Response(200, json={
+                "success": True,
+                "result": {"id": "tok1", "status": "active"},
+            })
+        if req.url.path.endswith("/accounts/acct/pages/projects"):
+            return httpx.Response(200, json={"success": True, "result": []})
+        if req.url.path.endswith("/zones"):
+            return httpx.Response(200, json={"success": True, "result": []})
+        if req.url.path.endswith("/accounts/acct"):
+            return httpx.Response(200, json={"success": True, "result": {}})
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    report = probe_token_scopes(account_id="acct", client=client)
+    assert report.ok
+    assert report.pages_read_ok
+    assert report.zone_read_ok
+    assert report.account_settings_read_ok
+    assert report.missing == []
+
+
+def test_probe_token_scopes_pages_403():
+    """Operator's actual failure mode — Pages access not granted."""
+    from portfolio.cloudflare import probe_token_scopes
+
+    def handler(req):
+        if req.url.path.endswith("/user/tokens/verify"):
+            return httpx.Response(200, json={"success": True, "result": {"id": "t"}})
+        if "pages/projects" in req.url.path:
+            return httpx.Response(403, json={"success": False, "errors": []})
+        # Zone + account fine.
+        return httpx.Response(200, json={"success": True, "result": []})
+
+    client = _client_for(handler)
+    report = probe_token_scopes(account_id="acct", client=client)
+    assert not report.ok
+    assert not report.pages_read_ok
+    assert any("Cloudflare Pages:Edit" in m for m in report.missing)
+
+
+def test_probe_token_scopes_invalid_token():
+    """401 on /user/tokens/verify short-circuits — no further probes."""
+    from portfolio.cloudflare import probe_token_scopes
+
+    def handler(req):
+        if req.url.path.endswith("/user/tokens/verify"):
+            return httpx.Response(401, text="unauthorized")
+        return httpx.Response(500, text="should not be called")
+
+    client = _client_for(handler)
+    report = probe_token_scopes(account_id="acct", client=client)
+    assert not report.ok
+    assert any("token-invalid" in m for m in report.missing)
+    assert not report.pages_read_ok
+    assert not report.zone_read_ok
+
+
+def test_probe_token_scopes_zone_403():
+    """Zone:Edit missing — token can't create zones."""
+    from portfolio.cloudflare import probe_token_scopes
+
+    def handler(req):
+        if req.url.path.endswith("/user/tokens/verify"):
+            return httpx.Response(200, json={"success": True, "result": {"id": "t"}})
+        if req.url.path.endswith("/accounts/acct/pages/projects"):
+            return httpx.Response(200, json={"success": True, "result": []})
+        if req.url.path.endswith("/zones"):
+            return httpx.Response(403, text="forbidden")
+        return httpx.Response(200, json={"success": True, "result": []})
+
+    client = _client_for(handler)
+    report = probe_token_scopes(account_id="acct", client=client)
+    assert not report.ok
+    assert report.pages_read_ok
+    assert not report.zone_read_ok
+    assert any("Zone:Edit" in m for m in report.missing)
+
+
 def test_latest_deployment_status_empty():
     def handler(req):
         return httpx.Response(200, json={"success": True, "result": []})

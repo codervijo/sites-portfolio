@@ -5918,6 +5918,38 @@ def _deploy_cf_unified(
         raise typer.Exit(2)
     console.print("  [green]✓[/] CF creds present")
 
+    # v15.N — pre-flight CF token scope probe. Catches under-scoped
+    # tokens (e.g. missing `Cloudflare Pages:Edit`) BEFORE the
+    # pipeline mutates GitHub state.
+    scope_report = cloudflare.probe_token_scopes(account_id=cf_account)
+    if not scope_report.ok:
+        console.print(
+            "  [red]✗[/] CF token scope insufficient. Missing:"
+        )
+        for m in scope_report.missing:
+            console.print(f"    [red]·[/] {m}")
+        console.print()
+        for n in scope_report.notes:
+            console.print(f"    [dim]{n}[/]")
+        console.print(
+            "\n  [dim]Edit your token at "
+            "[bold]https://dash.cloudflare.com/profile/api-tokens[/bold] "
+            "→ add the missing permissions → save (token value stays "
+            "the same; permissions update). Then re-run.[/]"
+        )
+        raise typer.Exit(2)
+    probe_summary = []
+    if scope_report.pages_read_ok:
+        probe_summary.append("Pages")
+    if scope_report.zone_read_ok:
+        probe_summary.append("Zone")
+    if scope_report.account_settings_read_ok:
+        probe_summary.append("Account")
+    console.print(
+        f"  [green]✓[/] CF token scope OK "
+        f"[dim]({', '.join(probe_summary) or 'all probes passed'})[/]"
+    )
+
     gh_auth = auth_path()
     if gh_auth == "none":
         console.print(

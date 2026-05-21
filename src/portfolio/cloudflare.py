@@ -276,6 +276,120 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+class TokenScopeReport:
+    """v15.N — result of a CF token scope probe.
+
+    `missing` lists scopes whose Read-side probe returned 401/403.
+    CF's permission hierarchy: Edit ⊇ Read, so a Read failure
+    means Edit isn't granted either.
+
+    `ok` is True iff every required scope passed its probe.
+    """
+    ok: bool
+    pages_read_ok: bool
+    zone_read_ok: bool
+    account_settings_read_ok: bool
+    missing: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+
+def probe_token_scopes(
+    account_id: str, *,
+    client: httpx.Client | None = None,
+) -> TokenScopeReport:
+    """v15.N — pre-flight probe to catch under-scoped CF tokens
+    BEFORE the deploy pipeline mutates GitHub / git state.
+
+    Read-only probes (each via low-cost GET):
+      - `GET /user/tokens/verify` — token alive
+      - `GET /accounts/{id}/pages/projects?per_page=1` — Pages access
+      - `GET /zones?per_page=1` — Zone access
+      - `GET /accounts/{id}` — Account-level read
+
+    Returns `TokenScopeReport` with each scope's status + a
+    `missing` list of operator-actionable scope names + a `notes`
+    list for context.
+
+    The probe is READ-only — it can't directly verify Edit
+    permissions. But Read failure implies Edit isn't granted
+    (CF permission hierarchy). Write-step 403s still surface
+    distinctly during the pipeline.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    missing: list[str] = []
+    notes: list[str] = []
+    pages_ok = zone_ok = account_ok = False
+
+    try:
+        # Token alive.
+        resp = c.get("/user/tokens/verify")
+        if resp.status_code == 401:
+            missing.append("token-invalid (401 from /user/tokens/verify)")
+            notes.append(
+                "CF_API_TOKEN is rejected by Cloudflare. Generate a "
+                "fresh token at https://dash.cloudflare.com/profile/api-tokens."
+            )
+            return TokenScopeReport(
+                ok=False, pages_read_ok=False, zone_read_ok=False,
+                account_settings_read_ok=False,
+                missing=missing, notes=notes,
+            )
+
+        # Pages read.
+        pages_resp = c.get(
+            f"/accounts/{account_id}/pages/projects",
+            params={"per_page": 1},
+        )
+        if pages_resp.status_code == 200:
+            pages_ok = True
+        elif pages_resp.status_code in (401, 403):
+            missing.append("Account → Cloudflare Pages:Edit")
+            notes.append(
+                f"Pages probe returned HTTP {pages_resp.status_code}. "
+                "Token must include the 'Cloudflare Pages' permission "
+                "(Edit level) on the Account scope to create + manage "
+                "Pages projects."
+            )
+
+        # Zone read.
+        zone_resp = c.get("/zones", params={"per_page": 1})
+        if zone_resp.status_code == 200:
+            zone_ok = True
+        elif zone_resp.status_code in (401, 403):
+            missing.append("Zone → Zone:Edit")
+            notes.append(
+                f"Zone probe returned HTTP {zone_resp.status_code}. "
+                "Token must include 'Zone' permission (Edit level) on "
+                "the Zone scope. Resources should be 'All zones from "
+                "an account' to allow creating new zones."
+            )
+
+        # Account-level read.
+        acct_resp = c.get(f"/accounts/{account_id}")
+        if acct_resp.status_code == 200:
+            account_ok = True
+        elif acct_resp.status_code in (401, 403):
+            notes.append(
+                f"Account probe returned HTTP {acct_resp.status_code}. "
+                "Token should include 'Account Settings:Read' on the "
+                "Account scope."
+            )
+    finally:
+        if own_client:
+            c.close()
+
+    return TokenScopeReport(
+        ok=(not missing),
+        pages_read_ok=pages_ok,
+        zone_read_ok=zone_ok,
+        account_settings_read_ok=account_ok,
+        missing=missing,
+        notes=notes,
+    )
+
+
+@dataclass(frozen=True)
 class ZoneInfo:
     """Resolved or newly-created CF zone. `created=True` only when
     this run made the POST /zones call."""
