@@ -1112,72 +1112,6 @@ docs sync if there's slack, or its own commit.
 
 ---
 
-### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
-
-**Repro**
-    uv run lamill domain suggest <topic>
-    # interactive menu renders after first grid
-
-**Expected**
-Every menu option is keyed by a number (plus `q` for quit). Reads
-top-to-bottom as a single numeric sequence — no interleaved
-letters.
-
-**Actual**
-Option `s` ("Show marked names as full grid") is registered in
-`MENU_ITEMS` between numbered items 7 and 8, rendering as a
-visually out-of-place letter row between 7 (Decide from
-shortlist) and 8 (Show TLD reference). Was a deliberate v4.A
-choice — source comment says *"Letter key keeps numeric muscle-
-memory (1-9) intact while adding the new affordance next to its
-shortlist siblings."* Operator's directive 2026-05-18 reverses
-that call: *"s is wrong place, wrong name, it should have all
-been just numbers."*
-
-**Where**
-`src/portfolio/cli.py:2084` — `MENU_ITEMS` list. Dispatch chain
-at `cli.py:2994-3079` (4 branches affected by the renumber).
-`_render_menu` at `cli.py:2300` (the `key in ("6", "s")` count-
-suffix check). Tests at `tests/test_suggest_show_marked.py`
-(lines 147 / 151 / 156 / 167 reference `"s"`) and
-`tests/test_suggest.py` (lines ~1674 / 1681 / 1694 snapshot
-MENU_ITEMS keys).
-
-**Severity**
-cosmetic — menu still works; reading order is off. Not blocking
-any workflow.
-
-**Fix plan** (~20 min)
-
-Renumber `s` → `8`; bump existing `8` (TLD reference) → `9`; bump
-existing `9` (Rerun fresh) → `10`. Final order keeps "Show
-marked" adjacent to its shortlist siblings (6 Mark / 7 Decide /
-8 Show marked), which was the original placement rationale —
-just numbered:
-
-```
- 1. Pick a row to register
- 2. Expand a row (full-ladder detail)
- 3. Ask AI about a name
- 4. Widen search — more candidates
- 5. Add my own names to the grid
- 6. Mark / unmark for shortlist
- 7. Decide from shortlist
- 8. Show marked names as full grid       (was 's')
- 9. Show TLD reference                   (was '8')
-10. Rerun fresh                          (was '9')
- q. Quit
-```
-
-**Notes**
-Operator clarified the directive 2026-05-18 mid-session after the
-v10 wrap + v11 restructure doc commit. Pick up between phases per
-[[feedback-bug-intake-workflow]]. Small commit; expected
-`portfolio: vN.X — domain suggest menu fully numbered (drop s key)`
-or just a docs-style commit if it doesn't fit a named phase.
-
----
-
 ### 2026-05-18 — `fleet seo --refresh` and `fleet domains` show different domain counts
 
 **Repro**
@@ -1217,6 +1151,30 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
+
+**Repro**
+    uv run lamill domain suggest <topic>
+    # interactive menu renders after first grid
+
+**Expected**
+Every menu option keyed by a number (plus `q` for quit). Reads
+top-to-bottom as a single numeric sequence — no interleaved letters.
+
+**Actual**
+Option `s` ("Show marked names as full grid") was registered in
+`MENU_ITEMS` between numbered items 7 and 8, rendering as a
+visually out-of-place letter row.
+
+**Fixed in** — 2026-05-21: renumbered `MENU_ITEMS` to pure numeric.
+`s` → `8`, `8` (TLD ref) → `9`, `9` (Rerun fresh) → `10`. Updated
+dispatch chain at `cli.py:3040-3052`, `_render_menu` count-suffix
+check (`("6", "s")` → `("6", "8")`), and 5 test assertions across
+`tests/test_suggest.py` + `tests/test_suggest_show_marked.py`. Suite
+stays at 2505 / 1 skip.
+
+---
 
 ### 2026-05-20 — Bootstrap's `package.json` template ships deprecated pnpm field
 

@@ -142,35 +142,31 @@ def test_show_marked_caps_missing_sample_at_5(monkeypatch):
 # ---------- menu wiring sanity ----------
 
 
-def test_menu_items_contains_s_key():
-    """The `s. Show marked names as full grid` entry is registered
-    in MENU_ITEMS so `_render_menu` lists it. Position is between 7
-    and 8 — between the two shortlist-related actions and the static
-    info options — but the exact position is render-time only;
-    the contract is that the key exists with the expected label."""
+def test_menu_items_contains_show_marked_at_8():
+    """The "Show marked names as full grid" entry is registered in
+    MENU_ITEMS under key `8` (was letter-keyed `s` until 2026-05-21
+    — switched to pure numeric for visual scan)."""
     keys = {key: label for key, label, _ in cli_mod.MENU_ITEMS}
-    assert "s" in keys
-    assert "Show marked" in keys["s"]
+    assert "8" in keys
+    assert "Show marked" in keys["8"]
 
 
-def test_render_menu_appends_count_suffix_on_s_when_shortlist_nonempty(monkeypatch):
+def test_render_menu_appends_count_suffix_on_8_when_shortlist_nonempty(monkeypatch):
     """Same suffix the existing item 6 gets — `(N marked)` — appears
-    on item `s` too when the shortlist is non-empty."""
+    on item 8 (Show marked) when the shortlist is non-empty."""
     cap = _patch_console(monkeypatch)
     cli_mod._render_menu(shortlist_count=12)
     out = cap.file.getvalue()
-    # Item `s` line carries the count.
-    s_line = next(line for line in out.split("\n") if line.lstrip().startswith("s."))
-    assert "12 marked" in s_line
+    line = next(line for line in out.split("\n") if line.lstrip().startswith("8."))
+    assert "12 marked" in line
 
 
-def test_render_menu_no_suffix_on_s_when_shortlist_empty(monkeypatch):
+def test_render_menu_no_suffix_on_8_when_shortlist_empty(monkeypatch):
     cap = _patch_console(monkeypatch)
     cli_mod._render_menu(shortlist_count=0)
     out = cap.file.getvalue()
-    s_line = next(line for line in out.split("\n") if line.lstrip().startswith("s."))
-    # The label itself contains the word "marked" ("Show marked names
-    # as full grid"); what we want to assert is that no `(N marked)`
-    # suffix has been appended on top of the label.
+    line = next(line for line in out.split("\n") if line.lstrip().startswith("8."))
+    # Label contains "marked" ("Show marked names as full grid"); what
+    # we're asserting is that no `(N marked)` SUFFIX got appended.
     import re
-    assert re.search(r"\(\d+ marked\)", s_line) is None
+    assert re.search(r"\(\d+ marked\)", line) is None

@@ -2084,11 +2084,13 @@ MENU_ITEMS = [
     ("5", "Add my own names to the grid",              False),
     ("6", "Mark / unmark for shortlist",               False),
     ("7", "Decide from shortlist",                     False),
-    # Letter key keeps numeric muscle-memory (1-9) intact while
-    # adding the new affordance next to its shortlist siblings.
-    ("s", "Show marked names as full grid",            False),
-    ("8", "Show TLD reference (pricing, SEO, vibe)",   False),
-    ("9", "Rerun fresh (bypass cache)",                False),  # v4.D polish
+    # 2026-05-21: dropped letter-keyed `s` in favor of pure numeric
+    # menu. Was `s` (between 7 and 8) — broke the eye's left-column
+    # numeric scan. Now `8` keeps the affordance next to its 6/7
+    # shortlist siblings; `9` and `10` follow.
+    ("8", "Show marked names as full grid",            False),
+    ("9", "Show TLD reference (pricing, SEO, vibe)",   False),
+    ("10", "Rerun fresh (bypass cache)",               False),  # v4.D polish
 ]
 
 
@@ -2286,13 +2288,13 @@ def _render_tld_reference() -> None:
 
 def _render_menu(shortlist_count: int = 0) -> None:
     """Render the post-grid menu. When shortlist_count > 0, items 6
-    (Mark / unmark) and `s` (Show marked as grid) both get a
+    (Mark / unmark) and 8 (Show marked as grid) both get a
     "(N marked)" suffix so the user can see at a glance how big their
     shortlist has grown."""
     console.print("\n[bold]What do you want to do next?[/]")
     for key, label, coming_soon in MENU_ITEMS:
         line = f"  {key}. {label}"
-        if key in ("6", "s") and shortlist_count > 0:
+        if key in ("6", "8") and shortlist_count > 0:
             line += f" ({shortlist_count} marked)"
         if coming_soon:
             line += "  [dim](coming soon)[/]"
@@ -3035,16 +3037,16 @@ def _domain_suggest_validation(
                 break
             # b from decide → main menu (shortlist preserved)
             continue
-        if choice == "s":
+        if choice == "8":
             _menu_show_marked(
                 rows, shortlist, tld_list,
                 show_renewal=show_renewal, topic=topic,
             )
             continue
-        if choice == "8":
+        if choice == "9":
             _render_tld_reference()
             continue
-        if choice == "9":
+        if choice == "10":
             from .suggest import clear_brainstorm_cache
             cleared = clear_brainstorm_cache(topic, all_strategies)
             if cleared:
