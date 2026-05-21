@@ -341,27 +341,11 @@ def detect_gh_owner() -> str | None:
 # uniformly (ok=True on subprocess returncode 0).
 
 
-def deploy_cf_workers_via_shell(
-    project_dir: Path,
-    *,
-    dry_run: bool = False,
-    runner=None,
-) -> StepResult:
-    """Run `pnpm run deploy` in `project_dir` for CF Workers deploys.
-
-    Assumes `package.json` has a `deploy` script wired to wrangler.
-    `runner` is an injection seam for tests (defaults to
-    `subprocess.run`).
-    """
-    cmd = ["pnpm", "run", "deploy"]
-    if dry_run:
-        return StepResult(
-            step="cf-workers-shell",
-            ok=True,
-            detail=f"DRY-RUN — would run: {' '.join(cmd)} (cwd={project_dir})",
-            skipped=True,
-        )
-    return _run_shell_deploy(cmd, project_dir, step="cf-workers-shell", runner=runner)
+# v15.K (ADR-0012) removed `deploy_cf_workers_via_shell`. cf-workers
+# deploys go through the unified Pages-API pipeline in
+# `cli.py::_deploy_cf_unified()`. No wrangler shell-out anywhere in
+# the deploy path. `vercel` keeps its shell helper below (still the
+# right tool for that platform's hash-and-upload pipeline).
 
 
 def deploy_vercel_via_shell(

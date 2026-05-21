@@ -1642,6 +1642,43 @@ def detect_stack_from_pkg(project_dir: Path) -> str:
     return "unknown"
 
 
+def _rollback_project_dir(project_dir: Path) -> None:
+    """v15.K — best-effort rollback after a bootstrap failure.
+
+    Removes `project_dir` and everything inside it. When the dir
+    contains Docker-owned files (e.g. `genai/node_modules/` from
+    Lovable exports built inside Docker), `shutil.rmtree` may hit
+    PermissionError from the host's perspective. We catch + warn-
+    skip + leave the residue for the operator to clean up manually
+    (instructions provided).
+
+    Called from the `bootstrap()` exception handler. Never re-raises
+    from inside this function — the underlying bootstrap failure is
+    the signal the caller surfaces.
+    """
+    import shutil
+
+    if not project_dir.exists():
+        return
+    try:
+        shutil.rmtree(project_dir)
+        print(f"[rollback] removed {project_dir}")
+    except PermissionError:
+        # Likely Docker-owned files inside genai/node_modules/.
+        # Best-effort: ignore_errors=True cleans what we can.
+        shutil.rmtree(project_dir, ignore_errors=True)
+        leftover = project_dir if project_dir.exists() else None
+        if leftover is not None:
+            print(
+                f"[rollback] partial cleanup of {project_dir}: some files "
+                f"(likely root-owned from Docker builds) need manual "
+                f"removal. Inside the sites docker container, run: "
+                f"`rm -rf /usr/src/app/{project_dir.name}`."
+            )
+        else:
+            print(f"[rollback] removed {project_dir}")
+
+
 def bootstrap(
     domain: str,
     stack: str = "astro",
@@ -1654,6 +1691,7 @@ def bootstrap(
     operator_inputs: dict[str, str] | None = None,
     growth_hypothesis: str = "",
     platform: str | None = None,
+    translation_budget_usd: float | None = None,
 ) -> BootstrapResult:
     """Top-level orchestration. Always called with already-validated domain.
 
@@ -1681,6 +1719,63 @@ def bootstrap(
     project_dir = sites / domain
     today = today_iso or date.today().isoformat()
 
+    # v15.K — transactional rollback. Track whether THIS run created
+    # the project dir; on any exception in the body below, remove it
+    # so the operator can re-run from clean state. Pre-existing dirs
+    # (operator-typo or stale state) detected at pre-flight + refused
+    # with a "won't clobber" BootstrapError — those errors fire BEFORE
+    # the flag is set, so they don't trigger rollback.
+    _we_created_dir = False
+
+    try:
+        return _bootstrap_inner(
+            domain=domain, stack=stack, from_genai=from_genai,
+            git_url=git_url, with_ingester=with_ingester, topic=topic,
+            sites_root=sites_root, sites=sites, project_dir=project_dir,
+            today=today,
+            operator_inputs=operator_inputs,
+            growth_hypothesis=growth_hypothesis,
+            platform=platform,
+            translation_budget_usd=translation_budget_usd,
+            _dir_tracker=lambda: _set_we_created_dir(),
+        )
+    except Exception:
+        # Rollback only if we created the dir in this run.
+        if _we_created_dir_value[0]:
+            _rollback_project_dir(project_dir)
+        raise
+
+
+# Helper closure for the v15.K rollback bookkeeping. Python's
+# nested-function variable rebinding is awkward; using a 1-element
+# list lets the inner function flip the flag observably from the
+# outer try/except.
+_we_created_dir_value: list[bool] = [False]
+
+
+def _set_we_created_dir() -> None:
+    _we_created_dir_value[0] = True
+
+
+def _bootstrap_inner(
+    *,
+    domain: str, stack: str, from_genai: bool,
+    git_url: str | None, with_ingester: bool, topic: str,
+    sites_root: Path | None, sites: Path, project_dir: Path,
+    today: str,
+    operator_inputs: dict[str, str] | None,
+    growth_hypothesis: str,
+    platform: str | None,
+    translation_budget_usd: float | None,
+    _dir_tracker,
+) -> BootstrapResult:
+    """Inner body of bootstrap. Wrapped by `bootstrap()` for v15.K
+    transactional rollback."""
+
+    # Reset the rollback-tracker for this run (covers consecutive
+    # in-process calls in tests).
+    _we_created_dir_value[0] = False
+
     if git_url:
         if project_dir.exists():
             raise BootstrapError(
@@ -1688,6 +1783,7 @@ def bootstrap(
                 f"If you already cloned to {project_dir}/genai/, use --from-genai instead."
             )
         project_dir.mkdir(parents=True)
+        _dir_tracker()
         _clone_to_genai(project_dir, git_url)
         from_genai = True  # fall through to the same handling below
 
@@ -1734,10 +1830,11 @@ def bootstrap(
             # Print to stderr so test output can capture for verification;
             # bootstrap doesn't import `rich` console — use print.
             print(console_translate_msg)
-            result = translate_to_astro(
-                project_dir,
-                detection=stack_detection,
-            )
+            # v15.K — translation budget override via --budget flag.
+            translate_kwargs = {"detection": stack_detection}
+            if translation_budget_usd is not None:
+                translate_kwargs["budget_usd"] = translation_budget_usd
+            result = translate_to_astro(project_dir, **translate_kwargs)
             if not result.ok:
                 raise StackTranslationError(
                     f"Claude translation failed: {result.error}. "
@@ -1777,6 +1874,7 @@ def bootstrap(
                 "or --git-url=<url> to clone one."
             )
         project_dir.mkdir(parents=True)
+        _dir_tracker()
         # Stack-specific files first.
         stack_spec = ASTRO_FILES if stack == "astro" else VITE_FILES if stack == "vite" else None
         if stack_spec is None:

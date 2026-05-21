@@ -223,7 +223,8 @@ def test_known_keys_includes_canonical_set():
                 "HOSTGATOR_TOKEN_GATOR3164",  # v11.A
                 "HOSTGATOR_USER_GATOR3164",   # v11.A patch 2026-05-19
                 "HOSTGATOR_TOKEN_GATOR4216",  # v11.A
-                "HOSTGATOR_USER_GATOR4216"}   # v11.A patch 2026-05-19
+                "HOSTGATOR_USER_GATOR4216",   # v11.A patch 2026-05-19
+                "GITHUB_TOKEN"}               # v15.I — `new deploy` GH repo create
     assert set(apikeys.KNOWN_KEYS) == expected
 
 

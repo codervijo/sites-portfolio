@@ -399,13 +399,27 @@ def test_template_path_git_initialized(tmp_path):
 
 
 def _make_fake_lovable_export(genai_dir: Path, vite_version: str = "^4.5.0", with_redirects: bool = True):
-    """Populate genai_dir with a minimal fake Lovable-style Vite/React export."""
+    """Populate genai_dir with a minimal fake Lovable-style Vite/React export.
+
+    v15.H note (ADR-0013): the v15.H stack-translation hook detects
+    non-Astro repos and translates via Claude subprocess. To keep
+    legacy `--from-genai` tests testing the `_copy_from_genai` + CF
+    safety fix behaviors (rather than the translation path), this
+    fixture includes `astro` in dependencies so `detect_stack` routes
+    through the direct-copy path. The underlying behaviors tested
+    (vite version bumping, lockfile cleanup, CF headers/wrangler) are
+    stack-agnostic and apply to any sites/* project.
+    """
     genai_dir.mkdir(parents=True, exist_ok=True)
     pkg = {
         "name": "lovable-export",
         "type": "module",
         "scripts": {"dev": "vite", "build": "vite build"},
-        "dependencies": {"react": "^18.3.0", "react-dom": "^18.3.0"},
+        "dependencies": {
+            "react": "^18.3.0",
+            "react-dom": "^18.3.0",
+            "astro": "^5.0.0",  # v15.H: routes detection to Astro path
+        },
         "devDependencies": {"vite": vite_version, "@vitejs/plugin-react": "^4.3.0"},
     }
     (genai_dir / "package.json").write_text(json.dumps(pkg, indent=2))
@@ -433,14 +447,18 @@ def test_from_genai_copies_files_up(tmp_path):
     assert (project / "genai").exists(), "genai/ should be left intact for the user to inspect"
 
 
-def test_from_genai_detects_vite_stack_from_package_json(tmp_path):
+def test_from_genai_detects_astro_stack_from_package_json(tmp_path):
+    """v15.H (ADR-0013): `--from-genai` auto-detects stack via the
+    new `detect_stack` helper. Fixtures now include `astro` dep, so
+    detection routes through the direct-copy path with stack='astro'.
+    The previous v3.A behavior asserted stack='vite'; that's now
+    deprecated under the Astro-only policy."""
     project = tmp_path / "kwizicle.com"
     project.mkdir()
     _make_fake_lovable_export(project / "genai")
 
     result = bootstrap("kwizicle.com", from_genai=True, stack="astro", sites_root=tmp_path)
-    # Should auto-detect to vite from the genai package.json — overrides --stack=astro
-    assert result.stack == "vite"
+    assert result.stack == "astro"
 
 
 def test_from_genai_bumps_old_vite(tmp_path):
@@ -612,7 +630,9 @@ def test_git_url_path_invokes_clone_then_genai_logic(tmp_path):
 
     project = tmp_path / "kwizicle.com"
     assert result.path == "git-url"
-    assert result.stack == "vite"  # auto-detected from cloned package.json
+    # v15.H (ADR-0013): fixture includes `astro` dep → detect_stack
+    # routes through direct-copy path with stack='astro'.
+    assert result.stack == "astro"
     # Files copied up from genai/
     assert (project / "package.json").exists()
     # CF fixes applied
@@ -920,10 +940,14 @@ def test_bootstrap_doesnt_clobber_existing_lamill_toml(tmp_path):
     )
     write(project_dir, preexisting)
     # Bootstrap normally rejects existing project_dir on template
-    # path; use --from-genai instead. Pre-seed an empty genai dir.
+    # path; use --from-genai instead. Pre-seed an empty genai dir
+    # with an Astro package.json so v15.H detect_stack routes through
+    # the direct-copy path (otherwise UNKNOWN stack bails with
+    # BootstrapError).
     (project_dir / "genai").mkdir()
     (project_dir / "genai" / "package.json").write_text(
-        '{"name": "flow", "scripts": {"build": "echo build"}}'
+        '{"name": "flow", "scripts": {"build": "echo build"}, '
+        '"dependencies": {"astro": "^5.0.0"}}'
     )
     bootstrap("flow.dev", from_genai=True, sites_root=tmp_path)
     # The pre-existing lamill.toml survives untouched.

@@ -1,9 +1,13 @@
 """Tests for v11.M — `new deploy <domain>` polymorphic dispatcher.
 
 Covers the dispatcher in `cli.py::new_deploy` and the shell-out
-helpers `deploy_cf_workers_via_shell` / `deploy_vercel_via_shell`
-in `deploy.py`. No real subprocesses or API calls — `runner` injection
-in the deploy helpers; subprocess fakes in the CLI tests.
+helper `deploy_vercel_via_shell` in `deploy.py`. No real subprocesses
+or API calls — `runner` injection in the deploy helpers; subprocess
+fakes in the CLI tests.
+
+v15.K removed `deploy_cf_workers_via_shell` (cf-workers now routes
+through the unified Pages-API pipeline per ADR-0012). The
+`test_cf_workers_*` tests below are dropped.
 """
 from __future__ import annotations
 
@@ -17,7 +21,6 @@ from typer.testing import CliRunner
 from portfolio.cli import app
 from portfolio.deploy import (
     StepResult,
-    deploy_cf_workers_via_shell,
     deploy_vercel_via_shell,
 )
 
@@ -60,39 +63,12 @@ def _patch_data_root(monkeypatch, tmp_path: Path) -> Path:
 # =====================================================================
 
 
-def test_cf_workers_dry_run_returns_skipped_step(tmp_path):
-    r = deploy_cf_workers_via_shell(tmp_path, dry_run=True)
-    assert r.skipped is True
-    assert r.ok is True
-    assert "pnpm run deploy" in r.detail
-    assert str(tmp_path) in r.detail
-
-
-def test_cf_workers_invokes_pnpm_run_deploy(tmp_path):
-    runner = MagicMock(return_value=_FakeProc(returncode=0))
-    r = deploy_cf_workers_via_shell(tmp_path, dry_run=False, runner=runner)
-    assert r.ok is True
-    assert r.skipped is False
-    runner.assert_called_once()
-    args, kwargs = runner.call_args
-    assert args[0] == ["pnpm", "run", "deploy"]
-    assert kwargs["cwd"] == str(tmp_path)
-
-
-def test_cf_workers_nonzero_exit_returns_failure(tmp_path):
-    runner = MagicMock(return_value=_FakeProc(returncode=2))
-    r = deploy_cf_workers_via_shell(tmp_path, dry_run=False, runner=runner)
-    assert r.ok is False
-    assert "exited with code 2" in r.detail
-
-
-def test_cf_workers_command_not_found_returns_failure(tmp_path):
-    def boom(*a, **kw):
-        raise FileNotFoundError("pnpm")
-    r = deploy_cf_workers_via_shell(tmp_path, dry_run=False, runner=boom)
-    assert r.ok is False
-    assert "command not found" in r.detail
-    assert "pnpm" in r.detail
+# v15.K — `deploy_cf_workers_via_shell` deleted. The 4
+# `test_cf_workers_*` shell tests above this point were obsolete
+# (they tested behavior that's gone). cf-workers now routes through
+# the unified Pages-API pipeline (`_deploy_cf_unified` in cli.py);
+# exercise that path via test_porkbun_dns, test_gh_repo,
+# test_cloudflare_v15i instead.
 
 
 def test_vercel_dry_run_returns_skipped_step(tmp_path):

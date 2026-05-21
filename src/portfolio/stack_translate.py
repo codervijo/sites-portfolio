@@ -41,11 +41,15 @@ STACK_NEXTJS = "nextjs"
 STACK_SVELTEKIT = "sveltekit"
 STACK_UNKNOWN = "unknown"
 
-# Translator budget cap. Translation of a typical Lovable export is
-# 5-30 files (pages, components, styles, configs). Empirically Claude
-# spends $0.05-0.25 per repo translation; 0.50 USD gives headroom for
-# larger projects without budget-exceeded failures.
-_DEFAULT_BUDGET_USD = 0.50
+# Translator budget cap. v15.K bumped from $0.50 → $2.00 after
+# operator's `agesdk.dev` (real-world TanStack→Astro) hit
+# `error_max_budget_usd` at $0.524 / 22 turns. Empirical baseline:
+# typical Lovable exports are 5-30 files; smaller ones run $0.10-0.30;
+# complex ones with rich routing + framework-specific server code can
+# easily hit $1-2. $2.00 default keeps the safety net while covering
+# the common case. Operator can override via `--budget` flag on
+# `lamill new bootstrap`.
+_DEFAULT_BUDGET_USD = 2.00
 
 # Translator timeout. Empirically Claude takes 30s-3min depending on
 # repo size + complexity. 300s (5min) covers worst-case Lovable

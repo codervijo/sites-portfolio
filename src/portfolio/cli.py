@@ -3485,6 +3485,14 @@ def new_bootstrap(
         help="Skip the owned-domains validation — use when "
              "bootstrapping a domain you haven't registered yet (rare).",
     ),
+    budget_usd: float = typer.Option(
+        0.0, "--budget",
+        help="v15.K — Claude translation budget cap (USD). Default 0.0 "
+             "uses the stack_translate module default ($2.00; was $0.50 "
+             "pre-v15.K — bumped after operator's TanStack→Astro hit the "
+             "old cap). Pass a higher value (e.g. `--budget 5.0`) for "
+             "very complex Lovable exports.",
+    ),
 ) -> None:
     """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A).
 
@@ -3515,6 +3523,7 @@ def new_bootstrap(
         bootstrap as run_bootstrap,
         validate_owned_domain,
     )
+    from .stack_translate import StackTranslationError
 
     # Owned-domains pre-flight. Runs BEFORE prompts / file writes so a
     # typo'd domain (e.g. `ageskd.dev` for `agesdk.dev`) exits cleanly
@@ -3614,10 +3623,22 @@ def new_bootstrap(
             operator_inputs=operator_inputs,
             growth_hypothesis=growth_hypothesis_resolved,
             platform=platform or None,
+            translation_budget_usd=budget_usd if budget_usd > 0.0 else None,
         )
     except BootstrapError as e:
         console.print(f"[red]bootstrap failed:[/] {e}")
+        console.print(
+            "[dim]Project dir cleaned up (v15.K rollback). Re-run when "
+            "ready.[/]"
+        )
         raise typer.Exit(2)
+    except StackTranslationError as e:
+        console.print(f"[red]bootstrap failed — stack translation:[/] {e}")
+        console.print(
+            "[dim]Project dir cleaned up (v15.K rollback). Try a higher "
+            "budget with `--budget 5.0`, or fix the source repo.[/]"
+        )
+        raise typer.Exit(3)
 
     # v9.C — append portfolio.json row when applicable.
     _apply_inventory_decision(domain, inventory_decision)
@@ -6208,118 +6229,10 @@ def _lookup_registrar(domain: str) -> str | None:
     return None
 
 
-def _deploy_cf_pages_v3c(
-    *,
-    domain: str,
-    project_dir,
-    gh_owner: str,
-    private: bool,
-    dry_run: bool,
-    skip_verify: bool,
-    skip_repo: bool,
-    skip_pages: bool,
-) -> None:
-    """First-time CF Pages plumbing (extracted from v3.C, dispatched by v11.M)."""
-    from .bootstrap import _project_name
-    from .deploy import CloudflarePagesDeploy, detect_gh_owner
-    from .suggest import PORTFOLIO_ENV, load_env
-
-    env = load_env()
-    cf_token = env.get("CF_API_TOKEN", "").strip()
-    cf_account = env.get("CF_ACCOUNT_ID", "").strip()
-    if not cf_token or not cf_account:
-        console.print(f"[red]CF_API_TOKEN and CF_ACCOUNT_ID required.[/]  Edit [dim]{PORTFOLIO_ENV}[/] and try again.")
-        raise typer.Exit(2)
-
-    if not gh_owner:
-        gh_owner = detect_gh_owner() or ""
-    if not gh_owner:
-        console.print("[red]GitHub owner not provided and `gh api user` failed.[/]")
-        console.print("[dim]Either pass --gh-owner=<your-login>, or run `gh auth login` first.[/]")
-        raise typer.Exit(2)
-
-    slug = f"{gh_owner}/{_project_name(domain)}"
-    target = CloudflarePagesDeploy(api_token=cf_token, account_id=cf_account, dry_run=dry_run)
-
-    console.print(f"[bold]Deploy plan for[/] [cyan]{domain}[/]  [dim](platform=cf-pages)[/]")
-    console.print(f"  project dir:  {project_dir}")
-    console.print(f"  gh slug:      {slug}")
-    console.print(f"  cf project:   {_project_name(domain)}  [dim](from wrangler.jsonc, falling back to domain base)[/]")
-    console.print(f"  visibility:   {'private' if private else 'public'}")
-    console.print(f"  dry-run:      {dry_run}")
-
-    # 1. verify
-    if not skip_verify:
-        console.print("\n[bold]1. Verify local config[/]")
-        v = target.verify_local_config(project_dir)
-        if v.notes:
-            for n in v.notes:
-                console.print(f"  [dim]·[/] {n}")
-        if not v.ok:
-            console.print("[red]Local config issues:[/]")
-            for m in v.missing:
-                console.print(f"  ✗ {m}")
-            console.print("[yellow]Fix the above, then re-run. Use --skip-verify to override at your own risk.[/]")
-            raise typer.Exit(3)
-        console.print("[green]✓ local config looks deployable[/]")
-
-    # 2. github
-    if not skip_repo:
-        console.print(f"\n[bold]2. Create + push GitHub repo[/] ({slug})")
-        if not dry_run:
-            confirm = typer.confirm("  Proceed?", default=True)
-            if not confirm:
-                console.print("[yellow]Aborted at GitHub step.[/]")
-                raise typer.Exit(0)
-        r1 = target.create_github_repo(project_dir, slug, private=private)
-        if r1.skipped:
-            console.print(f"  [yellow]↷[/] {r1.detail}")
-        elif r1.ok:
-            console.print(f"  [green]✓[/] {r1.detail}")
-        else:
-            console.print(f"  [red]✗[/] {r1.detail}")
-            raise typer.Exit(4)
-
-    # 3. cf pages project
-    if not skip_pages:
-        cf_project = _project_name(domain)
-        console.print(f"\n[bold]3. Create Cloudflare Pages project[/] ({cf_project} → github.com/{slug})")
-        if not dry_run:
-            confirm = typer.confirm("  Proceed?", default=True)
-            if not confirm:
-                console.print("[yellow]Aborted at CF Pages step.[/]")
-                raise typer.Exit(0)
-        r2 = target.create_project(project_dir, domain, gh_owner=gh_owner, gh_repo=_project_name(domain))
-        if r2.skipped:
-            console.print(f"  [yellow]↷[/] {r2.detail}")
-        elif r2.ok:
-            console.print(f"  [green]✓[/] {r2.detail}")
-        else:
-            console.print(f"  [red]✗[/] {r2.detail}")
-            raise typer.Exit(5)
-
-    console.print("\n[green]Deploy plumbing complete.[/]")
-    console.print("[dim]Next: CF auto-builds on each push to main. Watch the dashboard for the first build.[/]")
-    console.print(f"[dim]To add the custom domain, do it in the CF Pages dashboard for now (deferred from v3.C).[/]")
-
-
-def _deploy_cf_workers(*, domain: str, project_dir, dry_run: bool) -> None:
-    """v11.M cf-workers path: shell out to `pnpm run deploy` (wrangler)."""
-    from .deploy import deploy_cf_workers_via_shell
-
-    console.print(f"[bold]Deploy[/] [cyan]{domain}[/]  [dim](platform=cf-workers · wrangler via pnpm)[/]")
-    console.print(f"  project dir:  {project_dir}")
-    console.print(f"  dry-run:      {dry_run}")
-    result = deploy_cf_workers_via_shell(project_dir, dry_run=dry_run)
-    if result.skipped:
-        console.print(f"\n  [yellow]↷[/] {result.detail}")
-        return
-    if result.ok:
-        console.print(f"\n  [green]✓[/] {result.detail}")
-        console.print("[green]Deploy complete.[/]")
-        return
-    console.print(f"\n  [red]✗[/] {result.detail}")
-    raise typer.Exit(6)
+# v15.I (ADR-0012) deleted `_deploy_cf_pages_v3c()` + `_deploy_cf_workers()`.
+# Both routes go through `_deploy_cf_unified()` above. v15.K (this commit)
+# removes the dead code. `deploy_cf_workers_via_shell` in deploy.py also
+# removed in the same pass.
 
 
 def _deploy_vercel(*, domain: str, project_dir, dry_run: bool) -> None:
