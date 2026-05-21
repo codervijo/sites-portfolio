@@ -37,21 +37,36 @@ class CloudflareAPIError(RuntimeError):
 
 
 def _read_token() -> str:
+    """v15.O hotfix — env-first token lookup.
+
+    Two CF token storage locations existed historically:
+      1. `portfolio.env` `CF_API_TOKEN` — canonical for v15.I-N
+         (set via `lamill settings apikeys set CF_API_TOKEN <pat>`).
+      2. `~/.config/portfolio/cloudflare/token` — legacy file from
+         pre-apikeys era, used by `purge_files` (CHECK_057's
+         tier-1 fixer).
+
+    These can diverge if the operator updates one without the
+    other. Env wins to keep the apikeys-canonical model clean;
+    file is fallback for backward compat.
+    """
+    from . import apikeys
+
+    env_token = (apikeys.get_key("CF_API_TOKEN") or "").strip()
+    if env_token:
+        return env_token
+
     if not TOKEN_PATH.is_file():
         raise MissingCredentialsError(
-            f"No Cloudflare API token at {TOKEN_PATH}.\n"
-            "  Easiest: run `portfolio settings cloudflare token` "
-            "— prompts for the token, saves it at mode 0600, and verifies "
-            "it works against Cloudflare in one step.\n"
+            f"No CF API token in portfolio.env (CF_API_TOKEN) or "
+            f"{TOKEN_PATH}.\n"
+            "  Set via `lamill settings apikeys set CF_API_TOKEN <pat>` "
+            "(preferred — canonical location since v15.I).\n"
             "  Manual path:\n"
             "  1. Open https://dash.cloudflare.com/profile/api-tokens\n"
-            "  2. Click 'Create Custom Token' → Get started\n"
-            "  3. Permissions: Zone → Cache Purge → Purge\n"
-            "  4. Zone Resources: Include → All zones from an account → "
-            "<your account>\n"
-            "  5. Continue to summary → Create Token, copy the value\n"
-            f"  6. mkdir -p {TOKEN_PATH.parent} && "
-            f"printf '%s' '<token>' > {TOKEN_PATH} && chmod 600 {TOKEN_PATH}"
+            "  2. Click 'Create Custom Token' → set permissions\n"
+            "  3. Continue to summary → Create Token, copy the value\n"
+            "  4. `lamill settings apikeys set CF_API_TOKEN <value>`"
         )
     return TOKEN_PATH.read_text().strip()
 

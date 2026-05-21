@@ -19,21 +19,39 @@ def _mock_client(handler) -> httpx.Client:
 
 
 def test_read_token_raises_when_missing(monkeypatch, tmp_path):
+    """v15.O — env-first: stub apikeys.get_key to return empty so we
+    fall through to the file (which is also missing here)."""
     monkeypatch.setattr(cloudflare, "TOKEN_PATH", tmp_path / "no-token-here")
+    import portfolio.apikeys as apikeys_mod
+    monkeypatch.setattr(apikeys_mod, "get_key", lambda k: "")
     with pytest.raises(cloudflare.MissingCredentialsError) as exc:
         cloudflare._read_token()
     msg = str(exc.value)
-    # Message walks operator through Custom Token flow — these are the
-    # load-bearing breadcrumbs (URL + permission triplet + path hint).
     assert "dash.cloudflare.com/profile/api-tokens" in msg
-    assert "Cache Purge" in msg
-    assert "Create Custom Token" in msg
+    assert "settings apikeys set CF_API_TOKEN" in msg
 
 
-def test_read_token_strips_trailing_whitespace(monkeypatch, tmp_path):
+def test_read_token_env_wins_over_file(monkeypatch, tmp_path):
+    """v15.O — when CF_API_TOKEN is in portfolio.env, it wins over
+    the legacy file."""
+    p = tmp_path / "token"
+    p.write_text("file-token-old\n")
+    monkeypatch.setattr(cloudflare, "TOKEN_PATH", p)
+    import portfolio.apikeys as apikeys_mod
+    monkeypatch.setattr(
+        apikeys_mod, "get_key",
+        lambda k: "env-token-new" if k == "CF_API_TOKEN" else "",
+    )
+    assert cloudflare._read_token() == "env-token-new"
+
+
+def test_read_token_falls_back_to_file_when_env_empty(monkeypatch, tmp_path):
+    """v15.O — file is the fallback when env is unset."""
     p = tmp_path / "token"
     p.write_text("  abc123  \n")
     monkeypatch.setattr(cloudflare, "TOKEN_PATH", p)
+    import portfolio.apikeys as apikeys_mod
+    monkeypatch.setattr(apikeys_mod, "get_key", lambda k: "")
     assert cloudflare._read_token() == "abc123"
 
 
