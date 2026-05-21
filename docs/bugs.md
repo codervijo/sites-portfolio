@@ -127,63 +127,6 @@ Same pattern as the other v15.R-era load-bearing failure gates
 when the token can't do the operation, print exact dashboard URL
 + numbered substeps, then exit non-zero.
 
-### 2026-05-20 — Bootstrap's `package.json` template ships deprecated pnpm field
-
-**Repro**
-
-After `lamill new bootstrap <newdomain> --git-url <url>` (or any
-bootstrap that emits the standard Astro+Vite template), running
-`make deps` (or `pnpm install`) inside the sites Docker container
-prints:
-
-    [WARN] The "pnpm" field in package.json is no longer read by
-    pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies".
-    See https://pnpm.io/settings for the new home of each setting.
-
-**Expected**
-
-No deprecation warning. The bootstrap template's `package.json`
-either drops the `pnpm.onlyBuiltDependencies` field entirely or
-moves the equivalent setting to its new pnpm-9+ home (probably
-`.npmrc` or a top-level `onlyBuiltDependencies` field — needs
-checking against current pnpm docs).
-
-**Actual**
-
-Bootstrap-generated `package.json` includes:
-
-```json
-{
-  "pnpm": {
-    "onlyBuiltDependencies": ["..."]
-  }
-}
-```
-
-The field is silently ignored by pnpm 9+. Operator sees the noise
-every build.
-
-**Where (guess)**
-
-`src/portfolio/bootstrap.py` — the `ASTRO_FILES` / `VITE_FILES`
-template emitters. Search for `onlyBuiltDependencies` in the
-package.json string templates. Either remove the `pnpm` block
-entirely OR figure out the new equivalent and emit that.
-
-**Severity** — `cosmetic`
-
-Warning noise only; doesn't break the build. But every operator
-build for every site prints it, so it's worth fixing for hygiene.
-
-**Notes**
-
-Surfaced 2026-05-20 by operator during a second-domain bootstrap
-session after v15.M shipped. Likely related: pnpm 9 → 10 → 11
-transition has been deprecating/relocating various
-`package.json` pnpm.* fields over the past year. v15.S candidate.
-
----
-
 ### 2026-05-20 — `make deps` hits pnpm store version mismatch on new-domain builds
 
 **Repro**
@@ -268,94 +211,6 @@ The error is rooted in pnpm's design (rejects cross-major-version
 stores) so it's not a CF/lamill bug per se — but lamill's bootstrap
 emits the template that creates the trap. Fix lives in the
 bootstrap template.
-
----
-
-### 2026-05-20 — All `new` commands leave residue when they fail mid-flight
-
-**Repro**
-
-    lamill new bootstrap agesdk.dev
-
-Operator pasted the multi-section LLM response; smart-paste fired
-correctly; the v15.H stack-translation step started; Claude
-subprocess hit the `$0.50` budget cap mid-translation
-(`error_max_budget_usd` after 22 turns / $0.524). bootstrap raised
-`StackTranslationError` and exited. State after:
-
-    sites/agesdk.dev/
-    └── genai/              ← the cloned TanStack source
-
-No project scaffolding, no commit, no portfolio.json update — but
-the `genai/` clone is sitting there waiting for the operator to
-either re-run (which fails because `--git-url` won't clobber an
-existing dir) or manually delete it.
-
-**Expected**
-
-Every `new` command (`bootstrap`, `deploy`, future) implements
-**transactional rollback**: when any step after the project-dir
-creation fails, clean up everything the command wrote so the
-operator can re-run from clean state.
-
-For `new bootstrap`:
-  - On `BootstrapError` / `StackTranslationError` / KeyboardInterrupt
-    raised after `project_dir.mkdir(parents=True)`, remove
-    `project_dir` entirely.
-  - Pre-existing dirs (operator had something there) detect at
-    pre-flight + refuse — already protected today.
-  - Smart-paste extras (registrar/registered/growth) that landed in
-    `portfolio.json` should also roll back if scaffolding fails
-    later in the same run. Cleanest: defer `portfolio.json` write
-    until AFTER scaffolding completes successfully.
-
-For `new deploy`:
-  - On failure mid-pipeline, the GH repo, CF zone, CF Pages project,
-    NS update are NOT trivially reversible (external SaaS state).
-    Don't try to delete them — the v15.I pipeline is already
-    idempotent so re-running picks up where it left off. Surface
-    the partial-state summary on exit.
-
-**Actual**
-
-`new bootstrap`'s failure-path doesn't roll back. Operator must
-manually `rm -rf` `sites/<domain>/` to retry. The `genai/` subdir
-is the most common residue because translation happens after the
-clone step but before the scaffolding step.
-
-**Where (guess)**
-
-`src/portfolio/bootstrap.py` `bootstrap()` function — wrap the
-post-`project_dir.mkdir` body in a try/except that on any
-exception (other than `BootstrapError("already exists")`):
-
-  1. Logs the failure stage to stderr.
-  2. Runs `shutil.rmtree(project_dir, ignore_errors=True)`.
-  3. Re-raises.
-
-**Severity** — `major`
-
-Operator's first real-world `--git-url` run hit this. Manual
-cleanup is annoying + the failure mode is hidden ("why won't
-bootstrap work? oh, there's a `genai/` dir lying around from
-yesterday").
-
-**Notes**
-
-Surfaced 2026-05-20 by operator after v15.H + smart-paste shipped.
-Pairs with a related concern: the `--budget-usd 0.50` default for
-v15.H translations is too low for real-world TanStack→Astro
-translations (operator's `agesdk.dev` exceeded $0.524 after 22
-turns). Bump default to `2.00` or `5.00` USD, OR add a `--budget`
-flag to `new bootstrap` so the operator can override per-run.
-
-Also worth: `genai/node_modules/` is Docker-owned (root-owned from
-the host's perspective) and `shutil.rmtree` won't be able to remove
-it without `sudo`. Rollback for `genai/` may need to either skip
-`node_modules/` (best-effort cleanup) or shell out to a Docker
-exec that owns those files.
-
-Tier candidate: v15.K (after wrap) or fold into v17.
 
 ---
 
@@ -604,178 +459,6 @@ listing bugs.
 
 ---
 
-### 2026-05-20 — `new bootstrap` doesn't prompt for Lovable's GitHub repo URL
-
-**Repro**
-
-    lamill new bootstrap agesdk.dev
-
-Operator's workflow is typically: design the UI in Lovable.dev →
-Lovable exports a GitHub repo → clone-and-scaffold that repo as a
-new sites/<domain>/ project. Bootstrap already supports this via
-the `--git-url <repo-url>` flag (which `git clone`s the URL into
-`sites/<domain>/genai/` and runs the `--from-genai` path), but the
-interactive flow doesn't ask for it.
-
-**Expected**
-
-Bootstrap interactive flow should ask:
-
-```
-Lovable GitHub repo URL (or Enter to skip and scaffold blank):
-  >: https://github.com/user/agesdk-dev-ui
-```
-
-When provided, bootstrap follows the existing `--git-url` path
-(clones into `genai/`, applies CF Pages safety fixes, etc.). When
-empty, falls through to the standard blank-scaffold template.
-
-Add as the FIRST prompt (before the AI_AGENTS sections) so the
-operator's UI work is already in place before they fill in the
-docs that should reference it.
-
-**Actual**
-
-Only the 8 prompts listed above (Summary / Audience / ICP / Goals /
-Content strategy / Registered / Registrar / Growth hypothesis).
-The `--git-url` flag is documented in `--help` but never
-surfaces interactively.
-
-**Where (guess)**
-
-`src/portfolio/cli.py @new_app.command("bootstrap")` — add a
-9th prompt at the top of the interactive flow (before the
-v9.B operator-input sections kick in). Prompt accepts:
-  - Empty (Enter) → skip → blank scaffold
-  - `https://github.com/...` URL → set `git_url` arg → follow
-    the `--from-genai` path
-  - Optionally validate URL shape (`re.match(r'^https?://')`).
-
-**Severity** — `major`
-
-Operator's most common bootstrap flow uses Lovable; missing this
-prompt forces them to remember the `--git-url` flag or run
-bootstrap twice.
-
-**Notes**
-
-Surfaced 2026-05-20 by operator. Pairs with the pre-flight
-question listing bug (the upfront list needs to include this new
-prompt, becoming 9 questions total). Also adjacent to the multi-
-paragraph paste bug (a URL is single-line so isn't hit by the
-overflow issue, but the same prompt helper refactor could
-benefit).
-
----
-
-### 2026-05-20 — `new bootstrap` doesn't list all prompts upfront
-
-**Repro**
-
-    lamill new bootstrap agesdk.dev
-
-The CLI starts asking questions one-by-one (Lovable-repo-URL →
-Summary → Audience → ICP → Goals → Content strategy → registered?
-→ registrar → growth hypothesis = 9 prompts total once the Lovable
-prompt lands per the bug above) with no advance notice.
-
-**Expected**
-
-Print a single up-front banner before any prompt fires, listing all
-8 questions that will be asked + a hint that any of them can be
-`Enter`-skipped (and the `--non-interactive` / `--<section>` flag
-escape hatches). Operator can either prep answers or hit Enter for
-defaults.
-
-**Actual**
-
-Operator gets ambushed prompt-by-prompt with no idea how many more
-are coming or what they cover.
-
-**Where (guess)**
-
-`src/portfolio/cli.py @new_app.command("bootstrap")` — between the
-`--force` validation step and the first prompt (likely the
-`_resolve_inventory_inputs()` / `_collect_operator_inputs()` call
-or wherever the orchestrator's interactive phase begins). Print a
-formatted table or bulleted list of the 8 upcoming questions before
-firing the first prompt.
-
-**Severity** — `minor`
-
-**Notes**
-
-Surfaced 2026-05-20 by operator. Pairs with the input-handling
-bugs logged below — knowing what's coming helps the operator
-prepare paragraph-length answers in advance.
-
----
-
-### 2026-05-20 — `new bootstrap` prompt input overflow (multi-paragraph paste leaks to shell)
-
-**Repro**
-
-Run `lamill new bootstrap <domain>`. At the Growth Hypothesis prompt
-(or any other paragraph-style prompt), paste multi-paragraph text
-that contains literal newlines (e.g., the operator's growth-
-hypothesis text from the 2026-05-20 session containing 4
-paragraphs separated by blank lines).
-
-**Expected**
-
-The full multi-paragraph paste should be captured as one input
-field for that prompt — operator's growth hypothesis should land
-verbatim into `docs/growth.md` regardless of how many newlines
-it contains.
-
-**Actual**
-
-`typer.prompt(...)` accepts only the first line of the paste; the
-remaining paragraphs leak out of the prompt and the shell tries
-to execute them as commands:
-
-```
-The buyer is a developer or a CTO at a small team. They got a legal email…
-Command 'The' not found, did you mean:
-  command 'the' from deb the (3.3~rc1-3build1)
-…
-TAM is not the pitch. There are ~4M apps…
-TAM: command not found
-```
-
-**Where (guess)**
-
-Default `typer.prompt` / Click's `click.prompt` underlying impl
-reads until the first newline. For paragraph-style inputs (growth
-hypothesis, ICP, content strategy), we need a multiline editor
-or a delimiter-based capture. Three approaches:
-
-  1. **End-with-blank-line:** read lines until two consecutive
-     blank lines appear (operator types text, hits Enter twice
-     to finish).
-  2. **`$EDITOR` invocation:** drop the operator into `vi`/`nano`
-     with the prompt as a comment header; capture the buffer on
-     save+exit. Heavier, but handles arbitrary length.
-  3. **Click's `prompt(default="", show_default=False)` already
-     supports `confirmation_prompt`** but not multiline. Custom
-     multiline-prompt helper is the cleanest.
-
-`_collect_operator_inputs()` / `_collect_growth_hypothesis()` in
-`src/portfolio/cli.py` (or wherever those functions live) needs
-the multiline helper.
-
-**Severity** — `major`
-
-**Notes**
-
-Operator's pasted text didn't make it into the project, AND the
-shell tried to execute each leaked paragraph as a command. The
-bootstrap completed but with empty growth.md / partial AI_AGENTS
-sections. Workaround until fixed: pass content via per-section
-flags (`--summary "..."` / `--growth-hypothesis "..."`).
-
----
-
 ### 2026-05-20 — `new bootstrap` prompts don't validate input format
 
 **Repro**
@@ -819,50 +502,6 @@ loops on invalid input.
 Needs concrete repros from operator. Pairs with the multi-
 paragraph paste bug above — both are part of an overall "the
 prompt UX in bootstrap needs hardening" theme.
-
----
-
-### 2026-05-20 — `new bootstrap` accepts unregistered/typo'd domains silently
-
-**Repro**
-
-    lamill new bootstrap ageskd.dev
-
-Operator ran the above (typo for `agesdk.dev`). Operator owns
-`agesdk.dev` at Porkbun (registered 2026-05-17; appears in
-`data/domains/porkbun.csv` post `fleet sync --refresh`).
-
-**Expected**
-
-Bootstrap should at least *warn* before scaffolding a domain that's
-nowhere in the owned-domains inventory — `data/portfolio.json` or
-`data/domains/*.csv`. Either reject outright (default) or require
-`--force` to proceed.
-
-**Actual**
-
-Silently scaffolded `~/work/projects/sites/ageskd.dev/` (typo'd dir)
-+ appended a `registrar=porkbun, status=Active` row to
-`data/portfolio.json` for a domain the operator doesn't actually own.
-
-**Where (guess)**
-
-`src/portfolio/cli.py @new_app.command("bootstrap")` + the bootstrap
-orchestrator (likely `src/portfolio/bootstrap.py`). The pre-bootstrap
-"Is the domain registered? [Y/n]:" prompt accepted Enter (default Y)
-without any inventory cross-check. Add a validation step before that
-prompt.
-
-**Severity** — `major`
-
-Causes real cleanup work + pollutes portfolio.json. Default `minor`
-is wrong here.
-
-**Notes**
-
-Surfaced 2026-05-20 by operator. Sister bug to consider: registrar
-prompt accepts free-text without validating against registrars
-actually present in `data/domains/`.
 
 ---
 
@@ -1578,6 +1217,379 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-20 — Bootstrap's `package.json` template ships deprecated pnpm field
+
+**Repro**
+
+After `lamill new bootstrap <newdomain> --git-url <url>` (or any
+bootstrap that emits the standard Astro+Vite template), running
+`make deps` (or `pnpm install`) inside the sites Docker container
+prints:
+
+    [WARN] The "pnpm" field in package.json is no longer read by
+    pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies".
+    See https://pnpm.io/settings for the new home of each setting.
+
+**Expected**
+
+No deprecation warning. The bootstrap template's `package.json`
+either drops the `pnpm.onlyBuiltDependencies` field entirely or
+moves the equivalent setting to its new pnpm-9+ home (probably
+`.npmrc` or a top-level `onlyBuiltDependencies` field — needs
+checking against current pnpm docs).
+
+**Actual**
+
+Bootstrap-generated `package.json` includes:
+
+```json
+{
+  "pnpm": {
+    "onlyBuiltDependencies": ["..."]
+  }
+}
+```
+
+The field is silently ignored by pnpm 9+. Operator sees the noise
+every build.
+
+**Where (guess)**
+
+`src/portfolio/bootstrap.py` — the `ASTRO_FILES` / `VITE_FILES`
+template emitters. Search for `onlyBuiltDependencies` in the
+package.json string templates. Either remove the `pnpm` block
+entirely OR figure out the new equivalent and emit that.
+
+**Severity** — `cosmetic`
+
+Warning noise only; doesn't break the build. But every operator
+build for every site prints it, so it's worth fixing for hygiene.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator during a second-domain bootstrap
+session after v15.M shipped. Likely related: pnpm 9 → 10 → 11
+transition has been deprecating/relocating various
+`package.json` pnpm.* fields over the past year. v15.S candidate.
+
+**Fixed in** — verified clean 2026-05-21: `_astro_package_json()` at `bootstrap.py:739-764` carries no `pnpm` field; `_vite_package_json()` likewise. `git log -S "onlyBuiltDependencies" -- src/portfolio/bootstrap.py` returns empty — the template never literally emitted it. The deprecation warning the operator saw was pnpm injecting + complaining post-install; resolved by v15.S's `write_pnpm_workspace_yaml()` which puts the allowlist in the new pnpm v11 location (`pnpm-workspace.yaml`).
+
+---
+
+### 2026-05-20 — All `new` commands leave residue when they fail mid-flight
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+Operator pasted the multi-section LLM response; smart-paste fired
+correctly; the v15.H stack-translation step started; Claude
+subprocess hit the `$0.50` budget cap mid-translation
+(`error_max_budget_usd` after 22 turns / $0.524). bootstrap raised
+`StackTranslationError` and exited. State after:
+
+    sites/agesdk.dev/
+    └── genai/              ← the cloned TanStack source
+
+No project scaffolding, no commit, no portfolio.json update — but
+the `genai/` clone is sitting there waiting for the operator to
+either re-run (which fails because `--git-url` won't clobber an
+existing dir) or manually delete it.
+
+**Expected**
+
+Every `new` command (`bootstrap`, `deploy`, future) implements
+**transactional rollback**: when any step after the project-dir
+creation fails, clean up everything the command wrote so the
+operator can re-run from clean state.
+
+For `new bootstrap`:
+  - On `BootstrapError` / `StackTranslationError` / KeyboardInterrupt
+    raised after `project_dir.mkdir(parents=True)`, remove
+    `project_dir` entirely.
+  - Pre-existing dirs (operator had something there) detect at
+    pre-flight + refuse — already protected today.
+  - Smart-paste extras (registrar/registered/growth) that landed in
+    `portfolio.json` should also roll back if scaffolding fails
+    later in the same run. Cleanest: defer `portfolio.json` write
+    until AFTER scaffolding completes successfully.
+
+For `new deploy`:
+  - On failure mid-pipeline, the GH repo, CF zone, CF Pages project,
+    NS update are NOT trivially reversible (external SaaS state).
+    Don't try to delete them — the v15.I pipeline is already
+    idempotent so re-running picks up where it left off. Surface
+    the partial-state summary on exit.
+
+**Actual**
+
+`new bootstrap`'s failure-path doesn't roll back. Operator must
+manually `rm -rf` `sites/<domain>/` to retry. The `genai/` subdir
+is the most common residue because translation happens after the
+clone step but before the scaffolding step.
+
+**Where (guess)**
+
+`src/portfolio/bootstrap.py` `bootstrap()` function — wrap the
+post-`project_dir.mkdir` body in a try/except that on any
+exception (other than `BootstrapError("already exists")`):
+
+  1. Logs the failure stage to stderr.
+  2. Runs `shutil.rmtree(project_dir, ignore_errors=True)`.
+  3. Re-raises.
+
+**Severity** — `major`
+
+Operator's first real-world `--git-url` run hit this. Manual
+cleanup is annoying + the failure mode is hidden ("why won't
+bootstrap work? oh, there's a `genai/` dir lying around from
+yesterday").
+
+**Notes**
+
+Surfaced 2026-05-20 by operator after v15.H + smart-paste shipped.
+Pairs with a related concern: the `--budget-usd 0.50` default for
+v15.H translations is too low for real-world TanStack→Astro
+translations (operator's `agesdk.dev` exceeded $0.524 after 22
+turns). Bump default to `2.00` or `5.00` USD, OR add a `--budget`
+flag to `new bootstrap` so the operator can override per-run.
+
+Also worth: `genai/node_modules/` is Docker-owned (root-owned from
+the host's perspective) and `shutil.rmtree` won't be able to remove
+it without `sudo`. Rollback for `genai/` may need to either skip
+`node_modules/` (best-effort cleanup) or shell out to a Docker
+exec that owns those files.
+
+Tier candidate: v15.K (after wrap) or fold into v17.
+
+**Fixed in** — `3fc0800` (v15.K — resilience pass). `bootstrap()` wraps the post-`project_dir.mkdir` body in try/except; `_rollback_project_dir()` at `bootstrap.py:1645` runs `shutil.rmtree(project_dir, ignore_errors=True)` on any exception and re-raises. Pre-existing dirs detected at pre-flight (raise `BootstrapError("already exists")`) fire BEFORE the dir-tracker flips so they don't trigger rollback. PermissionError fallback for Docker-owned `genai/node_modules/` retries with `ignore_errors=True` and warns the operator with a Docker-cleanup hint.
+
+---
+
+### 2026-05-20 — `new bootstrap` doesn't prompt for Lovable's GitHub repo URL
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+Operator's workflow is typically: design the UI in Lovable.dev →
+Lovable exports a GitHub repo → clone-and-scaffold that repo as a
+new sites/<domain>/ project. Bootstrap already supports this via
+the `--git-url <repo-url>` flag (which `git clone`s the URL into
+`sites/<domain>/genai/` and runs the `--from-genai` path), but the
+interactive flow doesn't ask for it.
+
+**Expected**
+
+Bootstrap interactive flow should ask:
+
+```
+Lovable GitHub repo URL (or Enter to skip and scaffold blank):
+  >: https://github.com/user/agesdk-dev-ui
+```
+
+When provided, bootstrap follows the existing `--git-url` path
+(clones into `genai/`, applies CF Pages safety fixes, etc.). When
+empty, falls through to the standard blank-scaffold template.
+
+Add as the FIRST prompt (before the AI_AGENTS sections) so the
+operator's UI work is already in place before they fill in the
+docs that should reference it.
+
+**Actual**
+
+Only the 8 prompts listed above (Summary / Audience / ICP / Goals /
+Content strategy / Registered / Registrar / Growth hypothesis).
+The `--git-url` flag is documented in `--help` but never
+surfaces interactively.
+
+**Where (guess)**
+
+`src/portfolio/cli.py @new_app.command("bootstrap")` — add a
+9th prompt at the top of the interactive flow (before the
+v9.B operator-input sections kick in). Prompt accepts:
+  - Empty (Enter) → skip → blank scaffold
+  - `https://github.com/...` URL → set `git_url` arg → follow
+    the `--from-genai` path
+  - Optionally validate URL shape (`re.match(r'^https?://')`).
+
+**Severity** — `major`
+
+Operator's most common bootstrap flow uses Lovable; missing this
+prompt forces them to remember the `--git-url` flag or run
+bootstrap twice.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator. Pairs with the pre-flight
+question listing bug (the upfront list needs to include this new
+prompt, becoming 9 questions total). Also adjacent to the multi-
+paragraph paste bug (a URL is single-line so isn't hit by the
+overflow issue, but the same prompt helper refactor could
+benefit).
+
+**Fixed in** — `ada334c` (bootstrap UX — 4 bugs from 2026-05-20). `_resolve_git_url()` helper at `cli.py:3744` prompts FIRST (before any AI_AGENTS section), validates `^https?://` or `^git@`, retries up to 3 times, then warn-skips. Empty input falls through to the standard blank-scaffold template. Skipped when `--git-url <url>` passed explicitly or `--non-interactive` set.
+
+---
+
+### 2026-05-20 — `new bootstrap` doesn't list all prompts upfront
+
+**Repro**
+
+    lamill new bootstrap agesdk.dev
+
+The CLI starts asking questions one-by-one (Lovable-repo-URL →
+Summary → Audience → ICP → Goals → Content strategy → registered?
+→ registrar → growth hypothesis = 9 prompts total once the Lovable
+prompt lands per the bug above) with no advance notice.
+
+**Expected**
+
+Print a single up-front banner before any prompt fires, listing all
+8 questions that will be asked + a hint that any of them can be
+`Enter`-skipped (and the `--non-interactive` / `--<section>` flag
+escape hatches). Operator can either prep answers or hit Enter for
+defaults.
+
+**Actual**
+
+Operator gets ambushed prompt-by-prompt with no idea how many more
+are coming or what they cover.
+
+**Where (guess)**
+
+`src/portfolio/cli.py @new_app.command("bootstrap")` — between the
+`--force` validation step and the first prompt (likely the
+`_resolve_inventory_inputs()` / `_collect_operator_inputs()` call
+or wherever the orchestrator's interactive phase begins). Print a
+formatted table or bulleted list of the 8 upcoming questions before
+firing the first prompt.
+
+**Severity** — `minor`
+
+**Notes**
+
+Surfaced 2026-05-20 by operator. Pairs with the input-handling
+bugs logged below — knowing what's coming helps the operator
+prepare paragraph-length answers in advance.
+
+**Fixed in** — `ada334c` (bootstrap UX — 4 bugs from 2026-05-20). `_render_bootstrap_preflight()` at `cli.py:3790` prints a 9-question banner before the first prompt. Lists each section + length hint + skip-flag. Only fires when at least one prompt would fire (suppressed under `--non-interactive` or when every per-section flag is supplied).
+
+---
+
+### 2026-05-20 — `new bootstrap` prompt input overflow (multi-paragraph paste leaks to shell)
+
+**Repro**
+
+Run `lamill new bootstrap <domain>`. At the Growth Hypothesis prompt
+(or any other paragraph-style prompt), paste multi-paragraph text
+that contains literal newlines (e.g., the operator's growth-
+hypothesis text from the 2026-05-20 session containing 4
+paragraphs separated by blank lines).
+
+**Expected**
+
+The full multi-paragraph paste should be captured as one input
+field for that prompt — operator's growth hypothesis should land
+verbatim into `docs/growth.md` regardless of how many newlines
+it contains.
+
+**Actual**
+
+`typer.prompt(...)` accepts only the first line of the paste; the
+remaining paragraphs leak out of the prompt and the shell tries
+to execute them as commands:
+
+```
+The buyer is a developer or a CTO at a small team. They got a legal email…
+Command 'The' not found, did you mean:
+  command 'the' from deb the (3.3~rc1-3build1)
+…
+TAM is not the pitch. There are ~4M apps…
+TAM: command not found
+```
+
+**Where (guess)**
+
+Default `typer.prompt` / Click's `click.prompt` underlying impl
+reads until the first newline. For paragraph-style inputs (growth
+hypothesis, ICP, content strategy), we need a multiline editor
+or a delimiter-based capture. Three approaches:
+
+  1. **End-with-blank-line:** read lines until two consecutive
+     blank lines appear (operator types text, hits Enter twice
+     to finish).
+  2. **`$EDITOR` invocation:** drop the operator into `vi`/`nano`
+     with the prompt as a comment header; capture the buffer on
+     save+exit. Heavier, but handles arbitrary length.
+  3. **Click's `prompt(default="", show_default=False)` already
+     supports `confirmation_prompt`** but not multiline. Custom
+     multiline-prompt helper is the cleanest.
+
+`_collect_operator_inputs()` / `_collect_growth_hypothesis()` in
+`src/portfolio/cli.py` (or wherever those functions live) needs
+the multiline helper.
+
+**Severity** — `major`
+
+**Notes**
+
+Operator's pasted text didn't make it into the project, AND the
+shell tried to execute each leaked paragraph as a command. The
+bootstrap completed but with empty growth.md / partial AI_AGENTS
+sections. Workaround until fixed: pass content via per-section
+flags (`--summary "..."` / `--growth-hypothesis "..."`).
+
+**Fixed in** — `ada334c` (bootstrap UX — 4 bugs from 2026-05-20). New `_prompt_multiline()` at `cli.py:3690` reads stdin until two consecutive blank lines OR EOF (Ctrl-D); wired into the four paragraph-style prompts (Summary, ICP, Content strategy, Growth hypothesis). Single-line prompts (Audience, Goals, Y/n Registered) stay on `typer.prompt`. Hint text flags "(hit Enter twice when done, or Ctrl-D)". Sister commit `2bda2b8` adds smart multi-section paste detection that previews the matches and auto-fills remaining prompts from one paste.
+
+---
+
+### 2026-05-20 — `new bootstrap` accepts unregistered/typo'd domains silently
+
+**Repro**
+
+    lamill new bootstrap ageskd.dev
+
+Operator ran the above (typo for `agesdk.dev`). Operator owns
+`agesdk.dev` at Porkbun (registered 2026-05-17; appears in
+`data/domains/porkbun.csv` post `fleet sync --refresh`).
+
+**Expected**
+
+Bootstrap should at least *warn* before scaffolding a domain that's
+nowhere in the owned-domains inventory — `data/portfolio.json` or
+`data/domains/*.csv`. Either reject outright (default) or require
+`--force` to proceed.
+
+**Actual**
+
+Silently scaffolded `~/work/projects/sites/ageskd.dev/` (typo'd dir)
++ appended a `registrar=porkbun, status=Active` row to
+`data/portfolio.json` for a domain the operator doesn't actually own.
+
+**Where (guess)**
+
+`src/portfolio/cli.py @new_app.command("bootstrap")` + the bootstrap
+orchestrator (likely `src/portfolio/bootstrap.py`). The pre-bootstrap
+"Is the domain registered? [Y/n]:" prompt accepted Enter (default Y)
+without any inventory cross-check. Add a validation step before that
+prompt.
+
+**Severity** — `major`
+
+Causes real cleanup work + pollutes portfolio.json. Default `minor`
+is wrong here.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator. Sister bug to consider: registrar
+prompt accepts free-text without validating against registrars
+actually present in `data/domains/`.
+
+**Fixed in** — `738d14c` (v16.B/C/D — bootstrap typo fix folded in). `validate_owned_domain()` pre-flight at `cli.py:3542` exits 2 with "Did you mean: ..." hint unless `--force` is passed. Sister fix (`ada334c` registrar prompt) restricts the registrar field to `porkbun` / `godaddy` / `namecheap` / `other`.
+
+---
 
 ### 2026-05-19 — `fleet hosting` table has no summary footer
 
