@@ -1692,6 +1692,7 @@ def bootstrap(
     growth_hypothesis: str = "",
     platform: str | None = None,
     translation_budget_usd: float | None = None,
+    translate_now: bool = False,
 ) -> BootstrapResult:
     """Top-level orchestration. Always called with already-validated domain.
 
@@ -1737,6 +1738,7 @@ def bootstrap(
             growth_hypothesis=growth_hypothesis,
             platform=platform,
             translation_budget_usd=translation_budget_usd,
+            translate_now=translate_now,
             _dir_tracker=lambda: _set_we_created_dir(),
         )
     except Exception:
@@ -1767,6 +1769,7 @@ def _bootstrap_inner(
     growth_hypothesis: str,
     platform: str | None,
     translation_budget_usd: float | None,
+    translate_now: bool,
     _dir_tracker,
 ) -> BootstrapResult:
     """Inner body of bootstrap. Wrapped by `bootstrap()` for v15.K
@@ -1820,39 +1823,86 @@ def _bootstrap_inner(
                 f"(no --git-url)."
             )
         else:
-            # Translate via Claude subprocess.
-            console_translate_msg = (
-                f"genai/ stack is `{stack_detection.stack}` "
-                f"(signals: {', '.join(stack_detection.signals)}); "
-                f"translating to Astro+Vite via Claude subprocess "
-                f"(ADR-0013)..."
-            )
-            # Print to stderr so test output can capture for verification;
-            # bootstrap doesn't import `rich` console — use print.
-            print(console_translate_msg)
-            # v15.K — translation budget override via --budget flag.
-            translate_kwargs = {"detection": stack_detection}
-            if translation_budget_usd is not None:
-                translate_kwargs["budget_usd"] = translation_budget_usd
-            result = translate_to_astro(project_dir, **translate_kwargs)
-            if not result.ok:
-                raise StackTranslationError(
-                    f"Claude translation failed: {result.error}. "
-                    f"Output: {result.raw_output[:300]}"
+            # v15.M (ADR-0013) — non-Astro source. Decoupled translation:
+            # bootstrap finishes fast by scaffolding a blank Astro+Vite
+            # project at root + leaving `genai/` untouched as untranslated
+            # reference. Operator runs `lamill project translate <domain>`
+            # separately when ready — that verb does the slow Claude-driven
+            # port from `genai/` into the existing scaffold (smaller delta
+            # than the v15.H from-scratch translation).
+            #
+            # v15.H synchronous translation preserved via `translate_now`
+            # parameter (still useful for tests + operators who want it).
+            if translate_now:
+                console_translate_msg = (
+                    f"genai/ stack is `{stack_detection.stack}` "
+                    f"(signals: {', '.join(stack_detection.signals)}); "
+                    f"translating to Astro+Vite via Claude subprocess "
+                    f"synchronously (ADR-0013; --translate-now)..."
                 )
-            # Validate the output conforms to Astro+Vite shape.
-            validation = validate_translation(project_dir)
-            if not validation.ok:
-                raise StackTranslationError(
-                    f"Translator output failed validation: "
-                    f"{'; '.join(validation.issues)}"
+                print(console_translate_msg)
+                translate_kwargs = {"detection": stack_detection}
+                if translation_budget_usd is not None:
+                    translate_kwargs["budget_usd"] = translation_budget_usd
+                result = translate_to_astro(project_dir, **translate_kwargs)
+                if not result.ok:
+                    raise StackTranslationError(
+                        f"Claude translation failed: {result.error}. "
+                        f"Output: {result.raw_output[:300]}"
+                    )
+                validation = validate_translation(project_dir)
+                if not validation.ok:
+                    raise StackTranslationError(
+                        f"Translator output failed validation: "
+                        f"{'; '.join(validation.issues)}"
+                    )
+                copied = ["<translated by Claude subprocess>"]
+                copy_warnings = []
+                stack = "astro"
+            else:
+                # Default path: defer translation. Scaffold blank Astro at
+                # root using the template path; mark translation as pending
+                # via a `.lamill-translation-pending` marker file so
+                # `lamill project translate` knows what to port.
+                print(
+                    f"genai/ stack is `{stack_detection.stack}` "
+                    f"(signals: {', '.join(stack_detection.signals)}); "
+                    f"scaffolding blank Astro+Vite + deferring translation "
+                    f"(v15.M)..."
                 )
-            # Translation wrote to project_dir directly; no `_copy_from_genai`.
-            # Synthesize the copy-report for downstream code.
-            copied = ["<translated by Claude subprocess>"]
-            copy_warnings = []
-            # Always Astro post-translation.
-            stack = "astro"
+                # Write Astro template files at project root. The genai/
+                # subdir stays untouched as untranslated reference.
+                from_genai_stack_spec = ASTRO_FILES
+                written, _skipped = _write_files(
+                    project_dir, from_genai_stack_spec, domain, "astro", topic,
+                    today, skip_existing=False,
+                    operator_inputs=operator_inputs,
+                    growth_hypothesis=growth_hypothesis,
+                )
+                # Marker file for `project translate` to read.
+                marker = project_dir / ".lamill-translation-pending"
+                marker.write_text(
+                    json.dumps({
+                        "schema": 1,
+                        "source_stack": stack_detection.stack,
+                        "source_signals": list(stack_detection.signals),
+                        "scaffolded_at": today,
+                        "next_step": (
+                            "Run `lamill project translate <domain>` to "
+                            "port pages/components from genai/ into the "
+                            "Astro scaffold. Budget defaults to $5.00, "
+                            "timeout to 30 minutes; both configurable via "
+                            "--budget / --timeout flags."
+                        ),
+                    }, indent=2),
+                )
+                copied = list(written)
+                copy_warnings = [
+                    f"genai/ contains untranslated {stack_detection.stack} "
+                    f"source — run `lamill project translate {domain}` to "
+                    f"port pages/components into the Astro scaffold."
+                ]
+                stack = "astro"
 
         # Re-detect stack from package.json after copy/translation.
         if stack_detection.stack == STACK_ASTRO:

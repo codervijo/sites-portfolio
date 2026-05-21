@@ -269,13 +269,14 @@ def test_validate_missing_src_pages(tmp_path):
     assert any("src/pages/" in i for i in r.issues)
 
 
-def test_validate_wrangler_jsonc_forbidden(tmp_path):
-    """v15.I owns wrangler config; translator shouldn't write it."""
+def test_validate_wrangler_jsonc_allowed(tmp_path):
+    """v15.M removed the v15.H 'no wrangler.jsonc' check — bootstrap
+    legitimately writes one as part of CF safety fixes."""
     _scaffold_valid_astro(tmp_path)
     (tmp_path / "wrangler.jsonc").write_text("{}")
     r = validate_translation(tmp_path)
-    assert not r.ok
-    assert any("wrangler.jsonc" in i for i in r.issues)
+    assert r.ok, r.issues
+    assert not any("wrangler.jsonc" in i for i in r.issues)
 
 
 # ---- translate_to_astro orchestration ----------------------------

@@ -224,12 +224,12 @@ def validate_translation(project_dir: Path) -> ValidationResult:
             "(expected for translated pages — Astro file-based routing)"
         )
 
-    # 6: no wrangler.jsonc
-    if (project_dir / "wrangler.jsonc").exists():
-        issues.append(
-            "wrangler.jsonc present at root — deploy pipeline (v15.I) "
-            "owns Cloudflare config; translator should not emit it"
-        )
+    # NOTE — v15.M removed the v15.H "no wrangler.jsonc" check.
+    # The original concern was that the translator shouldn't EMIT
+    # wrangler.jsonc; but bootstrap's CF safety fixes legitimately
+    # write one as part of every Astro scaffold (for local dev /
+    # `wrangler dev` etc.). The v15.I deploy pipeline owns the
+    # remote CF config; the local wrangler.jsonc is fine + expected.
 
     return ValidationResult(ok=not issues, issues=issues)
 
@@ -280,6 +280,136 @@ def translate_to_astro(
         timeout_s=timeout_s,
         allowed_tools="Read Write Edit Glob Grep Bash",
     )
+
+
+# v15.M — port translator timeout default. The synchronous full-
+# translation path was timing out at the 300s default; the port
+# path runs slower because it has full Write/Bash + more to do.
+# Default 30 minutes; operator can override via --timeout flag on
+# `lamill project translate`.
+_DEFAULT_PORT_TIMEOUT_S = 1800
+_DEFAULT_PORT_BUDGET_USD = 5.00
+
+
+def port_to_astro(
+    project_dir: Path,
+    *,
+    source_stack: str,
+    source_signals: list[str],
+    budget_usd: float = _DEFAULT_PORT_BUDGET_USD,
+    timeout_s: int = _DEFAULT_PORT_TIMEOUT_S,
+) -> ClaudeResult:
+    """v15.M — port pages/components from `<project_dir>/genai/` into
+    the existing Astro+Vite scaffold at `<project_dir>/` root.
+
+    Used by `lamill project translate <domain>` (separate from
+    bootstrap). Smaller delta than `translate_to_astro()` because the
+    Astro scaffold + package.json + astro.config + tooling are
+    already in place — Claude only needs to port the operator-
+    visible content (pages, components, copy, styles).
+
+    Returns `ClaudeResult` — caller checks `.ok` and surfaces
+    `.error` on failure.
+    """
+    if not claude_available():
+        return ClaudeResult(
+            ok=False, cost_usd=0.0, duration_s=0.0,
+            error="claude-not-found",
+            raw_output=(
+                "The `claude` CLI is not on PATH. Translation requires "
+                "Claude Code installed locally. Install per "
+                "https://docs.claude.com/claude-code/quickstart."
+            ),
+        )
+
+    prompt = _build_port_prompt(project_dir, source_stack, source_signals)
+    return run_claude(
+        prompt,
+        cwd=project_dir,
+        budget_usd=budget_usd,
+        timeout_s=timeout_s,
+        allowed_tools="Read Write Edit Glob Grep Bash",
+    )
+
+
+def _build_port_prompt(
+    project_dir: Path, source_stack: str, source_signals: list[str],
+) -> str:
+    """v15.M — port prompt. Smaller scope than the full-translation
+    prompt because the Astro scaffold is already in place."""
+    return f"""You are porting a `{source_stack}` project's UI into an
+already-scaffolded Astro + Vite project.
+
+## Setup
+
+  - The project root (your current working directory) already has an
+    Astro + Vite scaffold: `package.json`, `astro.config.mjs`,
+    `src/pages/index.astro` placeholder, `src/components/`,
+    `src/layouts/`, `src/styles/`, `public/`, etc.
+  - The untranslated source is at `genai/` (a subdirectory of your
+    cwd). Detection signals:
+{chr(10).join(f"      - {s}" for s in source_signals)}
+
+## Task
+
+Port the operator-visible content from `genai/` into the existing
+scaffold:
+
+  1. **Pages** → `src/pages/`. Each route in `genai/` becomes a
+     `.astro` file (or `.md` for static content) under `src/pages/`.
+     Use Astro's file-based routing.
+  2. **Components** → `src/components/`. React components can stay
+     as React (mount as Astro islands via `client:load` /
+     `client:visible` / `client:idle`). UI library components (e.g.
+     shadcn/ui) can be copied verbatim if pure presentational; port
+     to Astro components if they're trivial.
+  3. **Styles** → `src/styles/` or per-component. Copy Tailwind
+     classes verbatim. Copy global CSS / Tailwind config.
+  4. **Layouts** → `src/layouts/`. Extract shared chrome (header /
+     footer / meta) into an Astro Layout component.
+  5. **Assets** → `public/`. Copy verbatim from `genai/public/`.
+
+## Do NOT touch
+
+  - `package.json` at root — the existing one is correct.
+  - `astro.config.mjs` — leave alone (add to it only if you must
+    register a new Astro integration like `@astrojs/react`).
+  - `tsconfig.json` / `vite.config.*` — leave alone.
+  - `wrangler.jsonc` if present — that's deploy config, not your
+    concern.
+  - Anything inside `genai/` — read-only reference.
+
+## Drop with TODO markers
+
+Framework-specific server code does NOT translate to Astro's
+static-output model. Drop with `TODO:` markers under
+`src/lib/server-todo.md`:
+
+  - TanStack Start `src/server.ts` / route handlers
+  - Next.js `src/pages/api/*` or `src/app/api/*`
+  - SvelteKit `src/routes/**/+server.ts`
+
+## Preserve
+
+  - All operator-visible copy (headings, page text, CTAs).
+  - All design (Tailwind classes, layout, spacing, colors).
+  - All public assets.
+  - Client-side interactivity — React hooks stay, just mount as
+    Astro islands.
+
+## Done condition
+
+You're done when:
+  - `src/pages/` has files matching the source's routes.
+  - `src/components/` has the source's components ported.
+  - `public/` has the source's static assets copied.
+  - No `@tanstack/*` / `next` / `@sveltejs/*` imports appear in the
+    ported files.
+
+The lamill validator will run a basic shape check after; it doesn't
+require completeness, just that key files exist and don't import
+banned dependencies.
+"""
 
 
 def _build_translation_prompt(

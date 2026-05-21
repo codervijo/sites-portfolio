@@ -86,6 +86,7 @@ def test_rollback_when_claude_subprocess_fails(tmp_path, monkeypatch):
             domain,
             git_url="https://github.com/test/lovable-fixture.git",
             sites_root=tmp_path,
+            translate_now=True,  # v15.M — exercise synchronous translation
         )
 
     # Project dir should be cleaned up.
@@ -118,6 +119,7 @@ def test_rollback_when_translator_output_fails_validation(tmp_path, monkeypatch)
             domain,
             git_url="https://github.com/test/lovable-fixture.git",
             sites_root=tmp_path,
+            translate_now=True,
         )
 
     assert not (tmp_path / domain).exists()
@@ -197,6 +199,7 @@ def test_rollback_permission_error_warns_instead_of_crashing(
             domain,
             git_url="https://github.com/test/x.git",
             sites_root=tmp_path,
+            translate_now=True,
         )
 
     # The first rmtree attempt failed; the ignore_errors fallback ran.
@@ -237,6 +240,7 @@ def test_translation_budget_passthrough(tmp_path, monkeypatch):
             git_url="https://github.com/test/x.git",
             sites_root=tmp_path,
             translation_budget_usd=5.50,
+            translate_now=True,
         )
 
     assert captured.get("budget_usd") == 5.50
@@ -270,6 +274,7 @@ def test_translation_budget_default_when_none_passed(tmp_path, monkeypatch):
             git_url="https://github.com/test/x.git",
             sites_root=tmp_path,
             translation_budget_usd=None,
+            translate_now=True,
         )
 
     assert captured.get("budget_usd_kwarg_present") is False

@@ -3491,7 +3491,17 @@ def new_bootstrap(
              "uses the stack_translate module default ($2.00; was $0.50 "
              "pre-v15.K — bumped after operator's TanStack→Astro hit the "
              "old cap). Pass a higher value (e.g. `--budget 5.0`) for "
-             "very complex Lovable exports.",
+             "very complex Lovable exports. Only consulted when "
+             "`--translate-now` is set; the deferred path uses the "
+             "`project translate` verb's own budget flag.",
+    ),
+    translate_now: bool = typer.Option(
+        False, "--translate-now",
+        help="v15.M — translate non-Astro `--git-url` cloned source "
+             "synchronously during bootstrap (the pre-v15.M behavior). "
+             "Default skips translation, scaffolds blank Astro, and "
+             "leaves `genai/` for `lamill project translate <domain>` "
+             "to port later.",
     ),
 ) -> None:
     """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A).
@@ -3624,6 +3634,7 @@ def new_bootstrap(
             growth_hypothesis=growth_hypothesis_resolved,
             platform=platform or None,
             translation_budget_usd=budget_usd if budget_usd > 0.0 else None,
+            translate_now=translate_now,
         )
     except BootstrapError as e:
         console.print(f"[red]bootstrap failed:[/] {e}")
@@ -3644,6 +3655,21 @@ def new_bootstrap(
     _apply_inventory_decision(domain, inventory_decision)
 
     _render_bootstrap_summary(result, domain, topic=topic)
+
+    # v15.M — surface translation-pending hint if the deferred-translation
+    # marker is present (bootstrap ran with --git-url + non-Astro stack
+    # but didn't translate synchronously).
+    from .data import ROOT as _DATA_ROOT
+    marker = _DATA_ROOT.parent / domain / ".lamill-translation-pending"
+    if marker.exists():
+        console.print()
+        console.print(
+            "[yellow]Translation deferred (v15.M).[/] "
+            f"[dim]Run [bold]lamill project translate {domain}[/bold] when "
+            "ready to port the Lovable UI from `genai/` into the Astro "
+            "scaffold (default budget $5.00, timeout 30min — both "
+            "configurable via flags).[/]"
+        )
 
 
 # v9.B — bootstrap interactive prompts for the 5 operator-input
@@ -7016,6 +7042,185 @@ def _project_hosting_impl(
     render_project_hosting(
         domain=domain, rows=matched_rows, skipped=result.skipped,
         source=source, console=console, freshness=freshness,
+    )
+
+
+# v15.M — decoupled stack translation. `lamill new bootstrap` for
+# non-Astro `--git-url` repos defers translation by default (writes
+# blank Astro scaffold + keeps `genai/` + writes a marker file).
+# This verb runs the actual Claude-driven port from `genai/` source
+# into the existing Astro scaffold — separately, with longer timeout
+# / higher budget defaults, retryable, runnable in the background.
+
+
+@project_app.command("translate")
+def project_translate(
+    domain: str = typer.Argument(..., help="Domain whose sites/<domain>/genai/ to port into the Astro scaffold (e.g. agesdk.dev)"),
+    budget_usd: float = typer.Option(
+        5.0, "--budget",
+        help="Claude subprocess budget cap (USD). Default $5.00; "
+             "complex TanStack→Astro ports can cost $1-3 with the "
+             "extended toolset.",
+    ),
+    timeout_s: int = typer.Option(
+        1800, "--timeout",
+        help="Subprocess timeout in seconds. Default 30 minutes; "
+             "very large repos may need more.",
+    ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Run the port even if the `.lamill-translation-pending` "
+             "marker file isn't present. Use when retrying after a "
+             "failed translation that wiped the marker.",
+    ),
+) -> None:
+    """v15.M — port `sites/<domain>/genai/` into the existing Astro
+    scaffold via Claude subprocess.
+
+    Required state (set up by `lamill new bootstrap --git-url <url>`
+    when the cloned source is non-Astro):
+      - `sites/<domain>/` exists with an Astro+Vite scaffold at root
+        (`package.json` with `astro` dep, `astro.config.mjs`, etc.)
+      - `sites/<domain>/genai/` exists with the untranslated source
+      - `sites/<domain>/.lamill-translation-pending` marker file
+        (skipped with `--force`)
+
+    On success: commits the ported files to git as a single commit
+    + removes the marker file.
+
+    On failure: leaves project + genai/ + marker intact for retry.
+    `--budget` and `--timeout` can be bumped for re-runs.
+    """
+    import json
+    from .data import ROOT as DATA_ROOT
+    from .stack_translate import (
+        port_to_astro,
+        validate_translation,
+        StackTranslationError,
+    )
+
+    project_dir = DATA_ROOT.parent / domain
+    if not project_dir.exists():
+        console.print(f"[red]Project dir not found:[/] {project_dir}")
+        console.print(
+            "[dim]Run `lamill new bootstrap <domain> --git-url <url>` "
+            "first.[/]"
+        )
+        raise typer.Exit(1)
+
+    genai_dir = project_dir / "genai"
+    if not genai_dir.is_dir():
+        console.print(
+            f"[red]No genai/ subdir at {project_dir}.[/] "
+            "[dim]`project translate` only runs when the project was "
+            "bootstrapped with `--git-url`. For blank-scaffold projects, "
+            "use the project directly — no translation needed.[/]"
+        )
+        raise typer.Exit(2)
+
+    marker = project_dir / ".lamill-translation-pending"
+    if not marker.exists() and not force:
+        console.print(
+            f"[yellow]No translation-pending marker at {marker}.[/]\n"
+            "[dim]Either the project was bootstrapped before v15.M, OR "
+            "a previous `project translate` succeeded and consumed the "
+            "marker. Pass `--force` to run anyway (e.g. for retrying a "
+            "partially-completed port).[/]"
+        )
+        raise typer.Exit(2)
+
+    # Read marker for detection signals (defaults if --force).
+    source_stack = "unknown"
+    source_signals: list[str] = []
+    if marker.exists():
+        try:
+            data = json.loads(marker.read_text())
+            source_stack = data.get("source_stack", "unknown")
+            source_signals = list(data.get("source_signals") or [])
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    console.print(
+        f"[bold]v15.M — Porting[/] [cyan]{domain}[/] "
+        f"[dim](source_stack={source_stack} · budget=${budget_usd:.2f} "
+        f"· timeout={timeout_s}s)[/]"
+    )
+    console.print(f"  [dim]Source signals: {', '.join(source_signals) or '<none>'}[/]")
+    console.print(
+        "[dim]This may take 5-30 minutes. Output appears as files in "
+        "src/pages/, src/components/, public/, etc.[/]"
+    )
+
+    result = port_to_astro(
+        project_dir,
+        source_stack=source_stack,
+        source_signals=source_signals,
+        budget_usd=budget_usd,
+        timeout_s=timeout_s,
+    )
+
+    if not result.ok:
+        console.print(
+            f"[red]Port failed:[/] {result.error}\n"
+            f"[dim]{result.raw_output[:300] if result.raw_output else ''}[/]"
+        )
+        console.print(
+            "[dim]Project state intact — marker file preserved; you can "
+            "retry with a higher --budget or --timeout, or fix the "
+            "source repo. Run `lamill project translate "
+            f"{domain} --budget 10.0` to retry with more budget.[/]"
+        )
+        raise typer.Exit(3)
+
+    # Validate.
+    validation = validate_translation(project_dir)
+    if not validation.ok:
+        console.print(
+            f"[red]Port output failed validation:[/]\n  "
+            + "\n  ".join(f"- {iss}" for iss in validation.issues)
+        )
+        console.print(
+            "[dim]Project state intact — fix the source repo's "
+            "package.json / config and retry, or pass `--force` and "
+            "manually fix the output.[/]"
+        )
+        raise typer.Exit(4)
+
+    # Commit + remove marker.
+    import subprocess
+    try:
+        subprocess.run(
+            ["git", "add", "."],
+            cwd=str(project_dir),
+            capture_output=True, text=True,
+            timeout=30.0, check=False,
+        )
+        commit_msg = (
+            f"v15.M — port {source_stack} → Astro via Claude subprocess\n\n"
+            f"Cost: ${result.cost_usd:.4f} · Duration: "
+            f"{result.duration_s:.1f}s · Source signals: "
+            f"{', '.join(source_signals) or '<none>'}"
+        )
+        subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=str(project_dir),
+            capture_output=True, text=True,
+            timeout=30.0, check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        console.print(f"[yellow]Port succeeded but git commit failed: {e}[/]")
+
+    marker.unlink(missing_ok=True)
+
+    console.print(
+        f"\n[green]✓ Port complete.[/] "
+        f"[dim]Cost: ${result.cost_usd:.4f} · Duration: "
+        f"{result.duration_s:.1f}s[/]"
+    )
+    console.print(
+        f"[dim]Next: `cd ~/work/projects/sites/{domain} && make buildsh` "
+        "to verify the build inside Docker. Then `lamill new deploy "
+        f"{domain}` to ship.[/]"
     )
 
 
