@@ -65,68 +65,6 @@ when applicable. Don't delete.
 
 ## Open bugs
 
-### 2026-05-20 — Deploy Step 5.5 (DNS purge) continues on auth failure instead of pausing for manual cleanup
-
-**Repro**
-
-`uv run lamill new deploy disclosur.dev --yes` (or any second-attempt
-deploy where CF created parking DNS records that conflict with the
-target custom-domain attach).
-
-**Expected**
-
-When Step 5.5's DNS-record DELETE call fails with HTTP 403
-(authentication / scope error), the pipeline should **stop** and
-surface the exact dashboard URL + the records to remove manually
-(same pattern as Steps 1/2/3/4's "manual zone creation required"
-exits). DNS purge is a load-bearing prerequisite for Step 6 (custom
-domain attach); if it fails, downstream steps cannot succeed
-deterministically.
-
-**Actual**
-
-Step 5.5 logs a non-fatal warning and proceeds anyway:
-
-```
-5.5 Purge conflicting DNS records (disclosur.dev)
-  ↷ DNS purge probe failed (continuing): DELETE /zones/4bee8f34af4fb899551e70efe6ed167c/dns_records/0db5b6fd5c8ffc53de951685c05c5074
-  → HTTP 403:
-{"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[],"result":null}
-```
-
-The pipeline runs all the way to Step 8 with stale parking DNS
-still attached, so the custom-domain attach fails or the live probe
-returns the parking page.
-
-**Where (guess)**
-
-Step 5.5 was added in v15.R for automatic DNS conflict cleanup. The
-DELETE 403 branch in `src/portfolio/cli.py` (or wherever
-`_dns_purge_records` lives — likely `cloudflare.py`) treats
-HTTP 403 as a soft warning. Should be reclassified: 403 on DELETE
-means the token can't clean DNS, which is the same class of failure
-as zone-create 403 — an operator-action gate, not a "skip
-optimistically" case.
-
-**Severity** — `major`. Doesn't lose data, but silently breaks the
-"second-deploy = end-to-end" contract that v15.R established. The
-operator has to notice the warning, scroll back, and manually delete
-records in the dashboard — exactly what the v15.R automation was
-supposed to remove.
-
-**Notes**
-
-Operator's "lamillio build token" has `DNS:Edit` zone-scoped
-permission per the `agesdk.dev` session — token DOES have DNS
-DELETE in theory, but `disclosur.dev`'s zone may be on a different
-CF account or the token scope doesn't include this zone. Either way,
-the right pipeline behavior is "stop + surface URL," not "continue."
-
-Same pattern as the other v15.R-era load-bearing failure gates
-(zone create, Pages project create, Workers custom-domain attach):
-when the token can't do the operation, print exact dashboard URL
-+ numbered substeps, then exit non-zero.
-
 ### 2026-05-20 — `make deps` hits pnpm store version mismatch on new-domain builds
 
 **Repro**
@@ -1052,6 +990,44 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-20 — Deploy Step 5.5 (DNS purge) continues on auth failure instead of pausing for manual cleanup
+
+**Repro**
+`uv run lamill new deploy <domain> --yes` on a second-attempt deploy
+where CF created parking DNS records that conflict with the target
+custom-domain attach, when the operator's token lacks DNS:Edit on
+the affected zone.
+
+**Expected**
+On `HTTP 403` from `purge_conflicting_root_records`, stop and
+surface dashboard URL + records to remove (same gate pattern as
+zone-create / Pages-project-create / Workers-custom-domain-attach).
+
+**Actual**
+Step 5.5 logged a soft `↷ DNS purge probe failed (continuing): ...`
+and proceeded. Step 6 attach then failed (or live probe returned
+parking page), leaving operator confused about which step actually
+broke. Pre-fix output:
+
+    5.5 Purge conflicting DNS records (disclosur.dev)
+      ↷ DNS purge probe failed (continuing): DELETE /zones/.../dns_records/...
+      → HTTP 403: {"success":false,"errors":[{"code":10000,...
+
+**Fixed in** — 2026-05-21: `cli.py:6263-6294` Step 5.5 catch now
+checks for `"HTTP 403"` in the `CloudflareAPIError` message. On
+match, prints red ✗ + bold-yellow "Manual DNS cleanup required:"
+block with exact dashboard URL
+(`https://dash.cloudflare.com/{cf_account}/{domain}/dns/records`)
+and the 3 record patterns to delete (`<domain>`, `*.<domain>`,
+`www.<domain>`). Exits 7 (matches Step 6's exit-9 family). Non-403
+errors (transient network / 5xx) keep soft-warn behavior — Step 6's
+GET-then-PUT idempotency (v15.Q) catches stale records on retry.
+No unit test added — `_deploy_cf_unified` orchestration is not
+unit-testable today (would need full pipeline mock); fix mirrors
+the well-tested Step 6 403 pattern.
+
+---
 
 ### 2026-05-20 — `project check` deploy summary line shows wrong platform for cf-workers sites
 

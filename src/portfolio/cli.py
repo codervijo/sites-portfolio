@@ -6277,6 +6277,34 @@ def _deploy_cf_unified(
                 zone.zone_id, domain,
             )
         except cloudflare.CloudflareAPIError as e:
+            # 2026-05-21 fix — HTTP 403 means the token can't clean
+            # DNS. Surface dashboard URL + records to remove and exit
+            # cleanly (matches the v15.R-era operator-action gates on
+            # Steps 3/5/6). Pre-fix continued past the failure → Step
+            # 6 attach then failed with stale parking records still
+            # in place, leaving operator confused about which step
+            # actually broke. Non-403 errors stay soft (network /
+            # 5xx; transient — re-running picks up).
+            if "HTTP 403" in str(e):
+                console.print(f"  [red]✗[/] DNS purge denied: {e}")
+                console.print(
+                    f"\n  [bold yellow]Manual DNS cleanup required:[/]\n"
+                    f"    1. Open this URL:\n"
+                    f"       [link]https://dash.cloudflare.com/"
+                    f"{cf_account}/{domain}/dns/records[/link]\n"
+                    f"    2. Delete any [bold]A / AAAA / CNAME[/] records "
+                    f"matching:\n"
+                    f"       - [cyan]{domain}[/]\n"
+                    f"       - [cyan]*.{domain}[/]\n"
+                    f"       - [cyan]www.{domain}[/]\n"
+                    f"    3. Re-run [cyan]lamill new deploy {domain} "
+                    f"--yes[/]\n"
+                    f"  [dim]Step 5.5 needs DNS:Edit on the zone. Edit "
+                    f"token scopes at "
+                    f"https://dash.cloudflare.com/profile/api-tokens "
+                    f"if your token lacks it.[/]"
+                )
+                raise typer.Exit(7)
             console.print(
                 f"  [yellow]↷[/] DNS purge probe failed (continuing): {e}"
             )
