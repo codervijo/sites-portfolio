@@ -7896,8 +7896,12 @@ def _fleet_hosting_impl(
             hg_extra = ""
             if r.provider == PROVIDER_HOSTGATOR:
                 parts: list[str] = []
-                if r.disk_used_mb is not None:
-                    parts.append(f"disk {r.disk_used_mb}MB")
+                # 2026-05-21: disk_used_mb removed from per-row HG-extra —
+                # it's an ACCOUNT-level total (gator3164 etc.), not a
+                # per-domain figure, and repeating it on every row of
+                # the same account misled operators into thinking each
+                # site used that much. Now aggregated in the footer
+                # block below.
                 if r.wp_version:
                     parts.append(f"WP {r.wp_version}")
                 if r.install_path:
@@ -7917,7 +7921,39 @@ def _fleet_hosting_impl(
     # Footer rollup — counts per provider + skipped/conflicts tally
     # (bug 2026-05-19: missing summary footer).
     console.print(f"[dim]  {hosting_footer_summary(rows, result.skipped)}[/]")
+    # 2026-05-21: HG account disk-usage rollup (moved out of per-row
+    # HG-extra). One line per account: "HG accounts: gator3164 1430MB
+    # · gator4216 4959MB". Shown only when at least one HG row has
+    # disk_used_mb populated.
+    hg_disk_line = _hg_accounts_disk_summary(rows)
+    if hg_disk_line:
+        console.print(f"[dim]  {hg_disk_line}[/]")
     _print_skipped_footer(result.skipped)
+
+
+def _hg_accounts_disk_summary(rows) -> str:
+    """Aggregate `disk_used_mb` per HG account across the row list.
+
+    Returns "" when no HG row carries disk data; otherwise returns
+    `"HG accounts: gator3164 1430MB · gator4216 4959MB"` (sorted by
+    account name for stable rendering).
+    """
+    from .hosting import PROVIDER_HOSTGATOR
+    by_account: dict[str, int] = {}
+    for r in rows:
+        if r.provider != PROVIDER_HOSTGATOR:
+            continue
+        if not r.hg_account_id or r.disk_used_mb is None:
+            continue
+        # Same account_id should always carry the same disk_used_mb —
+        # but if rows disagree (cache write race), keep the max so
+        # we don't under-report.
+        prior = by_account.get(r.hg_account_id, 0)
+        by_account[r.hg_account_id] = max(prior, r.disk_used_mb)
+    if not by_account:
+        return ""
+    pieces = [f"{acct} {mb}MB" for acct, mb in sorted(by_account.items())]
+    return "HG accounts: " + " · ".join(pieces)
 
 
 def _fleet_hosting_apply_declarations(

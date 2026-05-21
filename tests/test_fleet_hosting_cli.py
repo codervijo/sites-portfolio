@@ -302,7 +302,9 @@ def test_fleet_hosting_omits_hg_extra_column_when_no_hg_rows(
 def test_fleet_hosting_shows_hg_extra_column_when_hg_row_present(
     monkeypatch, tmp_path,
 ):
-    """Counter-test: column SHOWS when an HG row exists."""
+    """Counter-test: column SHOWS when an HG row exists. Per-row
+    HG-extra carries WP version + install_path; disk usage moved to
+    the footer (account-level, 2026-05-21 fix)."""
     _stub_hosting_cache(monkeypatch, tmp_path)
     _patch_fleet_domains(monkeypatch, ["a.com", "b.com"])
     _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
@@ -316,8 +318,55 @@ def test_fleet_hosting_shows_hg_extra_column_when_hg_row_present(
     out = runner.invoke(cli.app, ["fleet", "hosting"])
     assert out.exit_code == 0
     assert "HG-extra" in out.output
-    assert "disk 1430MB" in out.output
     assert "WP 6.7.1" in out.output
+    # disk MB no longer in per-row HG-extra; surfaced in footer.
+    assert "HG accounts: gator3164 1430MB" in out.output
+
+
+def test_fleet_hosting_footer_aggregates_disk_per_hg_account(
+    monkeypatch, tmp_path,
+):
+    """2026-05-21 fix — disk_used_mb is account-scoped, not per-domain.
+    Two sites on the same gator3164 account + one on gator4216 should
+    produce a footer with both accounts listed once, sorted by name."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["a.com", "b.com", "c.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
+        HostingRow(
+            domain="a.com", provider=PROVIDER_HOSTGATOR,
+            hg_account_id="gator3164", disk_used_mb=500,
+        ),
+        HostingRow(
+            domain="b.com", provider=PROVIDER_HOSTGATOR,
+            hg_account_id="gator3164", disk_used_mb=500,
+        ),
+        HostingRow(
+            domain="c.com", provider=PROVIDER_HOSTGATOR,
+            hg_account_id="gator4216", disk_used_mb=4959,
+        ),
+    ]))
+    out = runner.invoke(cli.app, ["fleet", "hosting"])
+    assert out.exit_code == 0
+    # Single footer line lists each account once, sorted.
+    assert "HG accounts: gator3164 500MB · gator4216 4959MB" in out.output
+    # Per-row "disk NMB" gone.
+    assert "disk 500MB" not in out.output
+    assert "disk 4959MB" not in out.output
+
+
+def test_fleet_hosting_no_hg_disk_footer_when_no_hg_disk_data(
+    monkeypatch, tmp_path,
+):
+    """Footer line suppressed when no HG row has disk_used_mb populated
+    (e.g., cache predates v11 fields, or only non-HG rows present)."""
+    _stub_hosting_cache(monkeypatch, tmp_path)
+    _patch_fleet_domains(monkeypatch, ["a.com"])
+    _patch_run_hosting(monkeypatch, result=HostingResult(rows=[
+        HostingRow(domain="a.com", provider=PROVIDER_VERCEL),
+    ]))
+    out = runner.invoke(cli.app, ["fleet", "hosting"])
+    assert out.exit_code == 0
+    assert "HG accounts:" not in out.output
 
 
 def test_fleet_hosting_footer_summary_line_shows_provider_counts(

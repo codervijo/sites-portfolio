@@ -982,44 +982,6 @@ curl -s -H "Authorization: cpanel ${USER}:${TOKEN}" \
 
 ---
 
-### 2026-05-19 — HG-extra `disk N MB` is account-level total, looks per-domain
-
-**Repro**
-    lamill fleet hosting --refresh
-    # Every row from gator4216 shows `disk 4959MB`.
-    # Every row from gator3164 shows `disk 500MB`.
-
-**Expected**
-Either rename the field to make it clear it's the ACCOUNT total
-(e.g., `acct disk 4959MB`), or move the disk info to a footer
-note ("HG account gator4216: 4959/N MB used") so it's not
-duplicated per row, or actually fetch per-domain disk usage if
-cPanel exposes that.
-
-**Actual**
-Every HG row shows the same disk number for sites on the same
-account. Operator reading the table sees "every site uses 4959MB"
-which is misleading — it's the SHARED account quota.
-
-**Where (guess)**
-`Quota/get_quota_info` is account-scoped (no per-domain breakdown
-in standard cPanel). Per-domain disk usage would need
-`Fileman/list_files --include-size` or similar — heavier query,
-arguably out of scope for v11.
-
-**Severity**
-cosmetic — data is correct, presentation is misleading. Two paths
-to resolve:
-1. Rename column or per-row text: `disk(acct) 4959MB` or move
-   into the renderer as `acct=gator4216 disk=4959MB`.
-2. Move disk usage to a footer block: "HG accounts: gator3164
-   500MB used, gator4216 4959MB used."
-
-Option 2 is cleaner — drops per-row duplication. Folds into
-v11.I-followup or a separate polish commit.
-
----
-
 ### 2026-05-19 — HG walker reports no `wp_version` for any row (WP detection blind)
 
 **Repro**
@@ -1151,6 +1113,34 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-19 — HG-extra `disk N MB` is account-level total, looks per-domain
+
+**Repro**
+    lamill fleet hosting --refresh
+
+**Expected**
+Either rename to make the account-level scope clear, or move the
+disk info to a footer block ("HG accounts: gator3164 500MB · ...")
+so it isn't duplicated per row.
+
+**Actual**
+Every HG row from the same account showed the same disk number
+(e.g., `disk 4959MB` on all 5 sites under `gator4216`). Operator
+reading the table saw "every site uses 4959MB" — misleading; that's
+the SHARED account quota, not per-domain usage.
+
+**Fixed in** — 2026-05-21: chose Option 2 (footer aggregation).
+Removed `disk N MB` from per-row HG-extra; added new
+`_hg_accounts_disk_summary(rows)` helper that aggregates
+`disk_used_mb` by `hg_account_id` and emits a single footer line:
+`HG accounts: gator3164 500MB · gator4216 4959MB` (sorted by
+account name). Suppressed when no HG row has disk data. Updated
+`test_fleet_hosting_shows_hg_extra_column_when_hg_row_present` +
+added 2 new tests (footer aggregates across multiple accounts;
+footer absent without HG disk data). Suite 2505 → 2507.
+
+---
 
 ### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
 
