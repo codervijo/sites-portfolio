@@ -720,51 +720,10 @@ assignment approved 2026-05-19. Reshape approved 2026-05-20 per
 **Kickoff gate.** Now adopted as the explicit `v16.A` phase (above) — 2026-05-20 locked the five decisions captured there. For consistency, v16+ (post-kickoff-convention) all carry the explicit `vN.A — kickoff planning` row; v15 also adopted it 2026-05-20. v13/v14 absorbed it as a one-line tier-preamble note since their letter slots were already assigned at shipping.
 END v16-design-notes-purged -->
 
-### v17 — SEO check expansion *(new 2026-05-19; renumbered 2026-05-20, was v16)*
 
-Extend `src/portfolio/checks/seo/` beyond the current 24 checks
-(060-079 static + 090-095 live) to close coverage gaps identified
-2026-05-19. 14 new universal checks (foundational-tag enrichment,
-robustness, live-runtime) plus a WordPress-specific lane to handle
-the operator's 2-3 active WP sites. Each check is a new
-`check_NNN_<slug>.py` file in the existing registry, auto-discovered
-by `src/portfolio/checks/registry.py`. **See `docs/architecture.md
-§ 3 Mechanisms (check catalog) / § 5 CLI surface` for the full
-catalog conventions (post-implementation).**
+### v17 — *(reserved — SEO check expansion, dropped 2026-05-21 per `§ 2 Non-goals` audit; moved to operator's separate SEO pipeline project — every proposed check has authoritative implementations elsewhere (Lighthouse / Yoast / Screaming Frog / GSC). Per-check scoring + adjacent "consume Lighthouse CI output via `fleet check` reader" posture (similar to v16.D's GSC consumption) captured in `docs/for-seo-check-improvements.md`; resurface if portfolio gains a pre-deploy framing that earns the 4-5 unique gates back.)*
 
-`v17.A` kickoff phase re-validates the candidate-check list against
-whatever shipped in v16 (some overlap possible — e.g., per-page
-coverage signal may already live in v16.C's URL Inspection wrapper,
-in which case the equivalent v17 check thins out).
-
-#### Phases
-
-| # | Status | Feature |
-|---|---|---|
-| v17.A | ⏳ | **Kickoff planning.** Re-validate v17.B-E candidate checks against v16 final shape (which signals already covered? which check thresholds need tuning given live-fleet data?). Lock the final 14 checks. ~0.5h. |
-| v17.B | ⏳ | Foundational-tag enrichment — 4 static checks. CHECK_081 title-length-in-range (30-65 chars). CHECK_082 exactly-one-h1. CHECK_083 og-completeness (`og:title` + `og:description` + `og:image` + `og:url` + `og:type` all present). CHECK_084 json-ld-org-has-logo-and-sameAs. ~1.5h. |
-| v17.C | ⏳ | Robustness checks — 4 static checks. CHECK_085 canonical-points-to-production-https (no localhost / staging). CHECK_086 no-noindex-on-production (`meta robots` doesn't include `noindex`). CHECK_087 image-alt-coverage (≥80% of `<img>` tags have non-empty alt). CHECK_088 twitter-card-type-set (`summary` or `summary_large_image`). ~1.5h. |
-| v17.D | ⏳ | Live runtime checks — 6 checks. CHECK_096 https-only (no mixed http content in rendered HTML + linked resources). CHECK_097 404-returns-proper-status (random-path probe returns 404, not soft-200). CHECK_098 sitemap-urls-all-200 (sampled). CHECK_099 sitemap-freshness (`lastmod` within 90d). CHECK_100 robots-allows-crawling (no global `Disallow: /`). CHECK_101 apex-www-redirect-symmetry (one canonical form, not split). ~2-3h. |
-| v17.E | ⏳ | WordPress-specific lane — 4 WP-only checks. CHECK_102 yoast-or-rankmath-present (one SEO plugin, not zero). CHECK_103 no-yoast-rankmath-conflict (not both). CHECK_104 wp-jsonld-website-with-searchaction (WordPress should emit WebSite schema with SearchAction). CHECK_105 wp-oembed-cleanup (oEmbed discovery links not bloating `<head>`). Gated on detecting WP (existing generator/title heuristics). ~1.5h. |
-
-#### Design notes
-
-**Why universal-first, WP-second.** The 14 universal checks (B/C/D)
-apply to every site regardless of stack — Vite/Astro/CFW/WP all
-render the same SEO tags. Shipping universal first lets the
-operator's pre-deploy quality bar rise across the whole fleet in
-one tier. WordPress lane (E) lands after because it requires WP-
-specific detection logic plus Yoast/RankMath plugin awareness that
-doesn't generalize.
-
-**Out of scope (deferred):**
-- Per-page coverage (currently checks homepage only) — that's a
-  separate "multi-page check sweep" concern; v17 stays single-page.
-- GSC-coverage check (% submitted indexed) — already in v16.C.
-- Lighthouse / Core Web Vitals — dropped (v20 reserved; see tier note).
-- Performance budgets (bundle size, image count) — dropped with v20.
-
-### v18 — Google Analytics 4 install helper *(new 2026-05-19; deferred behind v16 + v17; renumbered 2026-05-20, was v17; scope shrunk 2026-05-20 — Data API consumers v18.C-F dropped as out-of-scope per `§ 2 Non-goals`)*
+### v18 — Google Analytics 4 install helper *(new 2026-05-19; deferred behind v16; renumbered 2026-05-20, was v17; scope shrunk 2026-05-20 — Data API consumers v18.C-F dropped as out-of-scope per `§ 2 Non-goals`)*
 
 GA4 measurement-ID install is conformance — every site should have
 analytics, uniformly. Beyond install, GA4 Data API *consumption* is
@@ -809,7 +768,7 @@ v19.A kickoff re-validates them against learnings from v16-v18.
 
 | # | Status | Feature |
 |---|---|---|
-| v19.A | ⏳ | **Kickoff planning.** Re-validate v19.B foundation + B-F future-expansion list against v16/v17/v18 final shape. Decide pytrends-fallback trigger (quota-exhaustion-only vs first-attempt-parallel). Resolve open question 18.D (ADR-0012 for trends-as-cluster-signal schema bind). ~0.5h. |
+| v19.A | ⏳ | **Kickoff planning.** Re-validate v19.B foundation + B-F future-expansion list against v16/v18 final shape (v17 dropped 2026-05-21 — see `docs/for-seo-check-improvements.md`). Decide pytrends-fallback trigger (quota-exhaustion-only vs first-attempt-parallel). Resolve open question 18.D (ADR-0012 for trends-as-cluster-signal schema bind). ~0.5h. |
 | v19.B | ⏳ | Foundation — `gtrends.py` SerpAPI `google_trends` engine wrapper · `data/gtrends/<topic-hash>.json` per-topic cache (mirrors `serp_query_cache.py` shape) · `is_stale(max_age_hours=24)` · integrates with existing `serpapi_quota.consume_quota()` · `pytrends` fallback path · `GTrendsError` exception · primitive table renderer for the standalone `lamill trends <topic>` test invocation. ~2-3h. |
 
 #### Design notes
