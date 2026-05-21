@@ -65,6 +65,150 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-20 — Bootstrap's `package.json` template ships deprecated pnpm field
+
+**Repro**
+
+After `lamill new bootstrap <newdomain> --git-url <url>` (or any
+bootstrap that emits the standard Astro+Vite template), running
+`make deps` (or `pnpm install`) inside the sites Docker container
+prints:
+
+    [WARN] The "pnpm" field in package.json is no longer read by
+    pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies".
+    See https://pnpm.io/settings for the new home of each setting.
+
+**Expected**
+
+No deprecation warning. The bootstrap template's `package.json`
+either drops the `pnpm.onlyBuiltDependencies` field entirely or
+moves the equivalent setting to its new pnpm-9+ home (probably
+`.npmrc` or a top-level `onlyBuiltDependencies` field — needs
+checking against current pnpm docs).
+
+**Actual**
+
+Bootstrap-generated `package.json` includes:
+
+```json
+{
+  "pnpm": {
+    "onlyBuiltDependencies": ["..."]
+  }
+}
+```
+
+The field is silently ignored by pnpm 9+. Operator sees the noise
+every build.
+
+**Where (guess)**
+
+`src/portfolio/bootstrap.py` — the `ASTRO_FILES` / `VITE_FILES`
+template emitters. Search for `onlyBuiltDependencies` in the
+package.json string templates. Either remove the `pnpm` block
+entirely OR figure out the new equivalent and emit that.
+
+**Severity** — `cosmetic`
+
+Warning noise only; doesn't break the build. But every operator
+build for every site prints it, so it's worth fixing for hygiene.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator during a second-domain bootstrap
+session after v15.M shipped. Likely related: pnpm 9 → 10 → 11
+transition has been deprecating/relocating various
+`package.json` pnpm.* fields over the past year. v15.S candidate.
+
+---
+
+### 2026-05-20 — `make deps` hits pnpm store version mismatch on new-domain builds
+
+**Repro**
+
+After bootstrapping a new domain + running `make deps` inside
+the sites Docker container:
+
+    $ make buildsh
+    # inside container:
+    $ cd <newdomain>
+    $ make deps
+    ...
+    [ERR_PNPM_UNEXPECTED_STORE] Unexpected store location
+    The dependencies at "/usr/src/app/node_modules" are currently
+    linked from the store at "/usr/src/app/.pnpm-store/v10".
+    pnpm now wants to use the store at "/usr/src/app/.pnpm-store/v11"
+    to link dependencies.
+    If you want to use the new store location, reinstall your
+    dependencies with "pnpm install".
+    make: *** [Makefile:38: deps] Error 1
+
+**Expected**
+
+`make deps` for a fresh bootstrap should succeed without operator
+intervention — either:
+  - The bootstrap process pre-detects store version drift and
+    wipes/rebuilds, OR
+  - The store-dir is pinned per-project via `.npmrc` so each
+    domain owns its store and doesn't inherit cross-domain state
+
+**Actual**
+
+Operator hits the error on every new-domain build because the
+sites container's pnpm got bumped (v10 → v11) while pre-existing
+`/usr/src/app/.pnpm-store/v10` is still on disk. pnpm refuses
+to link against a store from a previous major version.
+
+**Workaround**
+
+```bash
+make buildsh
+# inside container:
+rm -rf /usr/src/app/.pnpm-store
+rm -rf /usr/src/app/<newdomain>/node_modules
+pnpm install
+```
+
+Once cleared, subsequent builds work until the next pnpm major
+version bump.
+
+**Where (guess)**
+
+Likely the bootstrap template needs an `.npmrc` with:
+
+    store-dir=./.pnpm-store
+
+(per-project store, isolated from the shared workspace store).
+
+OR the parent `~/work/projects/sites/Makefile` (which `make deps`
+forwards to) should detect store-version drift and auto-clean
+before installing.
+
+OR bootstrap's git-init step could emit a `.gitignore` entry for
+`.pnpm-store/` so stale stores aren't committed.
+
+Cleanest fix: per-project store-dir in `.npmrc` template, so each
+sites/<domain>/ has its own `.pnpm-store/v<N>` directory under
+the project root. Cross-domain isolation; no global state to
+drift.
+
+**Severity** — `major`
+
+Blocks every new-domain bootstrap until operator manually clears
+the store. Will hit on every pnpm major-version bump.
+
+**Notes**
+
+Surfaced 2026-05-20 by operator during second-domain bootstrap
+session. Tied to the pnpm 10 → 11 transition. v15.S candidate.
+
+The error is rooted in pnpm's design (rejects cross-major-version
+stores) so it's not a CF/lamill bug per se — but lamill's bootstrap
+emits the template that creates the trap. Fix lives in the
+bootstrap template.
+
+---
+
 ### 2026-05-20 — All `new` commands leave residue when they fail mid-flight
 
 **Repro**
