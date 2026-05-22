@@ -65,6 +65,75 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-22 — `lamill new trends <topic>` raises `ModuleNotFoundError: No module named 'pytrends'` when running outside the `uv` venv
+
+**Repro**
+
+    portfolio on  main [$?] is 📦 v0.1.0 via 🐍 v3.10.12
+    ❯ lamill new trends 'ai'
+    ...
+    File "src/portfolio/gtrends.py:158, in _fetch_from_pytrends:
+      from pytrends.request import TrendReq
+    ModuleNotFoundError: No module named 'pytrends'
+
+Operator's shell prompt shows Python 3.10.12, but the project's
+`pyproject.toml` declares `requires-python = ">=3.11"`. The
+`lamill` binary on PATH was installed into a Python 3.10
+environment (probably an older `pipx install` or `pip install -e .`
+predating v19.B), so the new `pytrends>=4.9` dep added to
+`pyproject.toml` in commit `38fb240` (v19.B) isn't visible to that
+install.
+
+**Expected**
+
+Either (a) the `lamill` binary picks up new deps automatically
+after a `git pull`, or (b) the CLI surfaces a clean actionable
+error ("re-install lamill with `uv sync` / `pipx reinstall
+portfolio` to pick up the new `pytrends` dep") instead of a raw
+`ModuleNotFoundError` stack trace.
+
+**Actual**
+
+Raw stack trace from `_fetch_from_pytrends`'s `from pytrends.request
+import TrendReq` line. Operator can't tell from the trace what
+remediation to take.
+
+**Where (guess)**
+
+`src/portfolio/gtrends.py:158`. Pattern fix: wrap the `from
+pytrends.request import TrendReq` in a try/except ImportError that
+raises `GTrendsError` with an actionable message ("pytrends not
+installed — run `uv sync` or reinstall lamill to pick up the new
+dep added in v19.B"). The CLI command's existing
+`except GTrendsError` handler at `cli.py:5842` already prints the
+message cleanly + exits 3, so the actionable hint reaches the
+operator without a stack trace.
+
+Lower-priority alternative: relax `pyproject.toml`'s
+`requires-python` to `>=3.10` so the operator's existing Python
+3.10 install can `uv sync` cleanly. But the dep itself was just
+added; reinstall is needed regardless.
+
+**Severity** — `minor`
+
+Doesn't lose data; just surfaces as an opaque stack trace. Fix is
+small (one try/except in gtrends.py). Operator's workaround for
+now: run `uv sync` in `~/work/projects/sites/portfolio/` and use
+`uv run lamill new trends 'ai'`.
+
+**Notes**
+
+Surfaced 2026-05-22 by operator immediately post-v19.B ship.
+v18.D's `_maybe_create_ga4_property` follows the right pattern —
+imports happen at module top after pyproject deps are guaranteed
+present. v19.B used a lazy import inside the function for "test
+environments that don't need pytrends" startup-cost reasons (per
+the comment at `gtrends.py:155-157`), which is the precondition
+that allowed the bare ModuleNotFoundError to leak. The lazy-import
+posture is still right; just needs the try/except wrap.
+
+---
+
 ### 2026-05-20 — `make deps` hits pnpm store version mismatch on new-domain builds
 
 **Repro**
