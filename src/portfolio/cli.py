@@ -5799,15 +5799,24 @@ def _render_serp_json(payload: dict) -> None:
 @new_app.command("trends")
 def new_trends(
     topic: str = typer.Argument(
-        ..., help="Topic to fetch trends for (e.g. 'home solar').",
+        None,
+        help=(
+            "Topic to fetch trends for (e.g. 'home solar'). "
+            "Omit to see today's trending searches in `--region` "
+            "(2026-05-22)."
+        ),
     ),
     timeframe: str = typer.Option(
         "12m", "--timeframe", "-t",
-        help="One of: 7d, 30d, 90d, 12m, 5y, all. Default 12m.",
+        help="One of: 7d, 30d, 90d, 12m, 5y, all. Default 12m. (Topic-mode only.)",
     ),
     region: str = typer.Option(
         "", "--region", "-r",
-        help="ISO country code (e.g. US, GB). Empty = worldwide.",
+        help=(
+            "ISO country code. Topic-mode: empty = worldwide. "
+            "Latest-mode (no topic): defaults to US; supports "
+            "US/GB/UK/IN/DE/JP/FR/CA/AU/BR/MX/ES/IT/NL/SG."
+        ),
     ),
     json_out: bool = typer.Option(
         False, "--json", help="Emit JSON instead of the rendered tables.",
@@ -5817,18 +5826,37 @@ def new_trends(
         help="Bypass the 24h cache and re-fetch from Google Trends.",
     ),
 ) -> None:
-    """Fetch Google Trends data for a topic and render it.
+    """Fetch Google Trends data and render it.
 
-    Uses `pytrends`. Per-topic cache at `data/gtrends/<topic-hash>.json`
-    with 24h TTL. Pass `--refresh` to bypass.
+    Two modes:
+      - **Topic mode** (`lamill new trends 'X'`): per-topic interest-
+        over-time + related queries. Cache at
+        `data/gtrends/<topic-hash>.json`.
+      - **Latest mode** (`lamill new trends`, no topic argument):
+        today's trending searches for the region. Cache at
+        `data/gtrends/latest_<region-hash>.json`. Default region US.
+
+    Both modes use `pytrends`, 24h cache TTL, `--refresh` to bypass,
+    L1 stale-cache fallback on rate-limit.
 
     Exits 2 on invalid `--timeframe`, 3 on pytrends fetch failure
-    (network / rate-limit / parse error). 0 on success even when
-    Google returns empty result sets (renders an empty state).
+    (network / rate-limit / parse error). 0 on success.
     """
     from .gtrends import (
-        GTrendsError, GTrendsRateLimitError, TIMEFRAME_MAP, fetch_trends,
+        DEFAULT_LATEST_REGION, GTrendsError, GTrendsRateLimitError,
+        TIMEFRAME_MAP, fetch_latest_trends, fetch_trends,
     )
+
+    # Branch on whether the operator supplied a topic. Whitespace-only
+    # counts as "no topic" (operator's typo / empty quotes shouldn't
+    # try to fetch trends for "").
+    if topic is None or not topic.strip():
+        _run_latest_trends(
+            region=region or DEFAULT_LATEST_REGION,
+            json_out=json_out,
+            refresh=refresh,
+        )
+        return
 
     if timeframe not in TIMEFRAME_MAP:
         console.print(
@@ -5954,6 +5982,75 @@ def _render_trends(payload) -> None:
 
     if not (payload.related_top or payload.related_rising):
         console.print("\n[dim]No related-queries data returned.[/]")
+
+
+def _run_latest_trends(*, region: str, json_out: bool, refresh: bool) -> None:
+    """2026-05-22 PM — `lamill new trends` with no topic shows the
+    region's daily trending searches + a hint about how to drill in.
+    Same error-handling shape as the topic-specific path (typed
+    GTrendsRateLimitError yellow; generic GTrendsError red)."""
+    from .gtrends import (
+        GTrendsError, GTrendsRateLimitError, fetch_latest_trends,
+    )
+
+    try:
+        payload = fetch_latest_trends(region=region, refresh=refresh)
+    except GTrendsRateLimitError as e:
+        console.print(f"[yellow]Latest trends fetch rate-limited:[/] {e}")
+        raise typer.Exit(3)
+    except GTrendsError as e:
+        console.print(f"[red]Latest trends fetch failed:[/] {e}")
+        raise typer.Exit(3)
+
+    if json_out:
+        import json as _json
+        from dataclasses import asdict
+        print(_json.dumps(asdict(payload), indent=2))
+        return
+
+    _render_latest_trends(payload)
+
+
+def _render_latest_trends(payload) -> None:
+    """Render a `LatestTrendsPayload` — numbered list of trending
+    queries + a hint pointing to the topic-specific subcommand for
+    drill-in."""
+    from .gtrends import DEFAULT_TTL_HOURS, latest_payload_age_hours
+
+    # Stale-warning header — same shape as topic-mode renderer.
+    age = latest_payload_age_hours(payload)
+    if age is not None and age > DEFAULT_TTL_HOURS:
+        age_str = f"{int(age)}h" if age < 48 else f"{int(age / 24)}d"
+        console.print(
+            f"\n[yellow]⚠[/]  [yellow]Stale cache fallback[/] — "
+            f"Google Trends rate-limited; serving last cached payload "
+            f"([yellow]{age_str} old[/]). Wait 10-30 min and retry "
+            f"with [cyan]--refresh[/] for fresh data."
+        )
+
+    console.print(
+        f"\n[bold]Google Trends — daily trending searches[/] "
+        f"[dim]({payload.region} · fetched {payload.fetched_at[:19]})[/]"
+    )
+
+    if not payload.trending:
+        console.print(
+            "\n[dim]No trending searches returned for this region.[/]"
+        )
+        return
+
+    # Numbered list. Trim to 20 entries (Google typically returns
+    # ~20; render cap keeps the screen tractable).
+    for i, q in enumerate(payload.trending[:20], start=1):
+        console.print(f"  [cyan]{i:>2}.[/] {q}")
+
+    # Drill-in hint. Use the first trending query as the example so
+    # it's runnable (or the operator can see the exact form).
+    example = payload.trending[0]
+    console.print(
+        f"\n[dim]Tip: drill into any of these with[/]  "
+        f"[cyan]lamill new trends \"{example}\"[/]"
+    )
 
 
 @new_app.command("deploy")

@@ -537,3 +537,159 @@ def test_cli_renders_stale_warning_on_l1_fallback(monkeypatch, tmp_path):
     assert "Stale cache fallback" in result.output
     assert "--refresh" in result.output  # the hint to retry
 
+
+# ---- 2026-05-22 PM: latest trends (no-topic surface) ---------------
+
+
+def _stub_pytrends_trending(monkeypatch, *, trending: list[str] | None = None):
+    """Stub pytrends.request.TrendReq so trending_searches returns a
+    DataFrame with the given list of trending queries."""
+    fake_client = MagicMock()
+    import pandas as pd
+    df = pd.DataFrame({"query": trending or [
+        "nanobanana ai",
+        "spacex starship launch",
+        "fed rate decision",
+        "world cup qualifier",
+        "tesla solar roof",
+    ]})
+    fake_client.trending_searches.return_value = df
+
+    fake_class = MagicMock(return_value=fake_client)
+    monkeypatch.setattr("pytrends.request.TrendReq", fake_class)
+    return fake_client, fake_class
+
+
+def test_fetch_latest_trends_happy_path(monkeypatch, tmp_path):
+    from portfolio.gtrends import fetch_latest_trends
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    fake_client, _ = _stub_pytrends_trending(monkeypatch)
+
+    payload = fetch_latest_trends("US")
+
+    assert payload.region == "US"
+    assert payload.trending[0] == "nanobanana ai"
+    assert len(payload.trending) == 5
+    # pytrends.trending_searches called with the mapped full-name region.
+    fake_client.trending_searches.assert_called_once_with(pn="united_states")
+
+
+def test_fetch_latest_trends_rejects_unsupported_region(monkeypatch, tmp_path):
+    """Operator passes a region not in _DAILY_REGION_MAP → typed
+    GTrendsError listing the supported set."""
+    from portfolio.gtrends import fetch_latest_trends
+    _isolate_cache_dir(monkeypatch, tmp_path)
+
+    with pytest.raises(GTrendsError, match="not supported"):
+        fetch_latest_trends("ZZ")  # bogus ISO code
+
+
+def test_fetch_latest_trends_uses_cache(monkeypatch, tmp_path):
+    """Second call within TTL → no second pytrends instantiation."""
+    from portfolio.gtrends import fetch_latest_trends
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    _, fake_class = _stub_pytrends_trending(monkeypatch)
+
+    fetch_latest_trends("US")
+    fetch_latest_trends("US")  # cache hit
+
+    assert fake_class.call_count == 1
+
+
+def test_fetch_latest_trends_l1_fallback_on_rate_limit(monkeypatch, tmp_path):
+    """Same L1 stale-cache fallback shape as topic-mode."""
+    from portfolio.gtrends import (
+        LatestTrendsPayload, fetch_latest_trends, save_cached_latest,
+    )
+    _isolate_cache_dir(monkeypatch, tmp_path)
+
+    # Pre-seed stale latest cache.
+    stale = LatestTrendsPayload(
+        region="US",
+        fetched_at=(datetime.now(timezone.utc) - timedelta(hours=72)).isoformat(),
+        trending=["old trending topic"],
+    )
+    save_cached_latest(stale)
+
+    bad_class = MagicMock(side_effect=Exception(
+        "Google returned a response with code 429"
+    ))
+    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+
+    payload = fetch_latest_trends("US", refresh=True)
+    assert payload.trending == ["old trending topic"]
+
+
+def test_fetch_latest_trends_429_no_cache_raises(monkeypatch, tmp_path):
+    """No stale cache to fall back to → re-raise GTrendsRateLimitError."""
+    from portfolio.gtrends import fetch_latest_trends, GTrendsRateLimitError as _RLE
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    bad_class = MagicMock(side_effect=Exception(
+        "Google returned a response with code 429"
+    ))
+    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+
+    with pytest.raises(_RLE):
+        fetch_latest_trends("US")
+
+
+def test_cli_no_topic_renders_latest(monkeypatch, tmp_path):
+    """`lamill new trends` (no topic argument) renders the daily
+    trending list + the drill-in hint."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    _stub_pytrends_trending(monkeypatch)
+
+    from portfolio.cli import app
+    result = runner.invoke(app, ["new", "trends"])
+    assert result.exit_code == 0, result.output
+    out = result.output
+    assert "daily trending searches" in out
+    assert "nanobanana ai" in out
+    # Drill-in hint with the first trending query as example.
+    assert 'lamill new trends "nanobanana ai"' in out
+
+
+def test_cli_no_topic_with_region(monkeypatch, tmp_path):
+    """`lamill new trends -r GB` (no topic) uses the GB region."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    fake_client, _ = _stub_pytrends_trending(
+        monkeypatch,
+        trending=["wimbledon", "premier league", "uk inflation"],
+    )
+
+    from portfolio.cli import app
+    result = runner.invoke(app, ["new", "trends", "-r", "GB"])
+    assert result.exit_code == 0, result.output
+    fake_client.trending_searches.assert_called_once_with(pn="united_kingdom")
+    assert "wimbledon" in result.output
+
+
+def test_cli_no_topic_json_output(monkeypatch, tmp_path):
+    """--json on the no-topic path emits valid JSON of the
+    LatestTrendsPayload shape."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    _stub_pytrends_trending(monkeypatch)
+
+    from portfolio.cli import app
+    result = runner.invoke(app, ["new", "trends", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["region"] == "US"
+    assert isinstance(data["trending"], list)
+    assert len(data["trending"]) == 5
+
+
+def test_cli_whitespace_only_topic_falls_through_to_latest(
+    monkeypatch, tmp_path,
+):
+    """`lamill new trends "   "` (whitespace-only topic) treats as
+    no-topic — falls through to the latest-trends path rather than
+    trying to fetch trends for the empty string."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    _stub_pytrends_trending(monkeypatch)
+
+    from portfolio.cli import app
+    result = runner.invoke(app, ["new", "trends", "   "])
+    assert result.exit_code == 0
+    assert "daily trending searches" in result.output
+

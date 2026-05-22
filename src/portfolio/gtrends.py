@@ -117,6 +117,81 @@ def _pick_user_agent() -> str:
     return random.choice(_USER_AGENTS)
 
 
+def _make_pytrends_client():
+    """Shared TrendReq construction — used by both topic-specific
+    `_fetch_from_pytrends` and the latest-trends fetcher. Centralizes
+    the ImportError wrap + UA rotation so both paths get the same
+    mitigations.
+
+    Raises typed `GTrendsError` if pytrends isn't installed (with the
+    `uv sync` hint). Returns a `pytrends.request.TrendReq` instance.
+    """
+    try:
+        from pytrends.request import TrendReq
+    except ImportError as e:
+        raise GTrendsError(
+            f"pytrends library not installed ({e}). "
+            f"Run `uv sync` in the portfolio project root to install the "
+            f"v19.B dependency, then re-run `uv run lamill new trends`. "
+            f"If using a system-installed `lamill` binary, reinstall "
+            f"(e.g. `pipx reinstall portfolio`)."
+        ) from e
+    return TrendReq(
+        hl="en-US",
+        tz=0,
+        timeout=(10, 30),
+        requests_args={
+            "headers": {
+                "User-Agent": _pick_user_agent(),
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        },
+    )
+
+
+# 2026-05-22 PM — "latest trends" surface for the no-topic call.
+# pytrends' `trending_searches(pn=...)` returns Google's daily
+# trending searches per region. Region codes are full names with
+# underscores (united_states, united_kingdom, ...), which is
+# inconsistent with the ISO codes accepted by `build_payload` /
+# `realtime_trending_searches`. Maintain a small mapping so the CLI
+# can keep `-r US` / `-r GB` shape consistent regardless of which
+# pytrends endpoint we hit.
+_DAILY_REGION_MAP: dict[str, str] = {
+    "US": "united_states",
+    "GB": "united_kingdom",
+    "UK": "united_kingdom",   # alias — operators often type UK
+    "IN": "india",
+    "DE": "germany",
+    "JP": "japan",
+    "FR": "france",
+    "CA": "canada",
+    "AU": "australia",
+    "BR": "brazil",
+    "MX": "mexico",
+    "ES": "spain",
+    "IT": "italy",
+    "NL": "netherlands",
+    "SG": "singapore",
+}
+
+DEFAULT_LATEST_REGION = "US"
+
+
+@dataclass(frozen=True)
+class LatestTrendsPayload:
+    """Daily trending searches snapshot. Schema is intentionally
+    distinct from `TrendsPayload` (different cache key, different
+    JSON shape, different schema version) so the two never collide
+    in cache files or in the renderer's type dispatch."""
+    region: str       # operator-facing ISO code (e.g., "US")
+    fetched_at: str   # ISO 8601 UTC
+    trending: list[str]   # ordered list of trending query strings
+
+
+LATEST_SCHEMA = "gtrends-latest-v1"
+
+
 @dataclass(frozen=True)
 class TrendsPayload:
     """Normalized trends snapshot. Cache file is a serialized form
@@ -271,44 +346,14 @@ def _fetch_from_pytrends(
     """Make the actual pytrends call. Boundary kept narrow so tests
     mock `pytrends.request.TrendReq` here without faking the broader
     fetch flow."""
-    # Local import so test environments that don't need pytrends (e.g.
-    # `uv run pytest -k "not v19"`) don't pay the lxml/numpy/pandas
-    # import cost. Also lets cache-only callers skip the dep entirely.
-    #
-    # 2026-05-22 — wrap in try/except ImportError so the operator hits
-    # a typed error with actionable hint instead of a raw stack trace.
-    # Closes the docs/bugs.md 2026-05-22 ModuleNotFoundError entry.
     try:
-        from pytrends.request import TrendReq
-    except ImportError as e:
-        raise GTrendsError(
-            f"pytrends library not installed ({e}). "
-            f"Run `uv sync` in the portfolio project root to install the "
-            f"v19.B dependency, then re-run `uv run lamill new trends "
-            f"<topic>`. If using a system-installed `lamill` binary, "
-            f"reinstall (e.g. `pipx reinstall portfolio`)."
-        ) from e
-
-    try:
-        # L3 — UA rotation. pytrends accepts requests_args that get
-        # passed through to the underlying requests Session, so we
-        # set the User-Agent header per call. Plus Accept-Language
-        # for completeness (Google's rate-limiter looks at the full
-        # request fingerprint, not just IP).
-        client = TrendReq(
-            hl="en-US",
-            tz=0,
-            timeout=(10, 30),
-            requests_args={
-                "headers": {
-                    "User-Agent": _pick_user_agent(),
-                    "Accept-Language": "en-US,en;q=0.9",
-                },
-            },
-        )
+        client = _make_pytrends_client()
         client.build_payload([topic], timeframe=timeframe_pytrends, geo=region)
         iot_df = client.interest_over_time()
         related = client.related_queries()
+    except GTrendsError:
+        # ImportError-wrap from _make_pytrends_client; let it propagate.
+        raise
     except Exception as e:
         # 2026-05-22 — detect HTTP 429 specifically so the CLI can
         # render the rate-limit case yellow (transient) instead of red
@@ -451,4 +496,173 @@ def fetch_trends(
         raise
 
     save_cached(payload)
+    return payload
+
+
+# ---- latest trends (no-topic surface, 2026-05-22 PM) --------------
+
+
+def _region_hash(region: str) -> str:
+    """Short hash of the operator-facing region code. Used in the
+    latest-trends cache filename so multiple regions don't collide."""
+    return hashlib.sha256(region.upper().encode("utf-8")).hexdigest()[:12]
+
+
+def latest_cache_path(region: str) -> Path:
+    return GTRENDS_DIR / f"latest_{_region_hash(region)}.json"
+
+
+def load_cached_latest(
+    region: str, *,
+    max_age_hours: int = DEFAULT_TTL_HOURS,
+) -> LatestTrendsPayload | None:
+    """Return fresh cached latest-trends payload, or None if absent /
+    stale / schema-mismatched."""
+    path = latest_cache_path(region)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if raw.get("schema") != LATEST_SCHEMA:
+        return None
+    if is_stale(raw, max_age_hours=max_age_hours):
+        return None
+    return LatestTrendsPayload(
+        region=raw["region"],
+        fetched_at=raw["fetched_at"],
+        trending=list(raw.get("trending") or []),
+    )
+
+
+def load_any_cached_latest(region: str) -> LatestTrendsPayload | None:
+    """L1 fallback variant — skips TTL check. Returns whatever's on
+    disk for this region, even if days old. Used when pytrends
+    rate-limits the latest-trends call."""
+    path = latest_cache_path(region)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if raw.get("schema") != LATEST_SCHEMA:
+        return None
+    return LatestTrendsPayload(
+        region=raw["region"],
+        fetched_at=raw["fetched_at"],
+        trending=list(raw.get("trending") or []),
+    )
+
+
+def save_cached_latest(payload: LatestTrendsPayload) -> Path:
+    """Atomic write of a LatestTrendsPayload to its cache file."""
+    GTRENDS_DIR.mkdir(parents=True, exist_ok=True)
+    path = latest_cache_path(payload.region)
+    body = {
+        "schema": LATEST_SCHEMA,
+        "region": payload.region,
+        "fetched_at": payload.fetched_at,
+        "trending": payload.trending,
+    }
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(body, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
+def latest_payload_age_hours(payload: LatestTrendsPayload) -> float | None:
+    """Same shape as `payload_age_hours` but for the latest-trends
+    payload type."""
+    try:
+        ts = datetime.fromisoformat(payload.fetched_at)
+    except (ValueError, TypeError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - ts
+    return delta.total_seconds() / 3600.0
+
+
+def _fetch_latest_from_pytrends(region: str) -> LatestTrendsPayload:
+    """Call pytrends' `trending_searches(pn=...)` to get Google's
+    daily trending searches for `region`. Same UA rotation + 429
+    detection + ImportError wrap as the topic-specific path.
+
+    `region` is the operator-facing ISO code (e.g., "US"); we map to
+    pytrends' full-name region internally via `_DAILY_REGION_MAP`.
+    """
+    region_iso = region.upper()
+    if region_iso not in _DAILY_REGION_MAP:
+        raise GTrendsError(
+            f"region={region!r} not supported for daily trending searches. "
+            f"Supported regions: {', '.join(sorted(_DAILY_REGION_MAP))}. "
+            f"(Different from the `--region` codes accepted on the "
+            f"topic-specific path — pytrends' `trending_searches` API "
+            f"uses a smaller fixed set.)"
+        )
+    region_pytrends = _DAILY_REGION_MAP[region_iso]
+
+    try:
+        client = _make_pytrends_client()
+        df = client.trending_searches(pn=region_pytrends)
+    except GTrendsError:
+        raise   # ImportError wrap propagates cleanly
+    except Exception as e:
+        msg = str(e)
+        if "429" in msg or "Too Many Requests" in msg.lower():
+            raise GTrendsRateLimitError(
+                f"Google Trends rate-limited (HTTP 429) on daily "
+                f"trending fetch for region={region_iso!r}. "
+                f"Wait 10-30 minutes and retry; the limit is IP-based."
+            ) from e
+        raise GTrendsError(
+            f"pytrends trending_searches failed for region={region_iso!r}: {e}"
+        ) from e
+
+    # `trending_searches` returns a DataFrame with one column (the
+    # trending queries). Column name varies by pytrends version — use
+    # iloc[:, 0] to be defensive. Convert each to str + strip.
+    if df is None or df.empty:
+        trending: list[str] = []
+    else:
+        trending = [str(s).strip() for s in df.iloc[:, 0].tolist()]
+        trending = [t for t in trending if t]   # drop empties
+
+    return LatestTrendsPayload(
+        region=region_iso,
+        fetched_at=datetime.now(timezone.utc).isoformat(),
+        trending=trending,
+    )
+
+
+def fetch_latest_trends(
+    region: str = DEFAULT_LATEST_REGION, *,
+    refresh: bool = False,
+    max_age_hours: int = DEFAULT_TTL_HOURS,
+) -> LatestTrendsPayload:
+    """Top-level entry for the no-topic `lamill new trends` path.
+
+    Mirrors `fetch_trends`'s shape: cache first (24h TTL), then live
+    fetch via `_fetch_latest_from_pytrends`. On rate-limit (
+    `GTrendsRateLimitError`), L1 fallback to any cached entry
+    regardless of staleness.
+    """
+    region_iso = region.upper()
+
+    if not refresh:
+        cached = load_cached_latest(region_iso, max_age_hours=max_age_hours)
+        if cached is not None:
+            return cached
+
+    try:
+        payload = _fetch_latest_from_pytrends(region_iso)
+    except GTrendsRateLimitError:
+        stale = load_any_cached_latest(region_iso)
+        if stale is not None:
+            return stale
+        raise
+
+    save_cached_latest(payload)
     return payload
