@@ -955,6 +955,8 @@ _MANUAL_HINTS = {
     "CHECK_078": 'add <script type="application/ld+json"> with WebSite + Organization',
     "CHECK_079": "JSON-LD must include @type Organization or WebSite",
     "CHECK_080": "wire analytics (GA4 / Plausible / CF Web Analytics)",
+    "CHECK_148": "fix GA4 measurement ID (must match `G-[A-Z0-9]{6,12}`)",
+    "CHECK_149": 'add `<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXX">` loader before the inline gtag() calls',
     "CHECK_141": "git submodule deinit + rm -rf the gitlink (CF Pages won't clone)",
 }
 
