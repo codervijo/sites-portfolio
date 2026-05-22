@@ -936,6 +936,73 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-22 PM — Step 5.5 403 hint doesn't show the actual records that need deletion
+
+**Repro**
+
+    5.5 Purge conflicting DNS records (dropaudit.co)
+      ✗ DNS purge denied: DELETE /zones/.../dns_records/... → HTTP 403: ...
+
+      Manual DNS cleanup required:
+        1. Open this URL:
+           https://dash.cloudflare.com/<acct>/dropaudit.co/dns/records
+        2. Delete any A / AAAA / CNAME records matching:
+           - dropaudit.co
+           - *.dropaudit.co
+           - www.dropaudit.co
+        3. Re-run lamill new deploy dropaudit.co --yes
+
+Operator hit this 3 times in a row on the same `dropaudit.co`
+deploy. The hint is correct but vague — operator has to open the
+dashboard, scan ~10 DNS records, mentally filter to A/AAAA/CNAME
+on root/wildcard/www, and delete each one. The patterns are
+abstract; the actual records (with their content fields showing
+what they're pointing at, e.g., parking page IPs) are concrete
+and clickable.
+
+**Why the token can't delete**: operator's `lamillio build token`
+has `DNS:Edit` on some zones but apparently not on `dropaudit.co`'s
+zone. Could be:
+  - Zone is on a CF account the token isn't scoped to (different
+    from agesdk.dev / disclosur.dev's account).
+  - Token's "All zones" scope was actually "Specific zones" with
+    an explicit list that didn't include dropaudit.co.
+  - CF's permission inheritance for newly-created zones is
+    delayed.
+
+**Fixed in** — 2026-05-22 PM: Step 5.5's 403 branch now re-calls
+`cloudflare.list_dns_records(zone_id)` (DNS:Read, which still
+works) and renders the actual conflicting records in the hint:
+
+      Manual DNS cleanup required:
+        1. Open this URL:
+           https://dash.cloudflare.com/<acct>/dropaudit.co/dns/records
+        2. Delete these 4 record(s):
+           • A     dropaudit.co            → 192.0.2.1
+           • CNAME *.dropaudit.co          → parking.cloudflare.com
+           • A     www.dropaudit.co        → 192.0.2.1
+           • AAAA  dropaudit.co            → 2001:db8::1
+        3. Re-run lamill new deploy dropaudit.co --yes
+
+Operator sees exactly what to delete + their content fields
+(parking-page targets) so they can confirm they're deleting the
+right records (vs anything operator-curated that shouldn't be
+removed). If LIST also fails (token lacks DNS:Read entirely), the
+generic pattern-based hint still renders as a fallback.
+
+Underlying CF permission issue is operator-side (token doesn't
+have DNS:Edit on this zone); pipeline can't fix that. The hint
+quality is what lamill can improve, and this is it.
+
+No new tests — the change is render-only inside a 403 catch block
+that the existing v15.R/22c2c71 tests don't exercise (would need
+a full _deploy_cf_unified integration test; current test posture
+covers cloudflare.list_dns_records + cloudflare.purge_conflicting_
+root_records as unit-level helpers, which still pass). Suite
+stays at 2620/1 skip.
+
+---
+
 ### 2026-05-22 PM — v15.S `pnpm-workspace.yaml` format silently broken under pnpm v11.1.3
 
 **Repro**

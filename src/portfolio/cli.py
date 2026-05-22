@@ -6497,16 +6497,66 @@ def _deploy_cf_unified(
             # 5xx; transient — re-running picks up).
             if "HTTP 403" in str(e):
                 console.print(f"  [red]✗[/] DNS purge denied: {e}")
+
+                # 2026-05-22 PM — surface the EXACT records that
+                # need deletion. The DNS:Read scope on the token is
+                # still working (Step 5.5's list_dns_records call
+                # inside purge_conflicting_root_records succeeded
+                # before the DELETE 403); we can re-fetch and render
+                # the conflict list so the operator knows exactly
+                # what to delete in the dashboard. Without this they
+                # have to scan ~10 records and infer which are the
+                # CF-injected parking entries.
+                conflicting: list = []
+                try:
+                    all_records = cloudflare.list_dns_records(zone.zone_id)
+                    _targets = {domain, f"*.{domain}", f"www.{domain}"}
+                    _conflict_types = {"A", "AAAA", "CNAME"}
+                    conflicting = [
+                        r for r in all_records
+                        if r.type in _conflict_types and r.name in _targets
+                    ]
+                except cloudflare.CloudflareAPIError:
+                    # If LIST also fails, token doesn't even have
+                    # DNS:Read. Skip the per-record breakdown; the
+                    # generic "delete A/AAAA/CNAME on root/wildcard/
+                    # www" hint below still applies.
+                    pass
+
                 console.print(
                     f"\n  [bold yellow]Manual DNS cleanup required:[/]\n"
                     f"    1. Open this URL:\n"
                     f"       [link]https://dash.cloudflare.com/"
                     f"{cf_account}/{domain}/dns/records[/link]\n"
-                    f"    2. Delete any [bold]A / AAAA / CNAME[/] records "
-                    f"matching:\n"
-                    f"       - [cyan]{domain}[/]\n"
-                    f"       - [cyan]*.{domain}[/]\n"
-                    f"       - [cyan]www.{domain}[/]\n"
+                )
+
+                if conflicting:
+                    console.print(
+                        f"    2. Delete these [bold]"
+                        f"{len(conflicting)} record(s)[/]:"
+                    )
+                    for r in conflicting:
+                        # Truncate long content (parking page URLs
+                        # can be 80+ chars) so the line stays
+                        # readable in narrow terminals.
+                        content = r.content
+                        if len(content) > 50:
+                            content = content[:47] + "..."
+                        console.print(
+                            f"       • [cyan]{r.type:<6}[/]"
+                            f"[bold]{r.name:<{len(domain) + 6}}[/]"
+                            f"[dim]→ {content}[/]"
+                        )
+                else:
+                    console.print(
+                        f"    2. Delete any [bold]A / AAAA / CNAME[/] "
+                        f"records matching:\n"
+                        f"       - [cyan]{domain}[/]\n"
+                        f"       - [cyan]*.{domain}[/]\n"
+                        f"       - [cyan]www.{domain}[/]"
+                    )
+
+                console.print(
                     f"    3. Re-run [cyan]lamill new deploy {domain} "
                     f"--yes[/]\n"
                     f"  [dim]Step 5.5 needs DNS:Edit on the zone. Edit "
