@@ -362,3 +362,78 @@ Reopen v21 in portfolio if:
     single-line placeholder matching the v17 / v20 / v22 pattern.
     `docs/architecture.md § Projected CLI surface` had its v21.B row
     removed.
+
+---
+
+## Open question (2026-05-22) — v23 GSC Sitemaps + per-URL indexing: redundant?
+
+The original v23 scope (3 phases A/B/C, ~2.5h estimated) was:
+
+  - v23.B — GSC Sitemaps API wrapper + `project seo --sitemaps`
+    section flag (sitemap status: lastSubmitted, lastDownloaded,
+    errors, warnings per submitted sitemap).
+  - v23.C — Per-URL bulk-index-status integration into
+    `fleet dashboard` (indexed / submitted column augmentation from
+    v16.D).
+
+### The audit (ran `lamill project seo washcalc.app`, read code)
+
+**v23.B is already shipped — by v13.B.** Evidence:
+
+  - `project_seo_diagnostics.py:133-175` defines
+    `fetch_sitemap_details(service, property_url)` which calls
+    `service.sitemaps().list(siteUrl=property_url).execute()` and
+    reshapes each entry into a `SitemapDetail` dataclass with
+    `path` / `full_url` / `status` / `errors` / `warnings` /
+    `last_downloaded` / `is_pending` / `error_summary`.
+  - Also called at `seo_runtime.py:323` for per-domain sitemap
+    processing-status.
+  - Already rendered by default in `lamill project seo <domain>`
+    as the `📋 Sitemaps (N submitted)` block.
+
+The "section flag" idea was redundant — `project seo` shows the
+sitemaps block by default, not behind a flag.
+
+**v23.C is already shipped — by v16.C + v16.D.** Evidence:
+
+  - `data/gsc/<domain>/<date>.json v16c_inspections` carries the
+    full per-URL data: `coverage_state`, `verdict`, `last_crawl_time`,
+    `indexing_state`, `page_fetch_state` per inspected URL.
+  - `gsc_rollup.py:63 domain_coverage_stats()` aggregates
+    `inspected` / `indexed` / `crawl_errors` from that data.
+  - `dashboard.py:470-485` already renders the `Cov %` + `Crawl-err`
+    fleet-dashboard columns from those aggregates.
+
+The "submitted but not indexed" signal v23.C was going to add IS
+already in the `Crawl-err` column (non-indexed URLs that GSC has
+seen are crawl errors in the per-URL inspection sense).
+
+### Status
+
+**2026-05-22 — Operator chose: drop v23 entirely.** Same shape of
+finding as the v15.K stale-comment issue from the tech-debt audit:
+the work landed in earlier tiers but the v23 placeholder never got
+updated. There's no actual functional gap.
+
+`docs/prd.md § v23` collapsed to reserved/dropped placeholder noting
+the pre-emption.
+`docs/architecture.md § Projected CLI surface` had its v23.B-C row
+removed.
+v13's stale "v23 reuses what lands here" sentence updated to reflect
+the post-hoc audit.
+
+### What was NOT in v23 (genuinely new work, deferred)
+
+If a future use-case wants sitemap-SUBMIT (POST) capability — that's
+genuinely new. The current wrap is read-only (`sitemaps().list()`).
+Submitting a fresh sitemap to GSC at deploy time would be a single-
+call helper that doesn't fit any existing tier. Not worth a new
+tier on its own; pickup when a concrete use-case lands.
+
+### Strategic observation
+
+With v23 dropped, **portfolio is at a stable plateau as of v19.B**.
+All originally-scoped GSC work is shipped; all of v17 / v20 / v21 /
+v22 / v23 are reserved/dropped; only v18 (GA4 lifecycle) and v19
+(`new trends`) shipped from the v17+ ladder. The PRD's `## Phases`
+section could meaningfully soak in this state — no active queue.

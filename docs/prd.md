@@ -479,12 +479,13 @@ remember.
 | **v13** | **Diagnostics (what's broken)** | **`project seo` default block** |
 | v16.C | Per-URL index conformance (binary check) | `project check`, `project seo` |
 | v16.D | Fleet-level GSC rollup (coverage / crawl errors / opportunity counts) | `fleet dashboard` + `fleet seo --detail` |
-| v23 | Fleet-level sitemap status | `fleet seo` |
+| ~~v23~~ | ~~Fleet-level sitemap status~~ | *Dropped 2026-05-22 — pre-empted by v13.B + v16.C + v16.D; see § v23 placeholder for the audit.* |
 
-Some overlap with v16.C (URL Inspection coverage) and v23.B (Sitemaps
-API). The kickoff gate validates that v16.C / v23.B aren't
-prematurely committing to the same Sitemaps API wrapper — v13.B
-ships first; v16.C / v23.B reuse what lands here.
+Some overlap with v16.C (URL Inspection coverage) — the v13.B kickoff
+gate validated that v16.C wouldn't prematurely commit to the same
+Sitemaps API wrapper. v13.B's `fetch_sitemap_details()` is the
+shipped wrap; v16.C reuses the same `gsc.py` OAuth plumbing. v23
+turned out to be redundant — see the v23 placeholder.
 
 **Open questions** (resolved at v13.B kickoff):
 | # | Question |
@@ -857,24 +858,7 @@ introduction doesn't require renumbering.
 
 *None — tier reserved.*
 
-### v23 — GSC Sitemaps + per-URL Indexing status *(new 2026-05-19; renumbered 2026-05-20, was v22)*
-
-Two GSC API surfaces not covered by v16: the **Sitemaps API**
-(`/webmasters/v3/sites/{site}/sitemaps`) for tracking submitted-
-sitemap status (lastSubmitted, lastDownloaded, errors, warnings)
-and the **Search Console API `index` endpoint** for index-status-
-inspection at the per-URL level. Distinct from v16.C's URL
-Inspection: Sitemaps API is bulk + lower-quota; URL Inspection
-(v16.C) is per-URL + higher-detail. Both surfaces useful for
-different operator workflows.
-
-#### Phases
-
-| # | Status | Feature |
-|---|---|---|
-| v23.A | ⏳ | **Kickoff planning.** Re-check API surface coverage against what v16.C actually shipped. If v16.C's URL Inspection already covers per-URL index status sufficiently, v23 shrinks to just the Sitemaps API. ~0.5h. |
-| v23.B | ⏳ | GSC Sitemaps API wrapper + `project seo --sitemaps` section flag (composable with v16). Shows submitted sitemaps with last-fetch / error counts / warning counts per site. ~1h. |
-| v23.C | ⏳ | Per-URL bulk-index-status integration into `fleet dashboard` (indexed/submitted column augmentation from v16.D). ~1h. |
+### v23 — *(reserved — GSC Sitemaps + per-URL Indexing status, dropped 2026-05-22 per the v23.A audit; **pre-empted by v13.B + v16.C + v16.D**, not by `§ 2 Non-goals`. The GSC Sitemaps API is already wrapped in `project_seo_diagnostics.py:133-175 fetch_sitemap_details() → SitemapDetail` and rendered in `lamill project seo <domain>` as the `📋 Sitemaps` block; v16.D's `gsc_rollup.domain_coverage_stats()` already feeds `fleet dashboard`'s `Cov %` + `Crawl-err` columns from v16.C's per-URL inspections. v23.B + v23.C were going to add work that already exists. Resurface if a sitemap-SUBMIT verb (POST, not GET) becomes useful at deploy time — the existing wrap is read-only.)*
 
 ## 7. Conformance rules for all websites
 
