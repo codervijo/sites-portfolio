@@ -65,6 +65,81 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### 2026-05-22 — `lamill new trends <topic>` on HTTP 429 surfaces a cryptic error with no recovery hint
+
+**Repro**
+
+    portfolio on  main [$?] is 📦 v0.1.0 via 🐍 v3.10.12
+    ❯ uv run portfolio new trends 'nanobanana'
+    Trends fetch failed: pytrends fetch failed for 'nanobanana': The request failed: Google returned a response with code 429
+
+    portfolio on  main [$!?] is 📦 v0.1.0 via 🐍 v3.10.12
+    ❯ uv run portfolio new trends 'nan obanana'
+    Trends fetch failed: pytrends fetch failed for 'nan obanana': The request failed: Google returned a response with code 429
+
+**Expected**
+
+The error should:
+  1. **Clarify what 429 means**: Google Trends has no official quota
+     or API; pytrends scrapes the unofficial endpoint, and Google
+     IP-rate-limits it aggressively. 429 is transient, not a
+     permanent failure.
+  2. **Suggest a wait time**: typical recovery is 10-30 minutes
+     (pytrends' GitHub issues report similar windows). No official
+     Retry-After header is sent.
+  3. **Surface what won't help**: re-running with `--refresh` or a
+     different topic will likely also 429 from the same IP since
+     the rate limit is IP-based, not topic-based.
+  4. **Surface what will help**: wait, or switch IP (VPN), or use a
+     cached result if available (24h TTL via `data/gtrends/<hash>.json`).
+
+**Actual**
+
+`Trends fetch failed: pytrends fetch failed for 'X': The request
+failed: Google returned a response with code 429` — operator can't
+tell from this whether the failure is permanent (wrong topic,
+broken auth, dead library) or transient (rate-limit, retry later).
+
+**Where (guess)**
+
+`src/portfolio/gtrends.py:163-167` — `_fetch_from_pytrends`'s broad
+`except Exception as e: raise GTrendsError(f"pytrends fetch failed
+for {topic!r}: {e}")`. The wrapper loses signal about WHICH failure
+mode tripped. Pattern fix:
+
+  - Inspect `str(e)` for `"429"` or `"Too Many Requests"` substring;
+    raise a new `GTrendsRateLimitError(GTrendsError)` subclass with
+    the actionable message.
+  - `cli.py`'s `except GTrendsError` handler at the new_trends
+    command renders the rate-limit case as yellow (transient,
+    retry-able) instead of red (permanent failure).
+  - Bonus: when rate-limited, check if a cached payload exists
+    (even stale) and offer it: "rate-limited, but a 26h-old cache
+    is available — re-run with `--refresh=false` (default) to use
+    it, or wait ~15 minutes and retry."
+
+**Severity** — `minor`
+
+Doesn't lose data; doesn't break workflow; just confuses on first
+hit. Operator workaround: wait 10-30 min and re-run.
+
+**Notes**
+
+Surfaced 2026-05-22 by operator immediately post-v19.B ship.
+Related to the prior 2026-05-22 bug ("ModuleNotFoundError when
+running outside uv venv") — both are `gtrends.py` error-surface
+gaps. Worth fixing together as a between-phase polish pass.
+
+Also related: pytrends 4.9 has known reliability issues with
+modern Google Trends (issue #563 in their GitHub). If 429s become
+chronic, the long-term fix is moving to SerpAPI's `google_trends`
+engine (originally in v19's scope, dropped 2026-05-22 per
+operator's "serp etc not needed at this time" call). That call
+was right for THE FIRST few queries; it might need re-litigating
+if pytrends rate-limiting makes the command unreliable in practice.
+
+---
+
 ### 2026-05-22 — `lamill new trends <topic>` raises `ModuleNotFoundError: No module named 'pytrends'` when running outside the `uv` venv
 
 **Repro**
