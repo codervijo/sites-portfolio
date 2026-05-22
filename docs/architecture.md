@@ -29,6 +29,7 @@ sites/portfolio/
 │   ├── gsc.py                    # Google Search Console OAuth + queries
 │   ├── gsc_recrawl.py            # GSC sitemap-resubmit flow
 │   ├── ga4_admin.py              # GA4 Admin API client + OAuth (v18.C)
+│   ├── gtrends.py                # Google Trends via pytrends (v19.B)
 │   ├── seo_runtime.py            # live HTTP SEO probe orchestrator
 │   ├── seo_cache.py              # snapshot save/load for `data/seo/`
 │   ├── serp.py                   # cluster builder for `new validate`
@@ -971,6 +972,9 @@ lamill
 │   │                                                              (was `new research`)
 │   ├── domain <topic>                               ✅ v2.A; renamed v14.B
 │   │                                                              (was `new suggest`)
+│   ├── trends <topic>                               ✅ v19.B
+│   │           [-t {7d|30d|90d|12m|5y|all}]                    (Google Trends via
+│   │           [-r REGION] [--json] [--refresh]                 pytrends; 24h cache)
 │   ├── bootstrap                                    ✅ v3.A
 │   │                                                              (writes lamill.toml
 │   │                                                              in v10.C)
@@ -1129,6 +1133,7 @@ candidate refactor if a third LLM provider lands.
 | `gsc.py` | GSC OAuth + queries + sync | `gsc_auth`, `gsc_status` |
 | `gsc_recrawl.py` | Sitemap resubmit flow | `recrawl_property` |
 | `ga4_admin.py` (v18.C) | GA4 Admin API client + OAuth (`analytics.edit` scope). httpx-direct (no `googleapiclient.discovery.build`). Used by `new bootstrap` to auto-create per-site GA4 properties + web data streams; measurement ID lands in `lamill.toml [analytics] ga4_id`. Credentials at `~/lamill/ga4/{credentials.json,token.json}` (chmod 600). | `create_property`, `create_web_stream`, `authenticate`, `has_token` |
+| `gtrends.py` (v19.B) | Google Trends via `pytrends`. Standalone `lamill new trends <topic>` data fetcher; no cluster integration. Per-topic cache at `data/gtrends/<topic-hash>.json` keyed by (topic, timeframe, region); 24h TTL. pytrends boundary inside `_fetch_from_pytrends` for test isolation. `TIMEFRAME_MAP` translates CLI flags (`7d`/`30d`/`90d`/`12m`/`5y`/`all`) to pytrends strings. | `fetch_trends`, `load_cached`, `save_cached`, `is_stale`, `TrendsPayload` |
 | `seo_runtime.py` | Live HTTP SEO probe orchestrator | `run_seo(domains)` |
 | `seo_cache.py` | Snapshot save/load for `data/seo/` | `save_snapshot`, `latest_snapshot`, `is_stale` |
 | `serp.py` | Cluster builder for `new validate` | `build_cluster` |

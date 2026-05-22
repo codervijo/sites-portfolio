@@ -5793,6 +5793,136 @@ def _render_serp_json(payload: dict) -> None:
     print(_json.dumps(safe, indent=2))
 
 
+# v19.B — `lamill new trends <topic>` standalone Google Trends fetcher.
+
+
+@new_app.command("trends")
+def new_trends(
+    topic: str = typer.Argument(
+        ..., help="Topic to fetch trends for (e.g. 'home solar').",
+    ),
+    timeframe: str = typer.Option(
+        "12m", "--timeframe", "-t",
+        help="One of: 7d, 30d, 90d, 12m, 5y, all. Default 12m.",
+    ),
+    region: str = typer.Option(
+        "", "--region", "-r",
+        help="ISO country code (e.g. US, GB). Empty = worldwide.",
+    ),
+    json_out: bool = typer.Option(
+        False, "--json", help="Emit JSON instead of the rendered tables.",
+    ),
+    refresh: bool = typer.Option(
+        False, "--refresh",
+        help="Bypass the 24h cache and re-fetch from Google Trends.",
+    ),
+) -> None:
+    """Fetch Google Trends data for a topic and render it.
+
+    Uses `pytrends`. Per-topic cache at `data/gtrends/<topic-hash>.json`
+    with 24h TTL. Pass `--refresh` to bypass.
+
+    Exits 2 on invalid `--timeframe`, 3 on pytrends fetch failure
+    (network / rate-limit / parse error). 0 on success even when
+    Google returns empty result sets (renders an empty state).
+    """
+    from .gtrends import GTrendsError, TIMEFRAME_MAP, fetch_trends
+
+    if timeframe not in TIMEFRAME_MAP:
+        console.print(
+            f"[red]Invalid --timeframe {timeframe!r}.[/] "
+            f"Pick one of: {', '.join(TIMEFRAME_MAP)}"
+        )
+        raise typer.Exit(2)
+
+    try:
+        payload = fetch_trends(
+            topic, timeframe=timeframe, region=region, refresh=refresh,
+        )
+    except GTrendsError as e:
+        console.print(f"[red]Trends fetch failed:[/] {e}")
+        raise typer.Exit(3)
+
+    if json_out:
+        import json as _json
+        from dataclasses import asdict
+        print(_json.dumps(asdict(payload), indent=2))
+        return
+
+    _render_trends(payload)
+
+
+def _render_trends(payload) -> None:
+    """Render a `TrendsPayload` to the console — interest-over-time
+    sparkline table + related queries (top + rising)."""
+    console.print(
+        f"\n[bold]Google Trends:[/] [cyan]{payload.topic}[/] "
+        f"[dim]({payload.timeframe} · "
+        f"{payload.region or 'worldwide'} · "
+        f"fetched {payload.fetched_at[:19]})[/]"
+    )
+
+    if payload.interest_over_time:
+        console.print("\n[bold]Interest over time[/]")
+        values = [r["value"] for r in payload.interest_over_time]
+        peak = max(values) if values else 0
+        bar_width = 30
+
+        # 12m timeframe = ~52 weekly rows; sample down so the output
+        # fits on a screen. 5y = ~260 rows; same logic.
+        n_rows = len(payload.interest_over_time)
+        if n_rows <= 10:
+            sample_rows = payload.interest_over_time
+        else:
+            step = max(1, n_rows // 7)
+            indices = list(range(0, n_rows, step))
+            if (n_rows - 1) not in indices:
+                indices.append(n_rows - 1)
+            sample_rows = [payload.interest_over_time[i] for i in indices]
+
+        for row in sample_rows:
+            value = row["value"]
+            pct = value / peak if peak else 0
+            bar_len = int(pct * bar_width)
+            bar = "█" * bar_len + "·" * (bar_width - bar_len)
+            console.print(
+                f"  {row['date']}  [dim]{bar}[/]  [cyan]{value:>3}[/]"
+            )
+
+        # Trend-direction badge — last vs first.
+        first_val = payload.interest_over_time[0]["value"]
+        last_val = payload.interest_over_time[-1]["value"]
+        if first_val > 0:
+            change_pct = (last_val - first_val) / first_val * 100
+            if change_pct > 10:
+                arrow = "[green]rising[/]"
+            elif change_pct < -10:
+                arrow = "[red]declining[/]"
+            else:
+                arrow = "[yellow]flat[/]"
+            console.print(
+                f"  [dim]Direction over window:[/] {arrow} "
+                f"[cyan]{change_pct:+.0f}%[/]"
+            )
+    else:
+        console.print("\n[yellow]No interest-over-time data returned.[/]")
+
+    if payload.related_top:
+        console.print("\n[bold]Related queries — top[/]")
+        for r in payload.related_top[:10]:
+            console.print(f"  [cyan]{r['value']:>3}[/]  {r['query']}")
+
+    if payload.related_rising:
+        console.print("\n[bold]Related queries — rising[/]")
+        for r in payload.related_rising[:10]:
+            v = r["value"]
+            v_str = "↑↑" if v is None else f"+{v}%"
+            console.print(f"  [cyan]{v_str:>6}[/]  {r['query']}")
+
+    if not (payload.related_top or payload.related_rising):
+        console.print("\n[dim]No related-queries data returned.[/]")
+
+
 @new_app.command("deploy")
 def new_deploy(
     domain: str = typer.Argument(..., help="Domain whose sites/<domain>/ project to deploy (e.g. kwizicle.com)"),
