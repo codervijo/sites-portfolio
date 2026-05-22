@@ -936,6 +936,47 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-22 PM — `lamill new trends` (no topic) returns 404 from pytrends.trending_searches
+
+**Repro**
+
+    ❯ uv run portfolio new trends
+    Latest trends fetch failed: pytrends trending_searches failed for region='US': The request failed: Google returned a response with code 404
+
+Hit immediately after shipping the no-topic latest-trends feature.
+First run, fresh IP — not a 429 / rate-limit. Pure endpoint death.
+
+**Diagnosis**
+
+`pytrends.trending_searches(pn=...)` hits
+`/trends/hottrends/visualize/internal/data` — an endpoint Google
+deprecated. Multiple pytrends GitHub issues (#602, #610) confirm
+the method returns 404 in current versions of Google's API.
+
+pytrends' newer `today_searches(pn=...)` method hits
+`/trends/api/dailytrends` — the current endpoint Google publishes.
+Same daily-trending data; accepts ISO region codes directly (no
+need for the full-name `_DAILY_REGION_MAP` translation).
+
+**Fixed in** — 2026-05-22 PM (same session as the v19 latest-trends
+feature ship): `gtrends._fetch_latest_from_pytrends` switched from
+`client.trending_searches(pn=<full_name>)` to
+`client.today_searches(pn=<ISO>)`. `_DAILY_REGION_MAP` replaced with
+`_LATEST_REGIONS` (ISO allowlist) + `_REGION_ALIASES` (UK → GB for
+operator-typo friendliness). `today_searches` returns a DataFrame
+with a `title` column (vs the old `trending_searches` 1-column
+unnamed shape) — adapted the row extraction to prefer `title` when
+present, fall back to `iloc[:, 0]` for cross-version safety. Test
+stub updated to mock `today_searches` (and `trending_searches`
+defensively, to surface any regression that calls the old method).
+Suite stays at 2628 / 1 skip (added 1 UK-alias test).
+
+Original v19 latest-trends feature ship landed 2026-05-22 PM
+(commit `2e9b3ba`); 404 surfaced on first operator run before the
+session ended. Total time-to-fix: ~15 minutes.
+
+---
+
 ### 2026-05-22 — `lamill new trends <topic>` on HTTP 429 surfaces a cryptic error with no recovery hint
 
 **Repro**

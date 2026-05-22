@@ -150,32 +150,39 @@ def _make_pytrends_client():
 
 
 # 2026-05-22 PM — "latest trends" surface for the no-topic call.
-# pytrends' `trending_searches(pn=...)` returns Google's daily
-# trending searches per region. Region codes are full names with
-# underscores (united_states, united_kingdom, ...), which is
-# inconsistent with the ISO codes accepted by `build_payload` /
-# `realtime_trending_searches`. Maintain a small mapping so the CLI
-# can keep `-r US` / `-r GB` shape consistent regardless of which
-# pytrends endpoint we hit.
-_DAILY_REGION_MAP: dict[str, str] = {
-    "US": "united_states",
-    "GB": "united_kingdom",
-    "UK": "united_kingdom",   # alias — operators often type UK
-    "IN": "india",
-    "DE": "germany",
-    "JP": "japan",
-    "FR": "france",
-    "CA": "canada",
-    "AU": "australia",
-    "BR": "brazil",
-    "MX": "mexico",
-    "ES": "spain",
-    "IT": "italy",
-    "NL": "netherlands",
-    "SG": "singapore",
+#
+# **2026-05-22 PM hotfix**: original implementation called
+# `pytrends.trending_searches(pn=<full_name>)` which hits the
+# deprecated endpoint `/trends/hottrends/visualize/internal/data`
+# (Google removed it in 2024). Switched to `pytrends.today_searches
+# (pn=<ISO>)` which hits the current `/trends/api/dailytrends`
+# endpoint and returns the same data. ISO codes accepted natively,
+# so no longer need the full-name region mapping — `_LATEST_REGIONS`
+# is now just an allowlist for CLI validation.
+#
+# Same data, different endpoint:
+#   trending_searches (deprecated → 404)  →  today_searches (current)
+_LATEST_REGIONS: frozenset[str] = frozenset({
+    "US", "GB", "IN", "DE", "JP", "FR", "CA", "AU",
+    "BR", "MX", "ES", "IT", "NL", "SG",
+    # No "UK" alias — pytrends' today_searches expects strict ISO.
+    # CLI normalizes "UK" → "GB" before reaching here.
+})
+
+# Operator aliases for non-strict input. Mapped to ISO before
+# validation against _LATEST_REGIONS.
+_REGION_ALIASES: dict[str, str] = {
+    "UK": "GB",   # operators often type UK; today_searches needs GB
 }
 
 DEFAULT_LATEST_REGION = "US"
+
+
+def _normalize_latest_region(region: str) -> str:
+    """Uppercase + apply aliases. Returns ISO code ready for
+    pytrends.today_searches(pn=...)."""
+    code = region.upper().strip()
+    return _REGION_ALIASES.get(code, code)
 
 
 @dataclass(frozen=True)
@@ -586,27 +593,31 @@ def latest_payload_age_hours(payload: LatestTrendsPayload) -> float | None:
 
 
 def _fetch_latest_from_pytrends(region: str) -> LatestTrendsPayload:
-    """Call pytrends' `trending_searches(pn=...)` to get Google's
-    daily trending searches for `region`. Same UA rotation + 429
-    detection + ImportError wrap as the topic-specific path.
+    """Call pytrends' `today_searches(pn=...)` to get Google's daily
+    trending searches for `region`. Same UA rotation + 429 detection
+    + ImportError wrap as the topic-specific path.
 
-    `region` is the operator-facing ISO code (e.g., "US"); we map to
-    pytrends' full-name region internally via `_DAILY_REGION_MAP`.
+    `region` is an operator-facing ISO code (e.g., "US"). Aliases
+    (`UK` → `GB`) get normalized first.
+
+    **2026-05-22 PM hotfix**: was `trending_searches(pn=<full_name>)`
+    which 404s now — Google deprecated the underlying endpoint. The
+    `today_searches` method hits the current `/api/dailytrends`
+    endpoint and accepts ISO codes directly.
     """
-    region_iso = region.upper()
-    if region_iso not in _DAILY_REGION_MAP:
+    region_iso = _normalize_latest_region(region)
+    if region_iso not in _LATEST_REGIONS:
         raise GTrendsError(
             f"region={region!r} not supported for daily trending searches. "
-            f"Supported regions: {', '.join(sorted(_DAILY_REGION_MAP))}. "
-            f"(Different from the `--region` codes accepted on the "
-            f"topic-specific path — pytrends' `trending_searches` API "
-            f"uses a smaller fixed set.)"
+            f"Supported regions: {', '.join(sorted(_LATEST_REGIONS))} "
+            f"(plus alias UK → GB). The CLI's `--region` accepts a "
+            f"broader set on the topic-specific path; the daily-trending "
+            f"endpoint covers a smaller fixed set."
         )
-    region_pytrends = _DAILY_REGION_MAP[region_iso]
 
     try:
         client = _make_pytrends_client()
-        df = client.trending_searches(pn=region_pytrends)
+        df = client.today_searches(pn=region_iso)
     except GTrendsError:
         raise   # ImportError wrap propagates cleanly
     except Exception as e:
@@ -618,16 +629,20 @@ def _fetch_latest_from_pytrends(region: str) -> LatestTrendsPayload:
                 f"Wait 10-30 minutes and retry; the limit is IP-based."
             ) from e
         raise GTrendsError(
-            f"pytrends trending_searches failed for region={region_iso!r}: {e}"
+            f"pytrends today_searches failed for region={region_iso!r}: {e}"
         ) from e
 
-    # `trending_searches` returns a DataFrame with one column (the
-    # trending queries). Column name varies by pytrends version — use
-    # iloc[:, 0] to be defensive. Convert each to str + strip.
-    if df is None or df.empty:
-        trending: list[str] = []
-    else:
-        trending = [str(s).strip() for s in df.iloc[:, 0].tolist()]
+    # `today_searches` returns a DataFrame with a "title" column
+    # carrying the trending query strings. Some pytrends versions
+    # return just a 1-column DataFrame without a named column —
+    # fall back to iloc[:, 0] in that case.
+    trending: list[str] = []
+    if df is not None and not df.empty:
+        if "title" in df.columns:
+            series = df["title"]
+        else:
+            series = df.iloc[:, 0]
+        trending = [str(s).strip() for s in series.tolist()]
         trending = [t for t in trending if t]   # drop empties
 
     return LatestTrendsPayload(
@@ -649,7 +664,9 @@ def fetch_latest_trends(
     `GTrendsRateLimitError`), L1 fallback to any cached entry
     regardless of staleness.
     """
-    region_iso = region.upper()
+    # Normalize aliases upfront so `UK` and `GB` hit the same cache
+    # entry instead of two separate files.
+    region_iso = _normalize_latest_region(region)
 
     if not refresh:
         cached = load_cached_latest(region_iso, max_age_hours=max_age_hours)

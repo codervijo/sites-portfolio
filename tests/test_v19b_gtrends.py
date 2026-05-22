@@ -542,17 +542,25 @@ def test_cli_renders_stale_warning_on_l1_fallback(monkeypatch, tmp_path):
 
 
 def _stub_pytrends_trending(monkeypatch, *, trending: list[str] | None = None):
-    """Stub pytrends.request.TrendReq so trending_searches returns a
-    DataFrame with the given list of trending queries."""
+    """Stub pytrends.request.TrendReq so today_searches returns a
+    DataFrame with the given list of trending queries.
+
+    Note: 2026-05-22 PM hotfix — switched from `trending_searches`
+    (deprecated endpoint → 404) to `today_searches` (current
+    /api/dailytrends endpoint). Both stubbed below for transition
+    safety; gtrends only calls today_searches now."""
     fake_client = MagicMock()
     import pandas as pd
-    df = pd.DataFrame({"query": trending or [
+    df = pd.DataFrame({"title": trending or [
         "nanobanana ai",
         "spacex starship launch",
         "fed rate decision",
         "world cup qualifier",
         "tesla solar roof",
     ]})
+    fake_client.today_searches.return_value = df
+    # Defensive: if anything still calls the old method, return same
+    # data so legacy tests pass during the transition window.
     fake_client.trending_searches.return_value = df
 
     fake_class = MagicMock(return_value=fake_client)
@@ -570,8 +578,11 @@ def test_fetch_latest_trends_happy_path(monkeypatch, tmp_path):
     assert payload.region == "US"
     assert payload.trending[0] == "nanobanana ai"
     assert len(payload.trending) == 5
-    # pytrends.trending_searches called with the mapped full-name region.
-    fake_client.trending_searches.assert_called_once_with(pn="united_states")
+    # 2026-05-22 PM hotfix: today_searches (current /api/dailytrends
+    # endpoint) — not trending_searches (deprecated → 404).
+    # ISO codes directly; no full-name translation.
+    fake_client.today_searches.assert_called_once_with(pn="US")
+    fake_client.trending_searches.assert_not_called()
 
 
 def test_fetch_latest_trends_rejects_unsupported_region(monkeypatch, tmp_path):
@@ -650,7 +661,9 @@ def test_cli_no_topic_renders_latest(monkeypatch, tmp_path):
 
 
 def test_cli_no_topic_with_region(monkeypatch, tmp_path):
-    """`lamill new trends -r GB` (no topic) uses the GB region."""
+    """`lamill new trends -r GB` (no topic) uses the GB region.
+    today_searches accepts ISO codes directly — no full-name
+    translation."""
     _isolate_cache_dir(monkeypatch, tmp_path)
     fake_client, _ = _stub_pytrends_trending(
         monkeypatch,
@@ -660,8 +673,20 @@ def test_cli_no_topic_with_region(monkeypatch, tmp_path):
     from portfolio.cli import app
     result = runner.invoke(app, ["new", "trends", "-r", "GB"])
     assert result.exit_code == 0, result.output
-    fake_client.trending_searches.assert_called_once_with(pn="united_kingdom")
+    fake_client.today_searches.assert_called_once_with(pn="GB")
     assert "wimbledon" in result.output
+
+
+def test_cli_no_topic_uk_alias_normalizes_to_gb(monkeypatch, tmp_path):
+    """`lamill new trends -r UK` is operator-typo-friendly: aliased to
+    GB before reaching pytrends (today_searches needs strict ISO)."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    fake_client, _ = _stub_pytrends_trending(monkeypatch)
+
+    from portfolio.cli import app
+    result = runner.invoke(app, ["new", "trends", "-r", "UK"])
+    assert result.exit_code == 0, result.output
+    fake_client.today_searches.assert_called_once_with(pn="GB")
 
 
 def test_cli_no_topic_json_output(monkeypatch, tmp_path):
