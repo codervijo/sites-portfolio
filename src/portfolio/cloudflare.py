@@ -961,6 +961,61 @@ def list_dns_records(
     return out
 
 
+def create_dns_record(
+    zone_id: str, *,
+    type: str,
+    name: str,
+    content: str,
+    proxied: bool = False,
+    ttl: int = 1,  # 1 = "automatic" per CF API
+    client: httpx.Client | None = None,
+) -> DnsRecord:
+    """v24.C — Create a DNS record in a zone. Used by the deploy
+    pipeline's Step 9 GSC block to write the verification TXT.
+
+    `ttl=1` means "automatic" in CF's API (~5 min); explicit values
+    must be in the range 60-86400.
+
+    Raises `CloudflareAPIError` on non-200. Returns the created record
+    so callers can capture the assigned `record_id` (useful if they
+    later need to clean up via `delete_dns_record`).
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.post(
+            f"/zones/{zone_id}/dns_records",
+            json={
+                "type": type,
+                "name": name,
+                "content": content,
+                "ttl": ttl,
+                "proxied": proxied,
+            },
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"POST /zones/{zone_id}/dns_records ({type} {name}) → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"create_dns_record success=false: {body.get('errors')}"
+        )
+    r = body.get("result") or {}
+    return DnsRecord(
+        record_id=r.get("id", ""),
+        type=r.get("type", ""),
+        name=r.get("name", ""),
+        content=r.get("content", ""),
+        proxied=bool(r.get("proxied")),
+    )
+
+
 def delete_dns_record(
     zone_id: str, record_id: str, *,
     client: httpx.Client | None = None,

@@ -5933,6 +5933,7 @@ def new_deploy(
     skip_verify: bool = typer.Option(False, "--skip-verify", help="Skip the local-config sanity check (cf-pages/cf-workers only)"),
     skip_repo: bool = typer.Option(False, "--skip-repo", help="Skip GitHub repo creation (cf-pages/cf-workers only)"),
     skip_pages: bool = typer.Option(False, "--skip-pages", help="Skip Cloudflare Pages project creation (cf-pages/cf-workers only)"),
+    skip_gsc: bool = typer.Option(False, "--skip-gsc", help="Skip the v24.C GSC property auto-registration step (cf-pages/cf-workers only)"),
     apply: bool = typer.Option(False, "--apply", help="Required to actually push files for hostgator/custom (dry-run default per ADR-0011)."),
 ) -> None:
     """Deploy a sites/<domain>/ project. Dispatches by lamill.toml platform.
@@ -5986,6 +5987,7 @@ def new_deploy(
             skip_verify=skip_verify,
             skip_repo=skip_repo,
             skip_pages=skip_pages,
+            skip_gsc=skip_gsc,
         )
         return
 
@@ -6035,6 +6037,7 @@ def _deploy_cf_unified(
     skip_verify: bool,
     skip_repo: bool,
     skip_pages: bool,
+    skip_gsc: bool = False,
 ) -> None:
     """v15.I — git-integrated CF deploy pipeline.
 
@@ -6624,11 +6627,223 @@ def _deploy_cf_unified(
                 "edge SSL provisioning)."
             )
 
-    console.print(
-        f"\n[green]Deploy complete.[/] [dim]All 8 steps ran. "
-        f"https://{domain}/ should resolve once DNS + SSL settle "
-        f"(5-30 min from NS update).[/]\n"
+    # --- Step 9: GSC property + sitemap (v24.C) -------------------------------
+    # Per v24.A: register `sc-domain:<domain>` with GSC and submit the
+    # site's sitemap. Three sub-calls (verify → add → submit) wrapped in
+    # one block with idempotency probes at each stage. Soft-fail
+    # semantics: any failure here doesn't abort the deploy — GSC is a
+    # nice-to-have, not a load-bearing prerequisite for live traffic.
+    gsc_status, gsc_detail = _deploy_step9_gsc(
+        domain=domain, zone=zone, dry_run=dry_run, skip_gsc=skip_gsc,
     )
+
+    console.print(
+        f"\n[green]Deploy complete.[/] [dim]All 9 steps ran. "
+        f"https://{domain}/ should resolve once DNS + SSL settle "
+        f"(5-30 min from NS update).[/]"
+    )
+    # Surface the GSC outcome on its own line so operators see at a
+    # glance whether they need to do anything (e.g., re-consent OAuth).
+    if gsc_status == "created":
+        console.print(
+            f"[green]✓[/] GSC: [cyan]sc-domain:{domain}[/] verified · "
+            f"property added · sitemap submitted"
+        )
+    elif gsc_status == "already-registered":
+        console.print(
+            f"[green]✓[/] GSC: [cyan]sc-domain:{domain}[/] {gsc_detail}"
+        )
+    elif gsc_status.startswith("skipped:"):
+        console.print(
+            f"[yellow]↷[/] GSC: {gsc_status[len('skipped:'):]}"
+        )
+    elif gsc_status.startswith("failed:"):
+        console.print(
+            f"[red]✗[/] GSC: {gsc_status[len('failed:'):]}"
+        )
+    console.print("")
+
+
+def _deploy_step9_gsc(
+    *, domain: str, zone, dry_run: bool, skip_gsc: bool,
+) -> tuple[str, str]:
+    """v24.C — GSC registration + sitemap submission as a single Step 9
+    block. Returns `(status, detail)` where status is one of:
+
+      - "created"             — verified + added + submitted (happy path)
+      - "already-registered"  — property + sitemap already known to GSC
+      - "skipped:--skip-gsc"  — operator opted out
+      - "skipped:<other>"     — dry-run / OAuth not configured / etc.
+      - "failed:<step>:<msg>" — any one sub-step failed; deploy continues
+
+    `detail` carries any extra context the CLI renderer wants to surface.
+
+    Lazy imports so cf-pages/cf-workers deploys for sites that don't
+    use GSC (rare but possible) don't pay the import cost.
+    """
+    console.print(f"\n[bold]9. GSC property + sitemap[/] [dim]({domain})[/]")
+
+    if skip_gsc:
+        console.print("  [yellow]↷[/] skipped (--skip-gsc)")
+        return ("skipped:--skip-gsc", "")
+    if dry_run:
+        console.print(
+            "  [dim]would: write TXT verification record, call "
+            "siteVerification.insert, add sc-domain property, "
+            "submit /sitemap.xml[/]"
+        )
+        return ("skipped:--dry-run", "")
+
+    # Lazy imports — only load when this step actually runs.
+    from . import cloudflare, gsc_admin
+    from .gsc import TOKEN_PATH as GSC_TOKEN_PATH
+
+    # Pre-flight: GSC OAuth token must exist. Check the file directly
+    # rather than calling gsc.authenticate() (which would open a
+    # browser) — operator needs to run `lamill settings gsc auth` once
+    # before deploys auto-register GSC properties.
+    if not GSC_TOKEN_PATH.exists():
+        console.print(
+            "  [yellow]↷[/] skipped (GSC OAuth not configured — run "
+            "`lamill settings gsc auth` once, then re-run deploy)"
+        )
+        return ("skipped:GSC OAuth not configured", "")
+
+    # --- 9a: Get the verification token from Google ---
+    try:
+        token = gsc_admin.get_verification_token(domain)
+    except gsc_admin.GSCAdminError as e:
+        msg = str(e)
+        # 403 insufficient_scope → operator on old webmasters.readonly
+        # token; needs `lamill settings gsc auth --force`.
+        if "insufficient" in msg.lower() or "403" in msg:
+            console.print(
+                f"  [yellow]↷[/] skipped (OAuth scope insufficient — "
+                f"run `lamill settings gsc auth --force` to re-consent "
+                f"with v24.B scopes)"
+            )
+            return ("skipped:OAuth scope insufficient", "")
+        console.print(f"  [red]✗[/] get_verification_token failed: {e}")
+        return (f"failed:get_token:{_short(msg)}", "")
+
+    # --- 9b: Write TXT record (idempotency probe first) ---
+    expected_txt_name = domain  # CF stores root TXT under the apex
+    try:
+        existing_records = cloudflare.list_dns_records(zone.zone_id)
+    except cloudflare.CloudflareAPIError as e:
+        console.print(f"  [red]✗[/] dns list failed: {e}")
+        return (f"failed:dns_list:{_short(str(e))}", "")
+
+    txt_already_present = any(
+        r.type == "TXT" and r.name == expected_txt_name and r.content == token
+        for r in existing_records
+    )
+    if txt_already_present:
+        console.print(
+            f"  [green]✓[/] verification TXT already in zone "
+            f"[dim](no write)[/]"
+        )
+    else:
+        try:
+            cloudflare.create_dns_record(
+                zone.zone_id,
+                type="TXT", name=expected_txt_name, content=token,
+            )
+        except cloudflare.CloudflareAPIError as e:
+            console.print(f"  [red]✗[/] TXT record create failed: {e}")
+            return (f"failed:dns_create:{_short(str(e))}", "")
+        console.print(
+            f"  [green]✓[/] wrote verification TXT to CF zone "
+            f"[dim](TTL=auto)[/]"
+        )
+
+    # --- 9c: Verify the domain (polls DNS propagation) ---
+    try:
+        gsc_admin.verify_domain(domain)
+    except gsc_admin.VerificationFailedError as e:
+        console.print(f"  [yellow]↷[/] verification timed out: {e}")
+        return (f"failed:verify:propagation_timeout", "")
+    except gsc_admin.GSCAdminError as e:
+        msg = str(e)
+        if "insufficient" in msg.lower():
+            console.print(
+                f"  [yellow]↷[/] OAuth scope insufficient — run "
+                f"`lamill settings gsc auth --force`"
+            )
+            return ("skipped:OAuth scope insufficient", "")
+        console.print(f"  [red]✗[/] verify_domain failed: {e}")
+        return (f"failed:verify:{_short(msg)}", "")
+    console.print(
+        f"  [green]✓[/] domain ownership verified by Google "
+        f"[dim](Site Verification API)[/]"
+    )
+
+    # --- 9d: Add the GSC property (idempotent — returns False if exists) ---
+    try:
+        newly_added = gsc_admin.add_site(domain)
+    except gsc_admin.GSCAdminError as e:
+        console.print(f"  [red]✗[/] sites.add failed: {e}")
+        return (f"failed:add_site:{_short(str(e))}", "")
+    if newly_added:
+        console.print(
+            f"  [green]✓[/] added [cyan]sc-domain:{domain}[/] to GSC"
+        )
+    else:
+        console.print(
+            f"  [green]✓[/] [cyan]sc-domain:{domain}[/] already in GSC "
+            f"[dim](no add)[/]"
+        )
+
+    # --- 9e: HEAD-probe + sitemap submission ---
+    sitemap_url = f"https://{domain}/sitemap.xml"
+    try:
+        import httpx as _httpx
+        head_resp = _httpx.head(
+            sitemap_url, timeout=5.0, follow_redirects=True,
+        )
+        sitemap_reachable = 200 <= head_resp.status_code < 400
+    except _httpx.HTTPError:
+        sitemap_reachable = False
+
+    if not sitemap_reachable:
+        console.print(
+            f"  [yellow]↷[/] sitemap submission skipped — "
+            f"{sitemap_url} not reachable yet "
+            f"[dim](CHECK_063 covers /sitemap.xml presence; re-run "
+            f"deploy after sitemap goes live)[/]"
+        )
+        # Still count as success for the verify+add half.
+        if newly_added:
+            return ("created", "verified + added, sitemap deferred")
+        return ("already-registered", "already verified + added (sitemap deferred)")
+
+    try:
+        newly_submitted = gsc_admin.submit_sitemap(domain, sitemap_url)
+    except gsc_admin.GSCAdminError as e:
+        console.print(f"  [red]✗[/] sitemaps.submit failed: {e}")
+        # Verify + add still succeeded; surface the partial state.
+        return (f"failed:submit_sitemap:{_short(str(e))}", "")
+    if newly_submitted:
+        console.print(
+            f"  [green]✓[/] submitted [cyan]{sitemap_url}[/] to GSC"
+        )
+        return ("created", "")
+    console.print(
+        f"  [green]✓[/] {sitemap_url} already submitted "
+        f"[dim](no re-submit)[/]"
+    )
+    if newly_added:
+        return ("created", "verified + added, sitemap already known")
+    return ("already-registered", "fully registered already")
+
+
+def _short(msg: str, *, n: int = 80) -> str:
+    """Truncate a long error message for the gsc_status detail string.
+    Keeps the result one-line for renderer purposes."""
+    msg = msg.replace("\n", " ").strip()
+    if len(msg) <= n:
+        return msg
+    return msg[:n - 1] + "…"
 
 
 def _lookup_registrar(domain: str) -> str | None:
