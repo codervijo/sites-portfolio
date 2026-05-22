@@ -168,5 +168,116 @@ true:
 
 ## Next action
 
-None. Decision shipped. SEO check work happens in the operator's
+None on the SEO-check scoping. SEO check work happens in the operator's
 separate pipeline project from here on.
+
+---
+
+## Open question (2026-05-21) — GA4 property creation: portfolio lifecycle or SEO pipeline?
+
+The Google Analytics Admin API supports automated property creation:
+
+```
+POST /v1beta/accounts/{account}/properties
+  → creates a new GA4 property; returns property ID
+POST /v1beta/properties/{property}/dataStreams
+  → creates a web data stream; returns measurement ID (G-XXXXXX)
+```
+
+Auth shape: OAuth flow with `analytics.edit` scope. Mirrors the
+existing GSC pattern at `~/.config/portfolio/gsc/`, but the new
+location should be `~/lamill/ga4/` per `feedback_no_hidden_config`.
+
+### The fork
+
+GA4 work splits into three logical pieces:
+
+| Piece | What it does | Natural home |
+|---|---|---|
+| **(1) Property creation** | Admin API → create property + web stream → return `G-XXXXXX` | Lifecycle — parallels CF zone / GH repo / Porkbun NS creation that `new bootstrap` already orchestrates. **Could** be portfolio. |
+| **(2) Markup injection** | Write the gtag `<script>` into the site's Layout/index.html using that ID | SEO pipeline (per 2026-05-21 v17 scoping call). |
+| **(3) Verification** | Read GA4 Data API to confirm Google receives data from this property | Already dropped (v18.C-F per § 2 Non-goals). GA4 web UI does this. |
+
+### The cost of splitting (1) from (2)
+
+If portfolio creates the property and SEO pipeline injects the
+markup, the measurement ID (`G-XXXXXX`) has to cross project
+boundaries. Two ways:
+
+- **A.** Portfolio writes `G-XXXXXX` to a known location
+  (`lamill.toml [analytics] ga4_id` or fleet-level
+  `data/analytics.json`). SEO pipeline reads it.
+- **B.** Both (1) + (2) live in SEO pipeline; portfolio's bootstrap
+  fires a hook the SEO pipeline picks up. More decoupled but adds
+  a coordination mechanism between two projects.
+- **C.** Both (1) + (2) live in portfolio. Inconsistent with the
+  2026-05-21 scope call ("rest using it should be in SEO pipeline")
+  but reverts to the simplest single-project shape.
+
+### Effort if it lands in portfolio
+
+  - `lamill settings ga4 auth` (one-time OAuth flow; copy GSC's
+    setup pattern): ~30 min
+  - `ga4_admin.py` module — Admin API client +
+    `create_property(name)` + `create_web_stream(property, uri)`:
+    ~1h
+  - Bootstrap integration: new step between repo-create and deploy;
+    writes `G-XXXXXX` somewhere (location depends on A/B/C):
+    ~30-45 min
+  - Tests (`httpx.MockTransport` for the Admin API): ~30-45 min
+  - **Total: ~2-3h** for property creation only.
+
+### The argument each way
+
+**For portfolio (Option A or C):**
+
+  - Lifecycle pattern. Bootstrap already does external-service
+    creation calls (CF zone, GH repo, CF Pages project, Porkbun
+    NS). GA4 property creation is the same shape.
+  - One-shot per domain, at bootstrap time. Not a recurring
+    SEO-pipeline concern.
+  - Operator has all the context at bootstrap (domain registered,
+    just paid for it, knows it's about to ship).
+
+**For SEO pipeline (Option B):**
+
+  - Consistent with the 2026-05-21 scope call. The "no GA4 wiring
+    in portfolio" line was drawn cleanly; carving exceptions
+    erodes it.
+  - Keeps the GA4 toolchain in one project. If SEO pipeline ever
+    wants to do something more nuanced (e.g., per-environment data
+    streams, or property-config tuning), it owns the whole API.
+  - Avoids handing the measurement ID across project boundaries.
+
+### Status
+
+**2026-05-21 — Operator chose Option A.** Portfolio owns GA4
+property creation (lifecycle); SEO pipeline owns markup injection
+(content-shaping). Measurement ID handoff via per-site
+`lamill.toml [analytics] ga4_id`. Decisions captured in
+`docs/prd.md § v18` design notes. v18.A shipped same commit.
+
+### What's in v18 (portfolio side)
+
+  - v18.B — static checks (CHECK_148 ID-well-formed + CHECK_149
+    script-src-google).
+  - v18.C — `ga4_admin.py` Admin API client + OAuth flow + new
+    `lamill settings ga4 auth` command. Credentials at
+    `~/lamill/ga4/{credentials.json,token.json}`.
+  - v18.D — `AnalyticsBlock` schema in `lamill_toml.py` + bootstrap
+    auto-create step (writes `G-XXXXXX` to per-site lamill.toml).
+    `--skip-ga4` opt-out for dark sites.
+  - v18.E — docs sync wrap.
+
+### What's left for SEO pipeline (this project's heir)
+
+  - Read `lamill.toml [analytics] ga4_id` from each site.
+  - Render the gtag `<script>` block into the site's
+    `<head>` (Astro Layout component / index.html / WP plugin
+    depending on stack).
+  - `inject-ga4` Tier-2-fixer remediation for sites missing markup.
+  - `Analytics.astro` partial-template component for the Astro
+    stack majority.
+  - GTM container support if/when a fleet use-case emerges.
+  - Plausible / CF Web Analytics / Umami auto-setup if those become
+    operator's preferred providers.

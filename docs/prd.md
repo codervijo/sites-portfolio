@@ -723,22 +723,92 @@ END v16-design-notes-purged -->
 
 ### v17 — *(reserved — SEO check expansion, dropped 2026-05-21 per `§ 2 Non-goals` audit; moved to operator's separate SEO pipeline project — every proposed check has authoritative implementations elsewhere (Lighthouse / Yoast / Screaming Frog / GSC). Per-check scoring + adjacent "consume Lighthouse CI output via `fleet check` reader" posture (similar to v16.D's GSC consumption) captured in `docs/for-seo-check-improvements.md`; resurface if portfolio gains a pre-deploy framing that earns the 4-5 unique gates back.)*
 
-### v18 — Google Analytics 4 install helper *(new 2026-05-19; deferred behind v16; renumbered 2026-05-20, was v17; scope shrunk 2026-05-20 — Data API consumers v18.C-F dropped as out-of-scope per `§ 2 Non-goals`)*
+### v18 — GA4 property automation + static conformance *(new 2026-05-19; renumbered 2026-05-20, was v17; scope shrunk 2026-05-20 — Data API consumers v18.C-F dropped per `§ 2 Non-goals`; re-scoped 2026-05-21 — markup injection moved to operator's SEO pipeline project; portfolio retains lifecycle property-creation + static checks per the bootstrap-orchestration pattern)*
 
-GA4 measurement-ID install is conformance — every site should have
-analytics, uniformly. Beyond install, GA4 Data API *consumption* is
-not in scope: the GA4 web UI already does that job well for one
-operator (parallel to the existing non-goal on Ahrefs/SEMrush). v18
-ships the install helper only.
+GA4 property creation is **lifecycle** — same shape as the CF zone /
+GitHub repo / Porkbun NS creation that `new bootstrap` already
+orchestrates. v18 adds GA4 Admin API automation to bootstrap so
+operators don't visit the GA console for every new domain. The
+returned measurement ID (`G-XXXXXX`) lands in each site's
+`lamill.toml [analytics] ga4_id` field — that's the boundary
+where the SEO pipeline picks up to do markup injection (which is
+content-shaping, not lifecycle, and belongs there).
+
+Three pieces sit in portfolio:
+
+  1. **Static conformance checks** (CHECK_080 broad detector stays;
+     new CHECK_148 ID-well-formed + CHECK_149 script-src-google for
+     GA4-specific rigor).
+  2. **GA4 Admin API client + OAuth flow** at `~/lamill/ga4/`
+     (mirrors GSC's pattern but new location per
+     `[[feedback_no_hidden_config]]`).
+  3. **Bootstrap integration** writing `G-XXXXXX` to per-site
+     `lamill.toml [analytics] ga4_id`.
+
+Three pieces explicitly do NOT sit in portfolio (SEO pipeline owns
+them per the 2026-05-21 v17 scope call):
+
+  - Markup injection (`Analytics.astro` partial / Layout wiring /
+    inline `<script>` blocks).
+  - `inject-ga4` Tier-2-fixer remediation for existing sites.
+  - GA4 Data API reads (already dropped — § 2 Non-goals).
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v18.A | ⏳ | **Kickoff planning.** Audit fleet GA4 coverage (which sites have measurement IDs today). Decide gtag-injection format (inline vs partial template) + whether the operator's existing GTM-managed sites need a separate code path. ~0.5h. |
-| v18.B | ⏳ | GA4 install helper. `new bootstrap` injects a gtag block given a `--ga4 G-XXXXXX` flag (or pulls from `[analytics]` block in `lamill.toml`). `project fix` adds an `inject-ga4` remediation for existing sites missing analytics. New conformance check: `has-analytics` (warns if no gtag/GTM detected in rendered HTML). ~1-2h. |
+| v18.A | ✅ | **Kickoff planning.** Locked seven decisions 2026-05-21: (a) property creation in portfolio, markup injection in SEO pipeline. (b) measurement-ID handoff via per-site `lamill.toml [analytics] ga4_id` (Option A in `docs/for-seo-check-improvements.md` open question). (c) Bootstrap default = auto-create GA4 property when GA4 OAuth configured; `--skip-ga4` opt-out for dark sites (`csinorcal.church` etc.). (d) OAuth credential location = `~/lamill/ga4/{credentials.json,token.json}` — DO NOT copy GSC's `~/.config/portfolio/gsc/` location (existing GSC location predates `feedback_no_hidden_config` and is itself due for migration). (e) Static check rigor: CHECK_080 stays broad (any analytics provider), new CHECK_148 (`ga4-id-well-formed`) + CHECK_149 (`ga4-script-src-google`) for GA4-specific rigor — both fire only when CHECK_080 detected GA4. (f) Five existing GA4-wired sites (`keralavotemap`, `lamillrentals`, `washcalc`, `homeloom`, `calcengine`) left alone — CHECK_080 already says they pass; operator backfills `lamill.toml [analytics]` manually if/when a single source of truth is wanted. (g) Phase order strict numerical: B (static checks · independent) → C (OAuth + Admin API · standalone) → D (schema + bootstrap integration · depends on C) → E (docs wrap). |
+| v18.B | ⏳ | **Static GA4 conformance checks.** New `CHECK_148 ga4-id-well-formed` (regex-validates `G-[A-Z0-9]{6,12}` extracted from rendered HTML — catches typo'd / placeholder IDs). New `CHECK_149 ga4-script-src-google` (verifies script `src` is `https://www.googletagmanager.com/gtag/js?id=G-XXX` — catches typo'd CDN / local-only / GTM-pretending-to-be-gtag patterns). Both fire only when CHECK_080 detected GA4 specifically (skip-cleanly on non-GA4 providers per the "atomic check" posture from v16.A). 6 new tests (3 per check: pass / fail-on-malformed / skip-when-no-GA4). ~45 min. |
+| v18.C | ⏳ | **GA4 OAuth + Admin API client.** New `src/portfolio/ga4_admin.py` module — Admin API client with `create_property(account_id, display_name)` (POST `/v1beta/accounts/{account}/properties`) + `create_web_stream(property_id, default_uri)` (POST `/v1beta/properties/{property}/dataStreams` returns `G-XXXXXX`). OAuth flow uses `analytics.edit` scope; credentials at `~/lamill/ga4/credentials.json`; refresh-aware token at `~/lamill/ga4/token.json` (chmod 600). New `lamill settings ga4 auth` interactive command (mirrors `lamill settings gsc auth` shape). Token-status surface on `lamill settings apikeys list` (existing pattern). All HTTP stubbed via `httpx.MockTransport`. ~1.5h. |
+| v18.D | ⏳ | **Schema + bootstrap integration.** New `AnalyticsBlock` dataclass in `lamill_toml.py` with `ga4_id: str \| None = None` (validated against `G-[A-Z0-9]{6,12}` shape when present). Bootstrap learns a step between repo-create (existing) and lamill.toml-write (existing): when GA4 OAuth configured and `--skip-ga4` not passed, call `ga4_admin.create_property() + create_web_stream()`, capture `G-XXXXXX`, write into the new site's `lamill.toml [analytics] ga4_id`. New `--skip-ga4` flag (default off; opt-in to skip for dark sites). Step prints `→ Creating GA4 property... ✓ G-XXXXXX` on success; `↷ skipped (GA4 OAuth not configured — run \`lamill settings ga4 auth\`)` on missing creds; `↷ skipped (--skip-ga4)` on opt-out. Failure modes (Admin API 4xx/5xx) treated as soft skip with operator-visible warning — bootstrap doesn't abort because GA4 is a per-site nice-to-have, not a load-bearing prerequisite for the actual deploy. ~1h. |
+| v18.E | ⏳ | **Docs sync wrap.** Mark v18.A-D ✅ in this row. Add `ga4_admin.py` to `docs/architecture.md § 3 Mechanisms`. Add `[analytics]` block to `§ 4 Schemas (sites/<domain>/lamill.toml)`. Add `settings ga4 auth` row to `§ Projected CLI surface`. ~30 min. |
 
 #### Design notes
+
+**Why "auto-create on bootstrap" not "explicit `--ga4` flag."** Operator's
+stated goal is "automatic" GA4 setup. Bootstrap is the moment of
+greatest context (operator just registered the domain, about to ship
+it). Adding a step that calls Admin API parallels the existing CF
+zone create / GH repo create steps — same lifecycle pattern. The
+escape valve (`--skip-ga4`) covers the rare exception (dark sites
+like `csinorcal.church`). Default-on is the right call for the
+common case.
+
+**Why split portfolio (lifecycle) vs SEO pipeline (markup).** The
+2026-05-21 v17 scope call drew the line at "portfolio does
+conformance / SEO pipeline does the using of GA4." Property creation
+is lifecycle-shaped (one-shot per domain at registration time, same
+as registering the zone or creating the repo). Markup injection is
+content-shaping (recurring concern as sites evolve, Layout components
+change, etc.). The boundary is the measurement ID written to
+`lamill.toml [analytics] ga4_id` — portfolio writes; SEO pipeline
+reads. See `docs/for-seo-check-improvements.md` for the full fork
+analysis (Option A chosen 2026-05-21).
+
+**Why `~/lamill/ga4/` not `~/.config/portfolio/ga4/`.**
+`[[feedback_no_hidden_config]]` (2026-05-19 operator rule): prefer
+`~/lamill/` over `~/.lamill/` etc.; PRDs that recommend hidden paths
+predate the rule. GSC's existing `~/.config/portfolio/gsc/` location
+predates the rule too — v18 deliberately picks the new location for
+GA4. (Side note: GSC migration to `~/lamill/gsc/` is a separate
+tracked item; not blocking v18.)
+
+**Why the five pre-wired sites are left alone.** `keralavotemap.site`
+(`G-QG4CYZ7MXE`), `lamillrentals.com` (`G-41C0WXB0HR`),
+`washcalc.app` (`G-HP39MQPM2M`), `homeloom.app`, and `calcengine.site`
+all already have working gtag blocks in their `index.html` /
+`BaseLayout.astro` markup. CHECK_080 says they pass; new CHECK_148/149
+will validate their markup is well-formed (likely all four — verified
+during v18.B implementation). Backfilling `lamill.toml [analytics]
+ga4_id` for them is operator-discretion via a one-shot shell loop
+or a future polish phase; not part of v18.
+
+**Why the new checks are atomic (CHECK_148 + CHECK_149) instead of
+one big upgraded CHECK_080.** v16.A locked the "one assertion per
+CHECK_NNN" posture: atomic checks make pass/fail buckets meaningful
+on the rendered report, and `project fix` can target individual
+checks. Bundling three assertions into CHECK_080 would lose that
+resolution.
 
 **Scope decision (2026-05-20).** Dropped v18.C-F (GA4 Data API
 foundation + per-page metrics + fleet rollup + acquisition/funnel
@@ -746,8 +816,9 @@ consumers). Rationale: same family as the non-goal on paid SEO
 analytics (Ahrefs / SEMrush / Moz) — Google's GA4 UI already gives
 the operator everything those phases would consume, and reading
 analytics into the CLI duplicates UI rather than compressing
-operator time. Install enforcement (v18.B) stays because it's
-conformance, not consumption.
+operator time. Property creation (v18.D) stays because it's
+lifecycle, and static conformance (v18.B) stays because it's the
+existing project purpose; consumption stays out.
 
 ### v19 — Google Trends integration *(new 2026-05-19; renumbered 2026-05-20, was v18)*
 
