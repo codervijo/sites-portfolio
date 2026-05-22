@@ -17,6 +17,7 @@ Schema: `docs/architecture.md` § 4 Schemas (sites/<domain>/lamill.toml).
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 import tomllib
@@ -117,12 +118,22 @@ class BackendBlock:
     hosting: str = "none"
 
 
+# v18.D — per-site analytics declaration. `ga4_id` is the GA4
+# measurement ID (`G-XXXXXX`) that landed when bootstrap called the
+# Admin API. Portfolio writes; SEO pipeline reads (markup injection
+# stays out-of-scope here per 2026-05-21 v18.A Option A).
+@dataclass
+class AnalyticsBlock:
+    ga4_id: str | None = None
+
+
 @dataclass
 class LamillToml:
     deploy: DeployBlock
     schema: str = SCHEMA_VERSION
     hosting: HostingBlock | None = None
     backend: BackendBlock | None = None
+    analytics: AnalyticsBlock | None = None
     notes: str | None = None
 
 
@@ -192,6 +203,18 @@ def _parse_doc(doc: dict, *, source: Path) -> LamillToml:
         else None
     )
 
+    analytics_raw = doc.get("analytics")
+    if analytics_raw is not None and not isinstance(analytics_raw, dict):
+        raise ParseError(
+            f"{source}: [analytics] must be a table, "
+            f"got {type(analytics_raw).__name__}"
+        )
+    analytics = (
+        _parse_analytics(analytics_raw, source=source)
+        if analytics_raw is not None
+        else None
+    )
+
     notes = _parse_notes(doc.get("notes"), source=source)
 
     return LamillToml(
@@ -199,6 +222,7 @@ def _parse_doc(doc: dict, *, source: Path) -> LamillToml:
         deploy=deploy,
         hosting=hosting,
         backend=backend,
+        analytics=analytics,
         notes=notes,
     )
 
@@ -297,6 +321,26 @@ def _parse_backend(raw: dict, *, source: Path) -> BackendBlock:
     )
 
 
+# v18.D — same shape as the v18.B CHECK_148 regex. Kept in sync
+# manually; if either changes, the other should too.
+_GA4_ID_SHAPE_RE = re.compile(r"^G-[A-Z0-9]{6,12}$")
+
+
+def _parse_analytics(raw: dict, *, source: Path) -> AnalyticsBlock:
+    ga4_id = raw.get("ga4_id")
+    if ga4_id is not None:
+        if not isinstance(ga4_id, str):
+            raise ParseError(
+                f"{source}: [analytics].ga4_id must be a string"
+            )
+        if not _GA4_ID_SHAPE_RE.match(ga4_id):
+            raise ParseError(
+                f"{source}: [analytics].ga4_id={ga4_id!r} doesn't match "
+                f"GA4 shape `G-[A-Z0-9]{{6,12}}`"
+            )
+    return AnalyticsBlock(ga4_id=ga4_id)
+
+
 def _parse_notes(raw: object, *, source: Path) -> str | None:
     if raw is None:
         return None
@@ -365,6 +409,9 @@ def to_dict(payload: LamillToml) -> dict:
             "framework": payload.backend.framework,
             "hosting": payload.backend.hosting,
         }
+
+    if payload.analytics is not None and payload.analytics.ga4_id is not None:
+        out["analytics"] = {"ga4_id": payload.analytics.ga4_id}
 
     if payload.notes is not None:
         out["notes"] = {"text": payload.notes}

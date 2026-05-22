@@ -3510,6 +3510,16 @@ def new_bootstrap(
              "leaves `genai/` for `lamill project translate <domain>` "
              "to port later.",
     ),
+    skip_ga4: bool = typer.Option(
+        False, "--skip-ga4",
+        help="v18.D — skip GA4 property auto-creation for this site. "
+             "Default attempts to create a GA4 property + web stream "
+             "via the Admin API (requires GA4 OAuth + GA4_ACCOUNT_ID) "
+             "and writes the resulting measurement ID into the new "
+             "site's `lamill.toml [analytics] ga4_id`. Pass `--skip-ga4` "
+             "for dark sites (csinorcal.church etc.) or when GA4 isn't "
+             "appropriate.",
+    ),
 ) -> None:
     """Scaffold a new sites/<domain>/ project to ship-ready conformance (v3.A).
 
@@ -3642,6 +3652,7 @@ def new_bootstrap(
             platform=platform or None,
             translation_budget_usd=budget_usd if budget_usd > 0.0 else None,
             translate_now=translate_now,
+            skip_ga4=skip_ga4,
         )
     except BootstrapError as e:
         console.print(f"[red]bootstrap failed:[/] {e}")
@@ -4330,6 +4341,26 @@ def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:
         console.print(f"\n[bold]Files written ({len(result.files_written)}):[/]")
         for f in sorted(result.files_written):
             console.print(f"  • {f}")
+
+    # v18.D — surface GA4 auto-create outcome. Always render the line
+    # so the operator sees whether GA4 was wired (or why it wasn't).
+    if result.ga4_status:
+        if result.ga4_status == "created":
+            console.print(
+                f"\n[green]✓[/] GA4 property created · "
+                f"measurement ID [cyan]{result.ga4_measurement_id}[/] "
+                f"written to lamill.toml [dim][analytics][/]"
+            )
+        elif result.ga4_status.startswith("skipped:"):
+            console.print(
+                f"\n[yellow]↷[/] GA4 property creation "
+                f"[dim]{result.ga4_status[len('skipped:'):]}[/]"
+            )
+        elif result.ga4_status.startswith("failed:"):
+            console.print(
+                f"\n[red]✗[/] GA4 property creation failed (continuing) · "
+                f"[dim]{result.ga4_status[len('failed:'):]}[/]"
+            )
 
     if result.git_initialized:
         sha = result.initial_commit_sha[:7] if result.initial_commit_sha else "?"

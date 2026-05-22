@@ -37,6 +37,8 @@ def _stub_result(tmp_path: Path) -> SimpleNamespace:
         initial_commit_sha="abc1234",
         warnings=[],
         next_steps=[],
+        ga4_status="",        # v18.D — renderer reads this; "" suppresses the line
+        ga4_measurement_id=None,
     )
 
 

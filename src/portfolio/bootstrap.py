@@ -53,6 +53,11 @@ class BootstrapResult:
     initial_commit_sha: str | None = None
     warnings: list[str] = field(default_factory=list)
     next_steps: list[str] = field(default_factory=list)
+    # v18.D — GA4 auto-create outcome from bootstrap. ga4_status is
+    # always set to one of the literal status strings below; CLI
+    # renders both fields after bootstrap completes.
+    ga4_status: str = ""           # "" | "created" | "skipped:<reason>" | "failed:<error>"
+    ga4_measurement_id: str | None = None   # populated iff status == "created"
 
 
 class BootstrapError(Exception):
@@ -1554,6 +1559,64 @@ def _ensure_pnpm_only(project_dir: Path) -> list[str]:
     return fixes
 
 
+# v18.D — GA4 property auto-creation.
+# Returns (measurement_id, status_message). Bootstrap stores both on
+# the result and writes measurement_id into lamill.toml [analytics]
+# when present. All failure modes are soft (bootstrap continues
+# without GA4 wired) — GA4 is a per-site nice-to-have, not a
+# load-bearing prerequisite for the actual deploy.
+def _maybe_create_ga4_property(
+    domain: str, *, skip_ga4: bool,
+) -> tuple[str | None, str]:
+    """Try to provision a GA4 property + web stream for `domain`.
+
+    Returns `(measurement_id, status)` where:
+      - `(G-XXXXXX, "created")` on success
+      - `(None, "skipped:<reason>")` for any expected skip path
+      - `(None, "failed:<truncated error>")` on Admin API failure
+
+    Skip paths (in priority order):
+      1. `skip_ga4=True` — operator passed `--skip-ga4`
+      2. GA4 OAuth not configured (no `~/lamill/ga4/token.json`)
+      3. `GA4_ACCOUNT_ID` not set in apikeys
+
+    Caller (bootstrap) writes status + measurement_id to
+    `BootstrapResult`; CLI renders both after bootstrap completes.
+    """
+    if skip_ga4:
+        return (None, "skipped:--skip-ga4")
+
+    from . import apikeys, ga4_admin
+
+    if not ga4_admin.has_token():
+        return (
+            None,
+            "skipped:GA4 OAuth not configured "
+            "(run `lamill settings ga4 auth`)",
+        )
+
+    account_id = apikeys.get_key("GA4_ACCOUNT_ID")
+    if not account_id:
+        return (
+            None,
+            "skipped:GA4_ACCOUNT_ID not set "
+            "(run `lamill settings apikeys set GA4_ACCOUNT_ID <id>`)",
+        )
+
+    try:
+        property_id = ga4_admin.create_property(account_id, domain)
+        _stream_id, measurement_id = ga4_admin.create_web_stream(
+            property_id, f"https://{domain}/",
+        )
+    except ga4_admin.GA4AdminError as e:
+        msg = str(e)
+        if len(msg) > 200:
+            msg = msg[:200] + "..."
+        return (None, f"failed:{msg}")
+
+    return (measurement_id, "created")
+
+
 def _remove_legacy_wrangler_toml(project_dir: Path) -> bool:
     """Remove any wrangler.toml left from older bootstraps (legacy Workers Sites
     format breaks modern CF Pages builds). Returns True if removed."""
@@ -1693,6 +1756,7 @@ def bootstrap(
     platform: str | None = None,
     translation_budget_usd: float | None = None,
     translate_now: bool = False,
+    skip_ga4: bool = False,
 ) -> BootstrapResult:
     """Top-level orchestration. Always called with already-validated domain.
 
@@ -1739,6 +1803,7 @@ def bootstrap(
             platform=platform,
             translation_budget_usd=translation_budget_usd,
             translate_now=translate_now,
+            skip_ga4=skip_ga4,
             _dir_tracker=lambda: _set_we_created_dir(),
         )
     except Exception:
@@ -1770,6 +1835,7 @@ def _bootstrap_inner(
     platform: str | None,
     translation_budget_usd: float | None,
     translate_now: bool,
+    skip_ga4: bool,
     _dir_tracker,
 ) -> BootstrapResult:
     """Inner body of bootstrap. Wrapped by `bootstrap()` for v15.K
@@ -1961,6 +2027,16 @@ def _bootstrap_inner(
         ing_written, _ = _write_files(project_dir, INGESTER_FILES, domain, stack, topic, today, skip_existing=skip_existing)
         result.files_written.extend(ing_written)
 
+    # v18.D — try to auto-provision a GA4 property + web stream for
+    # this domain before writing lamill.toml so the measurement ID
+    # (if any) can land in the [analytics] block. All failure modes
+    # are soft — bootstrap continues without GA4 wired.
+    measurement_id, ga4_status = _maybe_create_ga4_property(
+        domain, skip_ga4=skip_ga4,
+    )
+    result.ga4_status = ga4_status
+    result.ga4_measurement_id = measurement_id
+
     # v10.C — write `lamill.toml` declaring the deploy target.
     # Platform priority: explicit `--platform` flag → infer from
     # on-disk configs (wrangler.jsonc / vercel.json / netlify.toml
@@ -1969,6 +2045,7 @@ def _bootstrap_inner(
     # (per `prd.md` v10 design notes resolution 10.C).
     if not (project_dir / "lamill.toml").exists():
         from .lamill_toml import (
+            AnalyticsBlock,
             DeployBlock,
             HOSTING_REQUIRED_PLATFORMS,
             LamillToml,
@@ -2008,6 +2085,10 @@ def _bootstrap_inner(
                 deploy=DeployBlock(
                     platform=chosen_platform,
                     custom_domains=[domain],
+                ),
+                analytics=(
+                    AnalyticsBlock(ga4_id=measurement_id)
+                    if measurement_id else None
                 ),
             ),
         )

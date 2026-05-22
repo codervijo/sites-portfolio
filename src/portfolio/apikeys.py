@@ -60,6 +60,12 @@ KNOWN_KEYS: tuple[str, ...] = (
                      # (per ADR-0012). Falls back to `gh` CLI when unset; both
                      # paths exit `new deploy` with a clear error when neither
                      # is available.
+    "GA4_ACCOUNT_ID",  # v18.D — parent account ID for `ga4_admin.create_property`
+                       # (e.g. "123456789"). Visible in the GA4 admin URL or via
+                       # `GET /v1beta/accounts`. Operator's GA4 organization is
+                       # usually one account; set once via `lamill settings
+                       # apikeys set GA4_ACCOUNT_ID <id>`. Bootstrap soft-skips
+                       # GA4 property creation when unset.
 )
 
 
@@ -447,6 +453,19 @@ def probe_all() -> dict[str, ProbeResult]:
     # v15.I — GitHub REST API for repo create. Falls back to `gh` CLI
     # when token unset; pipeline pre-flight handles both.
     out["GITHUB_TOKEN"] = _probe_github(get_key("GITHUB_TOKEN") or "")
+
+    # v18.D — GA4 account ID is set-or-missing (no remote probe;
+    # validity is implicit in whether bootstrap's create_property call
+    # succeeds against this account). Surface "not-testable" when set
+    # so the apikeys list table shows the operator at a glance whether
+    # bootstrap will attempt GA4 auto-create.
+    if get_key("GA4_ACCOUNT_ID"):
+        out["GA4_ACCOUNT_ID"] = ProbeResult(
+            "not-testable",
+            "validated implicitly by `new bootstrap` create_property",
+        )
+    else:
+        out["GA4_ACCOUNT_ID"] = ProbeResult("missing", "")
 
     return out
 
