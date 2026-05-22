@@ -1024,7 +1024,6 @@ lamill
 | v16.D | Fleet-level GSC rollup — new `fleet dashboard` columns (Coverage % / Crawl errors / W/w imp Δ / Page-2 opp count) + `fleet seo --detail` mode for fleet-aggregated top queries / top pages. |
 | v18.B | `new bootstrap --ga4 G-XXXXXX` flag · `project fix` gains `inject-ga4` remediation. |
 | v19.B | `lamill trends <topic>` (standalone test invocation; later composes into `new validate`). |
-| v21.B | `new deploy --reindex [<url>...]` flag (Google Indexing API). |
 | v23.B-C | `project seo --sitemaps` section flag · `fleet dashboard` indexed/submitted column augmentation. |
 
 #### Open CLI design questions

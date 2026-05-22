@@ -281,3 +281,84 @@ property creation (lifecycle); SEO pipeline owns markup injection
   - GTM container support if/when a fleet use-case emerges.
   - Plausible / CF Web Analytics / Umami auto-setup if those become
     operator's preferred providers.
+
+---
+
+## Open question (2026-05-22) — v21 Indexing API hook: drop entirely?
+
+The original v21 scope was a `lamill new deploy --reindex` hook that
+calls `POST /v3/urlNotifications:publish` on the Google Indexing API
+to ping Google about new/updated URLs at deploy time. The motivation:
+post-deploy Google indexing takes days-to-weeks organically; an
+explicit ping can compress that to hours.
+
+### The catch
+
+Google's docs explicitly limit the Indexing API to `JobPosting` and
+`BroadcastEvent` (livestream) schema types:
+
+> Currently, the Indexing API can only be used to crawl pages with
+> either `JobPosting` or `BroadcastEvent` embedded in a `VideoObject`.
+
+Most SEO practitioners use it for arbitrary URLs anyway and report
+that it *seems* to work — but it's:
+
+  - Not officially supported for the use case operator wants
+    (general-purpose post-deploy ping).
+  - Anecdotally effective; could break or stop working at any time
+    when Google enforces the documented restriction.
+  - 200 calls/day quota; would require service-account OAuth setup
+    on top of the existing GSC OAuth.
+
+### The official alternative
+
+**v23.B — GSC Sitemaps API wrapper** is Google's officially sanctioned
+path to ping about new content. The API's `POST /webmasters/v3/sites/
+{site}/sitemaps/{feedpath}` submits a sitemap; Google crawls the URLs
+it lists. Less aggressive than per-URL Indexing API pings (Google
+decides crawl priority based on sitemap freshness rather than
+explicit per-URL signals), but officially supported. v23.B was
+already on portfolio's roadmap and stays there.
+
+### Status
+
+**2026-05-22 — Operator chose: drop v21 entirely. Move to SEO
+pipeline project.** Same shape of call as v17 + the markup-injection
+half of v18: when the work is borderline / unofficial / overlapping
+with adjacent tools, defer to the SEO pipeline rather than commit
+portfolio's surface area to it.
+
+### What this means
+
+  - **portfolio** retains `v23.B` (the official sitemap-submission
+    path) as the post-deploy indexing automation.
+  - **SEO pipeline** inherits the v21 Indexing API ping work if/when
+    operator decides empirical effectiveness justifies the
+    unofficial-API risk. Recommended sub-plan if they pick it up:
+    one manual empirical test on 2-3 recently-launched URLs that
+    aren't yet indexed; submit them via curl + service-account
+    token; check GSC 24-48h later for differential indexing speed.
+    Build the wrapper only on positive empirical result.
+
+### Resurface conditions for portfolio
+
+Reopen v21 in portfolio if:
+
+  - Google opens the Indexing API officially for general URLs.
+  - SEO pipeline empirically validates effectiveness AND decides not
+    to own the wrapper (e.g., because the wrapper is deploy-time
+    specific and the SEO pipeline doesn't run at deploy time).
+
+### Decision log
+
+  - 2026-05-19 — v21 scoped as "Indexing API hook" (when v23.B
+    wasn't yet locked as the official alternative).
+  - 2026-05-22 — operator asked "what is v21? why necessary?";
+    audit surfaced the unofficial-API + anecdotal-effectiveness
+    catch.
+  - **2026-05-22 — Operator chose: drop entirely. Move to SEO
+    pipeline project.** v23.B kept as the official indexing-ping
+    path. `docs/prd.md § v21` collapsed to a reserved/dropped
+    single-line placeholder matching the v17 / v20 / v22 pattern.
+    `docs/architecture.md § Projected CLI surface` had its v21.B row
+    removed.

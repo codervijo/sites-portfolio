@@ -842,30 +842,15 @@ re-implement trends.google.com's UI).
 
 ### v20 — *(reserved — Lighthouse + CrUX, dropped 2026-05-20 per `§ 2 Non-goals` audit; re-confirms `docs/CLAUDE.md § Deferred decisions` 2026-05-09 rejection — PSI is heavy (~15-30s × N domains), CrUX returns `no-data` at portfolio scale, lab ≠ field; may revisit if traffic grows past CrUX threshold across many fleet sites)*
 
-### v21 — Indexing API hook *(new 2026-05-19; renumbered 2026-05-20, was v20)*
-
-Post-deploy ping to `https://indexing.googleapis.com/v3/urlNotifications:publish`
-requesting reindex per changed URL. Officially supported only for
-JobPosting + LiveStream content per Google's docs, but empirically
-works for general URLs as a "we updated this, please re-crawl" signal.
-Reuses GSC OAuth (same scope: `https://www.googleapis.com/auth/indexing`).
-
-Wires into `new deploy` as an optional post-deploy step — natural fit
-now that v11.M-N's polymorphic deploy verb is in place.
-
-#### Phases
-
-| # | Status | Feature |
-|---|---|---|
-| v21.A | ⏳ | **Kickoff planning.** Validate empirical effectiveness for general URLs (Google warns it's officially job/livestream-only) against operator's launched sites. Lock the OAuth-scope addition. ~0.5h. |
-| v21.B | ⏳ | `indexing.publish(url, type='URL_UPDATED')` wrapper + `lamill new deploy --reindex [<url>...]` flag. Without specific URLs, defaults to the project's homepage + sitemap. Optional `[deploy].reindex_on_deploy` flag in `lamill.toml` for default-on behavior. Quota-aware (200 calls/day per token). ~1h. |
+### v21 — *(reserved — Indexing API hook, dropped 2026-05-22 per `§ 2 Non-goals` audit; moved to operator's separate SEO pipeline project — Google's Indexing API is officially `JobPosting` / `BroadcastEvent`-only and effectiveness for general URLs is anecdotal at best. v23.B's GSC Sitemaps API wrapper is the officially-sanctioned post-deploy indexing-ping path and stays in portfolio. See `docs/for-seo-check-improvements.md` "Open question (2026-05-22) — v21 Indexing API hook" for the audit; resurface if (a) Google opens the API for general URLs OR (b) empirical effectiveness gets validated on operator's launched sites + the SEO pipeline decides not to own it.)*
 
 ### v22 — *(reserved — Gemini integration for audit-pass model diversity, skipped 2026-05-19; may revisit; renumbered 2026-05-20, was v21)*
 
 Originally proposed as a third LLM family in v12's verify mode
 (Claude primary + GPT-4o audit + Gemini cross-check) to strengthen
 REVIEW_REQUIRED signal via 3-way model disagreement. Operator opted
-out 2026-05-19 in favor of v21/v23. Slot reserved so re-
+out 2026-05-19 in favor of v23 (v21 also subsequently dropped
+2026-05-22 to the SEO pipeline project). Slot reserved so re-
 introduction doesn't require renumbering.
 
 #### Phases
