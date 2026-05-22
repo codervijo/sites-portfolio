@@ -28,6 +28,7 @@ sites/portfolio/
 │   ├── cloudflare.py             # CF API client (Pages + Workers)
 │   ├── gsc.py                    # Google Search Console OAuth + queries
 │   ├── gsc_recrawl.py            # GSC sitemap-resubmit flow
+│   ├── ga4_admin.py              # GA4 Admin API client + OAuth (v18.C)
 │   ├── seo_runtime.py            # live HTTP SEO probe orchestrator
 │   ├── seo_cache.py              # snapshot save/load for `data/seo/`
 │   ├── serp.py                   # cluster builder for `new validate`
@@ -475,6 +476,15 @@ ftp_user = "vikt@example.com"
 ftp_port = 21
 public_html_path = "/home/vikt/public_html/example.com/"
 
+[analytics]
+# v18.D — written by `new bootstrap` when GA4 auto-create succeeds.
+# `ga4_id` is the measurement ID returned by the Admin API (matches
+# `G-[A-Z0-9]{6,12}` shape). The SEO pipeline (separate project)
+# reads this and handles markup injection — portfolio owns the
+# property creation lifecycle, not the gtag block in the site's
+# Layout.
+ga4_id = "G-HP39MQPM2M"
+
 [notes]
 text = """
 Free-form prose for transition states, deploy quirks, etc.
@@ -492,6 +502,8 @@ verify_by_default = false            # v12 — flips `new validate --verify` def
 **Defaults applied if section absent:**
 - `[deploy]` required.
 - `[hosting]` optional; required if `platform ∈ {hostgator, custom}`.
+- `[analytics]` optional; bootstrap omits the block when GA4 auto-create
+  is skipped (`--skip-ga4`, OAuth not configured, or Admin API failure).
 - `[notes]`, `[operator]` optional.
 - Operator-profile defaults when section/file is missing:
   `expertise=[]`, `workflow_preference="mixed"`,
@@ -971,6 +983,7 @@ lamill
 └── settings                                         # setup / debug
     ├── catalog {list, describe, run}                ✅ v7.A
     ├── gsc {auth, recrawl, status}                  ✅ v7.A (+ recrawl post-v7.A)
+    ├── ga4 {auth}                                   ✅ v18.C
     ├── apikeys {list, set, delete}                  ✅ v7.A
     ├── operator {show}                              ✅ v8.D
     ├── cloudflare {token, status}                   ✅ v7.H
@@ -1115,6 +1128,7 @@ candidate refactor if a third LLM provider lands.
 | `cloudflare.py` | CF API client (Pages, Workers, DNS) | `walk_pages_projects`, `dns_lookup` |
 | `gsc.py` | GSC OAuth + queries + sync | `gsc_auth`, `gsc_status` |
 | `gsc_recrawl.py` | Sitemap resubmit flow | `recrawl_property` |
+| `ga4_admin.py` (v18.C) | GA4 Admin API client + OAuth (`analytics.edit` scope). httpx-direct (no `googleapiclient.discovery.build`). Used by `new bootstrap` to auto-create per-site GA4 properties + web data streams; measurement ID lands in `lamill.toml [analytics] ga4_id`. Credentials at `~/lamill/ga4/{credentials.json,token.json}` (chmod 600). | `create_property`, `create_web_stream`, `authenticate`, `has_token` |
 | `seo_runtime.py` | Live HTTP SEO probe orchestrator | `run_seo(domains)` |
 | `seo_cache.py` | Snapshot save/load for `data/seo/` | `save_snapshot`, `latest_snapshot`, `is_stale` |
 | `serp.py` | Cluster builder for `new validate` | `build_cluster` |
