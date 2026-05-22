@@ -1004,6 +1004,75 @@ authoritative source. Categories: `scaffold` (CHECK_001-019), `git`
 (CHECK_130-137), `gitignore` (CHECK_141-142). Heading-hygiene fleet
 rule: CHECK_043.
 
+### v25 — CF integration resilience *(new 2026-05-22 PM after dropaudit.co's CF-token pain pattern)*
+
+Three improvements that share one root cause (operator-side CF
+token permission gaps) and one shape (operator-action surfaced
+cleanly + automation paths that don't require the missing scopes).
+Bundled because all three serve the same "mistakes avoided + redo
+cycles eliminated + vicarious building" value frame (operator's
+2026-05-22 PM reflection): cf. v15.R's pain-removal pattern, just
+applied to the next layer of CF friction.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v25.A | ✅ | **Kickoff planning.** Locked nine decisions 2026-05-22 PM after dropaudit.co exposed two distinct token-permission failure modes (Step 5.5 DNS:Edit 403; Step 9 Site Verification API not enabled in GCP project). (a) **HTML-file verification FIRST in Step 9** — `siteVerification.getToken(method="FILE")` + write `public/google<token>.html` + commit/push + HEAD-probe-then-verify loop. DNS TXT method preserved as fallback. The file-method path doesn't need `DNS:Edit` on the zone at all; works with any token having the `siteverification` scope (which the operator's already has). (b) **Step 3.5 zone-level DNS:Edit pre-flight probe.** After `ensure_zone` succeeds at Step 3, before Steps 5.5 / 9 attempt any DNS writes, probe whether the token can write to this specific zone. Catches the dropaudit.co pattern (zone-scoped DNS:Edit gap) at the cheapest moment + surfaces operator-action gate. (c) **`lamill settings cloudflare check-token` diagnostic verb** — comprehensive per-account + per-zone scope audit, prints what works vs what's missing, surfaces token-create dashboard URL with pre-populated permissions. (d) **GSC 403 error-body parsing in `_deploy_step9_gsc`** — distinguish `insufficient_authentication_scopes` (re-auth) from `SERVICE_DISABLED` (enable Site Verification API in GCP project; the dropaudit.co case) from `invalid_grant` (token expired). Current code lumps all three as "scope insufficient" which misled operator. Folded into v25.D's diagnostic posture. (e) **ADR-0014** documents the multi-method verification posture + zone-level probe pattern as load-bearing architectural decisions. (f) **HTML file location**: `public/google<token>.html` (Astro convention; ends up at `<domain>/google<token>.html` after build+deploy). (g) **Cleanup posture**: leave the HTML file in place; standard SEO practice (Google re-checks ownership periodically). (h) **Standalone verb naming**: `settings cloudflare check-token` joins the existing `settings cloudflare {token, status}` subgroup (rather than a new `settings cf` namespace). (i) **Phase order strict numerical**: B (zone-level probe, standalone) → C (HTML-file verification, depends on gsc_admin.py extension) → D (check-token verb + GSC error parsing) → E (docs wrap). |
+| v25.B | ⏳ | **Step 3.5 zone-level DNS:Edit probe.** New `cloudflare.probe_zone_write_capability(zone_id)` helper — attempts a no-op write that fails harmlessly without modifying state (e.g., `POST /zones/{id}/dns_records` with deliberately-invalid content that triggers a 400 if write would be allowed, or 403 if write is blocked at the token level). Returns `(can_write: bool, missing_scope: str \| None)`. Wired into `_deploy_cf_unified` immediately after `ensure_zone` returns. When `can_write=False`: print "[red]✗[/] Token cannot write DNS records on this zone" with the v15.R-style dashboard URL + token-edit URL, exit 2; pipeline doesn't proceed to Steps 5.5 / 9's DNS writes. When `can_write=True`: print "[green]✓[/] Zone DNS:Edit OK"; pipeline continues. 6-8 new tests via `httpx.MockTransport`. ~1.5h. |
+| v25.C | ⏳ | **HTML-file GSC verification.** `gsc_admin.get_verification_token(domain, *, method)` extended to accept `method ∈ {"DNS_TXT", "FILE"}` (default `"FILE"` per v25.A decision). New `gsc_admin.write_verification_file(project_dir, token)` writes `<project_dir>/public/google<token>.html` with the required content body. New `gsc_admin.wait_for_verification_file_live(domain, token, *, poll_timeout=180)` HEAD-probes `https://<domain>/google<token>.html` with exponential backoff until reachable (CF auto-deploy typically completes in 30-60s). New `gsc_admin.verify_domain(domain, *, method)` accepts the same method param; calls `siteVerification.insert(method=...)`. `_deploy_step9_gsc` refactor: try FILE method first (writes file to project_dir, commits + pushes, waits, verifies); if that fails (e.g., project doesn't expose `public/` — HG static-only sites?), fall back to DNS TXT method (existing path). 12-15 new tests. ~3.5h. |
+| v25.D | ⏳ | **`settings cloudflare check-token` diagnostic verb + GSC error-body parsing.** New `cloudflare.diagnose_token(*, client=None) -> TokenDiagnostic` runs comprehensive probes: `/user/tokens/verify` (parses `result.policies[]` array if present), `/accounts` (lists accessible accounts + per-account `/accounts/{id}/...` permission probes), `/zones?per_page=100` (lists accessible zones + per-zone DNS:Edit / Zone:Edit probes via the v25.B `probe_zone_write_capability`). Returns a typed `TokenDiagnostic` dataclass: `valid: bool`, `accounts: list[AccountDiag]`, `zones: list[ZoneDiag]`, `missing_account_permissions: list[str]`, `missing_zone_permissions: list[(zone_name, permission)]`. New `lamill settings cloudflare check-token` CLI command renders the diagnostic + a per-fix actionable URL block (CF's token-create page supports `?permissionGroupKeys=...` query param; pre-populate the 4 account + 4 zone permissions lamill needs). **GSC 403 error-body parsing**: `_deploy_step9_gsc` distinguishes the three 403 causes (`insufficient_authentication_scopes` / `SERVICE_DISABLED` / `invalid_grant`) by parsing the error response body; each gets a specific actionable hint (re-auth vs enable-API vs refresh). 10-12 new tests. ~3.5h. |
+| v25.E | ⏳ | **Docs sync wrap.** Mark v25.A-D ✅; add `cloudflare.diagnose_token` + the v25.B / v25.C helpers to `docs/architecture.md` § 3 source tree + § 12 module map; add `settings cloudflare check-token` row to § Projected CLI surface; document the multi-method GSC verification posture in § Mechanisms. ~30 min. |
+
+#### Design notes
+
+**Why bundle three improvements into one tier.** They share a single
+root cause (CF token permission model) and a single value frame
+(operator-side dashboard pain). Splitting into v25/v26/v27 would
+fragment the docs ceremony for work that's coherent as one piece.
+Operator-facing the bundle ships as "CF integration got smarter"
+rather than three separate fixes.
+
+**Why HTML-file verification first (vs DNS TXT first).** The file
+method:
+  - Works with any token that has `siteverification` scope (the
+    operator's existing token already has it).
+  - Doesn't need `DNS:Edit` on the zone (the dropaudit.co failure
+    mode — token has zone-scoped DNS:Edit but not for this zone).
+  - Doesn't need CF dashboard interaction (no manual TXT add).
+  - The file persists harmlessly; Google re-checks periodically;
+    removal would un-verify. Standard SEO practice keeps it.
+
+The DNS TXT method has fewer requirements (works for sites that
+aren't deployed yet) but in practice all lamill-managed sites are
+deployed at Step 9 (it runs after Step 8 live probe). So the file
+method is universally applicable for the lamill use case.
+
+**Why Step 3.5 probe attempts a write vs reads policies.** CF's
+`/user/tokens/verify` returns a policies array, but the array's
+shape is undocumented for machine-parsing — it includes permission
+group names like "DNS Write" that don't directly map to API
+operations. A real write-attempt against the specific zone is the
+cleanest signal: either 200 / 400 (token can write, just our
+payload was rejected) or 403 (token can't write). The probe uses a
+deliberately-invalid payload to ensure a 400 on success — we never
+actually modify state.
+
+**ADR-0014 scope**. The multi-method verification posture + zone-
+level pre-flight probe pattern are both load-bearing for future
+CF + Google integrations (future Workers Routes work, future GA4
+property creation alternatives, etc.). They're not just v25-local
+implementation choices; they establish patterns the rest of the
+pipeline will reach for. Hence the ADR.
+
+**Why v25.D bundles the GSC error-body parsing** (vs a standalone
+fix). v25.D's overarching goal is "operator can diagnose CF + GSC
+token issues without trial-and-error mid-pipeline". The GSC 403
+error-body parsing serves the same purpose — distinguishes three
+distinct failures the operator might encounter, each with a
+specific actionable hint. Same shape as the rest of v25.D's
+diagnostic work; same module's commit; same testing posture.
+
 ## 8. Open questions
 
 Append-only log. Questions get answered (with date) but never

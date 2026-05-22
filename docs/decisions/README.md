@@ -26,6 +26,7 @@ trade-offs were, and what the consequences are.
 | 0011 | Remote-host writes as a separate write-surface category | Accepted | —         |
 | 0012 | No `wrangler deploy`; git-integrated CF Pages API for all CF deploys | Accepted | —         |
 | 0013 | Astro + Vite as the only supported `sites/*` stack (Claude-translation for non-Astro `--git-url`) | Accepted | —         |
+| 0014 | Multi-method verification (HTML file before DNS TXT) + zone-level pre-flight probe pattern | Accepted | —         |
 
 ## When to write an ADR
 
