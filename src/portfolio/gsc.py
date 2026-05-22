@@ -17,7 +17,19 @@ from .data import ROOT
 CONFIG_DIR = Path.home() / ".config" / "portfolio" / "gsc"
 CREDENTIALS_PATH = CONFIG_DIR / "credentials.json"
 TOKEN_PATH = CONFIG_DIR / "token.json"
-SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"]
+# v24.B (2026-05-22) — scope bump from `webmasters.readonly` to the
+# broader `webmasters` (write) + `siteverification`. Needed by
+# `gsc_admin.py` for sites.add / sitemaps.submit / siteVerification.
+# Existing read-only callers (gsc.list_properties, gsc.query_with_dims,
+# gsc_recrawl.inspect_one_url, etc.) work fine with the broader scope —
+# `webmasters` is a strict superset of `webmasters.readonly`.
+# Operator must re-run `lamill settings gsc auth --force` once after
+# this bump; old token will hit `insufficient_scope` 403s on writes
+# cleanly until the re-consent lands.
+SCOPES = [
+    "https://www.googleapis.com/auth/webmasters",
+    "https://www.googleapis.com/auth/siteverification",
+]
 
 GSC_DIR = ROOT / "data" / "gsc"
 DEFAULT_DAYS = 28
