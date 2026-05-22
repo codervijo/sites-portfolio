@@ -936,53 +936,73 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
-### 2026-05-22 PM — `lamill new trends` (no topic) returns 404 from pytrends (both endpoints broken)
+### 2026-05-22 PM — `lamill new trends` (no topic) — feature withdrawn after Google API surface dried up
 
-**Repro**
+**Repro** (three iterations, three different endpoints):
 
     ❯ uv run portfolio new trends
     Latest trends fetch failed: pytrends trending_searches failed for region='US': The request failed: Google returned a response with code 404
 
-(Initial fix swapped to `today_searches` — same library, different
-method. Also 404'd:)
-
     ❯ uv run portfolio new trends
     Latest trends fetch failed: pytrends today_searches failed for region='US': The request failed: Google returned a response with code 404
 
+    ❯ uv run portfolio new trends
+    Latest trends fetch failed: RSS fetch returned HTTP 404 for region='US': <!doctype html>...
+
 **Diagnosis**
 
-Both pytrends 4.9.2 daily-trending methods broken vs Google's
-current API:
-  - `trending_searches(pn=...)` hits the deprecated
-    `/trends/hottrends/visualize/internal/data`.
-  - `today_searches(pn=...)` hits `/trends/api/dailytrends`, which
-    Google ALSO changed/removed (or is now session-token-gated).
+Every no-auth path to Google's daily trending searches is dead:
 
-Multiple pytrends GitHub issues (#602, #610, etc.) acknowledge
-these methods are broken. The library hasn't migrated to Google's
-current API surface for daily-trending content.
+  - `pytrends.trending_searches(pn=...)` → 404 (`/trends/hottrends/
+    visualize/internal/data` deprecated)
+  - `pytrends.today_searches(pn=...)` → 404 (`/trends/api/dailytrends`
+    also dead or token-gated)
+  - `https://trends.google.com/trends/trendingsearches/daily/rss?geo=US`
+    → 404 (public RSS feed retired with Google's 2024 trending-
+    searches page redesign)
 
-**Fixed in** — 2026-05-22 PM (same session): bypass pytrends
-entirely for the latest-trends path. Hit Google's **public RSS
-feed** at
-`https://trends.google.com/trends/trendingsearches/daily/rss?geo=US`
-directly via `httpx` + stdlib `xml.etree.ElementTree`. The RSS
-feed is what Google's own "Daily Search Trends" page consumes —
-stable, public, no auth, no token gating. New `_fetch_latest_via_rss`
-helper carries the L1 stale-cache fallback + 429 detection
-behaviors from the pytrends path. pytrends still in use for the
-topic-specific path (`build_payload + interest_over_time +
-related_queries` — that endpoint still works). 9 latest-trends
-tests rewritten to stub `httpx.Client` via `httpx.MockTransport`
-instead of `pytrends.request.TrendReq`. Plus 3 new tests
-(404 surfaces typed error; network error surfaces typed error;
-non-XML response surfaces parse error).
+Google's current trending UI at `https://trends.google.com/trending`
+uses an undocumented `/_/TrendsUi/data/batchexecute` endpoint with
+a proprietary JSON-in-form-encoded RPC format — not consumable
+from simple HTTP clients.
 
-Suite 2627 → 2631.
+**Fixed in** — 2026-05-22 PM, **Option A (drop the feature)**:
 
-Two-step fix iteration (today_searches first, then RSS) on the
-same evening; total time-to-resilience ~30 minutes after the
-original v19 latest-trends feature ship (commit `2e9b3ba`).
+Operator chose to revert the no-topic surface after three failed
+endpoint attempts. The two viable alternatives — SerpAPI's
+`google_trends` engine (Option B, reverses v19.A scope) or a
+headless-browser scraper (Option C, heavyweight) — weren't worth
+the cost for a "what's trending" discovery surface that the Google
+Trends web UI does perfectly well.
+
+Reverted:
+  - cli.py `new_trends`: `topic` argument back to required
+    (Typer's `...` default); removed the no-topic branch + the
+    `_run_latest_trends` / `_render_latest_trends` helpers.
+  - gtrends.py: stripped `LatestTrendsPayload`, `fetch_latest_trends`,
+    `_fetch_latest_via_rss`, the `_LATEST_REGIONS` allowlist + alias
+    map, `latest_*` cache helpers, `latest_payload_age_hours`. Left
+    a comment documenting the API state for any future re-evaluation.
+  - tests: removed the ~13 latest-trends tests (RSS stubbing
+    infrastructure + happy/error/CLI paths). Topic-mode tests
+    (the 30 that exercise pytrends + L1 + L3 + typed errors)
+    all stay.
+  - architecture.md § 12: gtrends.py row reverted to single-mode.
+
+**Kept** — the topic-mode L1 stale-cache + L3 UA rotation +
+`GTrendsRateLimitError` typed-error pass from earlier today
+(commit `ba1d25b`). Those are real wins that apply to
+`lamill new trends <topic>`.
+
+**Resurface conditions**: reopen if (a) Google publishes an
+official trending-searches API, OR (b) the operator's workflow
+demand justifies the SerpAPI integration cost (~10 calls/month).
+Until then, point operators at `https://trends.google.com/trending`
+for discovery; this CLI sticks to topic-specific deep-dives.
+
+Total session iterations: 3 endpoint attempts + 1 withdrawal.
+Net code change: zero (feature fully reverted). Net knowledge
+gained: substantial — captured here for future archeology.
 
 ---
 
