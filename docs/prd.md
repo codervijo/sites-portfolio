@@ -820,59 +820,25 @@ operator time. Property creation (v18.D) stays because it's
 lifecycle, and static conformance (v18.B) stays because it's the
 existing project purpose; consumption stays out.
 
-### v19 — Google Trends integration *(new 2026-05-19; renumbered 2026-05-20, was v18)*
+### v19 — `lamill new trends` command *(new 2026-05-19; renumbered 2026-05-20, was v18; scope shrunk 2026-05-22 — operator narrowed to "just the command + show output"; SerpAPI integration + cluster wiring + shortlist badge + `project seo --trends` + geo/comparison views all dropped per operator's "serp etc not needed at this time")*
 
 Google Trends gives search-interest direction (rising / flat /
-declining), seasonality, related queries, geographic concentration —
-signal complementary to GSC (current performance) and GA4 (user
-behavior). No official Google API; the integration uses **SerpAPI's
-`google_trends` engine** as the primary path (reuses existing
-`SERPAPI_KEY` + `serpapi_quota.py` monthly ledger) with **`pytrends`
-as a fallback** when SerpAPI quota is exhausted.
-
-`v19.B` (foundation) ships first as a standalone wrapper + cache; B-F
-(CLI, wiring into suggest/research/seo, geo+comparison views) are
-sketched in design notes but not committed to the Phases table until
-v19.A kickoff re-validates them against learnings from v16-v18.
+declining), seasonality, related queries — signal complementary to
+GSC + GA4 that informs the `new domain` brainstorm and `new validate`
+decision flow. **v19 ships a standalone `lamill new trends <topic>`
+command only**; no cluster integration, no shortlist binding. Operator
+runs the command ad-hoc when evaluating a topic; reads the rendered
+output. Anything beyond that lives in the operator's separate research
+pipeline (same scope-discipline lens as v17/v18 — portfolio renders
+signal that's load-bearing for its existing decision flow, but doesn't
+re-implement trends.google.com's UI).
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v19.A | ⏳ | **Kickoff planning.** Re-validate v19.B foundation + B-F future-expansion list against v16/v18 final shape (v17 dropped 2026-05-21 — see `docs/for-seo-check-improvements.md`). Decide pytrends-fallback trigger (quota-exhaustion-only vs first-attempt-parallel). Resolve open question 18.D (ADR-0012 for trends-as-cluster-signal schema bind). ~0.5h. |
-| v19.B | ⏳ | Foundation — `gtrends.py` SerpAPI `google_trends` engine wrapper · `data/gtrends/<topic-hash>.json` per-topic cache (mirrors `serp_query_cache.py` shape) · `is_stale(max_age_hours=24)` · integrates with existing `serpapi_quota.consume_quota()` · `pytrends` fallback path · `GTrendsError` exception · primitive table renderer for the standalone `lamill trends <topic>` test invocation. ~2-3h. |
-
-#### Design notes
-
-**Future expansion (v19.C-F+).** Not in Phases table until v19.A
-re-scopes:
-
-- `lamill trends <topic>` rich CLI — interest-over-time + related-
-  queries (top + rising) + `--region` + `--timeframe {7d, 30d, 90d,
-  12m, 5y, all}` + `--json`.
-- Wire into `new domain` shortlist — per-candidate "interest
-  direction" badge (📈 rising / ➡️ flat / 📉 declining) from 12-month
-  slope. Reject topics on clear downtrends pre-purchase.
-- Wire into `new validate` (v8) cluster snapshot — trend signal for
-  the cluster's primary query, persisted alongside SERP data,
-  surfaced in interpretive_pass payload so the LLM weighs trajectory.
-  **Schema-evolution gate: ADR-0012** binds the `trends` block to
-  the `research-cluster-v2.1` schema.
-- Wire into `project seo --trends` — new section flag (v16-compatible)
-  showing seasonality + rising related queries for an existing site's
-  primary topic.
-- Geographic + comparison views — `lamill trends <topic> --geo` /
-  `--vs <competitor>`.
-
-**Open questions** (resolved at v19.A kickoff):
-| # | Question |
-|---|---|
-| 18.A | Cache TTL — 24h matches `hosting_cache` / `seo_cache`; lock there? |
-| 18.B | Default timeframe — 12m (signal/noise sweet spot) vs 5y (long-horizon seasonality). |
-| 18.C | Interest-direction threshold — proposed `>10%/month` rising, `<-10%/month` declining. |
-| 18.D | Cluster-snapshot schema bind — **ADR-0012** when v19 wires into v8. |
-| 18.E | Single primary topic per site — `[hosting].primary_topic` config vs auto-pick from top GSC query. |
-| 18.F | `pytrends` fallback trigger — quota-exhaustion-only vs parallel-call. |
+| v19.A | ✅ | **Kickoff planning.** Locked eleven decisions 2026-05-22: (a) **Single command, no validation wiring.** Only `lamill new trends <topic>` ships; future-expansion list (v19.C-F — cluster signal / shortlist badge / `project seo --trends` / geo views / comparison views) dropped entirely per operator's "serp etc not needed at this time". (b) **`pytrends` library only** — SerpAPI's `google_trends` engine dropped; keeps SerpAPI's monthly quota free for `new validate`. (c) **No cluster-snapshot schema change** — v8.D's `research-cluster-v2` schema stays as-is; no ADR-0014 needed; open question 18.D becomes moot. (d) **Per-topic cache** at `data/gtrends/<topic-hash>.json` with 24h TTL matching `hosting_cache` / `seo_cache` convention (closes 18.A). (e) **Default timeframe 12m** — signal/noise sweet spot; `--timeframe {7d, 30d, 90d, 12m, 5y, all}` flag available (closes 18.B). (f) **Output shape** — interest-over-time sparkline-style table + related-queries blocks (top + rising); `--json` for machine-readable. (g) Open questions 18.C (interest-direction threshold), 18.E (primary topic per site), 18.F (pytrends fallback trigger) all moot — no shortlist badge, no per-site integration, pytrends is primary not fallback. (h) **Command placement** under the `new` lifecycle subgroup as a peer to `new domain` / `new validate` (matches "research-before-build" framing). (i) **pytrends boundary mocking in tests** — never hit real Google Trends in the suite. (j) **Soft failure on pytrends errors** — print the error, exit non-zero; no automatic retry / fallback since pytrends is the only path. (k) **`new pyproject.toml` dep**: `pytrends>=4.9`. |
+| v19.B | ⏳ | **`lamill new trends <topic>` implementation.** New `src/portfolio/gtrends.py` (pytrends wrapper + per-topic JSON cache + `is_stale(max_age_hours=24)` + `GTrendsError`). New `@new_app.command("trends")` in `cli.py` with `--timeframe` / `--region` / `--json` / `--refresh` flags. Rich table renderer for interest-over-time + related-queries (top + rising). Cache invalidation on `--refresh`. All `pytrends.request.TrendReq` boundary calls mocked in tests; never hit real Google Trends in the suite. ~2.5h. |
 
 ### v20 — *(reserved — Lighthouse + CrUX, dropped 2026-05-20 per `§ 2 Non-goals` audit; re-confirms `docs/CLAUDE.md § Deferred decisions` 2026-05-09 rejection — PSI is heavy (~15-30s × N domains), CrUX returns `no-data` at portfolio scale, lab ≠ field; may revisit if traffic grows past CrUX threshold across many fleet sites)*
 
