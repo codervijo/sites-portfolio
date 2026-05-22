@@ -26,8 +26,9 @@ sites/portfolio/
 │   ├── decide.py                 # validation-mode shortlist + decide
 │   ├── availability.py           # RDAP + Porkbun availability/pricing
 │   ├── cloudflare.py             # CF API client (Pages + Workers)
-│   ├── gsc.py                    # Google Search Console OAuth + queries
+│   ├── gsc.py                    # GSC OAuth + queries (scope bumped in v24.B)
 │   ├── gsc_recrawl.py            # GSC sitemap-resubmit flow
+│   ├── gsc_admin.py              # GSC + Site Verification write client (v24.B)
 │   ├── ga4_admin.py              # GA4 Admin API client + OAuth (v18.C)
 │   ├── gtrends.py                # Google Trends via pytrends (v19.B)
 │   ├── seo_runtime.py            # live HTTP SEO probe orchestrator
@@ -261,7 +262,7 @@ the right deploy implementation. Branches:
 
 | `platform` | Mechanism | Module |
 |---|---|---|
-| `cf-pages` / `cf-workers` (v15.I+) | **Unified git-integrated CF Pages-API pipeline** per ADR-0012. Creates GH repo via `POST /user/repos` (or `gh` CLI fallback) → creates CF zone via `POST /zones` → updates registrar NS (Porkbun via `POST /domain/updateNs`; other registrars warn-instruct) → creates CF Pages project with `source.type=github` git source via `POST /accounts/{id}/pages/projects` → attaches custom domain via `POST /accounts/{id}/pages/projects/{name}/domains` → polls build status via `GET /accounts/{id}/pages/projects/{name}/deployments?per_page=1` (`latest_stage.status`). Idempotent at every step; honors `--dry-run` and `--yes`. **No `wrangler deploy` call.** | `cli.py::_deploy_cf_unified` + `cloudflare.py` (extended) + `gh_repo.py` + `porkbun_dns.py` |
+| `cf-pages` / `cf-workers` (v15.I+) | **Unified git-integrated CF Pages-API pipeline** per ADR-0012. Creates GH repo via `POST /user/repos` (or `gh` CLI fallback) → creates CF zone via `POST /zones` → updates registrar NS (Porkbun via `POST /domain/updateNs`; other registrars warn-instruct) → creates CF Pages project with `source.type=github` git source via `POST /accounts/{id}/pages/projects` → attaches custom domain via `POST /accounts/{id}/pages/projects/{name}/domains` → polls build status via `GET /accounts/{id}/pages/projects/{name}/deployments?per_page=1` (`latest_stage.status`) → **v24.C Step 9 GSC auto-register**: writes verification TXT via `cloudflare.create_dns_record`, calls `gsc_admin.verify_domain` (60s propagation poll), `add_site`, `submit_sitemap` (HEAD-probe `/sitemap.xml` first; soft-defer if 404). Idempotent at every step; honors `--dry-run`, `--yes`, `--skip-gsc`. **No `wrangler deploy` call.** | `cli.py::_deploy_cf_unified` + `cli.py::_deploy_step9_gsc` (v24.C) + `cloudflare.py` (extended) + `gh_repo.py` + `porkbun_dns.py` + `gsc_admin.py` (v24.B) |
 | `vercel` | Shells out to `vercel deploy --prod` | `deploy.py::deploy_vercel_via_shell` |
 | `hostgator` / `custom` | cPanel UAPI uploader with stage-then-rename atomicity (ADR-0011) | `cli.py::_deploy_hostgator_v11n` + `hosting.py::deploy_hg_files` |
 | `netlify` / `github-pages` | Not yet implemented — exits with a clear "track in a future v11.X" message | — |
@@ -1060,7 +1061,7 @@ Resolve before the relevant phase ships.
 | **Vercel** | v11.A `fleet hosting` walker | `VERCEL_TOKEN` (Bearer) | Personal token sees only personal account; multi-team out of scope (`prd.md` v11 Design notes — 11.A) |
 | **CrUX (Chrome UX Report)** | `seo_runtime` field data | `CRUX_API_KEY` | `no-data` for personal-portfolio-scale origins (expected; not a bug) |
 | **SerpAPI** | `new validate` real SERP fetch | `SERPAPI_KEY` | Monthly quota tracked in `data/serp/_quota.json` |
-| **Google Search Console** | `gsc.py` ranking + impressions; URL Inspection (v16.C) | OAuth (`GOOGLE_OAUTH_*`) | 28-day rolling window; URL Inspection 2000/day quota |
+| **Google Search Console** | `gsc.py` ranking + impressions; URL Inspection (v16.C); `gsc_admin.py` (v24.B) write client — `sites.add` / `sitemaps.submit` / Site Verification API (`getToken` + `webResource.insert`) for `new deploy` Step 9 GSC auto-registration | OAuth — scopes `webmasters` (write; bumped from `webmasters.readonly` in v24.B) + `siteverification` (added in v24.B) | 28-day rolling window for analytics; URL Inspection 2000/day quota; Site Verification API + sites.add require the v24.B scope bump (operator re-runs `lamill settings gsc auth --force` once) |
 | **GitHub REST API** | v15.I — `POST /user/repos` repo create (primary path; Bearer auth via `GITHUB_TOKEN`); `GET /repos/{owner}/{repo}` idempotency probe; `gh` CLI fallback when `GITHUB_TOKEN` missing | `GITHUB_TOKEN` (Bearer; `Accept: application/vnd.github+json` + `X-GitHub-Api-Version`) | Personal-account repos via `/user/repos`; org repos via `/orgs/{org}/repos` (not currently exercised) |
 | **Porkbun — availability** | `new domain` brainstorm — domain check + price | `PORKBUN_API_KEY` + `PORKBUN_SECRET_API_KEY` | `/domain/checkAvailability` returns 404 — uses `/pricing/get` + RDAP fallback instead |
 | **Porkbun — registrar inventory** | v15.F — `fleet sync --refresh` — `POST /domain/listAll` | Same | Returns up to 1000 domains per page; pagination via `start` |
@@ -1128,8 +1129,9 @@ candidate refactor if a third LLM provider lands.
 | `decide.py` | Validation-mode shortlist + decide | `mark_shortlist`, `decide_from_shortlist` |
 | `availability.py` | RDAP + Porkbun availability + pricing | `check_availability` |
 | `cloudflare.py` | CF API client (Pages, Workers, DNS) | `walk_pages_projects`, `dns_lookup` |
-| `gsc.py` | GSC OAuth + queries + sync | `gsc_auth`, `gsc_status` |
-| `gsc_recrawl.py` | Sitemap resubmit flow | `recrawl_property` |
+| `gsc.py` | GSC OAuth + queries + sync. **v24.B scope bump**: `SCOPES` changed from `["webmasters.readonly"]` to `["webmasters", "siteverification"]` so `gsc_admin.py`'s write helpers can use the same cached OAuth token; operator runs `lamill settings gsc auth --force` once to re-consent. | `gsc_auth`, `gsc_status`, `authenticate`, `query_with_dims`, `list_properties` |
+| `gsc_recrawl.py` | Sitemap resubmit flow + per-URL inspection (powers v16.C `CHECK_147 url-indexed`) | `recrawl_property`, `inspect_one_url` |
+| `gsc_admin.py` (v24.B) | GSC + Site Verification API **write** client. httpx-direct (matches `ga4_admin.py` / `gh_repo.py`; not `googleapiclient.discovery.build`). Reuses `gsc.authenticate()` token — no separate credential file. Used by `new deploy` Step 9 (v24.C) to register `sc-domain:<domain>` properties + submit sitemaps without dashboard clicks. Idempotent at every level (`list_sites` + `list_sitemaps` probes skip re-adding existing entries). Typed errors: `GSCAdminError` (non-2xx response) + `VerificationFailedError` (60s DNS propagation budget exhausted). | `get_verification_token`, `verify_domain`, `add_site`, `submit_sitemap`, `list_sites`, `list_sitemaps` |
 | `ga4_admin.py` (v18.C) | GA4 Admin API client + OAuth (`analytics.edit` scope). httpx-direct (no `googleapiclient.discovery.build`). Used by `new bootstrap` to auto-create per-site GA4 properties + web data streams; measurement ID lands in `lamill.toml [analytics] ga4_id`. Credentials at `~/lamill/ga4/{credentials.json,token.json}` (chmod 600). | `create_property`, `create_web_stream`, `authenticate`, `has_token` |
 | `gtrends.py` (v19.B) | Google Trends via `pytrends`. Standalone `lamill new trends <topic>` data fetcher; no cluster integration. Per-topic cache at `data/gtrends/<topic-hash>.json` keyed by (topic, timeframe, region); 24h TTL. pytrends boundary inside `_fetch_from_pytrends` for test isolation. `TIMEFRAME_MAP` translates CLI flags (`7d`/`30d`/`90d`/`12m`/`5y`/`all`) to pytrends strings. | `fetch_trends`, `load_cached`, `save_cached`, `is_stale`, `TrendsPayload` |
 | `seo_runtime.py` | Live HTTP SEO probe orchestrator | `run_seo(domains)` |
