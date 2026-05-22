@@ -592,64 +592,118 @@ def latest_payload_age_hours(payload: LatestTrendsPayload) -> float | None:
     return delta.total_seconds() / 3600.0
 
 
-def _fetch_latest_from_pytrends(region: str) -> LatestTrendsPayload:
-    """Call pytrends' `today_searches(pn=...)` to get Google's daily
-    trending searches for `region`. Same UA rotation + 429 detection
-    + ImportError wrap as the topic-specific path.
+# Google's public RSS feed for daily trending searches. Stable
+# endpoint Google publishes for its "Daily Search Trends" page;
+# documented + actively used as of 2026. No auth required.
+#
+# Why not pytrends here: pytrends 4.9.2's `trending_searches()` AND
+# `today_searches()` both return 404 against Google's current API —
+# the library hasn't been updated to track Google's endpoint
+# migrations. RSS is the resilient path. (pytrends still works for
+# the topic-specific `build_payload + interest_over_time +
+# related_queries` flow, so we keep using it there.)
+_RSS_BASE = "https://trends.google.com/trends/trendingsearches/daily/rss"
 
-    `region` is an operator-facing ISO code (e.g., "US"). Aliases
-    (`UK` → `GB`) get normalized first.
+# RSS feed timeout. Google's RSS endpoint is fast; 15s is generous.
+_RSS_TIMEOUT_S = 15.0
 
-    **2026-05-22 PM hotfix**: was `trending_searches(pn=<full_name>)`
-    which 404s now — Google deprecated the underlying endpoint. The
-    `today_searches` method hits the current `/api/dailytrends`
-    endpoint and accepts ISO codes directly.
+
+def _fetch_latest_via_rss(
+    region: str, *,
+    client: "httpx.Client | None" = None,
+) -> LatestTrendsPayload:
+    """Fetch Google's daily trending searches via the public RSS feed.
+
+    Replaces the pytrends-based path (which 404s as of 2026-05-22 PM
+    against Google's current API). Uses httpx directly + stdlib XML
+    parsing — no external library dependency for this code path.
+
+    `region` is the operator-facing ISO code (e.g., "US"). Aliases
+    (`UK` → `GB`) normalized first.
+
+    Raises `GTrendsRateLimitError` on HTTP 429 (rare for RSS — public
+    feed, generous limits — but possible if operator hammers the
+    endpoint), `GTrendsError` for any other non-200 response or
+    parse failure.
+
+    `client` parameter for test injection — same pattern as the
+    httpx-direct clients in `cloudflare.py` / `gh_repo.py` /
+    `ga4_admin.py` / `gsc_admin.py`. Tests use
+    `httpx.Client(transport=httpx.MockTransport(...))`.
     """
+    import httpx
+    from xml.etree import ElementTree as ET
+
     region_iso = _normalize_latest_region(region)
     if region_iso not in _LATEST_REGIONS:
         raise GTrendsError(
             f"region={region!r} not supported for daily trending searches. "
             f"Supported regions: {', '.join(sorted(_LATEST_REGIONS))} "
-            f"(plus alias UK → GB). The CLI's `--region` accepts a "
-            f"broader set on the topic-specific path; the daily-trending "
-            f"endpoint covers a smaller fixed set."
+            f"(plus alias UK → GB)."
+        )
+
+    url = f"{_RSS_BASE}?geo={region_iso}"
+
+    own_client = client is None
+    if own_client:
+        client = httpx.Client(
+            headers={
+                "User-Agent": _pick_user_agent(),
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "application/rss+xml, application/xml, text/xml, */*",
+            },
+            timeout=_RSS_TIMEOUT_S,
+            follow_redirects=True,
         )
 
     try:
-        client = _make_pytrends_client()
-        df = client.today_searches(pn=region_iso)
-    except GTrendsError:
-        raise   # ImportError wrap propagates cleanly
-    except Exception as e:
-        msg = str(e)
-        if "429" in msg or "Too Many Requests" in msg.lower():
-            raise GTrendsRateLimitError(
-                f"Google Trends rate-limited (HTTP 429) on daily "
-                f"trending fetch for region={region_iso!r}. "
-                f"Wait 10-30 minutes and retry; the limit is IP-based."
+        try:
+            resp = client.get(url)
+        except httpx.HTTPError as e:
+            raise GTrendsError(
+                f"RSS fetch failed for region={region_iso!r} "
+                f"({type(e).__name__}: {e}). Check network connectivity."
             ) from e
-        raise GTrendsError(
-            f"pytrends today_searches failed for region={region_iso!r}: {e}"
-        ) from e
 
-    # `today_searches` returns a DataFrame with a "title" column
-    # carrying the trending query strings. Some pytrends versions
-    # return just a 1-column DataFrame without a named column —
-    # fall back to iloc[:, 0] in that case.
-    trending: list[str] = []
-    if df is not None and not df.empty:
-        if "title" in df.columns:
-            series = df["title"]
-        else:
-            series = df.iloc[:, 0]
-        trending = [str(s).strip() for s in series.tolist()]
-        trending = [t for t in trending if t]   # drop empties
+        if resp.status_code == 429:
+            raise GTrendsRateLimitError(
+                f"Google Trends RSS rate-limited (HTTP 429) for "
+                f"region={region_iso!r}. Wait 10-30 minutes and retry. "
+                f"(Unusual for the public RSS feed; only happens under "
+                f"heavy IP-level usage.)"
+            )
+        if resp.status_code != 200:
+            raise GTrendsError(
+                f"RSS fetch returned HTTP {resp.status_code} for "
+                f"region={region_iso!r}: {resp.text[:200]}"
+            )
 
-    return LatestTrendsPayload(
-        region=region_iso,
-        fetched_at=datetime.now(timezone.utc).isoformat(),
-        trending=trending,
-    )
+        # Parse RSS XML — stdlib only. Each <item> has a <title>
+        # carrying the trending query. RSS spec: `<channel>` wraps
+        # `<item>`s; we iterate any `<item>` tag in the tree.
+        try:
+            root = ET.fromstring(resp.text)
+        except ET.ParseError as e:
+            raise GTrendsError(
+                f"RSS XML parse failed for region={region_iso!r}: {e}. "
+                f"Body preview: {resp.text[:200]!r}"
+            ) from e
+
+        trending: list[str] = []
+        for item in root.iter("item"):
+            title_el = item.find("title")
+            if title_el is not None and title_el.text:
+                trending.append(title_el.text.strip())
+        trending = [t for t in trending if t]  # drop empties
+
+        return LatestTrendsPayload(
+            region=region_iso,
+            fetched_at=datetime.now(timezone.utc).isoformat(),
+            trending=trending,
+        )
+    finally:
+        if own_client:
+            client.close()
 
 
 def fetch_latest_trends(
@@ -674,7 +728,7 @@ def fetch_latest_trends(
             return cached
 
     try:
-        payload = _fetch_latest_from_pytrends(region_iso)
+        payload = _fetch_latest_via_rss(region_iso)
     except GTrendsRateLimitError:
         stale = load_any_cached_latest(region_iso)
         if stale is not None:

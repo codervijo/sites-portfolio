@@ -541,52 +541,78 @@ def test_cli_renders_stale_warning_on_l1_fallback(monkeypatch, tmp_path):
 # ---- 2026-05-22 PM: latest trends (no-topic surface) ---------------
 
 
-def _stub_pytrends_trending(monkeypatch, *, trending: list[str] | None = None):
-    """Stub pytrends.request.TrendReq so today_searches returns a
-    DataFrame with the given list of trending queries.
-
-    Note: 2026-05-22 PM hotfix — switched from `trending_searches`
-    (deprecated endpoint → 404) to `today_searches` (current
-    /api/dailytrends endpoint). Both stubbed below for transition
-    safety; gtrends only calls today_searches now."""
-    fake_client = MagicMock()
-    import pandas as pd
-    df = pd.DataFrame({"title": trending or [
+def _rss_response_xml(trending: list[str] | None = None) -> str:
+    """Build a minimal Google Trends RSS feed body for stub responses.
+    Matches the shape Google's actual feed emits (RSS 2.0 with
+    namespaced ht:* extension elements — we only care about <title>
+    in each <item>)."""
+    items = trending or [
         "nanobanana ai",
         "spacex starship launch",
         "fed rate decision",
         "world cup qualifier",
         "tesla solar roof",
-    ]})
-    fake_client.today_searches.return_value = df
-    # Defensive: if anything still calls the old method, return same
-    # data so legacy tests pass during the transition window.
-    fake_client.trending_searches.return_value = df
+    ]
+    item_xml = "\n".join(
+        f"  <item><title>{t}</title><ht:approx_traffic>100K+</ht:approx_traffic></item>"
+        for t in items
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<rss version="2.0" xmlns:ht="https://trends.google.com/trending/ht">\n'
+        '<channel>\n'
+        f'  <title>Daily Search Trends</title>\n'
+        f'{item_xml}\n'
+        '</channel>\n'
+        '</rss>'
+    )
 
-    fake_class = MagicMock(return_value=fake_client)
-    monkeypatch.setattr("pytrends.request.TrendReq", fake_class)
-    return fake_client, fake_class
+
+def _stub_rss_fetch(
+    monkeypatch, *,
+    trending: list[str] | None = None,
+    status_code: int = 200,
+    raise_error: type | None = None,
+):
+    """Stub the httpx.Client construction inside _fetch_latest_via_rss
+    so it uses a MockTransport returning either a fake RSS response,
+    a status code, or raising a network error."""
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if raise_error is not None:
+            raise raise_error("simulated network failure")
+        if status_code == 200:
+            return httpx.Response(200, text=_rss_response_xml(trending))
+        return httpx.Response(status_code, text=f"HTTP {status_code} body")
+
+    # Patch the httpx.Client constructor at the gtrends module level
+    # so _fetch_latest_via_rss gets a MockTransport-backed client.
+    real_client_class = httpx.Client
+
+    def fake_client(*args, **kwargs):
+        # Drop any constructor args that don't apply to MockTransport
+        # path (headers, timeout, follow_redirects — all harmless on
+        # a real Client, also harmless when mocked).
+        return real_client_class(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("httpx.Client", fake_client)
 
 
 def test_fetch_latest_trends_happy_path(monkeypatch, tmp_path):
     from portfolio.gtrends import fetch_latest_trends
     _isolate_cache_dir(monkeypatch, tmp_path)
-    fake_client, _ = _stub_pytrends_trending(monkeypatch)
+    _stub_rss_fetch(monkeypatch)
 
     payload = fetch_latest_trends("US")
 
     assert payload.region == "US"
     assert payload.trending[0] == "nanobanana ai"
     assert len(payload.trending) == 5
-    # 2026-05-22 PM hotfix: today_searches (current /api/dailytrends
-    # endpoint) — not trending_searches (deprecated → 404).
-    # ISO codes directly; no full-name translation.
-    fake_client.today_searches.assert_called_once_with(pn="US")
-    fake_client.trending_searches.assert_not_called()
 
 
 def test_fetch_latest_trends_rejects_unsupported_region(monkeypatch, tmp_path):
-    """Operator passes a region not in _DAILY_REGION_MAP → typed
+    """Operator passes a region not in _LATEST_REGIONS → typed
     GTrendsError listing the supported set."""
     from portfolio.gtrends import fetch_latest_trends
     _isolate_cache_dir(monkeypatch, tmp_path)
@@ -596,19 +622,31 @@ def test_fetch_latest_trends_rejects_unsupported_region(monkeypatch, tmp_path):
 
 
 def test_fetch_latest_trends_uses_cache(monkeypatch, tmp_path):
-    """Second call within TTL → no second pytrends instantiation."""
+    """Second call within TTL → no second RSS fetch."""
     from portfolio.gtrends import fetch_latest_trends
     _isolate_cache_dir(monkeypatch, tmp_path)
-    _, fake_class = _stub_pytrends_trending(monkeypatch)
+    fetch_count = {"n": 0}
+    import httpx
+
+    def handler(request):
+        fetch_count["n"] += 1
+        return httpx.Response(200, text=_rss_response_xml())
+
+    real_client_class = httpx.Client
+
+    def fake_client(*a, **kw):
+        return real_client_class(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("httpx.Client", fake_client)
 
     fetch_latest_trends("US")
     fetch_latest_trends("US")  # cache hit
 
-    assert fake_class.call_count == 1
+    assert fetch_count["n"] == 1
 
 
 def test_fetch_latest_trends_l1_fallback_on_rate_limit(monkeypatch, tmp_path):
-    """Same L1 stale-cache fallback shape as topic-mode."""
+    """L1 stale-cache fallback fires when RSS returns 429."""
     from portfolio.gtrends import (
         LatestTrendsPayload, fetch_latest_trends, save_cached_latest,
     )
@@ -622,10 +660,7 @@ def test_fetch_latest_trends_l1_fallback_on_rate_limit(monkeypatch, tmp_path):
     )
     save_cached_latest(stale)
 
-    bad_class = MagicMock(side_effect=Exception(
-        "Google returned a response with code 429"
-    ))
-    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+    _stub_rss_fetch(monkeypatch, status_code=429)
 
     payload = fetch_latest_trends("US", refresh=True)
     assert payload.trending == ["old trending topic"]
@@ -635,12 +670,60 @@ def test_fetch_latest_trends_429_no_cache_raises(monkeypatch, tmp_path):
     """No stale cache to fall back to → re-raise GTrendsRateLimitError."""
     from portfolio.gtrends import fetch_latest_trends, GTrendsRateLimitError as _RLE
     _isolate_cache_dir(monkeypatch, tmp_path)
-    bad_class = MagicMock(side_effect=Exception(
-        "Google returned a response with code 429"
-    ))
-    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+    _stub_rss_fetch(monkeypatch, status_code=429)
 
     with pytest.raises(_RLE):
+        fetch_latest_trends("US")
+
+
+def test_fetch_latest_trends_404_raises(monkeypatch, tmp_path):
+    """404 from the RSS endpoint surfaces as typed GTrendsError. (Was
+    the operator-hit scenario before the RSS switch — pytrends'
+    trending_searches AND today_searches both 404'd; RSS endpoint is
+    what we actually call now, and it returns 200 in practice.)"""
+    from portfolio.gtrends import fetch_latest_trends
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    _stub_rss_fetch(monkeypatch, status_code=404)
+
+    with pytest.raises(GTrendsError, match="HTTP 404"):
+        fetch_latest_trends("US")
+
+
+def test_fetch_latest_trends_network_error_raises(monkeypatch, tmp_path):
+    """Network-level error (DNS, connection refused, timeout) →
+    GTrendsError with the underlying exception details."""
+    import httpx
+    from portfolio.gtrends import fetch_latest_trends
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    _stub_rss_fetch(monkeypatch, raise_error=httpx.ConnectError)
+
+    with pytest.raises(GTrendsError, match="RSS fetch failed"):
+        fetch_latest_trends("US")
+
+
+def test_fetch_latest_trends_parse_error_raises(monkeypatch, tmp_path):
+    """If the RSS endpoint ever returns non-XML (e.g., JSON error
+    body that came back as 200, or truncated transfer), surface a
+    typed parse error."""
+    import httpx
+    from portfolio.gtrends import fetch_latest_trends
+    _isolate_cache_dir(monkeypatch, tmp_path)
+
+    def handler(request):
+        # Plain JSON body — ElementTree.fromstring raises ParseError
+        # because the doc isn't XML at all. (HTML happens to be valid
+        # XML at the root level, which surprised the first version
+        # of this test.)
+        return httpx.Response(200, text='{"error": "not xml"}')
+
+    real_client_class = httpx.Client
+
+    def fake_client(*a, **kw):
+        return real_client_class(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("httpx.Client", fake_client)
+
+    with pytest.raises(GTrendsError, match="parse failed"):
         fetch_latest_trends("US")
 
 
@@ -648,7 +731,7 @@ def test_cli_no_topic_renders_latest(monkeypatch, tmp_path):
     """`lamill new trends` (no topic argument) renders the daily
     trending list + the drill-in hint."""
     _isolate_cache_dir(monkeypatch, tmp_path)
-    _stub_pytrends_trending(monkeypatch)
+    _stub_rss_fetch(monkeypatch)
 
     from portfolio.cli import app
     result = runner.invoke(app, ["new", "trends"])
@@ -661,39 +744,63 @@ def test_cli_no_topic_renders_latest(monkeypatch, tmp_path):
 
 
 def test_cli_no_topic_with_region(monkeypatch, tmp_path):
-    """`lamill new trends -r GB` (no topic) uses the GB region.
-    today_searches accepts ISO codes directly — no full-name
-    translation."""
+    """`lamill new trends -r GB` (no topic) hits the GB RSS feed."""
+    import httpx
     _isolate_cache_dir(monkeypatch, tmp_path)
-    fake_client, _ = _stub_pytrends_trending(
-        monkeypatch,
-        trending=["wimbledon", "premier league", "uk inflation"],
-    )
+    captured_url: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_url["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            text=_rss_response_xml(
+                ["wimbledon", "premier league", "uk inflation"],
+            ),
+        )
+
+    real_client_class = httpx.Client
+
+    def fake_client(*a, **kw):
+        return real_client_class(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("httpx.Client", fake_client)
 
     from portfolio.cli import app
     result = runner.invoke(app, ["new", "trends", "-r", "GB"])
     assert result.exit_code == 0, result.output
-    fake_client.today_searches.assert_called_once_with(pn="GB")
+    assert "geo=GB" in captured_url["url"]
     assert "wimbledon" in result.output
 
 
 def test_cli_no_topic_uk_alias_normalizes_to_gb(monkeypatch, tmp_path):
     """`lamill new trends -r UK` is operator-typo-friendly: aliased to
-    GB before reaching pytrends (today_searches needs strict ISO)."""
+    GB before reaching the RSS feed."""
+    import httpx
     _isolate_cache_dir(monkeypatch, tmp_path)
-    fake_client, _ = _stub_pytrends_trending(monkeypatch)
+    captured_url: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_url["url"] = str(request.url)
+        return httpx.Response(200, text=_rss_response_xml())
+
+    real_client_class = httpx.Client
+
+    def fake_client(*a, **kw):
+        return real_client_class(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr("httpx.Client", fake_client)
 
     from portfolio.cli import app
     result = runner.invoke(app, ["new", "trends", "-r", "UK"])
     assert result.exit_code == 0, result.output
-    fake_client.today_searches.assert_called_once_with(pn="GB")
+    assert "geo=GB" in captured_url["url"]
 
 
 def test_cli_no_topic_json_output(monkeypatch, tmp_path):
     """--json on the no-topic path emits valid JSON of the
     LatestTrendsPayload shape."""
     _isolate_cache_dir(monkeypatch, tmp_path)
-    _stub_pytrends_trending(monkeypatch)
+    _stub_rss_fetch(monkeypatch)
 
     from portfolio.cli import app
     result = runner.invoke(app, ["new", "trends", "--json"])
@@ -711,7 +818,7 @@ def test_cli_whitespace_only_topic_falls_through_to_latest(
     no-topic — falls through to the latest-trends path rather than
     trying to fetch trends for the empty string."""
     _isolate_cache_dir(monkeypatch, tmp_path)
-    _stub_pytrends_trending(monkeypatch)
+    _stub_rss_fetch(monkeypatch)
 
     from portfolio.cli import app
     result = runner.invoke(app, ["new", "trends", "   "])

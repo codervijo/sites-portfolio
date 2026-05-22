@@ -936,44 +936,53 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
-### 2026-05-22 PM — `lamill new trends` (no topic) returns 404 from pytrends.trending_searches
+### 2026-05-22 PM — `lamill new trends` (no topic) returns 404 from pytrends (both endpoints broken)
 
 **Repro**
 
     ❯ uv run portfolio new trends
     Latest trends fetch failed: pytrends trending_searches failed for region='US': The request failed: Google returned a response with code 404
 
-Hit immediately after shipping the no-topic latest-trends feature.
-First run, fresh IP — not a 429 / rate-limit. Pure endpoint death.
+(Initial fix swapped to `today_searches` — same library, different
+method. Also 404'd:)
+
+    ❯ uv run portfolio new trends
+    Latest trends fetch failed: pytrends today_searches failed for region='US': The request failed: Google returned a response with code 404
 
 **Diagnosis**
 
-`pytrends.trending_searches(pn=...)` hits
-`/trends/hottrends/visualize/internal/data` — an endpoint Google
-deprecated. Multiple pytrends GitHub issues (#602, #610) confirm
-the method returns 404 in current versions of Google's API.
+Both pytrends 4.9.2 daily-trending methods broken vs Google's
+current API:
+  - `trending_searches(pn=...)` hits the deprecated
+    `/trends/hottrends/visualize/internal/data`.
+  - `today_searches(pn=...)` hits `/trends/api/dailytrends`, which
+    Google ALSO changed/removed (or is now session-token-gated).
 
-pytrends' newer `today_searches(pn=...)` method hits
-`/trends/api/dailytrends` — the current endpoint Google publishes.
-Same daily-trending data; accepts ISO region codes directly (no
-need for the full-name `_DAILY_REGION_MAP` translation).
+Multiple pytrends GitHub issues (#602, #610, etc.) acknowledge
+these methods are broken. The library hasn't migrated to Google's
+current API surface for daily-trending content.
 
-**Fixed in** — 2026-05-22 PM (same session as the v19 latest-trends
-feature ship): `gtrends._fetch_latest_from_pytrends` switched from
-`client.trending_searches(pn=<full_name>)` to
-`client.today_searches(pn=<ISO>)`. `_DAILY_REGION_MAP` replaced with
-`_LATEST_REGIONS` (ISO allowlist) + `_REGION_ALIASES` (UK → GB for
-operator-typo friendliness). `today_searches` returns a DataFrame
-with a `title` column (vs the old `trending_searches` 1-column
-unnamed shape) — adapted the row extraction to prefer `title` when
-present, fall back to `iloc[:, 0]` for cross-version safety. Test
-stub updated to mock `today_searches` (and `trending_searches`
-defensively, to surface any regression that calls the old method).
-Suite stays at 2628 / 1 skip (added 1 UK-alias test).
+**Fixed in** — 2026-05-22 PM (same session): bypass pytrends
+entirely for the latest-trends path. Hit Google's **public RSS
+feed** at
+`https://trends.google.com/trends/trendingsearches/daily/rss?geo=US`
+directly via `httpx` + stdlib `xml.etree.ElementTree`. The RSS
+feed is what Google's own "Daily Search Trends" page consumes —
+stable, public, no auth, no token gating. New `_fetch_latest_via_rss`
+helper carries the L1 stale-cache fallback + 429 detection
+behaviors from the pytrends path. pytrends still in use for the
+topic-specific path (`build_payload + interest_over_time +
+related_queries` — that endpoint still works). 9 latest-trends
+tests rewritten to stub `httpx.Client` via `httpx.MockTransport`
+instead of `pytrends.request.TrendReq`. Plus 3 new tests
+(404 surfaces typed error; network error surfaces typed error;
+non-XML response surfaces parse error).
 
-Original v19 latest-trends feature ship landed 2026-05-22 PM
-(commit `2e9b3ba`); 404 surfaced on first operator run before the
-session ended. Total time-to-fix: ~15 minutes.
+Suite 2627 → 2631.
+
+Two-step fix iteration (today_searches first, then RSS) on the
+same evening; total time-to-resilience ~30 minutes after the
+original v19 latest-trends feature ship (commit `2e9b3ba`).
 
 ---
 
