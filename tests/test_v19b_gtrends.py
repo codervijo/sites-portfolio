@@ -18,13 +18,16 @@ from portfolio import gtrends
 from portfolio.gtrends import (
     DEFAULT_TIMEFRAME,
     GTrendsError,
+    GTrendsRateLimitError,
     SCHEMA,
     TIMEFRAME_MAP,
     TrendsPayload,
     cache_path,
     fetch_trends,
     is_stale,
+    load_any_cached,
     load_cached,
+    payload_age_hours,
     save_cached,
 )
 
@@ -347,3 +350,190 @@ def test_cli_new_trends_refresh_flag_bypasses_cache(monkeypatch, tmp_path):
     runner.invoke(app, ["new", "trends", "solar", "--refresh"])
 
     assert fake_trend_req_class.call_count == 2
+
+
+# ---- 2026-05-22 mitigations: ImportError + 429 + UA + L1 fallback --
+
+
+def test_typed_error_on_pytrends_not_installed(monkeypatch, tmp_path):
+    """ImportError from `from pytrends.request import TrendReq` should
+    raise typed GTrendsError with actionable `uv sync` hint.
+    Closes the docs/bugs.md 2026-05-22 ModuleNotFoundError entry."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+
+    # Make the pytrends.request import fail.
+    import sys
+    monkeypatch.setitem(sys.modules, "pytrends", None)
+    monkeypatch.setitem(sys.modules, "pytrends.request", None)
+
+    with pytest.raises(GTrendsError) as exc_info:
+        fetch_trends("solar", timeframe="12m")
+    msg = str(exc_info.value)
+    assert "pytrends library not installed" in msg
+    assert "uv sync" in msg
+
+
+def test_429_raises_specific_subclass(monkeypatch, tmp_path):
+    """When pytrends raises a 429-shaped error (string contains '429'),
+    fetch_trends raises GTrendsRateLimitError (subclass), not generic
+    GTrendsError. Closes the docs/bugs.md 2026-05-22 cryptic-429 entry."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    bad_class = MagicMock(side_effect=Exception(
+        "The request failed: Google returned a response with code 429"
+    ))
+    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+
+    with pytest.raises(GTrendsRateLimitError) as exc_info:
+        fetch_trends("solar", timeframe="12m")
+    msg = str(exc_info.value)
+    assert "rate-limited" in msg.lower()
+    assert "10-30 minutes" in msg
+    assert "IP-based" in msg
+
+
+def test_429_subclass_is_caught_by_generic_gtrends_error(monkeypatch, tmp_path):
+    """`GTrendsRateLimitError` must be a subclass of `GTrendsError` so
+    existing `except GTrendsError` callers continue to work without
+    special-casing."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    bad_class = MagicMock(side_effect=Exception(
+        "The request failed: Google returned a response with code 429"
+    ))
+    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+
+    with pytest.raises(GTrendsError):
+        fetch_trends("solar", timeframe="12m")
+
+
+def test_l1_stale_cache_fallback_on_rate_limit(monkeypatch, tmp_path):
+    """L1 fallback: when pytrends rate-limits AND a stale cache entry
+    exists for the same (topic, timeframe, region), fetch_trends
+    returns the stale payload rather than raising."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+
+    # Pre-seed a stale cache entry (49h old → past 24h TTL).
+    stale_payload = TrendsPayload(
+        topic="solar",
+        timeframe="12m",
+        region="",
+        fetched_at=(datetime.now(timezone.utc) - timedelta(hours=49)).isoformat(),
+        interest_over_time=[{"date": "2025-04-01", "value": 50}],
+        related_top=[{"query": "solar panels", "value": 100}],
+        related_rising=[],
+    )
+    save_cached(stale_payload)
+
+    # Make pytrends 429 on the fresh fetch attempt.
+    bad_class = MagicMock(side_effect=Exception(
+        "Google returned a response with code 429"
+    ))
+    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+
+    # fetch_trends with refresh=True forces fresh path, hits 429,
+    # falls back to stale cache.
+    result = fetch_trends("solar", timeframe="12m", refresh=True)
+
+    assert result.topic == "solar"
+    assert result.interest_over_time == stale_payload.interest_over_time
+    assert payload_age_hours(result) > 24  # confirms it's the stale entry
+
+
+def test_l1_fallback_raises_when_no_cache(monkeypatch, tmp_path):
+    """L1 fallback can't recover if no cache entry exists at all.
+    fetch_trends re-raises the GTrendsRateLimitError so the CLI can
+    surface the wait-and-retry hint."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    bad_class = MagicMock(side_effect=Exception(
+        "Google returned a response with code 429"
+    ))
+    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+
+    with pytest.raises(GTrendsRateLimitError):
+        fetch_trends("solar", timeframe="12m")
+
+
+def test_load_any_cached_returns_stale_payload(monkeypatch, tmp_path):
+    """load_any_cached must return entries past the 24h TTL — that's
+    the whole point. Differs from load_cached which would return None."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    very_stale = TrendsPayload(
+        topic="solar", timeframe="12m", region="",
+        fetched_at=(datetime.now(timezone.utc) - timedelta(days=10)).isoformat(),
+        interest_over_time=[{"date": "2025-01-01", "value": 1}],
+        related_top=[], related_rising=[],
+    )
+    save_cached(very_stale)
+
+    # load_cached returns None (past TTL):
+    assert load_cached("solar", timeframe="12m", region="") is None
+    # load_any_cached returns the entry regardless:
+    result = load_any_cached("solar", timeframe="12m", region="")
+    assert result is not None
+    assert result.fetched_at == very_stale.fetched_at
+
+
+def test_ua_rotation_passes_header_to_pytrends(monkeypatch, tmp_path):
+    """L3 — pytrends client is constructed with a User-Agent header in
+    requests_args. Spot-check that one of the rotation UAs gets passed
+    through (the exact UA varies per call due to random.choice)."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+    fake_client, fake_trend_req_class = _patch_pytrends_with(monkeypatch)
+
+    fetch_trends("solar", timeframe="12m")
+
+    # TrendReq was called with requests_args carrying a User-Agent.
+    _, kwargs = fake_trend_req_class.call_args
+    requests_args = kwargs.get("requests_args") or {}
+    headers = requests_args.get("headers") or {}
+    ua = headers.get("User-Agent", "")
+    assert "Mozilla/5.0" in ua  # all 5 rotation UAs start with this
+    # Accept-Language also set:
+    assert headers.get("Accept-Language") == "en-US,en;q=0.9"
+
+
+def test_payload_age_hours_computes_correctly():
+    """payload_age_hours computes the delta from fetched_at to now."""
+    five_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    p = TrendsPayload(
+        topic="x", timeframe="12m", region="",
+        fetched_at=five_hours_ago,
+        interest_over_time=[], related_top=[], related_rising=[],
+    )
+    age = payload_age_hours(p)
+    assert age is not None
+    assert 4.9 < age < 5.1  # ~5 hours, accounting for test execution time
+
+
+def test_payload_age_hours_returns_none_on_bad_timestamp():
+    p = TrendsPayload(
+        topic="x", timeframe="12m", region="",
+        fetched_at="not-a-real-iso-string",
+        interest_over_time=[], related_top=[], related_rising=[],
+    )
+    assert payload_age_hours(p) is None
+
+
+def test_cli_renders_stale_warning_on_l1_fallback(monkeypatch, tmp_path):
+    """End-to-end: when L1 fallback fires, the CLI renderer prints the
+    yellow stale-cache warning header so the operator knows the data
+    isn't fresh."""
+    _isolate_cache_dir(monkeypatch, tmp_path)
+
+    # Pre-seed stale.
+    save_cached(TrendsPayload(
+        topic="solar", timeframe="12m", region="",
+        fetched_at=(datetime.now(timezone.utc) - timedelta(hours=49)).isoformat(),
+        interest_over_time=[{"date": "2025-04-01", "value": 50}],
+        related_top=[], related_rising=[],
+    ))
+    bad_class = MagicMock(side_effect=Exception(
+        "Google returned a response with code 429"
+    ))
+    monkeypatch.setattr("pytrends.request.TrendReq", bad_class)
+
+    from portfolio.cli import app
+    result = runner.invoke(app, ["new", "trends", "solar", "--refresh"])
+    assert result.exit_code == 0, result.output
+    assert "Stale cache fallback" in result.output
+    assert "--refresh" in result.output  # the hint to retry
+

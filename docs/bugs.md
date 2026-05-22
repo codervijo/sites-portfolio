@@ -65,149 +65,6 @@ when applicable. Don't delete.
 
 ## Open bugs
 
-### 2026-05-22 — `lamill new trends <topic>` on HTTP 429 surfaces a cryptic error with no recovery hint
-
-**Repro**
-
-    portfolio on  main [$?] is 📦 v0.1.0 via 🐍 v3.10.12
-    ❯ uv run portfolio new trends 'nanobanana'
-    Trends fetch failed: pytrends fetch failed for 'nanobanana': The request failed: Google returned a response with code 429
-
-    portfolio on  main [$!?] is 📦 v0.1.0 via 🐍 v3.10.12
-    ❯ uv run portfolio new trends 'nan obanana'
-    Trends fetch failed: pytrends fetch failed for 'nan obanana': The request failed: Google returned a response with code 429
-
-**Expected**
-
-The error should:
-  1. **Clarify what 429 means**: Google Trends has no official quota
-     or API; pytrends scrapes the unofficial endpoint, and Google
-     IP-rate-limits it aggressively. 429 is transient, not a
-     permanent failure.
-  2. **Suggest a wait time**: typical recovery is 10-30 minutes
-     (pytrends' GitHub issues report similar windows). No official
-     Retry-After header is sent.
-  3. **Surface what won't help**: re-running with `--refresh` or a
-     different topic will likely also 429 from the same IP since
-     the rate limit is IP-based, not topic-based.
-  4. **Surface what will help**: wait, or switch IP (VPN), or use a
-     cached result if available (24h TTL via `data/gtrends/<hash>.json`).
-
-**Actual**
-
-`Trends fetch failed: pytrends fetch failed for 'X': The request
-failed: Google returned a response with code 429` — operator can't
-tell from this whether the failure is permanent (wrong topic,
-broken auth, dead library) or transient (rate-limit, retry later).
-
-**Where (guess)**
-
-`src/portfolio/gtrends.py:163-167` — `_fetch_from_pytrends`'s broad
-`except Exception as e: raise GTrendsError(f"pytrends fetch failed
-for {topic!r}: {e}")`. The wrapper loses signal about WHICH failure
-mode tripped. Pattern fix:
-
-  - Inspect `str(e)` for `"429"` or `"Too Many Requests"` substring;
-    raise a new `GTrendsRateLimitError(GTrendsError)` subclass with
-    the actionable message.
-  - `cli.py`'s `except GTrendsError` handler at the new_trends
-    command renders the rate-limit case as yellow (transient,
-    retry-able) instead of red (permanent failure).
-  - Bonus: when rate-limited, check if a cached payload exists
-    (even stale) and offer it: "rate-limited, but a 26h-old cache
-    is available — re-run with `--refresh=false` (default) to use
-    it, or wait ~15 minutes and retry."
-
-**Severity** — `minor`
-
-Doesn't lose data; doesn't break workflow; just confuses on first
-hit. Operator workaround: wait 10-30 min and re-run.
-
-**Notes**
-
-Surfaced 2026-05-22 by operator immediately post-v19.B ship.
-Related to the prior 2026-05-22 bug ("ModuleNotFoundError when
-running outside uv venv") — both are `gtrends.py` error-surface
-gaps. Worth fixing together as a between-phase polish pass.
-
-Also related: pytrends 4.9 has known reliability issues with
-modern Google Trends (issue #563 in their GitHub). If 429s become
-chronic, the long-term fix is moving to SerpAPI's `google_trends`
-engine (originally in v19's scope, dropped 2026-05-22 per
-operator's "serp etc not needed at this time" call). That call
-was right for THE FIRST few queries; it might need re-litigating
-if pytrends rate-limiting makes the command unreliable in practice.
-
----
-
-### 2026-05-22 — `lamill new trends <topic>` raises `ModuleNotFoundError: No module named 'pytrends'` when running outside the `uv` venv
-
-**Repro**
-
-    portfolio on  main [$?] is 📦 v0.1.0 via 🐍 v3.10.12
-    ❯ lamill new trends 'ai'
-    ...
-    File "src/portfolio/gtrends.py:158, in _fetch_from_pytrends:
-      from pytrends.request import TrendReq
-    ModuleNotFoundError: No module named 'pytrends'
-
-Operator's shell prompt shows Python 3.10.12, but the project's
-`pyproject.toml` declares `requires-python = ">=3.11"`. The
-`lamill` binary on PATH was installed into a Python 3.10
-environment (probably an older `pipx install` or `pip install -e .`
-predating v19.B), so the new `pytrends>=4.9` dep added to
-`pyproject.toml` in commit `38fb240` (v19.B) isn't visible to that
-install.
-
-**Expected**
-
-Either (a) the `lamill` binary picks up new deps automatically
-after a `git pull`, or (b) the CLI surfaces a clean actionable
-error ("re-install lamill with `uv sync` / `pipx reinstall
-portfolio` to pick up the new `pytrends` dep") instead of a raw
-`ModuleNotFoundError` stack trace.
-
-**Actual**
-
-Raw stack trace from `_fetch_from_pytrends`'s `from pytrends.request
-import TrendReq` line. Operator can't tell from the trace what
-remediation to take.
-
-**Where (guess)**
-
-`src/portfolio/gtrends.py:158`. Pattern fix: wrap the `from
-pytrends.request import TrendReq` in a try/except ImportError that
-raises `GTrendsError` with an actionable message ("pytrends not
-installed — run `uv sync` or reinstall lamill to pick up the new
-dep added in v19.B"). The CLI command's existing
-`except GTrendsError` handler at `cli.py:5842` already prints the
-message cleanly + exits 3, so the actionable hint reaches the
-operator without a stack trace.
-
-Lower-priority alternative: relax `pyproject.toml`'s
-`requires-python` to `>=3.10` so the operator's existing Python
-3.10 install can `uv sync` cleanly. But the dep itself was just
-added; reinstall is needed regardless.
-
-**Severity** — `minor`
-
-Doesn't lose data; just surfaces as an opaque stack trace. Fix is
-small (one try/except in gtrends.py). Operator's workaround for
-now: run `uv sync` in `~/work/projects/sites/portfolio/` and use
-`uv run lamill new trends 'ai'`.
-
-**Notes**
-
-Surfaced 2026-05-22 by operator immediately post-v19.B ship.
-v18.D's `_maybe_create_ga4_property` follows the right pattern —
-imports happen at module top after pyproject deps are guaranteed
-present. v19.B used a lazy import inside the function for "test
-environments that don't need pytrends" startup-cost reasons (per
-the comment at `gtrends.py:155-157`), which is the precondition
-that allowed the bare ModuleNotFoundError to leak. The lazy-import
-posture is still right; just needs the try/except wrap.
-
----
 
 ### 2026-05-20 — `make deps` hits pnpm store version mismatch on new-domain builds
 
@@ -1078,6 +935,65 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-22 — `lamill new trends <topic>` on HTTP 429 surfaces a cryptic error with no recovery hint
+
+**Repro**
+
+    ❯ uv run portfolio new trends 'nanobanana'
+    Trends fetch failed: pytrends fetch failed for 'nanobanana': The request failed: Google returned a response with code 429
+
+**Expected**
+Operator-facing message clarifies 429 = transient IP-based rate
+limit; suggests wait window (10-30 min); flags that re-running
+other topics from same IP won't help.
+
+**Fixed in** — 2026-05-22 PM: gtrends.py `_fetch_from_pytrends`
+detects `"429"` or `"Too Many Requests"` in pytrends error message
+and raises new `GTrendsRateLimitError(GTrendsError)` subclass with
+the actionable hint built in. CLI catches it specifically (yellow,
+"Trends fetch rate-limited:" prefix) vs the generic red
+GTrendsError. **Plus L1 stale-cache fallback** — fetch_trends
+catches GTrendsRateLimitError, looks for ANY cached payload via
+new `load_any_cached()` helper (no TTL check), returns it if
+present so operator gets data anyway. Renderer surfaces a
+yellow "Stale cache fallback — Xh old" warning header in that
+case. **Plus L3 UA rotation** — pytrends client gets a randomized
+realistic User-Agent (5 modern browser UAs) + Accept-Language
+header per call; minor anecdotal help against Google's
+rate-limiter. 10 new tests covering all paths. SerpAPI fallback
+(L4) intentionally NOT shipped — pinned for later re-litigation
+if pytrends becomes chronically unreliable; the v19.A "serp etc
+not needed" call stands as long as L1+L3 keep the common cases
+working.
+
+---
+
+### 2026-05-22 — `lamill new trends <topic>` raises `ModuleNotFoundError: No module named 'pytrends'` when running outside the `uv` venv
+
+**Repro**
+
+    portfolio on  main is 📦 v0.1.0 via 🐍 v3.10.12
+    ❯ lamill new trends 'ai'
+    ...
+    ModuleNotFoundError: No module named 'pytrends'
+
+(Operator's `lamill` binary on PATH predates v19.B's pytrends dep;
+Python 3.10 install separate from the project's uv venv.)
+
+**Expected**
+Typed error with actionable `uv sync` / `pipx reinstall` hint,
+not a raw stack trace.
+
+**Fixed in** — 2026-05-22 PM: gtrends.py `_fetch_from_pytrends`
+wraps `from pytrends.request import TrendReq` in try/except
+ImportError → raises typed GTrendsError with the message:
+"pytrends library not installed (...). Run `uv sync` in the
+portfolio project root..." CLI's existing `except GTrendsError`
+handler at cli.py renders cleanly (red, "Trends fetch failed:"
+prefix) and exits 3 — no stack trace reaches the operator.
+
+---
 
 ### 2026-05-20 — tech-debt audit pass
 

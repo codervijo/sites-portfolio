@@ -10,11 +10,40 @@ Per v19.A scope lock 2026-05-22: no cluster-snapshot integration,
 no shortlist binding, no SerpAPI fallback — pytrends is the only
 path. Soft failure on library errors (caller decides to surface or
 exit; module just raises `GTrendsError`).
+
+**2026-05-22 PM — 429 mitigation pass.** Two operator-logged bugs
+addressed:
+
+  1. `ModuleNotFoundError: No module named 'pytrends'` (operator on
+     older Python env where the `lamill` binary predates v19.B's
+     pytrends dep) → wrapped `from pytrends.request import TrendReq`
+     in try/except ImportError → raises typed `GTrendsError` with
+     `uv sync` hint.
+  2. HTTP 429 surfaced as cryptic `pytrends fetch failed for 'X':
+     The request failed: Google returned a response with code 429`
+     → detect "429" / "Too Many Requests" in pytrends error → raise
+     new `GTrendsRateLimitError(GTrendsError)` subclass with
+     wait-10-30-min hint.
+
+Plus two structural mitigations:
+
+  - **L1 stale-cache fallback**: on rate-limit, return ANY cached
+    payload regardless of 24h TTL (renderer surfaces a stale-age
+    warning). Better than failing when operator already has a
+    47h-old copy on disk.
+  - **L3 UA rotation**: cycle 5 realistic browser User-Agents per
+    pytrends call. Anecdotal help with Google's IP-rate-limiter.
+
+L4 SerpAPI fallback intentionally NOT shipped — pinned for later
+re-litigation if pytrends becomes chronically unreliable. v19.A's
+"serp etc not needed" decision stands as long as L1+L3 keep the
+common cases working.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -43,6 +72,49 @@ class GTrendsError(RuntimeError):
     """Raised when `pytrends` fails to fetch trend data. Carries the
     underlying error in the message. Caller (CLI) prints + exits
     non-zero; no automatic retry since pytrends has no official SLA."""
+
+
+class GTrendsRateLimitError(GTrendsError):
+    """Subclass for HTTP 429 / IP-rate-limited responses.
+
+    Caller (CLI) handles separately from the generic GTrendsError so
+    the operator-facing message can be specifically actionable
+    ("wait 10-30 min; rate limit is IP-based, trying other topics
+    from the same IP won't help") rather than a generic failure.
+
+    `fetch_trends()` catches this internally to attempt the L1
+    stale-cache fallback before re-raising — operator usually gets
+    data anyway as long as they've queried the topic recently."""
+
+
+# L3 — User-Agent rotation. Cycle realistic modern browser UAs per
+# pytrends call. Anecdotal help against Google's rate-limiter; cheap
+# to ship. Picked one at random per call rather than round-robin
+# because the rate-limit window is per-IP, not per-UA — randomization
+# just avoids the static pytrends default being a recognizable
+# fingerprint.
+_USER_AGENTS: tuple[str, ...] = (
+    # Chrome — macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    # Chrome — Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    # Firefox — macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.1; rv:120.0) "
+    "Gecko/20100101 Firefox/120.0",
+    # Firefox — Windows
+    "Mozilla/5.0 (Windows NT 10.0; rv:120.0) Gecko/20100101 Firefox/120.0",
+    # Safari — macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+)
+
+
+def _pick_user_agent() -> str:
+    """Random UA per call. Module-level seeded RNG is fine — security
+    isn't the concern here; we just want variability across calls."""
+    return random.choice(_USER_AGENTS)
 
 
 @dataclass(frozen=True)
@@ -120,6 +192,53 @@ def load_cached(
     )
 
 
+def load_any_cached(
+    topic: str, *,
+    timeframe: str, region: str,
+) -> TrendsPayload | None:
+    """Same as `load_cached` but skips the staleness check — returns
+    the cached payload regardless of age. Used by the L1 fallback in
+    `fetch_trends`: when pytrends rate-limits, we'd rather give the
+    operator a 47h-old payload than a hard error.
+
+    Returns None only when no cache file exists for the
+    (topic, timeframe, region) tuple OR the file is unreadable /
+    schema-mismatched (defensive against schema drift).
+    """
+    path = cache_path(topic, timeframe=timeframe, region=region)
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if raw.get("schema") != SCHEMA:
+        return None
+    return TrendsPayload(
+        topic=raw["topic"],
+        timeframe=raw["timeframe"],
+        region=raw["region"],
+        fetched_at=raw["fetched_at"],
+        interest_over_time=list(raw.get("interest_over_time") or []),
+        related_top=list(raw.get("related_top") or []),
+        related_rising=list(raw.get("related_rising") or []),
+    )
+
+
+def payload_age_hours(payload: TrendsPayload) -> float | None:
+    """How old is this payload, in hours? Used by the CLI renderer
+    to decide whether to print a stale-warning header on L1 fallback
+    payloads. Returns None if `fetched_at` can't be parsed."""
+    try:
+        ts = datetime.fromisoformat(payload.fetched_at)
+    except (ValueError, TypeError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - ts
+    return delta.total_seconds() / 3600.0
+
+
 def save_cached(payload: TrendsPayload) -> Path:
     """Atomic write of the payload to its cache file."""
     GTRENDS_DIR.mkdir(parents=True, exist_ok=True)
@@ -155,14 +274,58 @@ def _fetch_from_pytrends(
     # Local import so test environments that don't need pytrends (e.g.
     # `uv run pytest -k "not v19"`) don't pay the lxml/numpy/pandas
     # import cost. Also lets cache-only callers skip the dep entirely.
-    from pytrends.request import TrendReq
+    #
+    # 2026-05-22 — wrap in try/except ImportError so the operator hits
+    # a typed error with actionable hint instead of a raw stack trace.
+    # Closes the docs/bugs.md 2026-05-22 ModuleNotFoundError entry.
+    try:
+        from pytrends.request import TrendReq
+    except ImportError as e:
+        raise GTrendsError(
+            f"pytrends library not installed ({e}). "
+            f"Run `uv sync` in the portfolio project root to install the "
+            f"v19.B dependency, then re-run `uv run lamill new trends "
+            f"<topic>`. If using a system-installed `lamill` binary, "
+            f"reinstall (e.g. `pipx reinstall portfolio`)."
+        ) from e
 
     try:
-        client = TrendReq(hl="en-US", tz=0, timeout=(10, 30))
+        # L3 — UA rotation. pytrends accepts requests_args that get
+        # passed through to the underlying requests Session, so we
+        # set the User-Agent header per call. Plus Accept-Language
+        # for completeness (Google's rate-limiter looks at the full
+        # request fingerprint, not just IP).
+        client = TrendReq(
+            hl="en-US",
+            tz=0,
+            timeout=(10, 30),
+            requests_args={
+                "headers": {
+                    "User-Agent": _pick_user_agent(),
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            },
+        )
         client.build_payload([topic], timeframe=timeframe_pytrends, geo=region)
         iot_df = client.interest_over_time()
         related = client.related_queries()
     except Exception as e:
+        # 2026-05-22 — detect HTTP 429 specifically so the CLI can
+        # render the rate-limit case yellow (transient) instead of red
+        # (permanent failure). Closes the bugs.md 429 cryptic-error
+        # entry. pytrends raises as `pytrends.exceptions.TooManyRequestsError`
+        # in newer versions OR wraps as generic Exception with "429" /
+        # "Too Many Requests" in the message string — match on the
+        # string content to handle both shapes.
+        msg = str(e)
+        if "429" in msg or "Too Many Requests" in msg.lower():
+            raise GTrendsRateLimitError(
+                f"Google Trends rate-limited (HTTP 429) for {topic!r}. "
+                f"Wait 10-30 minutes and retry — the limit is IP-based, "
+                f"so trying other topics from the same IP won't help. "
+                f"pytrends has no official quota; backoff windows vary "
+                f"by IP reputation."
+            ) from e
         raise GTrendsError(f"pytrends fetch failed for {topic!r}: {e}") from e
 
     # interest_over_time DataFrame → list of {date, value}. pytrends
@@ -245,12 +408,20 @@ def fetch_trends(
 ) -> TrendsPayload:
     """Top-level entry point used by `lamill new trends`.
 
-    Reads cache when fresh + `refresh=False`. Otherwise calls
-    `pytrends`, writes the cache, returns the payload.
+    Fast path:
+      1. Read cache; if fresh (≤24h), return.
+      2. Else call pytrends, write cache, return.
 
-    Raises `GTrendsError` when pytrends fails (network, Google
-    rate-limit, parse error). `ValueError` when `timeframe` isn't
-    one of `TIMEFRAME_MAP`'s keys.
+    L1 stale-cache fallback (2026-05-22):
+      3. If pytrends raises `GTrendsRateLimitError`, look for ANY
+         cached payload regardless of TTL. If one exists, return it
+         (renderer surfaces the stale-age warning). If none, re-raise.
+
+    Raises `GTrendsRateLimitError` when no cache is available to
+    fall back to (operator should wait + retry). Raises
+    `GTrendsError` (generic) for other pytrends failures (network,
+    parse error). `ValueError` when `timeframe` isn't one of
+    `TIMEFRAME_MAP`'s keys.
     """
     if timeframe not in TIMEFRAME_MAP:
         raise ValueError(
@@ -265,10 +436,19 @@ def fetch_trends(
         if cached is not None:
             return cached
 
-    payload = _fetch_from_pytrends(
-        topic,
-        timeframe_pytrends=TIMEFRAME_MAP[timeframe],
-        region=region,
-    )
+    try:
+        payload = _fetch_from_pytrends(
+            topic,
+            timeframe_pytrends=TIMEFRAME_MAP[timeframe],
+            region=region,
+        )
+    except GTrendsRateLimitError:
+        # L1 fallback — operator already has this topic cached.
+        # Better than failing outright.
+        stale = load_any_cached(topic, timeframe=timeframe, region=region)
+        if stale is not None:
+            return stale
+        raise
+
     save_cached(payload)
     return payload

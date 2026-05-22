@@ -5826,7 +5826,9 @@ def new_trends(
     (network / rate-limit / parse error). 0 on success even when
     Google returns empty result sets (renders an empty state).
     """
-    from .gtrends import GTrendsError, TIMEFRAME_MAP, fetch_trends
+    from .gtrends import (
+        GTrendsError, GTrendsRateLimitError, TIMEFRAME_MAP, fetch_trends,
+    )
 
     if timeframe not in TIMEFRAME_MAP:
         console.print(
@@ -5839,7 +5841,17 @@ def new_trends(
         payload = fetch_trends(
             topic, timeframe=timeframe, region=region, refresh=refresh,
         )
+    except GTrendsRateLimitError as e:
+        # Rate-limit hit AND no stale cache available (else fetch_trends
+        # would have returned the cached payload). Render yellow
+        # (transient) instead of red (permanent failure). Closes the
+        # docs/bugs.md 2026-05-22 cryptic-429 entry.
+        console.print(f"[yellow]Trends fetch rate-limited:[/] {e}")
+        raise typer.Exit(3)
     except GTrendsError as e:
+        # All other pytrends failures (network, ImportError-wrap,
+        # parse error). Red — permanent or operator-side issue
+        # (e.g., `uv sync` needed for the ImportError case).
         console.print(f"[red]Trends fetch failed:[/] {e}")
         raise typer.Exit(3)
 
@@ -5855,6 +5867,27 @@ def new_trends(
 def _render_trends(payload) -> None:
     """Render a `TrendsPayload` to the console — interest-over-time
     sparkline table + related queries (top + rising)."""
+    from .gtrends import payload_age_hours, DEFAULT_TTL_HOURS
+
+    # 2026-05-22 — stale-cache warning header. Payloads returned via
+    # L1 fallback (rate-limit recovery) can be arbitrarily old; surface
+    # the age so the operator knows the data is stale and can decide
+    # whether to wait + retry with --refresh.
+    age = payload_age_hours(payload)
+    is_stale = age is not None and age > DEFAULT_TTL_HOURS
+    if is_stale:
+        # Format age compactly: 47h or 3d.
+        if age < 48:
+            age_str = f"{int(age)}h"
+        else:
+            age_str = f"{int(age / 24)}d"
+        console.print(
+            f"\n[yellow]⚠[/]  [yellow]Stale cache fallback[/] — "
+            f"Google Trends rate-limited; serving last cached payload "
+            f"([yellow]{age_str} old[/]). Wait 10-30 min and retry "
+            f"with [cyan]--refresh[/] for fresh data."
+        )
+
     console.print(
         f"\n[bold]Google Trends:[/] [cyan]{payload.topic}[/] "
         f"[dim]({payload.timeframe} · "
