@@ -858,9 +858,101 @@ introduction doesn't require renumbering.
 
 *None — tier reserved.*
 
-### v23 — *(reserved — GSC Sitemaps + per-URL Indexing status, dropped 2026-05-22 per the v23.A audit; **pre-empted by v13.B + v16.C + v16.D**, not by `§ 2 Non-goals`. The GSC Sitemaps API is already wrapped in `project_seo_diagnostics.py:133-175 fetch_sitemap_details() → SitemapDetail` and rendered in `lamill project seo <domain>` as the `📋 Sitemaps` block; v16.D's `gsc_rollup.domain_coverage_stats()` already feeds `fleet dashboard`'s `Cov %` + `Crawl-err` columns from v16.C's per-URL inspections. v23.B + v23.C were going to add work that already exists. Resurface if a sitemap-SUBMIT verb (POST, not GET) becomes useful at deploy time — the existing wrap is read-only.)*
+### v23 — *(reserved — GSC Sitemaps + per-URL Indexing status, dropped 2026-05-22 per the v23.A audit; **pre-empted by v13.B + v16.C + v16.D**, not by `§ 2 Non-goals`. The GSC Sitemaps API is already wrapped in `project_seo_diagnostics.py:133-175 fetch_sitemap_details() → SitemapDetail` and rendered in `lamill project seo <domain>` as the `📋 Sitemaps` block; v16.D's `gsc_rollup.domain_coverage_stats()` already feeds `fleet dashboard`'s `Cov %` + `Crawl-err` columns from v16.C's per-URL inspections. v23.B + v23.C were going to add work that already exists. **The sitemap-SUBMIT verb that would be the genuinely-new piece is now part of v24.**)*
 
-## 7. Conformance rules for all websites
+### v24 — GSC property auto-provisioning at deploy time *(new 2026-05-22 after the v23 audit + operator's stated 10+-sites-to-launch use-case)*
+
+Post-deploy step that adds a new domain to Google Search Console
+without any manual GSC clicks. Mirrors v18.D's GA4 lifecycle posture:
+portfolio owns the one-shot property-creation action; SEO pipeline (if
+it exists later) owns ongoing optimization concerns. Fits inside the
+existing `lamill new deploy` orchestrator after Step 8's live probe.
+
+Three API surfaces compose:
+
+  - **Site Verification API** (`siteverification` OAuth scope) —
+    `getToken` returns a TXT record value; `insert` verifies once
+    that value lands in DNS.
+  - **Search Console API** (`webmasters` write scope; bumped from
+    `webmasters.readonly`) — `sites.add()` registers the verified
+    domain as an `sc-domain:` property.
+  - **Sitemaps API** (same `webmasters` scope) — `sitemaps.submit()`
+    points GSC at the site's sitemap.xml.
+
+The CF angle that makes this tractable: DNS TXT writes go through
+the existing `cloudflare.create_dns_record()` from v15.R-era zone
+work. Operator's bootstrap default is `cf-workers` with NS pointed
+at CF, so the new-domain path always has CF DNS write access. No
+operator-side dashboard clicks for the verification step.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v24.A | ✅ | **Kickoff planning.** Locked 14 decisions 2026-05-22: (a) **Placement: `new deploy` Step 9+, not `new bootstrap`.** Site must be live for sitemap submission to succeed; bootstrap only does `git init` + scaffold. (b) **Portfolio feature, not SEO feature** — one-shot lifecycle action at deploy time; parallels CF zone create + GH repo create + GA4 property create (v18.D). Same scope-discipline call as v18 — SEO pipeline owns ongoing GSC consumption; portfolio owns the property-creation lifecycle. (c) **Property type: `sc-domain:<domain>`** (DNS-only verify; captures all host variants — matches the form `gsc.list_properties()` already returns for the operator's verified properties). (d) **Three API surfaces, NOT collapsed.** Site Verification's `insert` does NOT auto-create the GSC property (separate services). Explicit `webmasters.sites.add()` required after verification. Original Option B from chat is wrong. (e) **OAuth scope bump on `gsc.py`**: `webmasters.readonly` → `webmasters` + `siteverification`. Operator re-runs `lamill settings gsc auth --force` after the bump; one-time. (f) **CF-only DNS writes for v24.** Porkbun TXT-write extension deferred — operator's bootstrap default is `cf-workers` with NS at CF, so new-domain path always has CF DNS access; the long tail of Porkbun-DNS-only sites isn't worth blocking on. (g) **No new `[gsc]` block in `lamill.toml`.** Each step probes Google's APIs for current state (TXT record present? verification done? property in `sites.list()`? sitemap in `sitemaps.list()`?) and skips on present. Source-of-truth stays on Google's side, not in the local file. (h) **Idempotency via API state probes**, matching v15.I's deploy-pipeline pattern: `✓ exists, skipping` / `✓ created` / `↷ warn-skipped: <reason>` / `✗ <error>` per step. (i) **Soft-fail on any GSC step failure.** GSC isn't a load-bearing deploy prerequisite; deploy completes with `gsc_status: failed:<msg>` on the result; CLI prints a yellow warning + dashboard URL. (j) **New `--skip-gsc` flag** on `new deploy` for dark sites / sites where the operator doesn't want GSC wiring. Parallels `--skip-ga4`. (k) **DNS propagation poll** — CF typically propagates within seconds, but the verification API will fail until Google's DNS resolver sees the TXT. Poll for up to 60s with exponential backoff (5s, 10s, 20s, 25s). Surface a wait line so operator knows what's happening. (l) **Sitemap URL convention** — submit `https://<domain>/sitemap.xml`. Pre-flight check at Step 9 entry: HEAD the URL; if 404, soft-skip the sitemap submission with a hint ("site doesn't expose /sitemap.xml; check CHECK_063"). (m) **Lazy-import error pattern** — wrap `from googleapiclient...` and `from google_auth_oauthlib...` etc. in try/except ImportError → raise typed error with `uv sync` hint. Closes the pytrends-style gap. (n) **Phase order strict numerical**: B (helpers + OAuth bump · standalone) → C (deploy pipeline integration · depends on B) → D (docs wrap). |
+| v24.B | ⏳ | **`gsc_admin.py` module + OAuth scope bump.** New `src/portfolio/gsc_admin.py` (httpx-direct matching `ga4_admin.py` / `gh_repo.py` pattern; not `googleapiclient.discovery.build`). Public surface: `get_verification_token(domain) → str` (Site Verification API getToken); `verify_domain(domain, *, poll_timeout=60) → bool` (insert webResource + handle the DNS-propagation poll loop); `add_site(domain) → None` (webmasters.sites.add `sc-domain:<domain>`); `submit_sitemap(domain, sitemap_url) → None`. Typed errors: `GSCAdminError` (non-2xx API responses, with truncated body), `VerificationFailedError` (TXT didn't propagate in time → operator-action hint). OAuth scope bump in `gsc.py`: `SCOPES` list expanded; existing `authenticate()` flow handles the re-consent on next `settings gsc auth`. 12-15 new tests in `tests/test_v24b_gsc_admin.py` via `httpx.MockTransport`. ~2h. |
+| v24.C | ⏳ | **Deploy pipeline integration + `--skip-gsc` flag.** New Step 9 block in `_deploy_cf_unified` (cli.py): probe CF zone for existing TXT → if absent, call `gsc_admin.get_verification_token()` → `cloudflare.create_dns_record(zone_id, type="TXT", name=domain, content=token)` → `gsc_admin.verify_domain()` (with propagation poll) → `gsc_admin.add_site()` → HEAD-probe `https://<domain>/sitemap.xml` → `gsc_admin.submit_sitemap()`. Each step idempotent (check-then-act). New `--skip-gsc` flag on `new deploy` short-circuits the entire block. Soft-fail semantics: catch each `GSCAdminError` / `VerificationFailedError`, store outcome in `result.gsc_status` ("verified+added+submitted" / "skipped:--skip-gsc" / "skipped:GSC OAuth missing scopes" / "failed:<step>:<msg>"); CLI renders the outcome below the deploy summary. 8-10 new tests in `tests/test_v24c_gsc_deploy.py`. ~2h. |
+| v24.D | ⏳ | **Docs sync wrap.** Mark v24.A-C ✅. Add `gsc_admin.py` to `docs/architecture.md` § 3 source tree + § 12 module map. Add `gsc` row to § Projected CLI surface (it gains the auth re-consent path, not a new subcommand). Update `gsc.py` OAuth-scope mention in § 3 Mechanisms to reflect the v24.B bump. ~30 min. |
+
+#### Design notes
+
+**Why `new deploy` not `new bootstrap`** — operator's framing in
+chat 2026-05-22: "bootstrap setup git essentially. since this is to
+be done during website setup, this is a portfolio feature, not seo
+feature." Bootstrap creates the project dir + git repo; deploy
+makes the site live. GSC sitemap submission requires a live URL,
+so it can only happen post-deploy. v18.D's GA4 placement at
+bootstrap is fine because GA4 property creation doesn't require
+the site to be live; GSC does.
+
+**Why this is portfolio-shape, not SEO-pipeline-shape** — same lens
+that approved v18 (GA4 property auto-create): one-shot lifecycle
+action at deploy time = portfolio. Ongoing GSC consumption (queries,
+diagnostics, dashboards) = SEO pipeline (or in our case, already
+shipped by v13.B + v16). v24 is purely "register the property and
+point GSC at the sitemap"; everything downstream stays where it is.
+
+**Why no `[gsc]` block in `lamill.toml`** — unlike v18.D's
+`[analytics] ga4_id` (which the SEO pipeline needs to know to inject
+markup), there's nothing downstream of v24 that needs the GSC
+property URL recorded locally. `gsc.py:list_properties()` and
+`gsc_recrawl.py:find_gsc_property()` already query Google directly
+for the property→domain mapping. Source-of-truth stays on Google's
+side; idempotency runs through API state probes, not local file
+state.
+
+**Why CF-only DNS writes (Porkbun deferred)** — operator's bootstrap
+default platform is `cf-workers` with NS pointed at CF, so the
+new-domain happy path always has CF DNS write access. Existing
+sites on Porkbun-DNS (the legacy fleet) won't benefit from v24's
+auto-verification — they'd have to add the TXT record manually
+through Porkbun's dashboard. That's acceptable; v24's stated goal
+is "10+ sites I need to bring up" which are all going through the
+new bootstrap+deploy path. Porkbun TXT extension to `porkbun_dns.py`
+becomes a v24.E (or its own tier) only if a concrete
+Porkbun-DNS-site use-case emerges.
+
+**OAuth one-time re-consent** — operator's existing
+`~/.config/portfolio/gsc/token.json` was issued for
+`webmasters.readonly` scope. v24.B bumps `SCOPES` to include
+`webmasters` (write) + `siteverification`. Old token will hit
+`insufficient_scope` 403s on the new operations. CLI surfaces this
+cleanly the first time and tells operator to run
+`lamill settings gsc auth --force` for the re-consent. One-time
+friction; mechanism is already in place from v15.O.
+
+**The `~/.config/portfolio/gsc/` location** still violates
+`[[feedback_no_hidden_config]]` (preserved from pre-rule era). v24.B
+does NOT migrate to `~/lamill/gsc/` — that's a separate tracked
+migration with its own breakage risk (existing token gets stranded;
+re-consent required regardless). Address the migration at the same
+time the operator next re-consents, or as a tracked refactor.
+
+**Note** — v24's `gsc_admin.py` joins `ga4_admin.py` as the second
+Google-Admin-API client in the tree. Both follow the httpx-direct
+pattern (not `googleapiclient.discovery.build`) for testability via
+`httpx.MockTransport`. The pattern is now load-bearing for any
+future Google Admin API integration.
 
 **Scope: every sibling `sites/<domain>/` website project.** This
 section is *not* about the `portfolio` (a.k.a. `lamill`) tool itself
