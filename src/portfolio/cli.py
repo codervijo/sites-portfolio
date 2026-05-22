@@ -5974,6 +5974,15 @@ def new_deploy(
     skip_verify: bool = typer.Option(False, "--skip-verify", help="Skip the local-config sanity check (cf-pages/cf-workers only)"),
     skip_repo: bool = typer.Option(False, "--skip-repo", help="Skip GitHub repo creation (cf-pages/cf-workers only)"),
     skip_pages: bool = typer.Option(False, "--skip-pages", help="Skip Cloudflare Pages project creation (cf-pages/cf-workers only)"),
+    skip_dns_purge: bool = typer.Option(
+        False, "--skip-dns-purge",
+        help=(
+            "Skip Step 5.5 DNS parking-record purge (cf-workers only). "
+            "Use when current DNS records are legitimate (Workers-managed "
+            "from a prior run, or operator-curated) so the purge logic "
+            "doesn't false-flag them as conflicts."
+        ),
+    ),
     skip_gsc: bool = typer.Option(False, "--skip-gsc", help="Skip the v24.C GSC property auto-registration step (cf-pages/cf-workers only)"),
     apply: bool = typer.Option(False, "--apply", help="Required to actually push files for hostgator/custom (dry-run default per ADR-0011)."),
 ) -> None:
@@ -6028,6 +6037,7 @@ def new_deploy(
             skip_verify=skip_verify,
             skip_repo=skip_repo,
             skip_pages=skip_pages,
+            skip_dns_purge=skip_dns_purge,
             skip_gsc=skip_gsc,
         )
         return
@@ -6078,6 +6088,7 @@ def _deploy_cf_unified(
     skip_verify: bool,
     skip_repo: bool,
     skip_pages: bool,
+    skip_dns_purge: bool = False,
     skip_gsc: bool = False,
 ) -> None:
     """v15.I — git-integrated CF deploy pipeline.
@@ -6480,7 +6491,19 @@ def _deploy_cf_unified(
     # managed DNS records". Auto-purge here using the operator's
     # DNS:Edit permission (which CF's token-create UI grants by
     # default for zone-scoped tokens).
-    if not skip_pages and not dry_run and cf_surface == "workers":
+    # 2026-05-22 PM — explicit `--skip-dns-purge` visible message. The
+    # broad A/AAAA/CNAME-on-root/wildcard/www match catches legitimate
+    # Workers-managed DNS (or operator-curated routing) as if it were
+    # parking placeholders. Operator opts out when they know there's
+    # no parking to clean.
+    if skip_dns_purge and cf_surface == "workers" and not dry_run:
+        console.print(f"\n[bold]5.5 Purge conflicting DNS records[/] [dim]({domain})[/]")
+        console.print(
+            "  [yellow]↷[/] skipped (--skip-dns-purge) — "
+            "trusting current DNS records as legitimate"
+        )
+
+    if not skip_pages and not dry_run and cf_surface == "workers" and not skip_dns_purge:
         console.print(f"\n[bold]5.5 Purge conflicting DNS records[/] [dim]({domain})[/]")
         try:
             deleted = cloudflare.purge_conflicting_root_records(
@@ -6559,6 +6582,10 @@ def _deploy_cf_unified(
                 console.print(
                     f"    3. Re-run [cyan]lamill new deploy {domain} "
                     f"--yes[/]\n"
+                    f"\n  [dim]Alternative: if the records above are "
+                    f"legitimate (Workers-managed routing from a prior "
+                    f"successful attach, or operator-curated), bypass "
+                    f"this step with[/] [cyan]--skip-dns-purge[/]\n"
                     f"  [dim]Step 5.5 needs DNS:Edit on the zone. Edit "
                     f"token scopes at "
                     f"https://dash.cloudflare.com/profile/api-tokens "

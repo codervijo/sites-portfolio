@@ -936,6 +936,70 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-22 PM — Step 5.5 false-flags legitimate DNS records as conflicts on re-deploy
+
+**Repro**
+
+    5.5 Purge conflicting DNS records (dropaudit.co)
+      ✗ DNS purge denied: DELETE /zones/.../dns_records/... → HTTP 403
+
+(Hit 3 times in a row. Operator had manually deleted the original
+4 CF-injected parking records between attempts; the records now
+being flagged are NOT parking — they're legitimate Workers-managed
+routing DNS that CF created on a prior successful Step 6 Custom
+Domain attach.)
+
+**Diagnosis**
+
+`cloudflare.purge_conflicting_root_records()` matches too broadly:
+
+  - type ∈ {A, AAAA, CNAME}
+  - name ∈ {<domain>, *.<domain>, www.<domain>}
+
+This was the right pattern for the v15.R original use case (catch
+the parking placeholders CF's "Connect a domain" UI injects). But
+it ALSO matches legitimate Workers-managed DNS that Step 6 creates
+on successful Custom Domain attach. On any re-deploy after Step 6
+has succeeded once, Step 5.5 false-positives those records as
+conflicts and tries to delete them.
+
+In the operator's case, the legitimate records also can't be
+deleted via API (token lacks DNS:Edit on this zone or these
+specific managed records); pipeline 403s in a loop.
+
+The "right" detection — checking CF's `meta` field for
+`managed_by_apps` / `auto_added` / similar flags — needs verification
+against real API responses (DnsRecord dataclass doesn't currently
+parse meta). Shipping the safer escape valve first.
+
+**Fixed in** — 2026-05-22 PM: new `--skip-dns-purge` flag on
+`lamill new deploy`. When set, Step 5.5 prints a visible
+"↷ skipped (--skip-dns-purge) — trusting current DNS records as
+legitimate" line and proceeds directly to Step 6. The existing
+403 actionable hint now also mentions this flag as an alternative
+when the surfaced records look legitimate to the operator.
+
+Smart `meta`-based filtering (skip records flagged as CF-managed)
+deserves a follow-up when real CF API response data exists to
+design against. Tracked as a future improvement; not blocking
+since the escape valve works.
+
+Operator next steps for dropaudit.co specifically:
+
+    uv run lamill new deploy dropaudit.co --yes --skip-dns-purge
+
+Step 5.5 will skip; Step 6's GET-then-PUT idempotency (v15.Q) will
+detect any existing Workers Custom Domain attachment and skip
+cleanly; if not yet attached, will try to attach and either
+succeed (best case) or surface the legitimate Step 6 403 with the
+v15.R dashboard URL hint (worst case, operator finishes manually).
+
+Suite stays at 2620/1 skip — change is render + flag-plumbing
+only, no new tests added (would need full _deploy_cf_unified
+integration test which isn't currently in the suite).
+
+---
+
 ### 2026-05-22 PM — Step 5.5 403 hint doesn't show the actual records that need deletion
 
 **Repro**
