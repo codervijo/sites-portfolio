@@ -38,6 +38,8 @@ settings_catalog_app = typer.Typer(help="Inspect the check catalog.",
                                    no_args_is_help=True)
 settings_gsc_app = typer.Typer(help="Google Search Console integration.",
                                no_args_is_help=True)
+settings_ga4_app = typer.Typer(help="Google Analytics 4 Admin API integration.",
+                               no_args_is_help=True)
 settings_apikeys_app = typer.Typer(help="Manage credentials in portfolio.env.",
                                    no_args_is_help=True)
 settings_operator_app = typer.Typer(
@@ -60,6 +62,7 @@ app.add_typer(fleet_app, name="fleet")
 app.add_typer(settings_app, name="settings")
 settings_app.add_typer(settings_catalog_app, name="catalog")
 settings_app.add_typer(settings_gsc_app, name="gsc")
+settings_app.add_typer(settings_ga4_app, name="ga4")
 settings_app.add_typer(settings_apikeys_app, name="apikeys")
 settings_app.add_typer(settings_operator_app, name="operator")
 settings_app.add_typer(settings_cloudflare_app, name="cloudflare")
@@ -8371,6 +8374,41 @@ def settings_gsc_auth(
 ) -> None:
     """Set up / refresh GSC OAuth — one-time interactive login."""
     gsc_auth(force=force)
+
+
+# v18.C — settings ga4 auth (parallel shape to settings gsc auth)
+
+
+@settings_ga4_app.command("auth")
+def settings_ga4_auth(
+    force: bool = typer.Option(
+        False, "--force",
+        help="Force re-auth even if a valid token is cached"),
+) -> None:
+    """Set up / refresh GA4 Admin API OAuth — one-time interactive login.
+
+    Used by `new bootstrap` (v18.D) to auto-create GA4 properties for
+    new domains. Token is cached at `~/lamill/ga4/token.json` and
+    refreshes automatically for ~6 months. Re-run with `--force` after
+    operator changes the GA4 account they want lamill to manage."""
+    from .ga4_admin import (
+        MissingCredentialsError as GA4MissingCredentialsError,
+        TOKEN_PATH as GA4_TOKEN_PATH,
+        authenticate as ga4_authenticate,
+    )
+
+    try:
+        console.print(
+            "[cyan]Opening a browser for Google sign-in. Approve "
+            "access to Google Analytics (analytics.edit scope).[/]"
+        )
+        ga4_authenticate(force=force)
+    except GA4MissingCredentialsError as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1)
+    console.print(
+        f"[green]Authenticated.[/] Token cached at [dim]{GA4_TOKEN_PATH}[/]"
+    )
 
 
 @settings_gsc_app.command("recrawl")
