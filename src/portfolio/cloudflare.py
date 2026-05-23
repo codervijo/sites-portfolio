@@ -1040,6 +1040,104 @@ def delete_dns_record(
         )
 
 
+@dataclass(frozen=True)
+class ZoneWriteProbe:
+    """v25.B — result of a zone-level DNS:Edit probe.
+
+    `can_write` is True iff the active token can write DNS records on
+    this specific zone. `missing_scope` carries an operator-actionable
+    hint when `can_write=False`; otherwise None.
+
+    See `probe_zone_write_capability` for the probing approach.
+    """
+    can_write: bool
+    missing_scope: str | None = None
+
+
+def probe_zone_write_capability(
+    zone_id: str, *,
+    client: httpx.Client | None = None,
+) -> ZoneWriteProbe:
+    """v25.B — probe whether the active CF token can write DNS records
+    on this specific zone, without modifying state.
+
+    Why a write-probe vs a read of `/user/tokens/verify` policies: the
+    verify endpoint's policies array uses permission-group labels
+    ("DNS Write") that don't map cleanly to per-zone authorization in
+    a machine-readable way (especially when the token is "Specific
+    zones" rather than "All zones"). A real POST to
+    `/zones/{id}/dns_records` is the cleanest signal of whether THIS
+    zone is writable by THIS token.
+
+    Approach: POST with a deliberately-invalid TTL (CF requires `1`
+    or `60-86400`; `2` is rejected at validation). Validation runs
+    AFTER authorization, so:
+
+      - HTTP 403 → token lacks DNS:Edit on this zone. `can_write=False`,
+        missing_scope describes the gap.
+      - HTTP 400 → auth passed; the bogus TTL was rejected. `can_write=True`.
+      - HTTP 401 → token globally invalid. `can_write=False`,
+        missing_scope flags that.
+      - HTTP 200/201 → unexpected (a record was created despite the
+        invalid TTL). Treat as `can_write=True` and attempt cleanup.
+      - HTTP 404 → zone not found. Raises CloudflareAPIError.
+      - Other → raises CloudflareAPIError.
+
+    Used by `_deploy_cf_unified` Step 3.5 — catches the dropaudit.co
+    failure mode (token has zone-scope DNS:Edit on "All zones" account-
+    wide, but the specific zone isn't covered) at the cheapest moment,
+    before Steps 5.5 / 9 attempt DNS writes mid-pipeline.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.post(
+            f"/zones/{zone_id}/dns_records",
+            json={
+                "type": "TXT",
+                "name": "_lamill-write-probe",
+                "content": "lamill v25.B write-probe (TTL=2 ensures rejection)",
+                "ttl": 2,
+                "proxied": False,
+            },
+        )
+        if resp.status_code == 403:
+            return ZoneWriteProbe(
+                can_write=False,
+                missing_scope="Zone → DNS:Edit on this zone",
+            )
+        if resp.status_code == 401:
+            return ZoneWriteProbe(
+                can_write=False,
+                missing_scope="CF_API_TOKEN rejected (401 from POST /dns_records)",
+            )
+        if resp.status_code == 404:
+            raise CloudflareAPIError(
+                f"POST /zones/{zone_id}/dns_records → HTTP 404 (zone not "
+                f"found). The zone_id may be stale; re-run after zone "
+                f"resolution."
+            )
+        if resp.status_code in (200, 201):
+            body = resp.json()
+            rec = (body.get("result") or {}) if isinstance(body, dict) else {}
+            stray_id = rec.get("id") if isinstance(rec, dict) else None
+            if stray_id:
+                try:
+                    delete_dns_record(zone_id, stray_id, client=c)
+                except CloudflareAPIError:
+                    pass
+            return ZoneWriteProbe(can_write=True, missing_scope=None)
+        if resp.status_code == 400:
+            return ZoneWriteProbe(can_write=True, missing_scope=None)
+        raise CloudflareAPIError(
+            f"POST /zones/{zone_id}/dns_records (write-probe) → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    finally:
+        if own_client:
+            c.close()
+
+
 def purge_conflicting_root_records(
     zone_id: str, domain: str, *,
     client: httpx.Client | None = None,

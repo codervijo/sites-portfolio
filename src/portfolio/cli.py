@@ -6338,6 +6338,47 @@ def _deploy_cf_unified(
         )
         target_ns = list(zone.name_servers)
 
+    # --- Step 3.5: Zone-level DNS:Edit probe (v25.B) -------------------------
+    # Catches the dropaudit.co failure mode: token has Zone-scope DNS:Edit on
+    # "All zones from an account," but THIS zone isn't in that account (e.g.,
+    # the zone was created in a different account or the token's resources
+    # filter excludes it). Without this probe, Step 5.5 (parking-record purge)
+    # and Step 9 (GSC TXT verification) each fail mid-pipeline with HTTP 403,
+    # leaving the operator to back-trace which step actually broke. v25.B
+    # surfaces the gap once, here, with a single actionable hint.
+    if not dry_run:
+        console.print(f"\n[bold]3.5 Zone DNS:Edit probe[/] [dim]({domain})[/]")
+        try:
+            probe = cloudflare.probe_zone_write_capability(zone.zone_id)
+        except cloudflare.CloudflareAPIError as e:
+            # 404 / 5xx — let the operator see the raw error and retry.
+            console.print(f"  [red]✗[/] DNS:Edit probe failed: {e}")
+            raise typer.Exit(8)
+        if not probe.can_write:
+            console.print(
+                f"  [red]✗[/] Token cannot write DNS records on this zone "
+                f"[dim]({probe.missing_scope})[/]"
+            )
+            console.print(
+                f"\n  [bold yellow]Token scope fix required:[/]\n"
+                f"    1. Open: [link]https://dash.cloudflare.com/profile/api-tokens[/link]\n"
+                f"    2. Edit your token (or create a new one) with:\n"
+                f"       - Permissions: [cyan]Zone → DNS → Edit[/]\n"
+                f"       - Zone resources: include [cyan]{domain}[/] "
+                f"(or 'All zones from an account' covering this zone)\n"
+                f"    3. Update the token via "
+                f"[cyan]lamill settings apikeys set CF_API_TOKEN <value>[/]\n"
+                f"    4. Re-run [cyan]lamill new deploy {domain} --yes[/]\n"
+                f"\n  [dim]Step 5.5 (DNS parking purge) and Step 9 (GSC TXT "
+                f"verification) both need DNS:Edit on this zone. Step 3.5 "
+                f"catches the gap here to avoid mid-pipeline failures.[/]"
+            )
+            raise typer.Exit(8)
+        console.print(
+            f"  [green]✓[/] Zone DNS:Edit OK [dim](token can write to "
+            f"{zone.name})[/]"
+        )
+
     # --- Step 4: Registrar NS ------------------------------------------------
     console.print(f"\n[bold]4. Registrar NS[/] [dim](point {domain} at Cloudflare)[/]")
     registrar = _lookup_registrar(domain) or "unknown"
