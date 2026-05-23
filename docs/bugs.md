@@ -66,6 +66,74 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-05-23 — Step 5.5 reports `↷ probe failed` on CF-managed read-only DNS records
+
+**Repro**
+
+Re-deploy a domain whose Workers Custom Domain attach has already
+been completed (Step 6 prints `✓ already attached, skipping`). On a
+fresh CF zone for that domain, CF auto-injects `read_only=true` DNS
+records to manage the Workers route. Step 5.5's purge then tries
+to DELETE them and CF responds with HTTP 400.
+
+    $ uv run lamill new deploy agesdk.dev --yes
+    ...
+    5.5 Purge conflicting DNS records (agesdk.dev)
+      ↷ DNS purge probe failed (continuing): DELETE /zones/.../dns_records/efe8e2ad2a5a7433a561e2aba8c7e6e1 → HTTP 400:
+    {"result":null,"success":false,"errors":[{"code":1043,"message":"Unable to edit this record as this has been configured as read only."}],"messages":[]}
+    6. Custom domain (agesdk.dev → agesdk · surface=workers)
+      ✓ agesdk.dev already attached, skipping
+
+**Expected**
+
+When records are `read_only=true` because the Workers Custom Domain
+already manages them, Step 5.5 should recognize the system is in a
+correct state and print something like:
+
+    5.5 Purge conflicting DNS records (agesdk.dev)
+      ✓ no purgable conflicts (N records are CF-managed read-only — Workers Custom Domain manages those)
+
+Operator sees "system is fine" instead of "probe failed (continuing)"
+— the current wording reads like a partial failure even though the
+deploy succeeds.
+
+**Actual**
+
+`purge_conflicting_root_records` LISTs DNS records, filters to
+A/AAAA/CNAME on root/wildcard/www, and DELETEs each. It doesn't
+check `read_only` first, so the DELETE returns 400 / code 1043
+("Unable to edit this record as this has been configured as read
+only"). The pipeline's non-403 catch-all soft-warns and continues —
+correct behavior, but operator-facing message is misleading.
+
+**Where (guess)**
+
+- `src/portfolio/cloudflare.py` `purge_conflicting_root_records()` —
+  filter out `read_only=True` records before attempting DELETE.
+- Requires `DnsRecord` to expose `read_only: bool` (currently not in
+  the dataclass — would need adding from the CF API response, which
+  includes the field per CF docs).
+- Could also skip Step 5.5 entirely when Step 6's custom-domain
+  attach already exists. v25.B-style pre-flight detection: if the
+  Workers Custom Domain or Pages Custom Domain is already attached,
+  there are no parking records to purge — the deploy is steady-state.
+
+**Severity** — `cosmetic`. Pipeline reaches Step 6 cleanly; the
+operator-facing message just over-reports failure where the system
+is actually in a correct state.
+
+**Notes**
+
+- Surfaced 2026-05-23 PM during operator's v25.B verification run.
+- Adjacent to v15.R's pain-removal pattern; same value frame
+  (operator-facing clarity on automated steady-state) but lower
+  priority than the v25 tier's load-bearing token-scope work.
+- Fix is bounded — add `read_only` field to DnsRecord; filter
+  before DELETE; add ~2 tests. Could be bundled with the v25.B-era
+  cloudflare.py module if picked up mid-v25; otherwise ship between
+  phases.
+
+
 ### 2026-05-20 — `make deps` hits pnpm store version mismatch on new-domain builds
 
 **Repro**

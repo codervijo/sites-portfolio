@@ -83,23 +83,23 @@ def happy_path_stubs(monkeypatch):
 # ---- skip paths ----------------------------------------------------
 
 
-def test_skip_gsc_flag_short_circuits(stub_zone):
+def test_skip_gsc_flag_short_circuits(stub_zone, tmp_path):
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=True,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=True,
     )
     assert status == "skipped:--skip-gsc"
 
 
-def test_dry_run_short_circuits(stub_zone):
+def test_dry_run_short_circuits(stub_zone, tmp_path):
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=True, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=True, skip_gsc=False,
     )
     assert status == "skipped:--dry-run"
 
 
-def test_skips_when_gsc_oauth_not_configured(stub_zone, stub_token_absent):
+def test_skips_when_gsc_oauth_not_configured(stub_zone, stub_token_absent, tmp_path):
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status == "skipped:GSC OAuth not configured"
 
@@ -108,16 +108,16 @@ def test_skips_when_gsc_oauth_not_configured(stub_zone, stub_token_absent):
 
 
 def test_happy_path_returns_created(
-    stub_zone, stub_token_present, happy_path_stubs,
+    stub_zone, stub_token_present, happy_path_stubs, tmp_path,
 ):
     status, detail = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status == "created"
 
 
 def test_txt_record_already_in_zone_skips_create(
-    stub_zone, stub_token_present, monkeypatch, happy_path_stubs,
+    stub_zone, stub_token_present, monkeypatch, happy_path_stubs, tmp_path,
 ):
     """When the verification TXT already exists with the expected value,
     don't call create_dns_record again (idempotency probe)."""
@@ -140,7 +140,7 @@ def test_txt_record_already_in_zone_skips_create(
     monkeypatch.setattr(cloudflare, "create_dns_record", fail_if_called)
 
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status == "created"
     assert create_calls["n"] == 0
@@ -150,7 +150,7 @@ def test_txt_record_already_in_zone_skips_create(
 
 
 def test_get_token_403_insufficient_scope_skips(
-    stub_zone, stub_token_present, monkeypatch,
+    stub_zone, stub_token_present, monkeypatch, tmp_path,
 ):
     """v24.B scope bump pending — old `webmasters.readonly` token can't
     call siteVerification. Surface as soft skip with re-consent hint."""
@@ -162,13 +162,13 @@ def test_get_token_403_insufficient_scope_skips(
         )),
     )
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status == "skipped:OAuth scope insufficient"
 
 
 def test_verify_domain_insufficient_scope_skips(
-    stub_zone, stub_token_present, monkeypatch,
+    stub_zone, stub_token_present, monkeypatch, tmp_path,
 ):
     """Same 403-on-verify branch — also surfaces as skip, not fail."""
     monkeypatch.setattr(
@@ -193,7 +193,7 @@ def test_verify_domain_insufficient_scope_skips(
         )),
     )
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status == "skipped:OAuth scope insufficient"
 
@@ -202,7 +202,7 @@ def test_verify_domain_insufficient_scope_skips(
 
 
 def test_verification_timeout_returns_failed(
-    stub_zone, stub_token_present, monkeypatch,
+    stub_zone, stub_token_present, monkeypatch, tmp_path,
 ):
     """DNS propagation budget exhausted (TXT not visible to Google
     after 60s of polling) → fail status; deploy continues."""
@@ -227,13 +227,13 @@ def test_verification_timeout_returns_failed(
         )),
     )
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
-    assert status == "failed:verify:propagation_timeout"
+    assert status == "failed:verify_dns:propagation_timeout"
 
 
 def test_cf_dns_list_failure_returns_failed(
-    stub_zone, stub_token_present, monkeypatch,
+    stub_zone, stub_token_present, monkeypatch, tmp_path,
 ):
     """CF API outage on dns list → fail status; deploy continues
     (the live probe at Step 8 already succeeded, so site IS deployed
@@ -247,7 +247,7 @@ def test_cf_dns_list_failure_returns_failed(
         MagicMock(side_effect=cloudflare.CloudflareAPIError("HTTP 500")),
     )
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status.startswith("failed:dns_list:")
 
@@ -256,20 +256,20 @@ def test_cf_dns_list_failure_returns_failed(
 
 
 def test_add_site_already_exists_still_returns_created(
-    stub_zone, stub_token_present, monkeypatch, happy_path_stubs,
+    stub_zone, stub_token_present, monkeypatch, happy_path_stubs, tmp_path,
 ):
     """add_site returns False (property already in GSC). Step continues
     to sitemap; final status still 'created' if newly_submitted=True."""
     monkeypatch.setattr(gsc_admin, "add_site", lambda domain, **kw: False)
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     # newly_added=False + newly_submitted=True → 'created' (sitemap was new).
     assert status == "created"
 
 
 def test_fully_idempotent_run_returns_already_registered(
-    stub_zone, stub_token_present, monkeypatch, happy_path_stubs,
+    stub_zone, stub_token_present, monkeypatch, happy_path_stubs, tmp_path,
 ):
     """Both add_site and submit_sitemap return False (fully idempotent
     re-run on already-registered site). Status = already-registered."""
@@ -279,7 +279,7 @@ def test_fully_idempotent_run_returns_already_registered(
         lambda domain, sitemap_url, **kw: False,
     )
     status, detail = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status == "already-registered"
 
@@ -288,7 +288,7 @@ def test_fully_idempotent_run_returns_already_registered(
 
 
 def test_sitemap_404_defers_submission(
-    stub_zone, stub_token_present, monkeypatch, happy_path_stubs,
+    stub_zone, stub_token_present, monkeypatch, happy_path_stubs, tmp_path,
 ):
     """HEAD https://<domain>/sitemap.xml returns 404 → defer the
     sitemap submission with a soft-skip note. Verify + add half still
@@ -307,7 +307,7 @@ def test_sitemap_404_defers_submission(
     monkeypatch.setattr(gsc_admin, "submit_sitemap", fail_if_called)
 
     status, detail = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status == "created"
     assert "sitemap deferred" in detail
@@ -315,7 +315,7 @@ def test_sitemap_404_defers_submission(
 
 
 def test_sitemap_network_error_defers_submission(
-    stub_zone, stub_token_present, monkeypatch, happy_path_stubs,
+    stub_zone, stub_token_present, monkeypatch, happy_path_stubs, tmp_path,
 ):
     """HEAD raises httpx.ConnectError (DNS / SSL not yet propagated) →
     treat as unreachable + defer submission."""
@@ -334,7 +334,7 @@ def test_sitemap_network_error_defers_submission(
     monkeypatch.setattr(gsc_admin, "submit_sitemap", fail_if_called)
 
     status, _ = _deploy_step9_gsc(
-        domain="example.com", zone=stub_zone, dry_run=False, skip_gsc=False,
+        domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
     assert status == "created"
     assert submit_calls["n"] == 0

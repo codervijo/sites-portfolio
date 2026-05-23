@@ -6793,7 +6793,8 @@ def _deploy_cf_unified(
     # semantics: any failure here doesn't abort the deploy — GSC is a
     # nice-to-have, not a load-bearing prerequisite for live traffic.
     gsc_status, gsc_detail = _deploy_step9_gsc(
-        domain=domain, zone=zone, dry_run=dry_run, skip_gsc=skip_gsc,
+        domain=domain, zone=zone, project_dir=project_dir,
+        dry_run=dry_run, skip_gsc=skip_gsc,
     )
 
     console.print(
@@ -6823,70 +6824,182 @@ def _deploy_cf_unified(
     console.print("")
 
 
-def _deploy_step9_gsc(
-    *, domain: str, zone, dry_run: bool, skip_gsc: bool,
-) -> tuple[str, str]:
-    """v24.C — GSC registration + sitemap submission as a single Step 9
-    block. Returns `(status, detail)` where status is one of:
+def _step9_file_verify(domain, project_dir, gsc_admin) -> tuple[str, str]:
+    """v25.C — FILE-method GSC verification.
 
-      - "created"             — verified + added + submitted (happy path)
-      - "already-registered"  — property + sitemap already known to GSC
-      - "skipped:--skip-gsc"  — operator opted out
-      - "skipped:<other>"     — dry-run / OAuth not configured / etc.
-      - "failed:<step>:<msg>" — any one sub-step failed; deploy continues
+    Five sub-steps:
+      1. `get_verification_token(method="FILE")` — returns filename.
+      2. `write_verification_file()` — writes <project_dir>/public/<token>.
+         If `public/` doesn't exist, returns ("fallback", reason) so the
+         caller switches to DNS_TXT.
+      3. git add + commit + push (only if there's an uncommitted change).
+      4. `wait_for_verification_file_live` — HEAD-polls the URL until 200.
+      5. `verify_domain(method="FILE")` — Google's ownership check.
 
-    `detail` carries any extra context the CLI renderer wants to surface.
-
-    Lazy imports so cf-pages/cf-workers deploys for sites that don't
-    use GSC (rare but possible) don't pay the import cost.
+    Returns `(status, detail)`:
+      - ("verified", "")                  — happy path
+      - ("fallback", reason)               — structural issue; caller
+                                             should try DNS_TXT
+      - ("skipped:<reason>", "")           — OAuth scope insufficient
+      - ("failed:<sub-step>:<msg>", "")    — propagation timeout, git
+                                             push fail, API error
     """
-    console.print(f"\n[bold]9. GSC property + sitemap[/] [dim]({domain})[/]")
+    import subprocess
 
-    if skip_gsc:
-        console.print("  [yellow]↷[/] skipped (--skip-gsc)")
-        return ("skipped:--skip-gsc", "")
-    if dry_run:
-        console.print(
-            "  [dim]would: write TXT verification record, call "
-            "siteVerification.insert, add sc-domain property, "
-            "submit /sitemap.xml[/]"
-        )
-        return ("skipped:--dry-run", "")
-
-    # Lazy imports — only load when this step actually runs.
-    from . import cloudflare, gsc_admin
-    from .gsc import TOKEN_PATH as GSC_TOKEN_PATH
-
-    # Pre-flight: GSC OAuth token must exist. Check the file directly
-    # rather than calling gsc.authenticate() (which would open a
-    # browser) — operator needs to run `lamill settings gsc auth` once
-    # before deploys auto-register GSC properties.
-    if not GSC_TOKEN_PATH.exists():
-        console.print(
-            "  [yellow]↷[/] skipped (GSC OAuth not configured — run "
-            "`lamill settings gsc auth` once, then re-run deploy)"
-        )
-        return ("skipped:GSC OAuth not configured", "")
-
-    # --- 9a: Get the verification token from Google ---
+    # Step 9a-F: Get FILE-method token from Google.
     try:
-        token = gsc_admin.get_verification_token(domain)
+        token = gsc_admin.get_verification_token(
+            domain, method=gsc_admin.VERIFICATION_METHOD_FILE,
+        )
     except gsc_admin.GSCAdminError as e:
         msg = str(e)
-        # 403 insufficient_scope → operator on old webmasters.readonly
-        # token; needs `lamill settings gsc auth --force`.
         if "insufficient" in msg.lower() or "403" in msg:
             console.print(
-                f"  [yellow]↷[/] skipped (OAuth scope insufficient — "
-                f"run `lamill settings gsc auth --force` to re-consent "
-                f"with v24.B scopes)"
+                f"  [yellow]↷[/] OAuth scope insufficient — run "
+                f"`lamill settings gsc auth --force` to re-consent "
+                f"with v24.B scopes"
             )
             return ("skipped:OAuth scope insufficient", "")
-        console.print(f"  [red]✗[/] get_verification_token failed: {e}")
-        return (f"failed:get_token:{_short(msg)}", "")
+        console.print(f"  [red]✗[/] get_verification_token (FILE) failed: {e}")
+        return (f"failed:get_token_file:{_short(msg)}", "")
 
-    # --- 9b: Write TXT record (idempotency probe first) ---
-    expected_txt_name = domain  # CF stores root TXT under the apex
+    # Step 9b-F: Write the verification file to public/.
+    try:
+        file_path = gsc_admin.write_verification_file(project_dir, token)
+    except gsc_admin.GSCAdminError as e:
+        # Structural: project doesn't have public/. Caller falls back.
+        return ("fallback", f"{e}")
+    except OSError as e:
+        return ("fallback", f"file write failed: {e}")
+    console.print(
+        f"  [green]✓[/] wrote verification file: "
+        f"[cyan]public/{token}[/]"
+    )
+
+    # Step 9c-F: Commit + push if there's a change to the file.
+    rel_path = file_path.relative_to(project_dir)
+    try:
+        status_check = subprocess.run(
+            ["git", "status", "--porcelain", str(rel_path)],
+            cwd=str(project_dir),
+            capture_output=True, text=True, check=False,
+        )
+    except OSError as e:
+        return (f"failed:git_status:{_short(str(e))}", "")
+
+    if status_check.returncode != 0:
+        return (
+            f"failed:git_status:{_short(status_check.stderr.strip())}",
+            "",
+        )
+
+    if status_check.stdout.strip():
+        # File is new / modified — stage + commit + push.
+        try:
+            subprocess.run(
+                ["git", "add", str(rel_path)],
+                cwd=str(project_dir), check=True,
+                capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m",
+                 f"GSC verification file ({domain})"],
+                cwd=str(project_dir), check=True,
+                capture_output=True, text=True,
+            )
+            subprocess.run(
+                ["git", "push", "origin", "main"],
+                cwd=str(project_dir), check=True,
+                capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            stderr = (e.stderr or "").strip()
+            return (
+                f"failed:git_push_file:{_short(stderr or str(e))}",
+                "",
+            )
+        console.print(
+            f"  [green]✓[/] committed + pushed verification file "
+            f"[dim](CF auto-deploy triggers in seconds)[/]"
+        )
+    else:
+        console.print(
+            f"  [green]✓[/] verification file already committed "
+            f"[dim](no-op)[/]"
+        )
+
+    # Step 9d-F: Wait for the file to be reachable.
+    console.print(
+        f"  [dim]Polling https://{domain}/{token} for liveness "
+        f"(up to ~180s)…[/]"
+    )
+    live = gsc_admin.wait_for_verification_file_live(domain, token)
+    if not live:
+        return (
+            "failed:verify_file_not_live:"
+            "deploy not ready; re-run deploy after CF build completes",
+            "",
+        )
+    console.print(
+        f"  [green]✓[/] verification file reachable at "
+        f"[link]https://{domain}/{token}[/]"
+    )
+
+    # Step 9e-F: Tell Google to verify via FILE method.
+    try:
+        gsc_admin.verify_domain(
+            domain, method=gsc_admin.VERIFICATION_METHOD_FILE,
+        )
+    except gsc_admin.VerificationFailedError as e:
+        console.print(f"  [yellow]↷[/] verification timed out: {e}")
+        return ("failed:verify_file:propagation_timeout", "")
+    except gsc_admin.GSCAdminError as e:
+        msg = str(e)
+        if "insufficient" in msg.lower():
+            console.print(
+                f"  [yellow]↷[/] OAuth scope insufficient — run "
+                f"`lamill settings gsc auth --force`"
+            )
+            return ("skipped:OAuth scope insufficient", "")
+        console.print(f"  [red]✗[/] verify_domain (FILE) failed: {e}")
+        return (f"failed:verify_file:{_short(msg)}", "")
+    console.print(
+        f"  [green]✓[/] domain ownership verified by Google "
+        f"[dim](FILE method — no DNS:Edit needed)[/]"
+    )
+    return ("verified", "")
+
+
+def _step9_dns_verify(domain, zone, cloudflare, gsc_admin) -> tuple[str, str]:
+    """v25.C — DNS_TXT-method GSC verification (fallback / explicit-opt-in).
+
+    The original v24.C path preserved: get DNS_TXT token, write TXT to
+    CF zone, verify with poll loop. Requires `DNS:Edit` on the zone
+    (the dropaudit.co failure mode). Used when FILE method isn't
+    available (project doesn't expose `public/`).
+
+    Same return shape as `_step9_file_verify`.
+    """
+    # Step 9a-D: Get DNS_TXT token.
+    try:
+        token = gsc_admin.get_verification_token(
+            domain, method=gsc_admin.VERIFICATION_METHOD_DNS_TXT,
+        )
+    except gsc_admin.GSCAdminError as e:
+        msg = str(e)
+        if "insufficient" in msg.lower() or "403" in msg:
+            console.print(
+                f"  [yellow]↷[/] OAuth scope insufficient — run "
+                f"`lamill settings gsc auth --force`"
+            )
+            return ("skipped:OAuth scope insufficient", "")
+        console.print(
+            f"  [red]✗[/] get_verification_token (DNS_TXT) failed: {e}"
+        )
+        return (f"failed:get_token_dns:{_short(msg)}", "")
+
+    # Step 9b-D: Write TXT record (idempotent probe-then-create).
+    expected_txt_name = domain
     try:
         existing_records = cloudflare.list_dns_records(zone.zone_id)
     except cloudflare.CloudflareAPIError as e:
@@ -6916,12 +7029,14 @@ def _deploy_step9_gsc(
             f"[dim](TTL=auto)[/]"
         )
 
-    # --- 9c: Verify the domain (polls DNS propagation) ---
+    # Step 9c-D: Verify via DNS_TXT.
     try:
-        gsc_admin.verify_domain(domain)
+        gsc_admin.verify_domain(
+            domain, method=gsc_admin.VERIFICATION_METHOD_DNS_TXT,
+        )
     except gsc_admin.VerificationFailedError as e:
         console.print(f"  [yellow]↷[/] verification timed out: {e}")
-        return (f"failed:verify:propagation_timeout", "")
+        return ("failed:verify_dns:propagation_timeout", "")
     except gsc_admin.GSCAdminError as e:
         msg = str(e)
         if "insufficient" in msg.lower():
@@ -6930,12 +7045,79 @@ def _deploy_step9_gsc(
                 f"`lamill settings gsc auth --force`"
             )
             return ("skipped:OAuth scope insufficient", "")
-        console.print(f"  [red]✗[/] verify_domain failed: {e}")
-        return (f"failed:verify:{_short(msg)}", "")
+        console.print(f"  [red]✗[/] verify_domain (DNS_TXT) failed: {e}")
+        return (f"failed:verify_dns:{_short(msg)}", "")
     console.print(
         f"  [green]✓[/] domain ownership verified by Google "
-        f"[dim](Site Verification API)[/]"
+        f"[dim](DNS_TXT method)[/]"
     )
+    return ("verified", "")
+
+
+def _deploy_step9_gsc(
+    *, domain: str, zone, project_dir, dry_run: bool, skip_gsc: bool,
+) -> tuple[str, str]:
+    """v24.C / v25.C — GSC registration + sitemap submission as Step 9.
+
+    v25.C: verification method order is FILE first, DNS_TXT fallback.
+    FILE doesn't need DNS:Edit on the zone (avoids the dropaudit.co
+    failure mode); falls back to DNS_TXT only on structural issues
+    (project doesn't expose `public/` — HG static-only sites).
+
+    Returns `(status, detail)` where status is one of:
+
+      - "created"             — verified + added + submitted (happy path)
+      - "already-registered"  — property + sitemap already known to GSC
+      - "skipped:--skip-gsc"  — operator opted out
+      - "skipped:<other>"     — dry-run / OAuth not configured / etc.
+      - "failed:<step>:<msg>" — any one sub-step failed; deploy continues
+
+    Lazy imports so cf-pages/cf-workers deploys for sites that don't
+    use GSC (rare but possible) don't pay the import cost.
+    """
+    console.print(f"\n[bold]9. GSC property + sitemap[/] [dim]({domain})[/]")
+
+    if skip_gsc:
+        console.print("  [yellow]↷[/] skipped (--skip-gsc)")
+        return ("skipped:--skip-gsc", "")
+    if dry_run:
+        console.print(
+            "  [dim]would: try FILE verification (write public/google<t>.html, "
+            "commit+push, poll URL, verify); fall back to DNS_TXT if no "
+            "public/; add sc-domain property, submit /sitemap.xml[/]"
+        )
+        return ("skipped:--dry-run", "")
+
+    # Lazy imports — only load when this step actually runs.
+    from . import cloudflare, gsc_admin
+    from .gsc import TOKEN_PATH as GSC_TOKEN_PATH
+
+    # Pre-flight: GSC OAuth token must exist. Check the file directly
+    # rather than calling gsc.authenticate() (which would open a
+    # browser) — operator needs to run `lamill settings gsc auth` once
+    # before deploys auto-register GSC properties.
+    if not GSC_TOKEN_PATH.exists():
+        console.print(
+            "  [yellow]↷[/] skipped (GSC OAuth not configured — run "
+            "`lamill settings gsc auth` once, then re-run deploy)"
+        )
+        return ("skipped:GSC OAuth not configured", "")
+
+    # --- 9a-c: Verify ownership (FILE first, DNS_TXT fallback) ---
+    status, detail = _step9_file_verify(domain, project_dir, gsc_admin)
+    if status == "fallback":
+        console.print(
+            f"  [yellow]↷[/] FILE method unavailable: {detail} — "
+            f"falling back to DNS_TXT"
+        )
+        status, detail = _step9_dns_verify(
+            domain, zone, cloudflare, gsc_admin,
+        )
+
+    if status.startswith("skipped"):
+        return (status, detail)
+    if status.startswith("failed"):
+        return (status, detail)
 
     # --- 9d: Add the GSC property (idempotent — returns False if exists) ---
     try:

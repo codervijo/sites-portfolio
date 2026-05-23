@@ -37,6 +37,9 @@ def _mock_auth(monkeypatch):
 
 
 def test_get_verification_token_returns_txt_value():
+    """v25.C — DNS_TXT path preserved as explicit method. (Default
+    changed to FILE in v25.C; this test pins the DNS_TXT request
+    shape Google's Site Verification API expects.)"""
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
         assert request.url.path == "/siteVerification/v1/token"
@@ -55,7 +58,7 @@ def test_get_verification_token_returns_txt_value():
         )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    token = get_verification_token("example.com", client=client)
+    token = get_verification_token("example.com", method="DNS_TXT", client=client)
     assert token == "google-site-verification=hX9abc..."
 
 
