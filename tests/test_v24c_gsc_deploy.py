@@ -164,7 +164,7 @@ def test_get_token_403_insufficient_scope_skips(
     status, _ = _deploy_step9_gsc(
         domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
-    assert status == "skipped:OAuth scope insufficient"
+    assert status == "skipped:insufficient_scope"
 
 
 def test_verify_domain_insufficient_scope_skips(
@@ -195,7 +195,7 @@ def test_verify_domain_insufficient_scope_skips(
     status, _ = _deploy_step9_gsc(
         domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
-    assert status == "skipped:OAuth scope insufficient"
+    assert status == "skipped:insufficient_scope"
 
 
 # ---- soft-fail paths ----------------------------------------------

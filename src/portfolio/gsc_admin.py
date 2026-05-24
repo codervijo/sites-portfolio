@@ -65,6 +65,114 @@ class VerificationFailedError(RuntimeError):
     yet — wait + re-run, or verify manually in GSC" hint."""
 
 
+# v25.D — GSC 403 cause-classification constants. The Step 9 helpers
+# pass error-response bodies through `classify_403()` to surface
+# specific actionable hints instead of a generic "scope insufficient"
+# (which misled the operator during dropaudit.co's SERVICE_DISABLED case).
+GSC_403_INSUFFICIENT_SCOPE = "insufficient_scope"
+GSC_403_SERVICE_DISABLED = "service_disabled"
+GSC_403_INVALID_GRANT = "invalid_grant"
+GSC_403_UNKNOWN = "unknown"
+
+
+def classify_403(error_body: str) -> tuple[str, str]:
+    """v25.D — parse a Google API 403 response body and classify into
+    one of:
+
+      - GSC_403_INSUFFICIENT_SCOPE — OAuth token missing scopes
+        (`ACCESS_TOKEN_SCOPE_INSUFFICIENT`). Fix: re-consent.
+      - GSC_403_SERVICE_DISABLED — Site Verification API not enabled
+        in the GCP project the OAuth credentials belong to (the
+        dropaudit.co Step 9 failure mode). Fix: enable API in GCP
+        console; URL surfaced with the consumer project pre-populated
+        if available.
+      - GSC_403_INVALID_GRANT — refresh token expired / revoked.
+        Fix: re-consent.
+      - GSC_403_UNKNOWN — couldn't disambiguate. Surface raw message.
+
+    Returns `(cause_code, operator_action_hint)`. The hint is ready
+    for direct rendering — no further interpretation needed by callers.
+    """
+    import json
+
+    try:
+        body = json.loads(error_body)
+    except (ValueError, TypeError):
+        body = {}
+
+    err = body.get("error", {}) if isinstance(body, dict) else {}
+    msg = (err.get("message") or "") if isinstance(err, dict) else ""
+    details = (err.get("details") or []) if isinstance(err, dict) else []
+
+    for d in details:
+        if not isinstance(d, dict):
+            continue
+        reason = d.get("reason", "")
+        if reason == "ACCESS_TOKEN_SCOPE_INSUFFICIENT":
+            return (
+                GSC_403_INSUFFICIENT_SCOPE,
+                "OAuth token missing scopes (webmasters write + "
+                "siteverification). Re-consent with: "
+                "`lamill settings gsc auth --force`.",
+            )
+        if reason == "SERVICE_DISABLED":
+            meta = d.get("metadata") if isinstance(d.get("metadata"), dict) else {}
+            consumer = meta.get("consumer", "")
+            project_id = (
+                consumer.split("/")[-1] if "/" in consumer else ""
+            )
+            api_url = (
+                "https://console.developers.google.com/apis/api/"
+                "siteverification.googleapis.com/overview"
+            )
+            if project_id:
+                api_url = f"{api_url}?project={project_id}"
+            project_hint = f" (GCP project: {project_id})" if project_id else ""
+            return (
+                GSC_403_SERVICE_DISABLED,
+                f"Site Verification API not enabled{project_hint}. "
+                f"Enable at: {api_url} — wait ~1-2 min for propagation, "
+                f"then re-run deploy.",
+            )
+        if reason == "REFRESH_TOKEN_REVOKED" or reason == "INVALID_GRANT":
+            return (
+                GSC_403_INVALID_GRANT,
+                "OAuth refresh token revoked or expired. Re-authenticate "
+                "with: `lamill settings gsc auth --force`.",
+            )
+
+    # Fall back to keyword scan on the parsed message text first, then
+    # on the raw input string (covers thin error messages from internal
+    # code that don't carry the full Google API JSON body).
+    for scan_text in (msg, error_body):
+        scan_lower = (scan_text or "").lower()
+        if "insufficient" in scan_lower or "access_token_scope" in scan_lower:
+            return (
+                GSC_403_INSUFFICIENT_SCOPE,
+                "OAuth scope appears insufficient. Re-consent with: "
+                "`lamill settings gsc auth --force`.",
+            )
+        if "service_disabled" in scan_lower or "has not been used" in scan_lower:
+            return (
+                GSC_403_SERVICE_DISABLED,
+                "Site Verification API not enabled in your GCP project. "
+                "Enable at: https://console.developers.google.com/apis/api/"
+                "siteverification.googleapis.com/overview — wait ~1-2 min, "
+                "re-run deploy.",
+            )
+        if "invalid_grant" in scan_lower or "refresh_token" in scan_lower:
+            return (
+                GSC_403_INVALID_GRANT,
+                "OAuth refresh token revoked or expired. Re-authenticate "
+                "with: `lamill settings gsc auth --force`.",
+            )
+
+    return (
+        GSC_403_UNKNOWN,
+        f"Unrecognized 403 response — raw message: {msg or '<empty>'}",
+    )
+
+
 def _access_token() -> str:
     """Resolve a valid OAuth access token from gsc.py's cached
     credentials. The v24.B scope bump applies — if the cached token

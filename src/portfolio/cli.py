@@ -6853,13 +6853,10 @@ def _step9_file_verify(domain, project_dir, gsc_admin) -> tuple[str, str]:
         )
     except gsc_admin.GSCAdminError as e:
         msg = str(e)
-        if "insufficient" in msg.lower() or "403" in msg:
-            console.print(
-                f"  [yellow]↷[/] OAuth scope insufficient — run "
-                f"`lamill settings gsc auth --force` to re-consent "
-                f"with v24.B scopes"
-            )
-            return ("skipped:OAuth scope insufficient", "")
+        if "403" in msg:
+            cause, hint = gsc_admin.classify_403(msg)
+            console.print(f"  [yellow]↷[/] GSC 403 ({cause}): {hint}")
+            return (f"skipped:{cause}", hint)
         console.print(f"  [red]✗[/] get_verification_token (FILE) failed: {e}")
         return (f"failed:get_token_file:{_short(msg)}", "")
 
@@ -6955,12 +6952,10 @@ def _step9_file_verify(domain, project_dir, gsc_admin) -> tuple[str, str]:
         return ("failed:verify_file:propagation_timeout", "")
     except gsc_admin.GSCAdminError as e:
         msg = str(e)
-        if "insufficient" in msg.lower():
-            console.print(
-                f"  [yellow]↷[/] OAuth scope insufficient — run "
-                f"`lamill settings gsc auth --force`"
-            )
-            return ("skipped:OAuth scope insufficient", "")
+        if "403" in msg:
+            cause, hint = gsc_admin.classify_403(msg)
+            console.print(f"  [yellow]↷[/] GSC 403 ({cause}): {hint}")
+            return (f"skipped:{cause}", hint)
         console.print(f"  [red]✗[/] verify_domain (FILE) failed: {e}")
         return (f"failed:verify_file:{_short(msg)}", "")
     console.print(
@@ -6987,12 +6982,10 @@ def _step9_dns_verify(domain, zone, cloudflare, gsc_admin) -> tuple[str, str]:
         )
     except gsc_admin.GSCAdminError as e:
         msg = str(e)
-        if "insufficient" in msg.lower() or "403" in msg:
-            console.print(
-                f"  [yellow]↷[/] OAuth scope insufficient — run "
-                f"`lamill settings gsc auth --force`"
-            )
-            return ("skipped:OAuth scope insufficient", "")
+        if "403" in msg:
+            cause, hint = gsc_admin.classify_403(msg)
+            console.print(f"  [yellow]↷[/] GSC 403 ({cause}): {hint}")
+            return (f"skipped:{cause}", hint)
         console.print(
             f"  [red]✗[/] get_verification_token (DNS_TXT) failed: {e}"
         )
@@ -7039,12 +7032,10 @@ def _step9_dns_verify(domain, zone, cloudflare, gsc_admin) -> tuple[str, str]:
         return ("failed:verify_dns:propagation_timeout", "")
     except gsc_admin.GSCAdminError as e:
         msg = str(e)
-        if "insufficient" in msg.lower():
-            console.print(
-                f"  [yellow]↷[/] OAuth scope insufficient — run "
-                f"`lamill settings gsc auth --force`"
-            )
-            return ("skipped:OAuth scope insufficient", "")
+        if "403" in msg:
+            cause, hint = gsc_admin.classify_403(msg)
+            console.print(f"  [yellow]↷[/] GSC 403 ({cause}): {hint}")
+            return (f"skipped:{cause}", hint)
         console.print(f"  [red]✗[/] verify_domain (DNS_TXT) failed: {e}")
         return (f"failed:verify_dns:{_short(msg)}", "")
     console.print(
@@ -9446,6 +9437,92 @@ def settings_cloudflare_status(
         f"[green]✓ Token OK[/] — status={info.get('status', '?')}, "
         f"id={info.get('id', '?')}, expires={info.get('expires_on') or 'never'}"
     )
+
+
+@settings_cloudflare_app.command("check-token")
+def settings_cloudflare_check_token() -> None:
+    """v25.D — Comprehensive CF API token diagnostic.
+
+    Probes account-level (Pages:Edit, Workers Scripts:Edit, Account
+    Settings:Read) and per-zone (DNS:Edit) permissions, then renders
+    a per-zone table plus an actionable fix block when anything is
+    missing. Use after `new deploy` fails with HTTP 403 / scope
+    errors to see exactly which permission / zone is the gap.
+    """
+    from . import cloudflare
+
+    console.print(
+        "[bold]Diagnosing CF API token[/] [dim](probes accounts + "
+        "zones — may take a few seconds for fleets with many zones)…[/]"
+    )
+
+    try:
+        diag = cloudflare.diagnose_token()
+    except cloudflare.MissingCredentialsError as e:
+        console.print(f"[red]✗ No CF token configured:[/] {e}")
+        raise typer.Exit(2)
+    except cloudflare.CloudflareAPIError as e:
+        console.print(f"[red]✗ Unexpected CF API error:[/] {e}")
+        raise typer.Exit(2)
+
+    console.print(f"\n[bold]Token status:[/] [cyan]{diag.token_status}[/]")
+
+    if diag.accounts:
+        console.print(
+            f"\n[bold]Accounts[/] [dim]({len(diag.accounts)} accessible)[/]"
+        )
+        for acct in diag.accounts:
+            pages = "[green]✓[/]" if acct.has_pages_edit else "[red]✗[/]"
+            workers = "[green]✓[/]" if acct.has_workers_edit else "[red]✗[/]"
+            settings = (
+                "[green]✓[/]" if acct.has_account_settings_read else "[red]✗[/]"
+            )
+            console.print(
+                f"  • [cyan]{acct.name}[/] "
+                f"[dim]({acct.account_id[:8]}…)[/]"
+            )
+            console.print(
+                f"    {pages} Pages:Edit   {workers} Workers:Edit   "
+                f"{settings} Settings:Read"
+            )
+
+    if diag.zones:
+        console.print(
+            f"\n[bold]Zones[/] [dim]({len(diag.zones)} accessible)[/]"
+        )
+        for zone in diag.zones:
+            mark = "[green]✓[/]" if zone.has_dns_edit else "[red]✗[/]"
+            console.print(f"  {mark} DNS:Edit   [cyan]{zone.name}[/]")
+
+    if not (diag.missing_account_permissions or diag.missing_zone_permissions):
+        console.print(
+            "\n[bold green]✓ Token has all permissions lamill needs.[/]"
+        )
+        return
+
+    console.print("\n[bold yellow]Missing permissions:[/]")
+    for perm in diag.missing_account_permissions:
+        console.print(f"  [red]·[/] {perm}")
+    for zone_name, perm in diag.missing_zone_permissions:
+        console.print(f"  [red]·[/] {zone_name} → {perm}")
+
+    console.print(
+        f"\n[bold]Fix:[/]\n"
+        f"  1. Open: [link]https://dash.cloudflare.com/profile/"
+        f"api-tokens[/link]\n"
+        f"  2. Edit your existing token (or create a new one) with:\n"
+        f"     [cyan]Account permissions[/]:  "
+        f"Cloudflare Pages:Edit · Workers Scripts:Edit · Account Settings:Read\n"
+        f"     [cyan]Zone permissions[/]:     "
+        f"DNS:Edit · Zone:Edit · Workers Routes:Edit · SSL and Certificates:Edit\n"
+        f"     [cyan]Zone resources[/]:       "
+        f"Include — All zones from an account\n"
+        f"  3. Save token; copy the value (CF shows it once); then:\n"
+        f"     [cyan]lamill settings apikeys set CF_API_TOKEN <value>[/]\n"
+        f"  4. Re-run [cyan]lamill settings cloudflare check-token[/] "
+        f"to confirm.\n"
+    )
+    raise typer.Exit(1)
 
 
 # settings serpapi-quota — show local ledger + sync against SerpAPI's

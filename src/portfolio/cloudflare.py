@@ -404,6 +404,168 @@ def probe_token_scopes(
     )
 
 
+# --- v25.D — comprehensive token diagnostic --------------------------
+
+
+@dataclass(frozen=True)
+class AccountDiag:
+    """v25.D — per-account permission probe results for the active CF token."""
+    account_id: str
+    name: str
+    has_pages_edit: bool
+    has_workers_edit: bool
+    has_account_settings_read: bool
+
+
+@dataclass(frozen=True)
+class ZoneDiag:
+    """v25.D — per-zone DNS:Edit probe result for the active CF token.
+    Backed by `probe_zone_write_capability` (v25.B)."""
+    zone_id: str
+    name: str
+    has_dns_edit: bool
+
+
+@dataclass(frozen=True)
+class TokenDiagnostic:
+    """v25.D — full diagnostic for the active CF API token.
+
+    Returned by `diagnose_token()`; rendered by the `settings cloudflare
+    check-token` CLI verb. `missing_account_permissions` and
+    `missing_zone_permissions` are operator-facing strings ready for
+    direct rendering — no further interpretation needed.
+    """
+    valid: bool
+    token_status: str          # "active" | "disabled" | "expired" | "unknown"
+    accounts: list[AccountDiag] = field(default_factory=list)
+    zones: list[ZoneDiag] = field(default_factory=list)
+    missing_account_permissions: list[str] = field(default_factory=list)
+    missing_zone_permissions: list[tuple[str, str]] = field(default_factory=list)
+
+
+def diagnose_token(*, client: httpx.Client | None = None) -> TokenDiagnostic:
+    """v25.D — comprehensive CF API token diagnostic.
+
+    Probes:
+      - `/user/tokens/verify` — token alive + status
+      - `/accounts` — list accessible accounts
+      - per-account: `/accounts/{id}/pages/projects`, `/accounts/{id}/workers/services`, `/accounts/{id}`
+      - `/zones?per_page=100` — list accessible zones
+      - per-zone: `probe_zone_write_capability` (v25.B) for DNS:Edit
+
+    Returns a `TokenDiagnostic` with per-account + per-zone status plus
+    flat `missing_account_permissions` / `missing_zone_permissions`
+    lists for the CLI renderer.
+
+    Raises `CloudflareAPIError` only on unexpected (5xx, malformed
+    JSON) errors — auth failures land in the diagnostic itself
+    (`valid=False`, token_status reflects the failure).
+    """
+    own_client = client is None
+    c = _client(client=client)
+    accounts: list[AccountDiag] = []
+    zones: list[ZoneDiag] = []
+    missing_account_perms: list[str] = []
+    missing_zone_perms: list[tuple[str, str]] = []
+
+    try:
+        # Token alive?
+        verify_resp = c.get("/user/tokens/verify")
+        if verify_resp.status_code == 401:
+            return TokenDiagnostic(
+                valid=False, token_status="invalid",
+                missing_account_permissions=[
+                    "token rejected by CF (HTTP 401 on /user/tokens/verify)"
+                ],
+            )
+        if verify_resp.status_code != 200:
+            raise CloudflareAPIError(
+                f"/user/tokens/verify → HTTP {verify_resp.status_code}: "
+                f"{verify_resp.text[:200]}"
+            )
+        verify_body = verify_resp.json()
+        token_status = (verify_body.get("result") or {}).get("status", "unknown")
+
+        # List accounts.
+        accounts_resp = c.get("/accounts", params={"per_page": 50})
+        if accounts_resp.status_code == 200:
+            for acct in (accounts_resp.json().get("result") or []):
+                acct_id = acct.get("id", "")
+                acct_name = acct.get("name", "")
+
+                pages_resp = c.get(
+                    f"/accounts/{acct_id}/pages/projects",
+                    params={"per_page": 1},
+                )
+                workers_resp = c.get(
+                    f"/accounts/{acct_id}/workers/services",
+                    params={"per_page": 1},
+                )
+                settings_resp = c.get(f"/accounts/{acct_id}")
+
+                has_pages = pages_resp.status_code == 200
+                has_workers = workers_resp.status_code == 200
+                has_settings = settings_resp.status_code == 200
+
+                accounts.append(AccountDiag(
+                    account_id=acct_id, name=acct_name,
+                    has_pages_edit=has_pages,
+                    has_workers_edit=has_workers,
+                    has_account_settings_read=has_settings,
+                ))
+                if not has_pages:
+                    missing_account_perms.append(
+                        f"{acct_name or acct_id}: Cloudflare Pages:Edit"
+                    )
+                if not has_workers:
+                    missing_account_perms.append(
+                        f"{acct_name or acct_id}: Workers Scripts:Edit"
+                    )
+                if not has_settings:
+                    missing_account_perms.append(
+                        f"{acct_name or acct_id}: Account Settings:Read"
+                    )
+        else:
+            missing_account_perms.append(
+                f"/accounts list returned HTTP {accounts_resp.status_code} "
+                f"(token can't enumerate accounts)"
+            )
+
+        # List zones.
+        zones_resp = c.get("/zones", params={"per_page": 100})
+        if zones_resp.status_code == 200:
+            for z in (zones_resp.json().get("result") or []):
+                zone_id = z.get("id", "")
+                zone_name = z.get("name", "")
+                probe = probe_zone_write_capability(zone_id, client=c)
+                zones.append(ZoneDiag(
+                    zone_id=zone_id, name=zone_name,
+                    has_dns_edit=probe.can_write,
+                ))
+                if not probe.can_write:
+                    missing_zone_perms.append((zone_name, "DNS:Edit"))
+        else:
+            missing_account_perms.append(
+                f"/zones list returned HTTP {zones_resp.status_code} "
+                f"(token can't enumerate zones)"
+            )
+
+        return TokenDiagnostic(
+            valid=(token_status == "active"),
+            token_status=token_status,
+            accounts=accounts,
+            zones=zones,
+            missing_account_permissions=missing_account_perms,
+            missing_zone_permissions=missing_zone_perms,
+        )
+    finally:
+        if own_client:
+            c.close()
+
+
+# --- ZoneInfo + ensure_zone ------------------------------------------
+
+
 @dataclass(frozen=True)
 class ZoneInfo:
     """Resolved or newly-created CF zone. `created=True` only when
