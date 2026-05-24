@@ -47,27 +47,31 @@ def _mock_auth(monkeypatch):
 # ---- get_verification_token (FILE method + default) ------------------
 
 
-def test_get_verification_token_default_is_file_method():
-    """v25.A decision (a) — FILE is the default. Verifies the request
-    shape (SITE type + https URL identifier) and that the returned
-    filename comes back unchanged."""
+def test_get_verification_token_default_is_dns_txt_method():
+    """v25.F (2026-05-23, flipped from v25.A) — DNS_TXT is the default
+    because the rest of the GSC pipeline operates on Domain properties
+    (sc-domain:<domain>) per v24.A decision (c), and only DNS_TXT
+    verifies Domain properties (FILE verifies URL-prefix only — see
+    ADR-0016). Step 3.5 (v25.B) already gates the pipeline on DNS:Edit
+    being available, so the original FILE-first rationale doesn't apply."""
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["body"] = json.loads(request.content)
         return httpx.Response(
             200,
-            json={"token": "google1234abc.html", "method": "FILE"},
+            json={"token": "google-site-verification=hX9abc...",
+                  "method": "DNS_TXT"},
         )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     token = get_verification_token("example.com", client=client)
 
-    assert token == "google1234abc.html"
-    assert seen["body"]["verificationMethod"] == "FILE"
+    assert token == "google-site-verification=hX9abc..."
+    assert seen["body"]["verificationMethod"] == "DNS_TXT"
     assert seen["body"]["site"] == {
-        "type": "SITE",
-        "identifier": "https://example.com/",
+        "type": "INET_DOMAIN",
+        "identifier": "example.com",
     }
 
 

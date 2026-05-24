@@ -38,6 +38,20 @@ from urllib.parse import quote
 import httpx
 
 # v25.C — verification method values accepted by the Site Verification API.
+#
+# v25.F (2026-05-23) — IMPORTANT: verification method must match property
+# type (see ADR-0016):
+#   - DNS_TXT method verifies Domain properties (`sc-domain:<domain>`).
+#     This is what `add_site` / `submit_sitemap` operate on per ADR (v24.A
+#     decision c), so DNS_TXT is the load-bearing path.
+#   - FILE method verifies URL-prefix properties (`https://<domain>/`).
+#     Doesn't grant ownership of the Domain property. Preserved as a
+#     fallback / future-use path; not the primary GSC flow.
+#
+# Default flipped 2026-05-23 from FILE → DNS_TXT. v25.B Step 3.5 already
+# gates the deploy pipeline on DNS:Edit being available, so the original
+# v25.A rationale ("FILE-first because DNS:Edit might be missing") no
+# longer applies — DNS_TXT is always reachable when Step 9 runs.
 VERIFICATION_METHOD_FILE = "FILE"
 VERIFICATION_METHOD_DNS_TXT = "DNS_TXT"
 _VALID_METHODS = (VERIFICATION_METHOD_FILE, VERIFICATION_METHOD_DNS_TXT)
@@ -225,16 +239,22 @@ def _site_payload_for_method(domain: str, method: str) -> dict:
 
 def get_verification_token(
     domain: str, *,
-    method: str = VERIFICATION_METHOD_FILE,
+    method: str = VERIFICATION_METHOD_DNS_TXT,
     client: httpx.Client | None = None,
 ) -> str:
     """Get the verification value Google wants to see for `domain`.
 
-    `method` per v25.A decision (a): FILE is the default (the operator's
-    existing OAuth token has `siteverification` scope, and FILE doesn't
-    need DNS:Edit on the zone, which avoids the dropaudit.co failure
-    mode). DNS_TXT is preserved as a fallback for sites without
-    `public/`.
+    `method` per v25.F (2026-05-23): DNS_TXT is the default because the
+    rest of the GSC pipeline (`add_site` / `submit_sitemap`) operates on
+    Domain properties (`sc-domain:<domain>`) per v24.A decision (c), and
+    only DNS_TXT verifies Domain properties (FILE verifies URL-prefix
+    properties only — see ADR-0016). v25.B Step 3.5 already gates the
+    deploy pipeline on DNS:Edit being available, so DNS_TXT is always
+    reachable when Step 9 runs.
+
+    FILE method preserved as a fallback / future-use path (verifies the
+    `https://<domain>/` URL-prefix property; doesn't grant Domain
+    ownership).
 
     Returns:
       - For method=FILE: the filename string (e.g., `"google<hash>.html"`).
@@ -358,19 +378,24 @@ def wait_for_verification_file_live(
 
 def verify_domain(
     domain: str, *,
-    method: str = VERIFICATION_METHOD_FILE,
+    method: str = VERIFICATION_METHOD_DNS_TXT,
     intervals: tuple[int, ...] = _PROPAGATION_INTERVALS_S,
     client: httpx.Client | None = None,
     sleep: callable = time.sleep,
 ) -> None:
     """Trigger Google's ownership-verification check for `domain`.
 
-    `method` per v25.A decision (a): FILE is the default and assumes
-    caller has already written the verification file via
-    `write_verification_file()` AND confirmed it's reachable via
-    `wait_for_verification_file_live()`. DNS_TXT assumes the TXT record
-    is already in DNS (caller wrote it via
-    `cloudflare.create_dns_record()`).
+    `method` per v25.F (2026-05-23): DNS_TXT is the default — verifies
+    the Domain property (`sc-domain:<domain>`) that the rest of the
+    GSC pipeline operates on. Caller must have already written the TXT
+    record via `cloudflare.create_dns_record()` before calling. v25.B
+    Step 3.5 guarantees DNS:Edit is available.
+
+    FILE method preserved for the URL-prefix property path (see
+    ADR-0016 on the verification-method ↔ property-type coupling).
+    Assumes caller has already written the verification file via
+    `write_verification_file()` AND confirmed reachable via
+    `wait_for_verification_file_live()`.
 
     Polls Google's verification endpoint with exponential backoff to
     absorb propagation/cache delay.

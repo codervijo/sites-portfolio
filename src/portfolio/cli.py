@@ -7466,16 +7466,17 @@ def _deploy_step9_gsc(
         )
         return ("skipped:GSC OAuth not configured", "")
 
-    # --- 9a-c: Verify ownership (FILE first, DNS_TXT fallback) ---
-    status, detail = _step9_file_verify(domain, project_dir, gsc_admin)
-    if status == "fallback":
-        console.print(
-            f"  [yellow]↷[/] FILE method unavailable: {detail} — "
-            f"falling back to DNS_TXT"
-        )
-        status, detail = _step9_dns_verify(
-            domain, zone, cloudflare, gsc_admin,
-        )
+    # --- 9a-c: Verify ownership ---
+    # v25.F (2026-05-23) — DNS_TXT first now (was FILE first in v25.A/C).
+    # See ADR-0016: DNS_TXT verifies the Domain property (sc-domain:<domain>)
+    # that add_site / submit_sitemap operate on. FILE only verifies the
+    # URL-prefix property — discovered after permittruck.xyz hit a 403 on
+    # submit_sitemap despite FILE-verification succeeding. Step 3.5 (v25.B)
+    # already gates the pipeline on DNS:Edit being available, so the
+    # original "FILE-first to avoid DNS:Edit" rationale doesn't apply.
+    status, detail = _step9_dns_verify(
+        domain, zone, cloudflare, gsc_admin,
+    )
 
     if status.startswith("skipped"):
         return (status, detail)
