@@ -6781,6 +6781,82 @@ def _deploy_cf_unified(
                 f"[dim](deployment id: {dep_id[:12]}…)[/]"
             )
 
+    # --- Step 6.5: Ensure DNS CNAME for custom domain ----------------------
+    # 2026-05-23 fix — CF's `attach_pages_custom_domain` (Step 6) registers
+    # the domain with the Pages project but does NOT auto-create the DNS
+    # record that routes queries to the Pages worker. The dashboard's
+    # "Connect a domain" wizard does this; the API doesn't. Without this
+    # step, the project sits in CF's `Verifying` state forever (until the
+    # operator manually clicks "Complete DNS setup" in the dashboard).
+    #
+    # Same pattern as Step 5.7 (explicit first-build trigger) — fills a
+    # gap between the API path and the dashboard path. Idempotency
+    # invariant (ADR-0015) preserved: probe existing DNS records first,
+    # skip create if a matching CNAME already points to the right target.
+    # Workers Services use a different DNS shape; this step is Pages-only.
+    if not skip_pages and not dry_run and cf_surface == "pages":
+        console.print(
+            f"\n[bold]6.5 DNS record for custom domain[/] "
+            f"[dim]({domain} → {slug}.pages.dev)[/]"
+        )
+        target_content = f"{slug}.pages.dev"
+        try:
+            existing_records = cloudflare.list_dns_records(zone.zone_id)
+        except cloudflare.CloudflareAPIError as e:
+            console.print(
+                f"  [yellow]↷[/] dns list failed (continuing — Step 8 "
+                f"live probe will surface unresolved DNS): {e}"
+            )
+        else:
+            apex_records = [
+                r for r in existing_records
+                if r.name == domain and r.type in ("CNAME", "A", "AAAA")
+            ]
+            already_pointing = any(
+                r.type == "CNAME"
+                and r.content.rstrip(".") == target_content.rstrip(".")
+                for r in apex_records
+            )
+            if already_pointing:
+                console.print(
+                    f"  [green]✓[/] CNAME @ → {target_content} already "
+                    f"exists, skipping [dim](idempotent re-run)[/]"
+                )
+            elif apex_records:
+                # Apex has OTHER records — don't overwrite; let operator
+                # decide. Show what's there + dashboard link.
+                others = ", ".join(
+                    f"{r.type} → {r.content[:40]}" for r in apex_records
+                )
+                console.print(
+                    f"  [yellow]↷[/] apex already has "
+                    f"{len(apex_records)} record(s) ({others}); not "
+                    f"auto-creating CNAME to avoid clobber. Review at "
+                    f"https://dash.cloudflare.com/{cf_account}/{domain}/dns/records"
+                )
+            else:
+                try:
+                    cloudflare.create_dns_record(
+                        zone.zone_id,
+                        type="CNAME", name=domain,
+                        content=target_content, proxied=True,
+                    )
+                except cloudflare.CloudflareAPIError as e:
+                    console.print(
+                        f"  [red]✗[/] CNAME create failed: {e}"
+                    )
+                    console.print(
+                        f"  [dim]Manual fix: in CF dashboard, add "
+                        f"[cyan]CNAME @ → {target_content}[/] (proxied). "
+                        f"https://dash.cloudflare.com/{cf_account}/{domain}/dns/records[/]"
+                    )
+                else:
+                    console.print(
+                        f"  [green]✓[/] created CNAME @ → {target_content} "
+                        f"(proxied) [dim](one-shot at attach; CF webhook "
+                        f"handles future routing)[/]"
+                    )
+
     # --- Step 7: Build poll --------------------------------------------------
     # v15.P — only polls the Pages API. For Workers Services, build
     # status lives on a different endpoint (Workers Builds API,
