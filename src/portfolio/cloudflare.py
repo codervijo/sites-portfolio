@@ -974,6 +974,18 @@ def attach_pages_custom_domain(
     # 409 → already attached in a race window — treat as success.
     if resp.status_code == 409:
         return False
+    # 2026-05-23 fix — 400 + CF error code 8000018 ("You have already
+    # added this custom domain") fires when the domain was previously
+    # attached but is in a transient/pending state that the project
+    # endpoint's `domains[]` array doesn't include. Our GET-then-POST
+    # idempotency probe (the `if hostname in existing.domains` check
+    # above) misses it, so we fall through to POST and CF rejects.
+    # Treat the same as 409 — return False to signal "already attached
+    # from a prior deploy; nothing to do."
+    if resp.status_code == 400 and (
+        "8000018" in resp.text or "already added" in resp.text.lower()
+    ):
+        return False
     if resp.status_code not in (200, 201):
         raise CloudflareAPIError(
             f"POST /pages/projects/{project_name}/domains → "

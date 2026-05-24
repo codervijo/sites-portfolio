@@ -304,6 +304,51 @@ def test_attach_custom_domain_project_missing():
         )
 
 
+def test_attach_custom_domain_handles_400_code_8000018_as_already_added():
+    """2026-05-23 — CF returns 400 + error code 8000018 ('You have
+    already added this custom domain') when the domain was attached
+    on a prior deploy but isn't in the project's `domains[]` array
+    (transient/pending state). The GET-then-POST idempotency probe
+    misses it, but the POST response carries the right signal —
+    treat as success (already attached), not failure."""
+    def handler(req):
+        if req.method == "GET" and "/pages/projects/myproj" in req.url.path:
+            # Project exists but `domains[]` doesn't include our hostname.
+            return httpx.Response(200, json={
+                "success": True,
+                "result": {
+                    "name": "myproj",
+                    "domains": [],          # empty — domain not visible here
+                    "production_branch": "main",
+                    "source": None,
+                    "latest_deployment": None,
+                },
+            })
+        if req.method == "POST" and "/domains" in req.url.path:
+            # CF rejects because the domain IS attached, just not in
+            # the array our GET saw.
+            return httpx.Response(400, json={
+                "result": None,
+                "success": False,
+                "errors": [{
+                    "code": 8000018,
+                    "message": "You have already added this custom domain. "
+                               "Select another custom domain or check your "
+                               "project configuration.",
+                }],
+                "messages": [],
+            })
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    attached = attach_pages_custom_domain(
+        "myproj", "permittruck.xyz", account_id="acct", client=client,
+    )
+    # `attached=False` means "already attached" (no work to do); the
+    # CLI renders this as `✓ permittruck.xyz already attached, skipping`.
+    assert attached is False
+
+
 # ---- latest_deployment_status + poll_build ----
 
 
