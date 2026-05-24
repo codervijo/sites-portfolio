@@ -6998,7 +6998,12 @@ def _deploy_watch_loop(
                 build_status = "n/a"
             else:
                 try:
-                    stage, _dep_id, raw_status = cloudflare.latest_deployment_status(
+                    # 2026-05-23 bug fix — latest_deployment_status returns
+                    # (stage_name, stage_status, deployment_id). Prior
+                    # ordering had stage_status and deployment_id swapped,
+                    # so build_status compared against the UUID and never
+                    # matched "success" → watch loop never exited "live".
+                    stage, raw_status, _dep_id = cloudflare.latest_deployment_status(
                         slug, account_id=cf_account,
                     )
                     if not stage:
@@ -7008,7 +7013,7 @@ def _deploy_watch_loop(
                     elif raw_status == "failure":
                         build_status = "failed"
                     else:
-                        build_status = f"{stage[:8]}/{raw_status[:8]}"
+                        build_status = f"{stage[:8]}/{(raw_status or '?')[:8]}"
                 except cloudflare.CloudflareAPIError:
                     build_status = "?"
 

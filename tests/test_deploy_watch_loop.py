@@ -34,7 +34,8 @@ def test_watch_returns_live_when_all_three_green(monkeypatch):
     monkeypatch.setattr(cloudflare, "get_zone", lambda zid: _zone_info("active"))
     monkeypatch.setattr(
         cloudflare, "latest_deployment_status",
-        lambda slug, **kw: ("deploy", "dep1", "success"),
+        # Return signature: (stage_name, stage_status, deployment_id)
+        lambda slug, **kw: ("deploy", "success", "dep1"),
     )
 
     class _OK:
@@ -69,9 +70,10 @@ def test_watch_transitions_pending_to_active_then_live(monkeypatch):
         cloudflare, "get_zone",
         lambda zid: _zone_info(next(zone_states)),
     )
+    # Return signature: (stage_name, stage_status, deployment_id)
     build_states = iter([
-        ("idle", "id0", "active"),    # building
-        ("deploy", "id1", "success"),  # done
+        ("build", "active", "id0"),     # in-progress
+        ("deploy", "success", "id1"),   # done
     ])
     monkeypatch.setattr(
         cloudflare, "latest_deployment_status",
@@ -109,7 +111,8 @@ def test_watch_returns_build_failed_fast(monkeypatch):
     monkeypatch.setattr(cloudflare, "get_zone", lambda zid: _zone_info("active"))
     monkeypatch.setattr(
         cloudflare, "latest_deployment_status",
-        lambda slug, **kw: ("build", "depX", "failure"),
+        # Return signature: (stage_name, stage_status, deployment_id)
+        lambda slug, **kw: ("build", "failure", "depX"),
     )
 
     class _Conn:
