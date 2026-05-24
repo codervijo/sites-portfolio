@@ -6720,14 +6720,38 @@ def _deploy_cf_unified(
         )
     else:
         try:
-            stage, dep_id, _ = cloudflare.latest_deployment_status(
-                slug, account_id=cf_account,
-            )
+            # 2026-05-23 fix — on a freshly-created Pages project,
+            # CF can take 10-60s to queue the first deployment. The
+            # original one-shot check bailed with "no deployment yet"
+            # if Step 7 ran before CF had even started queuing. Now
+            # we retry with backoff for up to 90s waiting for the
+            # first deployment to appear, THEN hand off to poll_build
+            # for terminal-state tracking.
+            import time as _time
+            queue_intervals_s = (5, 10, 15, 20, 20, 20)  # 90s total
+            stage = ""
+            dep_id = ""
+            for attempt_idx in range(len(queue_intervals_s) + 1):
+                stage, dep_id, _ = cloudflare.latest_deployment_status(
+                    slug, account_id=cf_account,
+                )
+                if stage:
+                    break
+                if attempt_idx == 0:
+                    console.print(
+                        f"  [dim]No deployment yet — waiting up to 90s for "
+                        f"CF to queue the first build…[/]"
+                    )
+                if attempt_idx == len(queue_intervals_s):
+                    break
+                _time.sleep(queue_intervals_s[attempt_idx])
+
             if not stage:
                 console.print(
-                    "  [yellow]↷[/] no deployment yet — CF may still be "
-                    "queuing the build. Re-run `lamill new deploy` in a few "
-                    "minutes, or check the CF dashboard."
+                    "  [yellow]↷[/] still no deployment after 90s wait — "
+                    "CF zone may still be `pending` (NS propagation 5-30 "
+                    "min on fresh domains). Re-run `lamill new deploy` "
+                    "after the zone activates, or check the CF dashboard."
                 )
             else:
                 console.print(
