@@ -186,7 +186,47 @@ at quarterly cleanup time.
 
 ## Locked target shapes
 
-Designs aligned but not yet executed. When picked up, no need to re-debate.
+Designs aligned and load-bearing. When picked up, no need to re-debate.
+**These are invariants** — changes here need a deliberate ADR-level decision, not a casual edit.
+
+### 🔒 `new deploy` idempotency invariant (ADR-0015, accepted 2026-05-23)
+
+**Every step in `_deploy_cf_unified` (cli.py) MUST be idempotent.**
+Re-running `lamill new deploy <domain>` on a fully or partially
+deployed domain MUST succeed cleanly without modifying state.
+
+If you're touching anything in the deploy pipeline:
+
+1. **Probe before act.** Every state-changing API call needs a
+   `get_X()` / `list_X()` / `status_X()` probe first; skip the
+   write when state already matches the target.
+2. **Catch "already exists" responses.** CF / GitHub / Porkbun /
+   Google APIs surface duplicates variously — HTTP 200 with flags,
+   HTTP 409, or provider-specific HTTP 400 + error codes (e.g.,
+   CF code 8000018 for "custom domain already added"). Each must
+   map to a success outcome (return `False` for "no change"), not
+   a raised exception.
+3. **Soft-fail non-load-bearing failures.** Auxiliary integrations
+   (GSC, analytics) should capture failure in a status field and
+   let the pipeline continue.
+4. **Default is quick + idempotent.** The pipeline does NOT block
+   waiting for external state to settle (NS propagation can take
+   minutes to hours). It reports `↷ <state>` and tells the operator
+   how to recover.
+5. **`--watch` is the only opt-in blocking flag.** Don't add other
+   wait-by-default behaviors.
+
+**Why this is load-bearing:** the pipeline runs against external
+state that settles over 5-30 min (NS propagation, CF build, SSL).
+Operator confirmed 2026-05-23 PM that quick + idempotent default is
+the right shape — re-running is cheap (idempotent steps skip),
+blocking the shell for half an hour to absorb propagation is the
+anti-pattern. The full reasoning is in
+[ADR-0015](decisions/0015-deploy-pipeline-must-remain-idempotent.md).
+
+**Self-check for any deploy-step change:** "If the operator re-runs
+this exact command immediately, does the second run succeed cleanly
+without modifying state?" If no, the change isn't ready.
 
 ### v7.A — CLI restructure to scope-first (`project` / `fleet`) + `settings` *(SHIPPED — superseded by v14)*
 

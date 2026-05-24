@@ -6107,16 +6107,52 @@ def _deploy_cf_unified(
 ) -> None:
     """v15.I — git-integrated CF deploy pipeline.
 
-    Pipeline (each step idempotent):
+    ========================================================================
+    INVARIANT — IDEMPOTENCY (ADR-0015, accepted 2026-05-23)
+    ========================================================================
+    EVERY step inside this function MUST be idempotent. Re-running
+    `lamill new deploy <domain>` on an already-deployed (or partially
+    deployed) domain MUST succeed cleanly without modifying state.
+
+    Concretely, every state-changing API call MUST be preceded by a
+    "probe-then-act" pattern (GET-then-POST, list-then-create,
+    status-equality-check-then-skip). "Already exists" responses from
+    CF / GitHub / Porkbun / Google (which surface as HTTP 200 with
+    flags, HTTP 409, or provider-specific HTTP 400 + error codes like
+    CF code 8000018) MUST be caught and mapped to a success outcome,
+    not raised.
+
+    Why this exists: the pipeline depends on external state that
+    settles over 5-30 min (NS propagation, CF build, SSL provisioning).
+    Quick + idempotent default beats always-wait — operator re-runs
+    when state has changed instead of locking the shell for half an
+    hour. `--watch` is the opt-in for single-command full-resolution
+    confirmation.
+
+    If you're about to add a new step, ADD A PROBE BEFORE THE WRITE.
+    If you're modifying an existing step, verify the "second run on
+    already-completed state" path still returns clean ✓ markers.
+
+    Full rationale: `docs/decisions/0015-deploy-pipeline-must-remain-idempotent.md`.
+    Operator-facing reminder: `docs/CLAUDE.md § Locked target shapes`.
+    ========================================================================
+
+    Pipeline (each step MUST be idempotent — see invariant above):
       1. Pre-flight (creds + project-dir clean + slug resolution)
       2. GH repo: get-or-create via REST API (or `gh` CLI fallback)
       3. Git push: ensure origin remote + push main if local ahead
+      3.5. Zone DNS:Edit pre-flight probe (v25.B)
       4. CF zone: resolve or create; surface NS records
       5. Registrar NS: Porkbun auto-push if mismatch (other registrars
          warn with target NS list)
-      6. CF Pages project: get-or-create with git source
-      7. CF Custom Domain: GET-then-POST attach if not in domains[]
-      8. Build poll + live probe
+      5.5. Purge conflicting parking DNS records (v15.R, workers only)
+      6. CF Pages/Workers project + custom domain attach (idempotent
+         via GET-then-POST + 400/8000018 "already added" handling)
+      7. Build poll (90s queue wait + 5min terminal poll)
+      8. Live HEAD probe
+      9. GSC verify + add + sitemap (FILE-first / DNS_TXT fallback)
+      --watch (optional): block polling until zone-active + build-success
+                          + live-200 or 30-min timeout. Opt-in only.
 
     Each step prints `✓ exists, skipping` / `✓ created` / `↷ skipped: ...`
     so the operator can see progress and what state pre-existed.

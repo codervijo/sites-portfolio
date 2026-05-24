@@ -254,7 +254,21 @@ Provider error surfaces follow `prd.md` v11 Design notes — resolution 11.H:
 - 5xx / rate-limit → per-row `error` field on affected domains;
   renders with `?` glyph.
 
-### Active deploy verb (v11.M-N — `new deploy <domain>`; v15.I unification per ADR-0012)
+### Active deploy verb (v11.M-N — `new deploy <domain>`; v15.I unification per ADR-0012; v25.B-D resilience; **idempotency invariant per ADR-0015**)
+
+> 🔒 **Idempotency invariant — ADR-0015 (accepted 2026-05-23).**
+> Every step inside `_deploy_cf_unified` MUST be idempotent. Re-running
+> `lamill new deploy <domain>` on an already-deployed (or partially
+> deployed) domain MUST succeed cleanly without modifying state.
+> Probe-before-act is mandatory for every state-changing API call;
+> "already exists" responses (HTTP 200 with flags, HTTP 409,
+> provider-specific HTTP 400 + error codes like CF 8000018) MUST be
+> caught as success, not raised. Default behavior is quick + idempotent;
+> `--watch` is the only opt-in blocking flag. See
+> `docs/decisions/0015-deploy-pipeline-must-remain-idempotent.md` for
+> the full rationale and `docs/CLAUDE.md § Locked target shapes` for
+> the self-check rule.
+
 
 `new deploy` is a polymorphic dispatcher in `cli.py::new_deploy` —
 reads `<sites/<domain>/lamill.toml>.deploy.platform` and routes to
