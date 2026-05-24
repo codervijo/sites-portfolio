@@ -611,6 +611,25 @@ def ensure_zone(domain: str, *,
             c.close()
 
 
+def get_zone(zone_id: str, *,
+             client: httpx.Client | None = None) -> ZoneInfo:
+    """Public wrapper around `_fetch_zone_record` for callers that
+    have a zone_id and want its current state (status, name_servers,
+    name). Used by the `--watch` deploy mode (v25 follow-up) to poll
+    for zone status transitions `pending → active`.
+
+    Returns ZoneInfo with `created=False`. Raises CloudflareAPIError
+    on non-200.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        return _fetch_zone_record(zone_id, client=c, created=False)
+    finally:
+        if own_client:
+            c.close()
+
+
 def _fetch_zone_record(zone_id: str, *, client: httpx.Client,
                        created: bool) -> ZoneInfo:
     resp = client.get(f"/zones/{zone_id}")

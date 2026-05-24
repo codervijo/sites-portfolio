@@ -5986,6 +5986,16 @@ def new_deploy(
         ),
     ),
     skip_gsc: bool = typer.Option(False, "--skip-gsc", help="Skip the v24.C GSC property auto-registration step (cf-pages/cf-workers only)"),
+    watch: bool = typer.Option(
+        False, "--watch",
+        help=(
+            "After Steps 1-9 complete, block polling until zone is "
+            "active + build success + live HEAD 200 (or 30 min "
+            "timeout). Useful for fresh-domain deploys when you want "
+            "single-command confirmation of full resolution. Ctrl-C "
+            "to cancel cleanly."
+        ),
+    ),
     apply: bool = typer.Option(False, "--apply", help="Required to actually push files for hostgator/custom (dry-run default per ADR-0011)."),
 ) -> None:
     """Deploy a sites/<domain>/ project. Dispatches by lamill.toml platform.
@@ -6041,6 +6051,7 @@ def new_deploy(
             skip_pages=skip_pages,
             skip_dns_purge=skip_dns_purge,
             skip_gsc=skip_gsc,
+            watch=watch,
         )
         return
 
@@ -6092,6 +6103,7 @@ def _deploy_cf_unified(
     skip_pages: bool,
     skip_dns_purge: bool = False,
     skip_gsc: bool = False,
+    watch: bool = False,
 ) -> None:
     """v15.I — git-integrated CF deploy pipeline.
 
@@ -6848,6 +6860,150 @@ def _deploy_cf_unified(
             f"[red]✗[/] GSC: {gsc_status[len('failed:'):]}"
         )
     console.print("")
+
+    # --- Optional: --watch — block polling until fully live ---------
+    if watch and not dry_run:
+        _deploy_watch_loop(
+            domain=domain,
+            zone_id=zone.zone_id,
+            slug=slug,
+            cf_account=cf_account,
+            cf_surface=cf_surface,
+        )
+
+
+def _deploy_watch_loop(
+    *, domain: str, zone_id: str, slug: str, cf_account: str,
+    cf_surface: str, timeout_s: int = 1800, interval_s: int = 20,
+    sleep: callable = None, monotonic: callable = None,
+) -> str:
+    """v25 follow-up — block polling until the deploy is fully live OR
+    the budget expires OR Ctrl-C. Polls three things every `interval_s`
+    seconds:
+
+      - CF zone status (`pending` → `active`)
+      - Latest deployment status on the Pages project
+      - Live HEAD probe on `https://<domain>/`
+
+    Returns one of:
+      - "live"      — all three green
+      - "timeout"   — budget exhausted, soft-skip with hint
+      - "build_failed"  — CF build returned `failure`; fail fast
+      - "cancelled" — operator pressed Ctrl-C
+
+    `sleep` and `monotonic` are injectable for tests.
+    """
+    import time as _time
+    import httpx as _httpx
+    from . import cloudflare
+
+    _sleep = sleep or _time.sleep
+    _mono = monotonic or _time.monotonic
+
+    start = _mono()
+    deadline = start + timeout_s
+    last_state: tuple[str, str, str] | None = None
+
+    console.print(
+        f"\n[bold]🔁 Watch[/] [cyan]{domain}[/] "
+        f"[dim](max {timeout_s // 60} min · Ctrl-C to cancel)[/]"
+    )
+
+    try:
+        while True:
+            elapsed = int(_mono() - start)
+            mm, ss = elapsed // 60, elapsed % 60
+
+            # Zone status probe.
+            try:
+                zone_info = cloudflare.get_zone(zone_id)
+                zone_status = zone_info.status
+            except cloudflare.CloudflareAPIError:
+                zone_status = "?"
+
+            # Build status probe (Pages only; Workers Services build
+            # status isn't on a public API yet).
+            if cf_surface == "workers":
+                build_status = "n/a"
+            else:
+                try:
+                    stage, _dep_id, raw_status = cloudflare.latest_deployment_status(
+                        slug, account_id=cf_account,
+                    )
+                    if not stage:
+                        build_status = "queued?"
+                    elif raw_status == "success":
+                        build_status = "success"
+                    elif raw_status == "failure":
+                        build_status = "failed"
+                    else:
+                        build_status = f"{stage[:8]}/{raw_status[:8]}"
+                except cloudflare.CloudflareAPIError:
+                    build_status = "?"
+
+            # Live HEAD probe.
+            try:
+                resp = _httpx.head(
+                    f"https://{domain}/",
+                    timeout=5.0, follow_redirects=True,
+                )
+                live_status = str(resp.status_code)
+            except _httpx.ConnectError:
+                live_status = "DNS"
+            except _httpx.HTTPError:
+                live_status = "?"
+
+            # Render state line only when something changed (avoid
+            # spamming identical rows when nothing's moving).
+            state = (zone_status, build_status, live_status)
+            if state != last_state:
+                console.print(
+                    f"  [dim][{mm:02d}:{ss:02d}][/] "
+                    f"zone=[cyan]{zone_status:<10}[/] "
+                    f"build=[cyan]{build_status:<14}[/] "
+                    f"live=[cyan]{live_status}[/]"
+                )
+                last_state = state
+
+            zone_ok = zone_status == "active"
+            build_ok = build_status in ("success", "n/a")
+            live_ok = live_status.startswith("2") or live_status.startswith("3")
+
+            if zone_ok and build_ok and live_ok:
+                console.print(
+                    f"\n[bold green]✓ {domain} fully live[/] "
+                    f"[dim](zone active · build success · "
+                    f"HTTP {live_status} · {elapsed}s)[/]"
+                )
+                return "live"
+
+            if build_status == "failed":
+                console.print(
+                    f"\n[bold red]✗ Build failed[/] for [cyan]{slug}[/] "
+                    f"— check CF dashboard for the build logs."
+                )
+                return "build_failed"
+
+            if _mono() >= deadline:
+                console.print(
+                    f"\n[yellow]↷[/] Watch timeout after "
+                    f"{timeout_s // 60} min. Still resolving: "
+                    f"zone={zone_status} build={build_status} "
+                    f"live={live_status}. Re-run "
+                    f"[cyan]lamill new deploy {domain} --yes --watch[/] "
+                    f"later or check the CF dashboard."
+                )
+                return "timeout"
+
+            _sleep(interval_s)
+    except KeyboardInterrupt:
+        console.print(
+            f"\n[yellow]↷[/] Watch cancelled by user "
+            f"(state at cancel: zone={last_state[0] if last_state else '?'} "
+            f"build={last_state[1] if last_state else '?'} "
+            f"live={last_state[2] if last_state else '?'})."
+        )
+        return "cancelled"
 
 
 def _step9_file_verify(domain, project_dir, gsc_admin) -> tuple[str, str]:
