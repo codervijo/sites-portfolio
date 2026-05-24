@@ -6746,6 +6746,41 @@ def _deploy_cf_unified(
         else:
             console.print(f"  [green]✓[/] {domain} already attached, skipping")
 
+    # --- Step 5.7: Trigger first build if project was just created ----------
+    # 2026-05-23 fix — CF's POST /pages/projects (Step 5 above when
+    # `created=True`) doesn't auto-trigger the first build the way the
+    # dashboard's "Connect to Git → Save and Deploy" wizard does. Without
+    # this explicit trigger, fresh-domain deploys end up with a project
+    # that's connected to git but has zero deployments — Step 7 polls
+    # forever and the watch loop times out. Idempotency: only triggers
+    # when `project.created=True` (just created this run). Re-runs
+    # against an existing project don't re-trigger; CF's git webhook
+    # handles subsequent commits.
+    _project_obj = locals().get("project")
+    if (not skip_pages and not dry_run and cf_surface == "pages"
+            and _project_obj is not None
+            and getattr(_project_obj, "created", False)):
+        console.print(
+            f"\n[bold]5.7 Trigger first build[/] "
+            f"[dim](new Pages project needs explicit kick — "
+            f"CF API doesn't auto-build on creation)[/]"
+        )
+        try:
+            dep_id = cloudflare.trigger_pages_deployment(
+                slug, account_id=cf_account, branch="main",
+            )
+        except cloudflare.CloudflareAPIError as e:
+            console.print(
+                f"  [yellow]↷[/] auto-trigger failed (continuing — Step 7 "
+                f"will poll; operator can push a commit or click "
+                f"'Create deployment' in dashboard if no build appears): {e}"
+            )
+        else:
+            console.print(
+                f"  [green]✓[/] first build queued "
+                f"[dim](deployment id: {dep_id[:12]}…)[/]"
+            )
+
     # --- Step 7: Build poll --------------------------------------------------
     # v15.P — only polls the Pages API. For Workers Services, build
     # status lives on a different endpoint (Workers Builds API,

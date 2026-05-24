@@ -999,6 +999,53 @@ def attach_pages_custom_domain(
     return True
 
 
+def trigger_pages_deployment(
+    project_name: str, *,
+    account_id: str,
+    branch: str = "main",
+    client: httpx.Client | None = None,
+) -> str:
+    """v25 follow-up (2026-05-23) — explicitly trigger a CF Pages
+    deployment for `project_name` against `branch`.
+
+    Required because CF's `POST /pages/projects` (used in Step 5 to
+    create a project with a git source) does NOT auto-trigger the
+    first build the way the dashboard's "Connect to Git → Save and
+    Deploy" wizard does. Without this trigger, fresh-domain deploys
+    get a created-but-never-built project and Step 7 polls forever.
+
+    Returns the new deployment's id (string). Raises
+    CloudflareAPIError on non-2xx.
+
+    **Idempotency:** caller should only invoke this when the project
+    was just created (Step 5 returned PagesProject with `created=True`)
+    OR when an explicit re-trigger is wanted. Calling it repeatedly
+    against a project that already has queued builds is harmless but
+    adds to the queue.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.post(
+            f"/accounts/{account_id}/pages/projects/{project_name}/deployments",
+            json={"branch": branch},
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code not in (200, 201):
+        raise CloudflareAPIError(
+            f"POST /pages/projects/{project_name}/deployments → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"trigger_pages_deployment success=false: {body.get('errors')}"
+        )
+    return (body.get("result") or {}).get("id", "")
+
+
 def latest_deployment_status(
     project_name: str, *,
     account_id: str,

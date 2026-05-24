@@ -304,6 +304,49 @@ def test_attach_custom_domain_project_missing():
         )
 
 
+def test_trigger_pages_deployment_returns_deployment_id():
+    """v25 follow-up (2026-05-23) — explicit deployment trigger after
+    Pages-project creation. CF's POST /pages/projects (in Step 5)
+    doesn't auto-build the way the dashboard wizard does, so without
+    this trigger fresh deploys end up project-created-but-never-built."""
+    seen = []
+
+    def handler(req):
+        seen.append((req.method, req.url.path, req.content.decode() if req.content else ""))
+        assert req.method == "POST"
+        assert req.url.path.endswith("/pages/projects/myproj/deployments")
+        return httpx.Response(200, json={
+            "success": True,
+            "result": {"id": "dep_abc123", "stage": "queued"},
+        })
+
+    from portfolio.cloudflare import trigger_pages_deployment
+    client = _client_for(handler)
+    dep_id = trigger_pages_deployment(
+        "myproj", account_id="acct", branch="main", client=client,
+    )
+    assert dep_id == "dep_abc123"
+    assert len(seen) == 1
+    # Body should include branch.
+    import json as _json
+    assert _json.loads(seen[0][2]) == {"branch": "main"}
+
+
+def test_trigger_pages_deployment_raises_on_non_2xx():
+    def handler(req):
+        return httpx.Response(404, json={
+            "success": False,
+            "errors": [{"code": 1, "message": "project not found"}],
+        })
+
+    from portfolio.cloudflare import trigger_pages_deployment
+    client = _client_for(handler)
+    with pytest.raises(CloudflareAPIError, match="HTTP 404"):
+        trigger_pages_deployment(
+            "missing", account_id="acct", client=client,
+        )
+
+
 def test_attach_custom_domain_handles_400_code_8000018_as_already_added():
     """2026-05-23 — CF returns 400 + error code 8000018 ('You have
     already added this custom domain') when the domain was attached
