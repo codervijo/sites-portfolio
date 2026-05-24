@@ -3568,8 +3568,10 @@ def new_bootstrap(
                 )
             else:
                 hint = (
-                    "Verify the spelling, or pass --force to bootstrap "
-                    "anyway."
+                    "Run `lamill fleet sync --refresh` to pull the "
+                    "latest Porkbun list (most common case after a "
+                    "fresh purchase). If you're sure the domain is "
+                    "yours, pass --force to bootstrap anyway."
                 )
             console.print(
                 f"[yellow]⚠[/] '{domain}' is not in your owned-domains "

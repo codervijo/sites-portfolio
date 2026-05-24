@@ -224,10 +224,13 @@ def test_cli_bootstrap_unknown_no_close_match_exits(
     )
     assert result.exit_code == 2
     assert "not in your owned-domains inventory" in result.stdout
-    # Rich console may wrap "Verify the spelling" across lines — collapse
-    # all whitespace before substring match.
+    # Rich console may wrap the hint across lines — collapse
+    # all whitespace before substring match. Bootstrap should lead
+    # with the `fleet sync --refresh` recovery (most common case for
+    # fresh purchases) and surface --force as the secondary escape.
     flat = " ".join(result.stdout.split())
-    assert "Verify the spelling" in flat
+    assert "fleet sync --refresh" in flat
+    assert "--force" in flat
     assert not (sites_root / "totallyrandom.example").exists()
 
 
