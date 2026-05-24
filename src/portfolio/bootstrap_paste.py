@@ -88,18 +88,77 @@ def _normalize_header(text: str) -> str:
 def _match_header(normalized: str) -> str | None:
     """Map a normalized header to a canonical key, or return None.
 
+    2026-05-24 — extended to longest-alias-prefix matching so headers
+    like "registrar godaddy" (operator put the answer on the header
+    line) resolve to canonical key "registrar" with "godaddy" handled
+    as trailing content by the parser caller.
+
     Tries longest alias first so `ideal customer profile` beats
     `icp` when both might match a header that contains both.
     """
     # Exact match first (most aliases).
     if normalized in _HEADER_ALIASES:
         return _HEADER_ALIASES[normalized]
-    # Suffix/prefix permissive match: try each alias as a "starts with"
-    # or "equals after trimming a leading number-like prefix".
+    # Longest-alias-prefix match — handles "registrar godaddy" → "registrar"
+    # and "content marketing strategy" → "content_strategy". Operators
+    # often write the answer inline after the header.
     for alias in sorted(_HEADER_ALIASES, key=len, reverse=True):
-        if normalized == alias:
+        if normalized.startswith(alias + " "):
             return _HEADER_ALIASES[alias]
     return None
+
+
+def _matched_alias_for(normalized: str) -> str | None:
+    """Return the actual alias (key in _HEADER_ALIASES) that matches
+    `normalized`. Mirrors `_match_header` but returns the alias key
+    instead of the canonical value — used by the parser to figure out
+    how many words of the header were consumed by the alias match (the
+    rest becomes trailing content)."""
+    if normalized in _HEADER_ALIASES:
+        return normalized
+    for alias in sorted(_HEADER_ALIASES, key=len, reverse=True):
+        if normalized.startswith(alias + " "):
+            return alias
+    return None
+
+
+def _split_inline_section_starts(text: str) -> str:
+    """2026-05-24 — pre-process paste to insert a newline before any
+    numbered section header that appears mid-line (e.g. "Y8. Registrar"
+    where "Y" was the answer to prompt 7 and "8." starts prompt 8 with
+    no newline between).
+
+    Conservative: only splits when the header text after `\\d+\\.` matches
+    a known canonical alias (exact or longest-prefix). Avoids false
+    positives on content like "1. apples, 2. oranges" (numbers in
+    content, not section headers).
+    """
+    # Pattern: \d+\. <header words>, anywhere, requiring a non-whitespace
+    # character immediately before the digit (so we only catch inline
+    # cases — line-start patterns are already handled by the main parser).
+    # Header may end at trailing punctuation (`?!.,:;`) or newline/EOL —
+    # covers "Domain registered?" / "Goals:" / etc.
+    pattern = re.compile(
+        r"(?<=\S)(\d+)\.[ \t]+([A-Za-z][A-Za-z \t]*?)(?=[?!.,:;]|$|\n)",
+        re.MULTILINE,
+    )
+
+    out: list[str] = []
+    cursor = 0
+    for m in pattern.finditer(text):
+        header_text = m.group(2).strip()
+        normalized = _normalize_header(header_text)
+        if _match_header(normalized) is None:
+            continue
+        digit_start = m.start(1)
+        # Skip if cursor has already advanced past (overlapping matches)
+        if digit_start < cursor:
+            continue
+        out.append(text[cursor:digit_start])
+        out.append("\n")
+        cursor = digit_start
+    out.append(text[cursor:])
+    return "".join(out)
 
 
 def parse_multisection_paste(text: str) -> dict[str, str] | None:
@@ -126,6 +185,12 @@ def parse_multisection_paste(text: str) -> dict[str, str] | None:
     """
     if not text or not text.strip():
         return None
+
+    # 2026-05-24 — pre-process to insert newlines before any inline
+    # section-header patterns (e.g., "Y8. Registrar" with no newline
+    # between the Y answer and the next section). Only splits on
+    # known-alias matches; safe for content with stray digits.
+    text = _split_inline_section_starts(text)
 
     # Find all numbered headers and their byte spans.
     matches = list(_HEADER_RE.finditer(text))
@@ -154,6 +219,25 @@ def parse_multisection_paste(text: str) -> dict[str, str] | None:
         content_start = m.end()
         content_end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         content = text[content_start:content_end].strip()
+
+        # 2026-05-24 — if the header line had trailing content beyond
+        # the canonical alias (e.g., "8. Registrar GoDaddy" — operator
+        # put the answer on the same line as the section header), pull
+        # that trailing text into the section's content. Without this,
+        # the answer is silently lost and the operator gets re-prompted.
+        matched_alias = _matched_alias_for(normalized)
+        if matched_alias and normalized != matched_alias:
+            # Trailing words from the original header_text (not the
+            # normalized form — preserve operator's casing).
+            alias_word_count = len(matched_alias.split())
+            header_words = header_text.split()
+            if len(header_words) > alias_word_count:
+                trailing = " ".join(header_words[alias_word_count:]).strip()
+                if trailing:
+                    content = (
+                        trailing if not content else f"{trailing}\n{content}"
+                    )
+
         # If we've already captured this key (operator pasted two
         # `Summary` sections), prefer the first non-empty one — drop
         # the duplicate silently.
