@@ -6866,45 +6866,53 @@ def _deploy_cf_unified(
         except cloudflare.CloudflareAPIError as e:
             console.print(f"  [yellow]↷[/] build poll error: {e}")
 
-    # --- Step 8: Live probe --------------------------------------------------
-    console.print(f"\n[bold]8. Live probe[/] [dim](https://{domain}/)[/]")
-    if dry_run:
-        console.print("  [dim]would: GET https://<domain>/[/]")
+    # --- Optional watch: with --watch, block here until deploy is fully ----
+    # --- live BEFORE running Steps 8 (live probe) + 9 (GSC) so they only ---
+    # --- execute on a confirmed-live deploy. Without --watch, Steps 8 + 9 -
+    # --- run immediately and any DNS-not-yet-propagated state surfaces as -
+    # --- ↷ (operator re-runs idempotently after settlement — ADR-0015). --
+    if watch and not dry_run:
+        watch_result = _deploy_watch_loop(
+            domain=domain, zone_id=zone.zone_id, slug=slug,
+            cf_account=cf_account, cf_surface=cf_surface,
+        )
     else:
-        try:
-            import httpx
-            r = httpx.get(
-                f"https://{domain}/",
-                timeout=5.0, follow_redirects=True,
-            )
-            if 200 <= r.status_code < 400:
-                console.print(
-                    f"  [green]✓[/] {r.status_code} {r.reason_phrase} "
-                    f"[dim]({len(r.text)} bytes)[/]"
-                )
-            else:
-                console.print(
-                    f"  [yellow]↷[/] {r.status_code} {r.reason_phrase} — "
-                    "may indicate NS propagation in flight or SSL not yet "
-                    "provisioned. Re-probe in 5-30 min."
-                )
-        except httpx.HTTPError as e:
-            console.print(
-                f"  [yellow]↷[/] live probe failed: {type(e).__name__}: {e} — "
-                "expected within ~30min of NS update (DNS propagation + "
-                "edge SSL provisioning)."
-            )
+        watch_result = None  # not in watch mode → run 8/9 unconditionally
 
-    # --- Step 9: GSC property + sitemap (v24.C) -------------------------------
-    # Per v24.A: register `sc-domain:<domain>` with GSC and submit the
-    # site's sitemap. Three sub-calls (verify → add → submit) wrapped in
-    # one block with idempotency probes at each stage. Soft-fail
-    # semantics: any failure here doesn't abort the deploy — GSC is a
-    # nice-to-have, not a load-bearing prerequisite for live traffic.
-    gsc_status, gsc_detail = _deploy_step9_gsc(
-        domain=domain, zone=zone, project_dir=project_dir,
-        dry_run=dry_run, skip_gsc=skip_gsc,
-    )
+    # --- Step 8: Live probe --------------------------------------------------
+    # Skip when watch ran but didn't reach "live" — Step 8 would just fail
+    # the same way. Operator can re-run when ready (idempotent per ADR-0015).
+    if watch_result is not None and watch_result != "live":
+        console.print(
+            f"\n[bold]8. Live probe[/] [dim](https://{domain}/)[/]"
+        )
+        console.print(
+            f"  [yellow]↷[/] skipped — watch returned [cyan]{watch_result}[/] "
+            f"(not 'live'). Re-run [cyan]lamill new deploy {domain} --yes[/] "
+            f"once the deploy resolves to exercise this step."
+        )
+    else:
+        _deploy_step8_live_probe(domain=domain, dry_run=dry_run)
+
+    # --- Step 9: GSC property + sitemap (v24.C / v25.C) -----------------------
+    # Step 9 depends on the file/TXT being reachable to Google's fetcher,
+    # so on a fresh deploy where DNS hasn't propagated it'll fail. With
+    # --watch (after watch_result == "live"), DNS IS resolved and Step 9
+    # can verify successfully. Without --watch, runs anyway; soft-fail
+    # behavior preserved (deploy continues even if Step 9 reports issues).
+    if watch_result is not None and watch_result != "live":
+        console.print(f"\n[bold]9. GSC property + sitemap[/] [dim]({domain})[/]")
+        console.print(
+            f"  [yellow]↷[/] skipped — watch returned [cyan]{watch_result}[/] "
+            f"(not 'live'). GSC verification needs the deploy reachable; "
+            f"re-run once live."
+        )
+        gsc_status, gsc_detail = (f"skipped:watch_{watch_result}", "")
+    else:
+        gsc_status, gsc_detail = _deploy_step9_gsc(
+            domain=domain, zone=zone, project_dir=project_dir,
+            dry_run=dry_run, skip_gsc=skip_gsc,
+        )
 
     console.print(
         f"\n[green]Deploy complete.[/] [dim]All 9 steps ran. "
@@ -6930,16 +6938,46 @@ def _deploy_cf_unified(
         console.print(
             f"[red]✗[/] GSC: {gsc_status[len('failed:'):]}"
         )
+    elif gsc_status.startswith("skipped:watch_"):
+        # Watch returned non-live → Steps 8+9 were skipped. Renderer
+        # was already handled by the inline "skipped — watch returned X"
+        # message above; nothing additional to add here.
+        pass
     console.print("")
 
-    # --- Optional: --watch — block polling until fully live ---------
-    if watch and not dry_run:
-        _deploy_watch_loop(
-            domain=domain,
-            zone_id=zone.zone_id,
-            slug=slug,
-            cf_account=cf_account,
-            cf_surface=cf_surface,
+
+def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> None:
+    """v15.I — single HTTP HEAD probe of `https://<domain>/`. Soft-warns
+    on non-2xx or connection error (expected on fresh deploys where DNS
+    / SSL hasn't fully propagated). Extracted from inline Step 8 code
+    2026-05-23 PM to enable `--watch`-mode reordering (run after watch
+    confirms live, not before)."""
+    console.print(f"\n[bold]8. Live probe[/] [dim](https://{domain}/)[/]")
+    if dry_run:
+        console.print("  [dim]would: GET https://<domain>/[/]")
+        return
+    try:
+        import httpx
+        r = httpx.get(
+            f"https://{domain}/",
+            timeout=5.0, follow_redirects=True,
+        )
+        if 200 <= r.status_code < 400:
+            console.print(
+                f"  [green]✓[/] {r.status_code} {r.reason_phrase} "
+                f"[dim]({len(r.text)} bytes)[/]"
+            )
+        else:
+            console.print(
+                f"  [yellow]↷[/] {r.status_code} {r.reason_phrase} — "
+                "may indicate NS propagation in flight or SSL not yet "
+                "provisioned. Re-probe in 5-30 min."
+            )
+    except httpx.HTTPError as e:
+        console.print(
+            f"  [yellow]↷[/] live probe failed: {type(e).__name__}: {e} — "
+            "expected within ~30min of NS update (DNS propagation + "
+            "edge SSL provisioning)."
         )
 
 
