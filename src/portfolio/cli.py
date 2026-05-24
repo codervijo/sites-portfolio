@@ -2002,11 +2002,60 @@ def _resolve_topic_arg(topic: str, *, non_interactive: bool) -> str:
         "[dim]No topic provided. Examples:[/] "
         "[cyan]'AI vacuum diagnostics'[/], [cyan]'home pSEO'[/], [cyan]'cheap car repair'[/]"
     )
-    topic = typer.prompt("Topic").strip()
+    # 2026-05-24 — multi-line capable so pasted product descriptions don't
+    # leak the rest of the paste into the shell as command-not-found
+    # noise after typer.prompt's single-line read returns. Empty line
+    # submits; pasted bullets are stripped + concatenated to a single
+    # phrase the cluster-expansion LLM can handle.
+    topic = _prompt_topic_multiline()
     if not topic:
         console.print("[red]Topic cannot be empty.[/]")
         raise typer.Exit(2)
     return topic
+
+
+def _prompt_topic_multiline() -> str:
+    """Read a topic from stdin, supporting both single-line and pasted
+    multi-line input. Terminates on an empty line.
+
+    Why this exists: `typer.prompt()` reads exactly one line. When the
+    operator pastes a multi-line product brief, only line 1 lands in
+    the prompt and the remaining lines end up in the shell as commands
+    ("Digital: command not found", etc.). Reading until an empty line
+    consumes the whole paste before control returns to the shell.
+
+    Single-line case still works: type the topic, press Enter (which
+    yields an empty next-line submit).
+
+    Pasted lines are stripped of common bullet prefixes (`- `, `* `,
+    `• `) and concatenated with `. ` separators into a phrase suitable
+    for the cluster-expansion LLM.
+    """
+    console.print(
+        "[bold]Topic[/] "
+        "[dim](type or paste; finish with an empty line — Enter on a "
+        "blank line submits)[/]: ",
+        end="",
+    )
+    raw_lines: list[str] = []
+    bullet_prefixes = ("- ", "* ", "• ", "·  ", "·")
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if not line.strip():
+            if raw_lines:
+                break
+            # Empty line before any content — keep waiting.
+            continue
+        stripped = line.strip()
+        for prefix in bullet_prefixes:
+            if stripped.startswith(prefix):
+                stripped = stripped[len(prefix):].lstrip()
+                break
+        raw_lines.append(stripped)
+    return ". ".join(raw_lines)
 
 
 def parse_pick_input(s: str, n_rows: int, columns: list[str]) -> tuple[int | None, str | None, str | None]:

@@ -32,10 +32,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -277,9 +278,26 @@ def _openai_api_key() -> str:
     return key
 
 
-def call_openai(system: str, user: str, *, api_key: str) -> str:
+# 2026-05-24 — retry-with-backoff for transient OpenAI errors. Operator
+# hit a bare HTTP 500 mid-`lamill new validate` which surfaced as a hard
+# failure (cluster expansion failed) instead of a self-recovering blip.
+# Pattern mirrors the v25.B-era retry approach (sequential intervals,
+# explicit budget). 5xx and 429 are transient; 4xx (other) is permanent.
+_OPENAI_RETRY_INTERVALS_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
+_OPENAI_RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+
+
+def call_openai(system: str, user: str, *, api_key: str,
+                _sleep: Callable[[float], None] = time.sleep) -> str:
     """Single API call with temperature=0 for determinism. Returns raw
-    response text (expected to be a JSON object). Caller validates."""
+    response text (expected to be a JSON object). Caller validates.
+
+    2026-05-24 — retries transient failures (HTTP 429 / 5xx, network
+    errors) with exponential backoff (~15s total budget). Permanent
+    failures (HTTP 4xx other than 429) raise immediately.
+
+    `_sleep` is injectable for tests so the backoff loop runs instantly.
+    """
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -292,11 +310,35 @@ def call_openai(system: str, user: str, *, api_key: str) -> str:
         ],
         "temperature": 0,
     }
-    try:
-        r = requests.post(OPENAI_URL, headers=headers, json=body, timeout=OPENAI_TIMEOUT)
-    except requests.RequestException as e:
-        raise ResearchError(f"OpenAI request failed: {type(e).__name__}: {e}") from e
-    if r.status_code != 200:
+
+    last_error: str | None = None
+    attempts = len(_OPENAI_RETRY_INTERVALS_S) + 1
+    for attempt_idx in range(attempts):
+        try:
+            r = requests.post(OPENAI_URL, headers=headers, json=body,
+                              timeout=OPENAI_TIMEOUT)
+        except requests.RequestException as e:
+            last_error = f"network error: {type(e).__name__}: {e}"
+            if attempt_idx == attempts - 1:
+                raise ResearchError(
+                    f"OpenAI request failed after {attempts} attempts: "
+                    f"{last_error}"
+                ) from e
+            _sleep(_OPENAI_RETRY_INTERVALS_S[attempt_idx])
+            continue
+
+        if r.status_code == 200:
+            break
+        if r.status_code in _OPENAI_RETRYABLE_STATUSES:
+            last_error = f"HTTP {r.status_code}: {r.text[:200]}"
+            if attempt_idx == attempts - 1:
+                raise ResearchError(
+                    f"OpenAI transient failure after {attempts} attempts: "
+                    f"{last_error}"
+                )
+            _sleep(_OPENAI_RETRY_INTERVALS_S[attempt_idx])
+            continue
+        # Permanent error (4xx other than 429) — don't retry.
         raise ResearchError(
             f"OpenAI HTTP {r.status_code}: {r.text[:200]}"
         )
