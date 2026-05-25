@@ -255,6 +255,148 @@ def test_parser_unknown_section_headers_skipped():
     assert result["summary"] == "S content."
 
 
+# ---------- positional fallback — 2026-05-25 bug fix ----------
+
+
+# Operator's earnlog.xyz paste — the LLM answered each of the 9
+# numbered prompts by reprinting just the digit before the answer
+# (no header label). Pre-fix this fell through the parser and the
+# entire blob landed in the Summary field; post-fix the digits are
+# interpreted positionally against `_POSITIONAL_ORDER`.
+POSITIONAL_PASTE = """\
+2. Earnlog is a mobile-first earnings intelligence platform for California rideshare and delivery drivers navigating the new collective bargaining rights created by AB 1340. It aggregates earnings across Uber, Lyft, and DoorDash into a single dashboard, calculates real effective hourly wages after expenses and dead time, tracks platform rate changes, and provides plain-language guidance on AB 1340 rights and PERB filing.
+
+3. Full-time and part-time rideshare and delivery drivers in California who want to understand their real earnings and exercise their new collective bargaining rights under AB 1340.
+
+4. A full-time Uber or Lyft driver in California doing 35+ hours per week across two or more platforms. Suspects they are earning less than they think after expenses. Active in driver Facebook groups or Telegram channels.
+
+5. Become the default earnings tracking app for California gig workers under the AB 1340 framework, and build the only anonymized earnings dataset granular enough to give union reps real leverage at the bargaining table.
+
+6. Landing page targeting rideshare earnings tracker California and AB 1340 driver rights app. Blog: real effective wage breakdowns by city and platform, AB 1340 plain-language explainers, PERB filing guides.
+
+7. Y
+
+8. porkbun
+
+9. Eight hundred thousand California rideshare drivers have a brand new legal right and no app built around it. The distribution channel already exists — driver Facebook groups, Telegram channels, and subreddits are highly active communities where a tool that shows real hourly wages spreads on its own because the number is always lower than drivers expect.
+"""
+
+
+def test_parser_positional_paste_maps_digits_to_prompt_order():
+    """Operator's LLM uses `2. <answer> / 3. <answer> / ...` instead of
+    `2. Summary\\n<content>`. Each digit maps to the canonical key at
+    that position in the 9-prompt order."""
+    result = parse_multisection_paste(POSITIONAL_PASTE)
+    assert result is not None
+    assert set(result.keys()) == {
+        "summary", "audience", "icp", "goals", "content_strategy",
+        "domain_registered", "registrar", "growth_hypothesis",
+    }
+    assert result["summary"].startswith("Earnlog is a mobile-first")
+    assert result["audience"].startswith(
+        "Full-time and part-time rideshare"
+    )
+    assert result["icp"].startswith("A full-time Uber or Lyft driver")
+    assert result["goals"].startswith(
+        "Become the default earnings tracking app"
+    )
+    assert result["content_strategy"].startswith("Landing page targeting")
+    assert result["domain_registered"] == "Y"
+    assert result["registrar"] == "porkbun"
+    assert result["growth_hypothesis"].startswith(
+        "Eight hundred thousand California rideshare drivers"
+    )
+
+
+def test_parser_positional_paste_with_lovable_repo_section_one():
+    """Positional paste that also covers section 1 (Lovable repo URL)
+    routes #1 to `lovable_repo`."""
+    text = (
+        "1. https://github.com/operator/earnlog\n"
+        "\n"
+        "2. Earnlog is a mobile-first earnings intelligence platform.\n"
+        "\n"
+        "3. California rideshare drivers.\n"
+        "\n"
+        "4. A full-time Uber or Lyft driver in California.\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    assert result["lovable_repo"] == "https://github.com/operator/earnlog"
+    assert result["summary"].startswith("Earnlog is a mobile-first")
+    assert result["audience"] == "California rideshare drivers."
+    assert result["icp"].startswith("A full-time Uber or Lyft driver")
+
+
+def test_parser_positional_threshold_three_returns_none():
+    """3 sequentially-numbered blocks alone don't trip the positional
+    fallback — guards against false positives on recipe-style prose
+    like "1. flour 2. eggs 3. bake at 350"."""
+    text = (
+        "1. mix the flour with two cups of water until smooth.\n"
+        "\n"
+        "2. add three eggs and whisk for 30 seconds.\n"
+        "\n"
+        "3. bake at 350 degrees for 25 minutes.\n"
+    )
+    # Header-based parse: none of these match canonical aliases.
+    # Positional fallback: only 3 sections, below the ≥4 threshold.
+    assert parse_multisection_paste(text) is None
+
+
+def test_parser_positional_out_of_range_digit_falls_through():
+    """Digits outside 1-9 (e.g. 10, 11, 12) don't fit the prompt-order
+    mapping → positional fallback rejects and the parse returns None."""
+    text = (
+        "10. first item\n"
+        "\n"
+        "11. second item\n"
+        "\n"
+        "12. third item\n"
+        "\n"
+        "13. fourth item\n"
+    )
+    assert parse_multisection_paste(text) is None
+
+
+def test_parser_positional_duplicate_digits_falls_through():
+    """Duplicate digits (e.g. two `2.` lines) are not a positional
+    prompt-order paste — the fallback rejects."""
+    text = (
+        "2. first thing\n"
+        "\n"
+        "2. duplicate digit\n"
+        "\n"
+        "3. third thing\n"
+        "\n"
+        "4. fourth thing\n"
+    )
+    assert parse_multisection_paste(text) is None
+
+
+def test_parser_positional_paste_does_not_interfere_with_labeled_paste():
+    """Header-based paste (labels present) still goes through the
+    header path — the positional fallback only fires when header-based
+    yields <3 canonical sections."""
+    text = (
+        "2. Summary\n"
+        "Real summary content.\n"
+        "\n"
+        "3. Audience\n"
+        "Real audience content.\n"
+        "\n"
+        "4. Goals\n"
+        "Real goals content.\n"
+    )
+    result = parse_multisection_paste(text)
+    assert result is not None
+    # Header-based parse produced these — the section content does
+    # NOT include the header label "Summary" / "Audience" / "Goals".
+    assert result["summary"] == "Real summary content."
+    assert result["audience"] == "Real audience content."
+    assert result["goals"] == "Real goals content."
+
+
 def test_parser_single_line_answers_still_parse():
     """A paste with only single-line content per section (no
     paragraphs) still parses if ≥3 section headers are present."""

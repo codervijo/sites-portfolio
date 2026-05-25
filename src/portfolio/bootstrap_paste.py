@@ -66,6 +66,37 @@ CANONICAL_LABELS: dict[str, str] = {
 }
 
 
+# 2026-05-25 — Positional fallback: when the operator's LLM omits the
+# header label and uses the digit alone to reference the 9-prompt
+# order, map the digit to its canonical key. The order mirrors the
+# numbered prompt list the operator sees at the top of `new bootstrap`:
+#   1. Lovable GitHub repo URL
+#   2. Summary
+#   3. Audience
+#   4. ICP
+#   5. Goals
+#   6. Content strategy
+#   7. Domain registered?
+#   8. Registrar
+#   9. Growth hypothesis
+_POSITIONAL_ORDER: dict[int, str] = {
+    1: "lovable_repo",
+    2: "summary",
+    3: "audience",
+    4: "icp",
+    5: "goals",
+    6: "content_strategy",
+    7: "domain_registered",
+    8: "registrar",
+    9: "growth_hypothesis",
+}
+# Threshold for the positional fallback. Higher than the header-based
+# threshold (3) to reduce false positives on stray numbered lists in
+# prose (e.g. "1. apples 2. oranges 3. pears"). The realistic paste
+# shape covers most or all of #2-9, so ≥4 is a comfortable floor.
+_POSITIONAL_MIN_SECTIONS = 4
+
+
 # Match a numbered section header line, e.g. `2. Summary` or
 # `9. Growth hypothesis`. Captures (number, header_text).
 # Allows trailing punctuation on the header (e.g. `7. Domain registered?`).
@@ -247,7 +278,83 @@ def parse_multisection_paste(text: str) -> dict[str, str] | None:
 
     # Threshold: ≥3 canonical sections must have content (or at least
     # be recognized as headers). Count keys that landed in the dict.
-    if len(sections) < 3:
+    if len(sections) >= 3:
+        return sections
+
+    # 2026-05-25 — Positional fallback. Operator's LLM may answer the 9
+    # numbered prompts by reprinting just the digit + answer (no header
+    # label), e.g. `2. <summary content>` / `3. <audience content>`.
+    # If header-based parsing yielded fewer than 3 canonical sections,
+    # try interpreting the digits positionally against the prompt
+    # order. Requires ≥4 sequentially-numbered blocks with unique
+    # digits in 1-9 to avoid false-positives on incidental numbered
+    # lists in single-section prose.
+    positional = _try_positional_paste(text, matches)
+    if positional is not None:
+        return positional
+
+    return None
+
+
+def _try_positional_paste(
+    text: str, matches: list[re.Match],
+) -> dict[str, str] | None:
+    """Map ``\\d+. <content>`` blocks to canonical keys by digit alone.
+
+    Fallback path for the case where the operator's LLM omits the
+    header label and uses the digit alone to reference the prompt
+    order (see `_POSITIONAL_ORDER` for the 1-9 → key mapping).
+
+    Returns a canonical-key → content dict when:
+      - at least `_POSITIONAL_MIN_SECTIONS` numbered blocks exist;
+      - all digits are unique and within 1-9 (no out-of-range refs);
+      - the resulting dict has at least `_POSITIONAL_MIN_SECTIONS` keys.
+
+    Otherwise returns None — caller falls back to single-section
+    behavior (entire paste lands in the original prompt's slot).
+
+    For each block, the section content is the whole text from just
+    after the digit/dot to the next block's digit (or EOF). Both the
+    label-line text *and* any following lines belong to the section
+    body (the digit is the only "header" in this paste shape).
+    """
+    if len(matches) < _POSITIONAL_MIN_SECTIONS:
+        return None
+
+    digits: list[int] = []
+    for m in matches:
+        try:
+            n = int(m.group(1))
+        except ValueError:
+            return None
+        if n < 1 or n > 9:
+            return None
+        digits.append(n)
+    if len(set(digits)) != len(digits):
+        # Duplicate numbers — not a positional prompt-order paste.
+        return None
+
+    sections: dict[str, str] = {}
+    for i, m in enumerate(matches):
+        key = _POSITIONAL_ORDER.get(digits[i])
+        if key is None:
+            continue
+        # Header text becomes part of the content — the digit was the
+        # only "header" here. Preserve operator's casing + punctuation.
+        header_text = m.group(2).rstrip()
+        body_start = m.end()
+        body_end = (
+            matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        )
+        body = text[body_start:body_end].strip()
+        if header_text and body:
+            content = f"{header_text}\n{body}"
+        else:
+            content = header_text or body
+        if content:
+            sections[key] = content
+
+    if len(sections) < _POSITIONAL_MIN_SECTIONS:
         return None
 
     return sections
