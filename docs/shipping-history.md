@@ -24,6 +24,63 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v26.A-B — fleetwide canonical-redirect conformance — shipped 2026-05-25
+
+### Problem
+
+homeloom.app's apex returned a 307 (temporary) redirect to www. GSC's URL Inspection refused to index either variant — Google holds signal-transfer indefinitely on temporary redirects, so the apex stayed uncanonicalized AND the www target inherited no rank. The homepage was non-indexable until the redirect type flipped.
+
+The shape was structurally likely to recur as the fleet grows: Vercel and other PaaS providers expose apex/www and 307/308 as separate dashboard controls with operator-friendly-but-SEO-suboptimal defaults. A fleetwide audit (see `docs/bugs.md` 2026-05-25 entry) confirmed 29 of 35 probed sites were non-conforming on the same axis — making this a fleetwide check candidate, not a per-site fix.
+
+### Design rationale
+
+**Why apex as canonical (vs www).** Three reasons aligned with the existing fleet shape and SEO best practices:
+
+  1. **Matches the existing fleet default.** CF Pages and CF Workers serve the apex natively; most sites already land on apex.
+  2. **HSTS preload requires apex.** Future preload-list submission can't be done meaningfully with a www-canonical site.
+  3. **Single canonical = single signal pool.** Apex consolidates onto the shorter / cleaner share URL; Google treats apex vs www identically for ranking, so the marketing axis breaks the tie.
+
+**Why 308 specifically (vs 301).** Both 301 and 308 are permanent redirects; Google treats them identically for SEO signal transfer. The check accepts BOTH as pass. Refusing 307/302 is the actual gate — those are temporary and hold signals back.
+
+**Why scope-narrow (no HSTS / trailing-slash / canonical-tag check).** v26 covers ONE network-behavior axis (redirect-chain status codes + targets). Folding in HSTS preload status or trailing-slash policy would overload one check ID; separate checks at separate IDs are cleaner to audit, fix, and report on independently.
+
+**Why warn-then-fail (not fail from day one).** Per the global `feedback_quick_idempotent_default_over_blocking_waits.md` posture and the v25 dropaudit.co lesson: a new failing check that flips the fleet dashboard red overnight is operator-hostile, even when the finding is legitimate. The warn cycle gives the operator one soak window to audit, plan fixes per affected domain, and ship them calmly. Promoting to `fail` in v26.C is a one-line change once the fleet is clean.
+
+**Why httpx (not requests as the v26.A spec said).** Inspection during v26.B revealed `seo/_live.py` already uses `httpx` for its runtime SEO probes. Aligning CHECK_150 on the same library was free; switching to `requests` would have introduced a second HTTP client dependency for zero gain. v26.A's mention of `requests` is preserved as an authored-as-spec quirk rather than retconned.
+
+### Decisions locked in v26.A
+
+  - (a) Canonical = apex (the bare domain); www-as-canonical is non-conformant.
+  - (b) Required redirect type = 308 OR 301; 307/302 fail.
+  - (c) HTTP→HTTPS is in scope of the same check.
+  - (d) Trailing-slash policy is OUT of scope (separate check, separate future tier).
+  - (e) HSTS preload is OUT of scope.
+  - (f) www NXDOMAIN = pass (no www = no possibility of split-canonical).
+  - (g) Severity ramp: ship at `warn` for the soak cycle (v26.B); promote to `fail` in v26.C after offenders are fixed.
+  - (h) Check ID = 150 (next available; previous high was CHECK_149).
+  - (i) Category = `seo/` (runs as part of `fleet seo` / `project seo`).
+  - (j) No ADR required — the convention itself goes in `docs/CLAUDE.md § Locked target shapes` after v26.C lands.
+
+### Conformance checks added
+
+  - `CHECK_150` (`seo` / `apex-canonical-redirect`, severity `warn`) — three HEAD probes per domain (`https://<apex>/`, `https://www.<apex>/`, `http://<apex>/`), classifies the redirect chain against the v26.A rules. ~3 HEAD requests per repo; flaky-network resilient (apex unreachable → `warn` skip; www unreachable → pass-as-no-www).
+
+### Tests
+
+  - `tests/test_check_150_apex_canonical_redirect.py` — 15 cases, `httpx.MockTransport`-stubbed. Covers every bucket from the 2026-05-25 audit (Bucket A homeloom.app pattern, Bucket B 308-wrong-direction, Bucket C split + no-HTTPS, Bucket D HTTP-200, Bucket E unreachable) plus the skip paths (archived sites, non-domain dirs, metadata-constants sanity).
+
+### Per-phase commits
+
+  - `v26 — canonical-redirect spec + audit baseline (29/35 fail)` — 705896e
+  - `v26.B — ship CHECK_150 at warn severity` — TBD
+
+### Open follow-ups (not gated on this tier)
+
+  - v26.C — fleetwide audit + fix offenders + promote `CHECK_150` to `fail`. Bucket A (5 Vercel sites) is the highest-leverage operator action; deferred to operator-pace dashboard work.
+  - Once v26.C lands, add the apex-canonical + 308-permanent invariant to `docs/CLAUDE.md § Locked target shapes`.
+
+---
+
 ## v16 — GSC fleet-level intelligence (v16.A-D) — shipped 2026-05-20
 
 ### Problem
