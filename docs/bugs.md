@@ -66,6 +66,157 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-05-25 — `project seo` renders pending sitemap re-fetches as `✗ ERROR` (red) when they should be `↷ PENDING` (yellow)
+
+**Repro**
+
+Submit a sitemap to GSC; before Google finishes processing the new fetch (`isPending: true`, no `lastDownloaded` timestamp yet), run:
+
+```
+$ lamill project seo boxchive.com --refresh
+...
+  GSC diagnostics
+    📋 Sitemaps (1 submitted)
+      ✗ ERROR    https://boxchive.com/sitemap.xml 1 error(s)
+```
+
+The raw GSC Sitemaps API response shows:
+
+```json
+{
+  "path": "https://boxchive.com/sitemap.xml",
+  "lastSubmitted": "2026-05-26T00:19:14.441Z",
+  "isPending": true,
+  "isSitemapsIndex": false,
+  "warnings": "0",
+  "errors": "1"
+}
+```
+
+**Expected**
+
+When `isPending: true`, lamill renders a distinct in-progress status (e.g., `↷ PENDING` yellow) and notes that the error count is from a previous fetch:
+
+```
+      ↷ PENDING  https://boxchive.com/sitemap.xml submitted 1h ago · errors (1) from prior fetch, will update on next download
+```
+
+**Actual**
+
+Renders `✗ ERROR` red — operator reads it as "your sitemap is broken right now," which prompts wasted investigation. The actual situation is "Google's still processing; the error count is stale and may drop to 0 when the next fetch completes."
+
+**Where (guess)**
+
+`src/portfolio/project_seo_diagnostics.py:_sitemap_status()` cascade. Currently it's `error > warn > pending > ok` — but with `errors > 0 AND isPending: true`, the operator's mental model is closer to `pending > error` (the pending state invalidates the trust in the error count). Reorder so `is_pending=True` short-circuits to `pending` regardless of stale error count, OR introduce a new `pending_with_stale_errors` state and render it distinctly.
+
+Also need to pass `isPending` through the SitemapDetail dataclass — current shape captures errors/warnings but discards `isPending`. Adjust `fetch_sitemap_details()` to set `is_pending`, and propagate to the renderer.
+
+**Severity** — `minor`. Operator can read past it once they know the pattern, but the misclassification cost real investigation time on boxchive.com 2026-05-25 (operator had to ask "what is the sitemap parse error?" and we had to query the raw API to discover `isPending: true` was the actual story).
+
+**Notes**
+
+- Closely related: GSC's Sitemaps API doesn't include the textual error reason in the response — even when `isPending` is false, the operator can't see *what* the error was without going to the dashboard. Separate diagnostic gap (could fold into the same fix: when errors > 0 AND not pending, surface "open GSC → Sitemaps → click for textual reason"; today that hint is implicit via the generic `💡 Hints` text).
+- This bug + the `lamill project sitemap resubmit <domain>` feature request below + the existing 2026-05-25 dup-rendering bug below are three improvements to the same diagnostic surface — could bundle as a single small phase if/when they're addressed together.
+
+
+### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
+
+**Motivation**
+
+When GSC's sitemap fetch errors out (transiently: stale edge cache, sitemap not yet deployed, deploy raced submission), the operator's recovery path today is one of:
+
+1. Open the GSC dashboard → Sitemaps → click the failing entry → Remove → resubmit.
+2. Drop into a Python REPL and call `service.sitemaps().submit(siteUrl=..., feedpath=...)` directly.
+
+Both are friction. The first requires leaving the terminal; the second requires knowing the API and importing the lamill GSC service module by hand.
+
+**Proposed shape**
+
+```
+$ lamill project sitemap resubmit boxchive.com
+  ✓ submitted https://boxchive.com/sitemap.xml to sc-domain:boxchive.com
+  ↷ Google will re-fetch within ~24h. Re-run `project seo --refresh` to check.
+```
+
+Optional flags:
+  - `--feedpath <url>` — override the sitemap URL (default: read from `robots.txt` Sitemap: line, fall back to `https://<domain>/sitemap.xml`).
+  - `--property <sc-domain:X | https://X/>` — override the GSC property (default: auto-pick the registered property for this domain).
+
+Underlying call: `service.sitemaps().submit(siteUrl=property_url, feedpath=feedpath).execute()`. Returns empty body on success; HTTP 4xx maps to typed errors (no GSC write scope → `re-auth` hint; sitemap not reachable → `404 — check robots.txt + sitemap URL` hint).
+
+**Where**
+
+New verb under `project sitemap` namespace (parallel to `project seo` / `project check` / `project fix`). Implementation in `src/portfolio/cli.py` + a thin wrapper helper in `src/portfolio/gsc.py`.
+
+**Severity** — `minor` (feature, not bug). Lower priority than the rendering-bug above; mostly an ergonomics win for sites where the sitemap error is transient.
+
+**Notes**
+
+- The GSC OAuth scope is already `webmasters` (write) per v24.B — submission already works; just no CLI surface today.
+- Could fold into the same phase as the rendering-bug fix (both touch GSC sitemap diagnostics).
+- If the rendering-bug fix lands first, the typical operator workflow becomes: `project seo` shows PENDING → wait or resubmit. If the pending state takes too long, this verb is the resolution. Natural pairing.
+
+
+### 2026-05-25 — `project seo` sitemap line renders `"N error(s)  ·  N error(s)"` (duplicate count from two render paths)
+
+**Repro**
+
+```
+$ lamill project seo boxchive.com --refresh
+...
+  GSC diagnostics
+    Property: sc-domain:boxchive.com
+    📋 Sitemaps (1 submitted)
+      ✗ ERROR    https://boxchive.com/sitemap.xml 1 error(s)  ·  1 error(s)
+```
+
+**Expected**
+
+The error count appears once in the tail-bits, e.g.:
+
+```
+      ✗ ERROR    https://boxchive.com/sitemap.xml 1 error(s)
+```
+
+Or, when the API returns enough detail, the more informative `error_summary` form:
+
+```
+      ✗ ERROR    https://boxchive.com/sitemap.xml 1 error(s) across 1 URL(s)
+```
+
+But never both.
+
+**Actual**
+
+`"1 error(s)  ·  1 error(s)"` — the count is rendered twice, separated by ` · `.
+
+**Where**
+
+`src/portfolio/cli.py:5500-5507` (the `📋 Sitemaps` per-row tail-bits builder). The current code unconditionally appends two strings that both convey the error count:
+
+```python
+if errs:
+    tail_bits.append(f"{errs} error(s)")        # ← first append
+if warns:
+    tail_bits.append(f"{warns} warning(s)")
+if last_dl:
+    tail_bits.append(f"fetched {_human_age_from_iso(last_dl)}")
+if summary:
+    tail_bits.append(summary)                   # ← second append (same text)
+```
+
+`summary` comes from `project_seo_diagnostics._summarize_error()`, which returns either `"N error(s)"` (when GSC didn't include `contents`) or `"N error(s) across M URL(s)"` (when it did). In both branches, the text starts with the same `"N error(s)"` as the first append → visible duplication.
+
+**Severity** — `cosmetic`. Operator can read past it; no functional impact on the diagnostic decision.
+
+**Notes**
+
+- Fix: remove the `if errs:` branch (lines 5500-5501). `error_summary` already conveys the count more informatively — preserves the "across M URL(s)" variant when GSC provides it.
+- The warnings branch (`if warns:`) stays — there's no `_summarize_warning()` counterpart.
+- Separate-but-adjacent gap (NOT this bug — log later if it bites): the GSC Sitemaps list API doesn't include the textual error reason ("Couldn't fetch", "Parse error", etc.). The diagnostic could call URL Inspection on the sitemap URL to surface the actual cause; today it just says "N error(s)" with a generic hint. Feature, not bug.
+- Real boxchive.com sitemap.xml is valid (manually `curl`-checked 2026-05-25 — 200, valid XML, single URL). The GSC error is likely a stale snapshot from before the deploy completed; resubmitting the sitemap in GSC should clear it. Not in scope of this bug entry.
+
+
 ### 2026-05-25 — fleetwide canonical-redirect audit (v26.A scoping baseline) — 29 of 35 probed sites non-conforming
 
 **Trigger**

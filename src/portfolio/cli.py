@@ -5497,8 +5497,6 @@ def _render_project_seo_diagnostics(diag, console) -> None:
                 f"      [{color}]{glyph} {status:<8}[/] [bold]{path:<32}[/] "
             )
             tail_bits: list[str] = []
-            if errs:
-                tail_bits.append(f"{errs} error(s)")
             if warns:
                 tail_bits.append(f"{warns} warning(s)")
             if last_dl:

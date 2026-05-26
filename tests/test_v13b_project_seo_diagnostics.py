@@ -446,6 +446,54 @@ def test_render_diagnostics_full(monkeypatch):
     assert "expand content" in out
 
 
+def test_render_sitemap_error_count_not_duplicated(monkeypatch):
+    """Regression — 2026-05-25 bugs.md entry. Before the fix, the
+    sitemap row rendered the error count twice: once from the `if
+    errs:` branch and once embedded in `error_summary`, producing
+    `"1 error(s)  ·  1 error(s)"`. After the fix the `if errs:`
+    branch is dropped — `error_summary` is the sole source."""
+    cap = _capturing_console()
+    diag = ProjectSeoDiagnostics(
+        domain="boxchive.com",
+        property_url="https://boxchive.com/",
+        not_registered=False,
+        sitemaps=[
+            SitemapDetail(path="/sitemap.xml", full_url="…",
+                          status="ERROR", errors=1, warnings=0,
+                          error_summary="1 error(s)"),
+        ],
+        coverage=[],
+        hints=[],
+        fetched_at="2026-05-25T00:30:00+00:00",
+    )
+    cli_mod._render_project_seo_diagnostics(diag, cap)
+    out = cap.file.getvalue()
+    # "1 error(s)" must appear exactly once on the sitemap row.
+    assert out.count("1 error(s)") == 1, out
+    # The duplicate-with-bullet shape must not appear.
+    assert "1 error(s)  ·  1 error(s)" not in out
+    # The "across N URL(s)" variant — when present — also appears once.
+    diag2 = ProjectSeoDiagnostics(
+        domain="other.example",
+        property_url="https://other.example/",
+        not_registered=False,
+        sitemaps=[
+            SitemapDetail(path="/sitemap.xml", full_url="…",
+                          status="ERROR", errors=3, warnings=0,
+                          error_summary="3 error(s) across 7 URL(s)"),
+        ],
+        coverage=[],
+        hints=[],
+        fetched_at="2026-05-25T00:30:00+00:00",
+    )
+    cap2 = _capturing_console()
+    cli_mod._render_project_seo_diagnostics(diag2, cap2)
+    out2 = cap2.file.getvalue()
+    assert "3 error(s) across 7 URL(s)" in out2
+    # The bare "3 error(s)" should not appear standalone — only inside the summary.
+    assert out2.count("3 error(s)") == 1
+
+
 def test_render_diagnostics_not_registered(monkeypatch):
     """not_registered=True path — single line + registration hint,
     no sitemap / coverage blocks."""
