@@ -76,9 +76,11 @@ uv run portfolio new bootstrap <domain>
     is read-only on the local FS. **Remote-host writes** (v11.N's
     UAPI deploy to cPanel) are a separate category governed by
     ADR-0011 — they don't touch sibling project dirs.
-  - **`portfolio` repo is excluded from `check --git`** by default
-    (`[git] ignore_repos = ["portfolio"]`) — it's a Python CLI tool, not
-    a website, so the SEO/stack checks would all skip and create noise.
+  - **`portfolio` + `rankmill` repos are excluded from `check --git`** by
+    default (`[git] ignore_repos = ["portfolio", "rankmill"]`) — they're
+    sibling Python CLI tools, not websites, so the SEO/stack checks would
+    all skip and create noise. Same dirs also live in
+    `fleet_repos._NON_PROJECT_NAMES` so `fleet repos` doesn't audit them.
   - **Five canonical doc surfaces** (all must match reality + code
     per `docs/prd.md § Spec discipline`):
     - `docs/prd.md` — WHY / WHAT / WHEN (purpose, problem, target

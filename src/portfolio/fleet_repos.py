@@ -54,9 +54,11 @@ from pathlib import Path
 from .project import SITES_ROOT
 
 
-# Directories under sites/ that aren't actual projects.
+# Directories under sites/ that aren't actual website projects. lamill
+# (`portfolio`) and rankmill are sibling Python-CLI tools that happen to live
+# under sites/ — they have no domain, no deploy, no SEO surface.
 _NON_PROJECT_NAMES = frozenset({
-    "portfolio", "node_modules", "harmonia", "tarball", "levents",
+    "portfolio", "rankmill", "node_modules", "harmonia", "tarball", "levents",
     "__pycache__",
 })
 
