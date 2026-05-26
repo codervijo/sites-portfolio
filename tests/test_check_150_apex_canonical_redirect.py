@@ -259,3 +259,233 @@ def test_metadata_constants():
     assert mod.CATEGORY == "seo"
     assert mod.SEVERITY == "warn"
     assert "apex" in mod.DESCRIPTION.lower()
+
+
+# ============================================================================
+# v26.C — fix_tier_1 dispatch + Cloudflare fixer
+# ============================================================================
+
+
+def _write_lamill_toml(project_dir, platform: str) -> None:
+    """Drop a minimal lamill.toml declaring `[deploy].platform`.
+
+    `hostgator` and `custom` require a `[hosting]` section per the
+    lamill_toml schema — the helper adds an empty one so the parser
+    accepts the file."""
+    body = f'[deploy]\nplatform = "{platform}"\n'
+    if platform in ("hostgator", "custom"):
+        body += '\n[hosting]\n'
+    (project_dir / "lamill.toml").write_text(body)
+
+
+def test_fix_dispatch_no_lamill_toml_returns_manual(tmp_path):
+    """Missing lamill.toml → can't dispatch; surface manual + hint."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "manual"
+    assert "lamill.toml" in result.summary
+
+
+def test_fix_dispatch_non_domain_dir_skips(tmp_path):
+    """Dir name not a domain (e.g. `portfolio/`) → nothing-to-do."""
+    site = tmp_path / "not-a-domain"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "nothing-to-do"
+    assert "not a domain-shaped dir" in result.summary
+
+
+def test_fix_dispatch_vercel_returns_manual_with_hint(tmp_path):
+    """Vercel platform → manual + v26.D pointer."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "manual"
+    assert "v26.D" in result.summary
+    assert "Primary" in result.summary
+
+
+def test_fix_dispatch_netlify_returns_manual_with_hint(tmp_path):
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "netlify")
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "manual"
+    assert "v26.E" in result.summary
+
+
+def test_fix_dispatch_hostgator_returns_manual_with_hint(tmp_path):
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "hostgator")
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "manual"
+    assert ".htaccess" in result.summary
+
+
+# ---------- CF branch: nothing-to-do / would-fix / fixed / error paths ----------
+
+
+def _stub_cloudflare(monkeypatch, *,
+                     zone_id="ZONE123",
+                     current_setting="off",
+                     patch_raises=None,
+                     post_write_http_status=308):
+    """Patch the cloudflare.* calls + the post-write http probe to
+    cover one CF branch scenario per test."""
+    import portfolio.cloudflare as cf
+
+    monkeypatch.setattr(cf, "resolve_zone_id",
+                        lambda d, client=None: zone_id)
+    monkeypatch.setattr(cf, "get_zone_setting",
+                        lambda zid, sid, client=None: current_setting)
+
+    def fake_set(zid, sid, val, client=None):
+        if patch_raises is not None:
+            raise patch_raises
+        return None
+    monkeypatch.setattr(cf, "set_zone_setting", fake_set)
+
+    monkeypatch.setattr(mod, "_http_status",
+                        lambda domain: post_write_http_status)
+
+
+def test_fix_cf_already_on_returns_nothing_to_do(tmp_path, monkeypatch):
+    """always_use_https already 'on' → no API write; skip silently."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, current_setting="on")
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "nothing-to-do"
+    assert "already on" in result.summary
+
+
+def test_fix_cf_dry_run_returns_would_fix(tmp_path, monkeypatch):
+    """Off + dry-run → would-fix with current value annotated; no write."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    # If set_zone_setting is called in dry-run mode, the test fails loud.
+    import portfolio.cloudflare as cf
+    monkeypatch.setattr(cf, "set_zone_setting",
+                        lambda *a, **k: pytest.fail("set fired in dry-run!"))
+    monkeypatch.setattr(cf, "resolve_zone_id", lambda d, client=None: "Z")
+    monkeypatch.setattr(cf, "get_zone_setting",
+                        lambda z, s, client=None: "off")
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "would-fix"
+    assert "would set always_use_https" in result.summary
+
+
+def test_fix_cf_apply_and_verify_returns_fixed(tmp_path, monkeypatch):
+    """Off + apply + post-write probe shows 308 → fixed."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, post_write_http_status=308)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert "now returns 308" in result.summary
+
+
+def test_fix_cf_workers_uses_same_branch(tmp_path, monkeypatch):
+    """cf-workers takes the same branch as cf-pages (same toggle)."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-workers")
+    _stub_cloudflare(monkeypatch, post_write_http_status=301)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert "now returns 301" in result.summary
+
+
+def test_fix_cf_apply_post_write_still_200_returns_error(tmp_path, monkeypatch):
+    """Toggle PATCH succeeded but http still 200 → surface error so the
+    operator can investigate (Page Rule conflict / propagation lag)."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, post_write_http_status=200)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "error"
+    assert "still returns 200" in result.summary
+    assert "Page Rules" in result.summary
+
+
+def test_fix_cf_post_write_probe_unreachable_still_marks_fixed(tmp_path, monkeypatch):
+    """Toggle PATCH succeeded but the post-write probe couldn't reach
+    the host (None) — the API write itself succeeded; mark fixed but
+    annotate that the operator should verify manually."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, post_write_http_status=None)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert "verify manually" in result.summary
+
+
+def test_fix_cf_api_patch_error_returns_error_with_hint(tmp_path, monkeypatch):
+    """PATCH 403 (token lacks Zone Settings:Edit) → error + token hint."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    import portfolio.cloudflare as cf
+    _stub_cloudflare(monkeypatch,
+                     patch_raises=cf.CloudflareAPIError("HTTP 403: forbidden"))
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "error"
+    assert "PATCH always_use_https failed" in result.summary
+    assert "Zone Settings:Edit" in result.summary
+
+
+def test_fix_cf_missing_credentials_returns_actionable_error(tmp_path, monkeypatch):
+    """CF token unset → error with `settings apikeys set` hint."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    import portfolio.cloudflare as cf
+    def raise_missing(d, client=None):
+        raise cf.MissingCredentialsError("CF_API_TOKEN not set")
+    monkeypatch.setattr(cf, "resolve_zone_id", raise_missing)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "error"
+    assert "CF_API_TOKEN" in result.summary
+    assert "settings apikeys set" in result.summary
+
+
+def test_fix_cf_zone_resolution_api_error_returns_error(tmp_path, monkeypatch):
+    """`resolve_zone_id` raises CloudflareAPIError → error + diagnose hint."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    import portfolio.cloudflare as cf
+    def raise_api(d, client=None):
+        raise cf.CloudflareAPIError("zone not in account")
+    monkeypatch.setattr(cf, "resolve_zone_id", raise_api)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "error"
+    assert "resolve zone failed" in result.summary
+    assert "check-token" in result.summary
+
+
+def test_fix_tier_1_metadata():
+    """The FixerSpec attaches correctly + the registry can discover it."""
+    assert mod.fix_tier_1.tier == 1
+    assert "https" in mod.fix_tier_1.summary.lower()
+    assert callable(mod.fix_tier_1.apply)
+
+
+def test_fix_tier_1_registered_under_check_150():
+    """Once discovered by the fix_registry, the fixer's `check_id`
+    should be CHECK_150 (the registry rewrites it from the module's
+    CHECK_ID at discovery time)."""
+    from portfolio import fix_registry
+    fix_registry.reset_cache()
+    spec = fix_registry.get_tier_1("CHECK_150")
+    assert spec is not None
+    assert spec.check_id == "CHECK_150"

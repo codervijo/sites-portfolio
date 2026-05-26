@@ -1097,7 +1097,10 @@ a fresh chance to land in the same hole.
 |---|---|---|
 | v26.A | ✅ | **Kickoff planning.** Lock decisions before implementation: (a) **Canonical is apex** for the entire fleet — bare domain (`<domain>`) is the 200 endpoint; matches CF Pages/Workers defaults (most of fleet) + HSTS-preload requirements + cleaner share URLs. www-as-canonical is non-conformant. (b) **Required redirect type is 308 or 301** (permanent); 307 / 302 fail the check — Google holds signal-transfer indefinitely on temporary redirects. (c) **HTTP→HTTPS** is in scope of the same check (`http://<apex>/` must 308→ `https://<apex>/`); folds naturally into the redirect-chain probe. (d) **Trailing-slash policy** is OUT of scope — `<link rel="canonical">` (CHECK_072) + framework defaults handle that orthogonally; a separate check can land later if GSC flags duplicates. (e) **HSTS preload** is OUT of scope — separate concern, lower-priority, separate check. (f) **www DNS absent is PASS** — sites without a www DNS record at all (CF Pages default) satisfy the rule trivially; no www → no possibility of split-canonical. (g) **Severity ramp**: ship as `warn` for one soak cycle (lets operator audit fleet without dashboard going red overnight), promote to `fail` in v26.C after offenders are fixed. (h) **Check ID = 150** (next available; current high is CHECK_149). (i) **Category = `seo/`** (runs as part of `fleet seo` / `project seo`). (j) **No ADR required** — implementation is a checklist of network behaviors, not a load-bearing architectural decision; the convention itself goes in `docs/CLAUDE.md § Locked target shapes` (light, not ADR-weight). |
 | v26.B | ✅ | **Ship `CHECK_150_apex_canonical_redirect.py` at `warn` severity.** Probe sequence per domain: (1) `HEAD https://<apex>/` — must be 200 (else `fail`: "apex isn't the canonical endpoint"). (2) `HEAD https://www.<apex>/` — must be 308/301 → `https://<apex>/` (else `fail`: "www is a second canonical" OR "redirect is temporary — 308 needed"); DNS NXDOMAIN on www is `pass` (no www = no split). (3) `HEAD http://<apex>/` — must be 308/301 → `https://<apex>/` (else `fail`: "HTTP→HTTPS not permanent"). Each step ends with one `✓ ✗ ↷` marker (per global output discipline). Severity = `warn` for the soak cycle. ~3 HEAD requests × ~22 domains ≈ 5s under existing probe budget. Reuses the `requests`-session pattern from `seo/_live.py`. Add `tests/test_check_150_apex_canonical_redirect.py` covering: apex-200 + www-308 (pass), apex-307 (fail), apex-200 + www-307 (fail — temp redirect), apex-200 + www-200 (fail — split canonical), apex-200 + www-NXDOMAIN (pass — no www), HTTP-302 (fail), `requests` exception (warn: "could not reach domain"), archived sites (skipped — same posture as CHECK_042). |
-| v26.C | ☐ | **Fleetwide audit + promote to `fail`.** Run `fleet seo --refresh` after v26.B ships; surface every non-conforming domain (expecting homeloom.app + likely 1-2 others). For each: identify the platform (Vercel / CF / HG), apply the fix path (Vercel: flip primary domain to apex in dashboard; CF Pages: remove the www route or add a 308 redirect rule), re-probe with `project seo --refresh`, log results in `docs/bugs.md` per-domain entries. Once the fleet is clean, promote CHECK_150 from `warn` to `fail` (severity bump in the same file, one-line change). Update `docs/CLAUDE.md § Locked target shapes` with the apex-canonical + 308-permanent invariant so future bootstraps inherit it (cross-link to CHECK_150). |
+| v26.C | ✅ | **`fix_tier_1` dispatch + Cloudflare fixer.** Add `fix_tier_1: FixerSpec` to `check_150_apex_canonical_redirect.py` (mirrors v6 fixer pattern; check-fix pairing). Dispatcher reads `lamill.toml [deploy].platform` and routes to per-platform helpers. **First helper: CF Pages + CF Workers** — toggles `always_use_https` setting via the existing `cloudflare.py` client (`PATCH /zones/{zone_id}/settings/always_use_https`). Covers 7 of 19 offenders (6 cf-pages + 1 cf-workers). Dry-run by default; `--apply` commits (matches CHECK_057 fixer posture). Returns `FixResult(status="fixed", summary="always_use_https → on")` on success; `error` with the specific 4xx/5xx body on API failure. Verification: re-runs the http-probe portion of `run()` after the toggle to confirm `http=200` → `http=308`. |
+| v26.D | ☐ | **Vercel fixer.** New `vercel.py` module (parallel to `cloudflare.py`) wrapping the Vercel REST API. New `VERCEL_API_TOKEN` slot in `settings apikeys` with the same atomic-write + connectivity-probe pattern. Per-site fix: locate the project ID by domain (`GET /v9/projects?search=<domain>`); set apex as primary (`POST /v10/projects/{id}/domains/<apex>`); configure www→apex 308 redirect (`PATCH /v9/projects/{id}/domains/www.<apex>` with `redirect=<apex>` + `redirectStatusCode=308`). Covers 10 of 19 offenders (homeloom.app, keralavotemap.site, linkedcsi.live, washcalc.app, civictools.app, lamill.io, iotbastion.com, whizgraphs.com — plus Bucket E broken sites iotnews.today + lamillrentals.com once their underlying issues are resolved). Dry-run default; verification re-probes apex + www after the changes. |
+| v26.E | ☐ | **Netlify + HostGator fixers.** Netlify: 1 site (calcengine.site). Either new `netlify.py` module wrapping the Netlify API (`PATCH /api/v1/sites/{id}` for primary-domain config) OR fold into v26.D as "non-CF redirect fixer" if the API shape is similar enough. HostGator: 1 site (streamsgalaxy.com). Reuses existing v11.N UAPI integration to push an `.htaccess` patch (force-HTTPS + 301 www→apex block). Pattern preserves for the 4 no-local-repo HG-shaped sites if their fleet entries get wired up later. Dry-run default. |
+| v26.F | ☐ | **Fleetwide audit + promote to `fail` + lock invariant.** Once v26.C/D/E ship: re-run the fleetwide CHECK_150 probe (already exists as `_classify` in the check module — can wrap as a one-off bulk runner). Expect the count to drop from `29 fail / 6 pass` toward fleet-clean. For any remaining offenders (Bucket E broken sites, no-local-repo entries): log per-site in `docs/bugs.md` with platform + reason. Once the fleet is clean (or every remaining offender has a justified exemption logged), promote CHECK_150 from `warn` to `fail` (one-line `SEVERITY` change). Update `docs/CLAUDE.md § Locked target shapes` with the apex-canonical + 308-permanent invariant + cross-link to CHECK_150 so future bootstraps inherit it. |
 
 #### Design notes
 
@@ -1153,6 +1156,47 @@ change and locks in the invariant.
     Primary Domain to apex automatically (only relevant if/when
     the fleet starts bootstrapping more Vercel-hosted sites; most
     are CF, where the default is already correct).
+
+**Why fix lives in v26 (not a separate v27 tier).** The fixer is the
+mirror-image of the check — same canonical-redirect axis, just the
+write-side. Splitting detect and remediate across tiers fragments the
+abstraction; whoever picks up the work would have to cross-reference
+two tiers' docs to understand the full pipeline. The v6 catalog's
+established pattern is `check_NNN_*.py` declares `fix_tier_1` at
+module level; v26 inherits that pattern without ceremony.
+
+**Why dispatch on `[deploy].platform` (vs probe + infer).** lamill
+already owns the canonical platform record via `lamill.toml`. Probing
+HTTP headers (`server: Vercel`) is heuristic — the 2026-05-25 audit
+proved how easily a single pattern (307 apex→www) maps to multiple
+platforms with different defaults (Vercel + Netlify both produce it).
+Reading the declared platform is one TOML load per fix; cheaper +
+more reliable than probe-and-classify.
+
+**Why ship per-platform fixers in distinct phases (v26.C/D/E split).**
+Each platform's API surface is non-trivial enough that mixing two in
+one phase muddies testing + commit shape. CF is the easy win (existing
+`cloudflare.py` + token; ~one API call); Vercel needs a new module +
+token slot + the `settings apikeys` extension. Bundling them would
+force the simpler half to wait on the harder half's design decisions.
+Each phase ships independent value: v26.C covers 7/19, v26.D covers
+10/19, v26.E covers 2/19. v26.F is the gate.
+
+**Why `--apply` (not auto-apply) by default.** Mirrors lamill's
+existing `project fix` posture (CHECK_012, CHECK_057, etc.). Operator
+runs `lamill project fix <domain> --apply --yes` once they're ready;
+default dry-run prints the diff without committing. Matches the
+global `feedback_quick_idempotent_default_over_blocking_waits.md`
+posture — re-running a dry-run costs nothing; an accidental write
+is unrecoverable.
+
+**Why Bucket E (broken sites) ships separately from v26.F.** Bucket E
+domains (apex=500, TLS broken, CONNREFUSED) need site-level liveness
+fixes that have nothing to do with the redirect chain. v26.F doesn't
+wait on them; the operator can log exemptions in `docs/bugs.md`
+("`iotnews.today` — apex 500, site offline; v26 doesn't apply until
+the site is live again") and the promote-to-fail proceeds without
+those domains.
 
 ## 8. Open questions
 

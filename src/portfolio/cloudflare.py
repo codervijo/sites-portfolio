@@ -265,6 +265,67 @@ def purge_files(zone_id: str, urls: list[str], *,
 
 
 # ============================================================================
+# v26.C — zone-settings helpers (CHECK_150 apex-canonical-redirect fixer)
+# ============================================================================
+
+def get_zone_setting(zone_id: str, setting_id: str, *,
+                     client: httpx.Client | None = None) -> str:
+    """Read a single zone setting (e.g. `always_use_https`).
+
+    Returns the setting's `value` field as a string (`"on"` / `"off"`
+    for boolean-shaped toggles; longer strings for SSL mode / minify
+    settings). Raises `CloudflareAPIError` on non-200 or `success=false`.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.get(f"/zones/{zone_id}/settings/{setting_id}")
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET settings/{setting_id} → HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"settings/{setting_id} returned success=false: {body.get('errors')}"
+        )
+    return str(body.get("result", {}).get("value", ""))
+
+
+def set_zone_setting(zone_id: str, setting_id: str, value: str, *,
+                     client: httpx.Client | None = None) -> None:
+    """PATCH a single zone setting (e.g. `always_use_https` → `"on"`).
+
+    Idempotent on CF's side — re-setting to the same value succeeds
+    with no state change. Raises `CloudflareAPIError` on non-200 or
+    `success=false`. Returns None on success (caller can re-read via
+    `get_zone_setting` to verify).
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.patch(
+            f"/zones/{zone_id}/settings/{setting_id}",
+            json={"value": value},
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"PATCH settings/{setting_id} → HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"settings/{setting_id} write returned success=false: {body.get('errors')}"
+        )
+
+
+# ============================================================================
 # v15.I — git-integrated Pages deploy pipeline (ADR-0012)
 # ============================================================================
 #

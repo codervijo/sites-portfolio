@@ -28,6 +28,7 @@ from pathlib import Path
 
 import httpx
 
+from ...fix_helpers import FixerSpec, FixResult
 from ..result import CheckResult
 
 CHECK_ID = "CHECK_150"
@@ -184,3 +185,212 @@ def _probe(client: httpx.Client, url: str) -> _Probe:
 def _short(s: str, limit: int = 60) -> str:
     """Truncate a URL for the message line."""
     return s if len(s) <= limit else s[: limit - 1] + "…"
+
+
+# ============================================================================
+# v26.C — fix_tier_1 — apex-canonical-redirect fixer
+# ============================================================================
+#
+# Mirror-image of the check. Dispatches on the project's
+# `lamill.toml [deploy].platform` field and routes to a per-platform
+# helper. v26.C ships the Cloudflare branch (cf-pages + cf-workers);
+# Vercel ships in v26.D, Netlify/HostGator in v26.E.
+#
+# CF branch covers 7 of the 19 fleet offenders identified in the
+# 2026-05-25 audit — every cf-pages/cf-workers site whose HTTP variant
+# returns 200 instead of redirecting to HTTPS. The root cause for those
+# sites is the per-zone "Always Use HTTPS" toggle being OFF. The fixer
+# turns it ON.
+#
+# Dry-run by default; --apply commits. Mirrors CHECK_057's CF-API fixer
+# posture: probe → decide → write (when --apply) → verify by re-probing.
+
+
+def _load_platform(project_dir: Path) -> str | None:
+    """Read `[deploy].platform` from `<project_dir>/lamill.toml`.
+    Returns None when the file is absent or unparseable — caller maps
+    to a `manual` FixResult with an actionable hint."""
+    try:
+        from ...lamill_toml import load as _lamill_load
+        toml = _lamill_load(project_dir)
+    except Exception:
+        return None
+    if toml is None:
+        return None
+    return toml.deploy.platform
+
+
+def _http_status(domain: str) -> int | None:
+    """One HEAD probe against http://<domain>/. Used post-apply to
+    verify the toggle actually changed the upstream behavior."""
+    try:
+        with httpx.Client(timeout=_TIMEOUT, headers={"User-Agent": _UA}) as c:
+            r = c.head(f"http://{domain}/", follow_redirects=False)
+            return r.status_code
+    except httpx.RequestError:
+        return None
+
+
+def _apply_cf_always_use_https(
+    domain: str, *, dry_run: bool,
+) -> FixResult:
+    """Turn on the CF zone-level `always_use_https` toggle for `domain`.
+
+    Probes the current value first; skips with `nothing-to-do` if
+    already on. On --apply, PATCHes the setting and re-probes
+    `http://<domain>/` to verify the upgrade now returns a 308/301.
+    """
+    from ... import cloudflare
+
+    try:
+        zone_id = cloudflare.resolve_zone_id(domain)
+    except cloudflare.MissingCredentialsError as e:
+        return FixResult(
+            status="error",
+            summary=f"CF token missing: {e}\n"
+                    "  Set via `lamill settings apikeys set CF_API_TOKEN ...`.",
+            files_touched=[],
+        )
+    except cloudflare.CloudflareAPIError as e:
+        return FixResult(
+            status="error",
+            summary=f"resolve zone failed: {e}\n"
+                    "  Diagnose: `lamill settings cloudflare check-token`.",
+            files_touched=[],
+        )
+
+    try:
+        current = cloudflare.get_zone_setting(zone_id, "always_use_https")
+    except cloudflare.CloudflareAPIError as e:
+        return FixResult(
+            status="error",
+            summary=f"read always_use_https failed: {e}",
+            files_touched=[],
+        )
+    if current == "on":
+        return FixResult(
+            status="nothing-to-do",
+            summary=f"always_use_https already on (zone {zone_id[:8]}…)",
+            files_touched=[],
+        )
+
+    if dry_run:
+        return FixResult(
+            status="would-fix",
+            summary=f"would set always_use_https → on (current: {current!r}, "
+                    f"zone {zone_id[:8]}…)",
+            files_touched=[],
+        )
+
+    try:
+        cloudflare.set_zone_setting(zone_id, "always_use_https", "on")
+    except cloudflare.CloudflareAPIError as e:
+        return FixResult(
+            status="error",
+            summary=f"PATCH always_use_https failed: {e}\n"
+                    "  Verify with `lamill settings cloudflare check-token` — "
+                    "the token likely lacks Zone Settings:Edit for this zone.",
+            files_touched=[],
+        )
+
+    # Verify: re-probe http://<domain>/. CF flips the upgrade behavior
+    # within seconds of the API write — no propagation lag like DNS.
+    after = _http_status(domain)
+    if after is None:
+        return FixResult(
+            status="fixed",
+            summary=f"set always_use_https → on (post-write http probe "
+                    f"failed; verify manually with `curl -sI http://{domain}/`)",
+            files_touched=[],
+        )
+    if after in _PERMANENT_REDIRECTS:
+        return FixResult(
+            status="fixed",
+            summary=f"set always_use_https → on; http://{domain}/ now "
+                    f"returns {after}",
+            files_touched=[],
+        )
+    # Setting was written but http still 200 — surface as warn-shape error
+    # so the operator can investigate (CF might cache the old behavior
+    # briefly, or a Page Rule could be overriding the setting).
+    return FixResult(
+        status="error",
+        summary=f"set always_use_https → on, but http://{domain}/ still "
+                f"returns {after}. Check for conflicting Page Rules or "
+                "wait ~30s and re-probe.",
+        files_touched=[],
+    )
+
+
+# Manual-fix hints per platform — surfaced when the fixer dispatcher
+# can't run an automated fix for this platform (v26.D/E land later).
+_MANUAL_HINTS: dict[str, str] = {
+    "vercel": (
+        "Vercel fixer ships in v26.D. Manual path: Project Settings → "
+        "Domains → set apex as Primary; mark www as 'Redirect to' apex "
+        "(Vercel defaults to 308)."
+    ),
+    "netlify": (
+        "Netlify fixer ships in v26.E. Manual path: Site settings → "
+        "Domain management → set apex as Primary; configure www→apex "
+        "redirect."
+    ),
+    "hostgator": (
+        "HostGator fixer ships in v26.E. Manual path: edit `.htaccess` "
+        "in public_html to force HTTPS + 301 www→apex."
+    ),
+    "github-pages": (
+        "GitHub Pages: enforce HTTPS in repo Settings → Pages; configure "
+        "the custom-domain CNAME accordingly."
+    ),
+    "custom": "Platform=`custom`: fixer can't automate — fix in your hosting config.",
+    "none": "Platform=`none`: no fix applicable.",
+}
+
+
+def _apply_canonical_redirect_fix(
+    project_dir: Path, dry_run: bool, assume_yes: bool,
+) -> FixResult:
+    """Dispatch the canonical-redirect fix by `[deploy].platform`.
+
+    v26.C ships the CF branch (cf-pages + cf-workers). Other platforms
+    return `manual` with a per-platform hint pointing at the future
+    phase that will automate them."""
+    domain = project_dir.resolve().name.lower()
+    if not _DOMAIN_RE.match(domain):
+        return FixResult(
+            status="nothing-to-do",
+            summary=f"{project_dir.name!r} is not a domain-shaped dir — skipping",
+            files_touched=[],
+        )
+
+    platform = _load_platform(project_dir)
+    if platform is None:
+        return FixResult(
+            status="manual",
+            summary="lamill.toml missing or unparseable — can't dispatch "
+                    "to a platform fixer. Run `lamill settings deploy show "
+                    f"{domain}` to verify the declared platform.",
+            files_touched=[],
+        )
+
+    if platform in ("cf-pages", "cf-workers"):
+        return _apply_cf_always_use_https(domain, dry_run=dry_run)
+
+    hint = _MANUAL_HINTS.get(
+        platform,
+        f"unknown platform {platform!r} — no automated fix available.",
+    )
+    return FixResult(
+        status="manual",
+        summary=hint,
+        files_touched=[],
+    )
+
+
+fix_tier_1 = FixerSpec(
+    check_id="",   # registry rewrites at discovery time
+    tier=1,
+    summary="enable https + permanent redirects per the project's platform",
+    apply=_apply_canonical_redirect_fix,
+)
