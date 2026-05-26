@@ -1074,6 +1074,86 @@ distinct failures the operator might encounter, each with a
 specific actionable hint. Same shape as the rest of v25.D's
 diagnostic work; same module's commit; same testing posture.
 
+### v26 — fleetwide canonical-redirect conformance *(new 2026-05-25 after homeloom.app's 307-redirect blocked Google indexation)*
+
+Adopt apex-as-canonical with permanent (308) redirect from www as the
+fleetwide standard, and ship a check that enforces it on `fleet seo` /
+`project seo`. The trigger was a real operator-observed regression on
+homeloom.app (Vercel-hosted, www-as-canonical with a 307 temporary
+redirect from apex) — Google's URL Inspection returned `page with
+redirect (NEUTRAL)` for the apex and refused to index the www variant
+either. The 307 ate the canonical signal entirely; the homepage was
+non-indexable until the redirect type flipped.
+
+The same misconfiguration is structurally likely to recur as the fleet
+grows: Vercel and other PaaS providers expose apex-vs-www and 307-vs-308
+as separate dashboard controls, and the operator-friendly defaults
+don't always match SEO-optimal ones. Without a check, each new site is
+a fresh chance to land in the same hole.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v26.A | ☐ | **Kickoff planning.** Lock decisions before implementation: (a) **Canonical is apex** for the entire fleet — bare domain (`<domain>`) is the 200 endpoint; matches CF Pages/Workers defaults (most of fleet) + HSTS-preload requirements + cleaner share URLs. www-as-canonical is non-conformant. (b) **Required redirect type is 308 or 301** (permanent); 307 / 302 fail the check — Google holds signal-transfer indefinitely on temporary redirects. (c) **HTTP→HTTPS** is in scope of the same check (`http://<apex>/` must 308→ `https://<apex>/`); folds naturally into the redirect-chain probe. (d) **Trailing-slash policy** is OUT of scope — `<link rel="canonical">` (CHECK_072) + framework defaults handle that orthogonally; a separate check can land later if GSC flags duplicates. (e) **HSTS preload** is OUT of scope — separate concern, lower-priority, separate check. (f) **www DNS absent is PASS** — sites without a www DNS record at all (CF Pages default) satisfy the rule trivially; no www → no possibility of split-canonical. (g) **Severity ramp**: ship as `warn` for one soak cycle (lets operator audit fleet without dashboard going red overnight), promote to `fail` in v26.C after offenders are fixed. (h) **Check ID = 150** (next available; current high is CHECK_149). (i) **Category = `seo/`** (runs as part of `fleet seo` / `project seo`). (j) **No ADR required** — implementation is a checklist of network behaviors, not a load-bearing architectural decision; the convention itself goes in `docs/CLAUDE.md § Locked target shapes` (light, not ADR-weight). |
+| v26.B | ☐ | **Ship `CHECK_150_apex_canonical_redirect.py` at `warn` severity.** Probe sequence per domain: (1) `HEAD https://<apex>/` — must be 200 (else `fail`: "apex isn't the canonical endpoint"). (2) `HEAD https://www.<apex>/` — must be 308/301 → `https://<apex>/` (else `fail`: "www is a second canonical" OR "redirect is temporary — 308 needed"); DNS NXDOMAIN on www is `pass` (no www = no split). (3) `HEAD http://<apex>/` — must be 308/301 → `https://<apex>/` (else `fail`: "HTTP→HTTPS not permanent"). Each step ends with one `✓ ✗ ↷` marker (per global output discipline). Severity = `warn` for the soak cycle. ~3 HEAD requests × ~22 domains ≈ 5s under existing probe budget. Reuses the `requests`-session pattern from `seo/_live.py`. Add `tests/test_check_150_apex_canonical_redirect.py` covering: apex-200 + www-308 (pass), apex-307 (fail), apex-200 + www-307 (fail — temp redirect), apex-200 + www-200 (fail — split canonical), apex-200 + www-NXDOMAIN (pass — no www), HTTP-302 (fail), `requests` exception (warn: "could not reach domain"), archived sites (skipped — same posture as CHECK_042). |
+| v26.C | ☐ | **Fleetwide audit + promote to `fail`.** Run `fleet seo --refresh` after v26.B ships; surface every non-conforming domain (expecting homeloom.app + likely 1-2 others). For each: identify the platform (Vercel / CF / HG), apply the fix path (Vercel: flip primary domain to apex in dashboard; CF Pages: remove the www route or add a 308 redirect rule), re-probe with `project seo --refresh`, log results in `docs/bugs.md` per-domain entries. Once the fleet is clean, promote CHECK_150 from `warn` to `fail` (severity bump in the same file, one-line change). Update `docs/CLAUDE.md § Locked target shapes` with the apex-canonical + 308-permanent invariant so future bootstraps inherit it (cross-link to CHECK_150). |
+
+#### Design notes
+
+**Why apex as canonical (vs www).** Three reasons aligned with the
+existing fleet shape and SEO best practices:
+
+  1. **Matches the existing fleet default.** CF Pages and CF Workers
+     serve the apex natively without configuration; most of the
+     ~22-site fleet already lands at the apex (`<domain>`) as the
+     200 endpoint. Standardizing on apex is "lock in what's already
+     true for ~all sites" rather than a fleetwide migration.
+  2. **HSTS preload requires apex.** Future preload-list submission
+     (not in scope of v26, but on the longer roadmap) needs the
+     apex as the primary domain; a www-canonical site can't
+     meaningfully preload.
+  3. **Single canonical = single signal pool.** Either choice avoids
+     split-rank, but apex consolidates onto the shorter / cleaner /
+     more-shareable URL; given equal SEO weight (Google treats apex
+     vs www identically for ranking), the marketing axis breaks the
+     tie.
+
+**Why 308 specifically (vs 301).** Both 301 and 308 are permanent
+redirects; Google treats them identically for SEO signal transfer.
+The check accepts BOTH as pass. 308 is the modern HTTP/1.1 standard
+and the default Vercel/CF emit when configured for "permanent
+redirect"; 301 is older but still universally supported. Refusing
+either would be incorrect; refusing 307/302 is the actual gate.
+
+**Why scope-narrow (no HSTS / trailing-slash / canonical-tag check).**
+v26 covers ONE network-behavior axis (redirect-chain status codes +
+targets). Folding in HSTS preload status or trailing-slash policy
+would conflate concerns and make the check ID overloaded — separate
+checks at different IDs are cleaner to audit, fix, and report on
+independently. Each gets its own future tier if/when needed.
+
+**Why warn-then-fail (not fail from day one).** Per the global
+`feedback_quick_idempotent_default_over_blocking_waits.md` posture +
+the v25 dropaudit.co lesson: a new failing check that flips the
+fleet dashboard red overnight is operator-hostile, even when the
+finding is legitimate. The warn cycle gives the operator one soak
+window to audit, plan fixes per affected domain, and ship them
+calmly. Promoting to `fail` once the fleet is clean is a one-line
+change and locks in the invariant.
+
+**Out-of-scope today, possible later:**
+  - Trailing-slash conformance check (when GSC starts flagging
+    duplicates across the fleet — currently none observed).
+  - HSTS preload conformance + `hstspreload.org` submission helper.
+  - `<link rel="canonical">` validation that the tag's `href`
+    matches the apex (CHECK_072 only asserts the tag exists; it
+    doesn't validate the target URL shape).
+  - Bootstrap-time intervention: have `new deploy` set Vercel's
+    Primary Domain to apex automatically (only relevant if/when
+    the fleet starts bootstrapping more Vercel-hosted sites; most
+    are CF, where the default is already correct).
+
 ## 8. Open questions
 
 Append-only log. Questions get answered (with date) but never

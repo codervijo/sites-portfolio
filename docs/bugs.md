@@ -66,6 +66,152 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-05-25 — fleetwide canonical-redirect audit (v26.A scoping baseline) — 29 of 35 probed sites non-conforming
+
+**Trigger**
+
+Triggered by the homeloom.app finding below — operator asked "scan all sites and tell me which ones have the problem." This entry captures the one-off fleetwide probe that established the v26.C audit baseline. The probe logic mirrors what `CHECK_150_apex_canonical_redirect` will enforce automatically once v26.B ships.
+
+**Probe method**
+
+35 candidates probed (60-domain fleet minus 22 "To be deleted immediately" + 3 with `status != Active` + `csinorcal.church` dark/internal). Three HEAD requests per domain, no-follow:
+  - `https://<apex>/` (expect 200)
+  - `https://www.<apex>/` (expect 308/301 → apex, OR NXDOMAIN)
+  - `http://<apex>/` (expect 308/301 → https://apex)
+
+Anything 307 / 302 (temporary) or 200 on non-canonical = fail.
+
+**Results — 29 fail, 6 pass**
+
+Grouped by failure pattern (fix path differs per bucket):
+
+**Bucket A — 307 apex→www + www serves 200 (homeloom.app pattern; SEO-blocking).** Apex's 307 prevents Google from consolidating signals; both URLs end up in indexation limbo. Likely Vercel-hosted with the dashboard's default "www is primary" toggle. Fix: in Vercel project → Domains, set apex as Primary; www auto-308s to apex.
+  - calcengine.site
+  - homeloom.app
+  - keralavotemap.site
+  - linkedcsi.live
+  - washcalc.app
+
+**Bucket B — 308 apex→www (wrong direction, not signal-breaking).** Apex 308-redirects to www (permanent); www serves 200. Google DOES consolidate signals — just to www, not apex. Functionally fine for SEO; inverts the v26.A apex-as-canonical convention.
+  - civictools.app
+  - lamill.io
+
+**Bucket C — Split canonical + no HTTPS upgrade (WordPress/HostGator pattern).** Both apex and www serve 200 (no redirect between them) AND HTTP serves content without redirecting to HTTPS. Fix: per-site `.htaccess` edit (force HTTPS + 301 www→apex).
+  - iotbastion.com
+  - maslist.com
+  - streamsgalaxy.com (HostGator/WP, per memory)
+  - veezp.com
+  - whizgraphs.com
+  - yesuinnu.com
+
+**Bucket D — HTTPS upgrade missing (otherwise clean).** Apex serves 200; www either NXDOMAIN or 308→apex. Only failure: `http://<apex>/` returns 200 instead of 308→https. Surprising for CF Pages/Workers — likely "Always Use HTTPS" toggle is off in CF dashboard.
+  - agesdk.dev
+  - airsucks.com
+  - carrepairsite.com
+  - cricketfansite.com
+  - disclosur.dev
+  - donready.xyz
+  - dropaudit.co
+  - isitholiday.today
+  - kwizicle.com
+
+**Bucket E — Not in scope of v26 (site is broken / not live).** Liveness issues, not canonical-redirect issues. Already covered by existing `fleet live` / `fleet seo` classification. Logged here only so the v26.C audit doesn't waste time re-investigating.
+  - iotnews.today (apex=500)
+  - lamill.us (apex=404; www TLS broken)
+  - lamillrentals.com (www TLS broken)
+  - navodayansonline.com (apex=405 — server rejects HEAD; needs GET re-probe to classify)
+  - nosapta.com (apex=CONNREFUSED)
+  - vijocherian.com (apex=CONNREFUSED)
+  - virtually.co.in (apex=SSL broken; full chain broken)
+
+**Pass (6)** — apex=200, www=NXDOMAIN-or-308→apex, http=308→https:
+  - boxchive.com
+  - dunam.co
+  - earnlog.xyz
+  - hybridautopart.com (HG/WP, but `.htaccess` is clean here — example to mirror for Bucket C)
+  - permittruck.xyz
+  - voltloop.site
+
+**Severity per bucket** — `major` for Bucket A (5 sites; actively blocking indexation); `minor` for B/D (11 sites; non-conforming but no SEO bleeding); `minor` for C (6 sites; mixed SEO + security signal — Google flags HTTP-served pages as "Not Secure"); `n/a` for E (out of v26 scope).
+
+**Where (guess)**
+
+Platform dashboards (Vercel for Bucket A/B; Cloudflare for Bucket D; HostGator/`.htaccess` for Bucket C). No `lamill` code change is required to fix the affected sites — the v26.B check is the only code-side deliverable; fixes are operator-action per-site.
+
+**Notes — relation to v26**
+
+- This audit IS the v26.C "fleetwide audit" phase data — captured upfront so v26.B (check implementation) can be scoped against a known offender list.
+- Recommended ordering: ship v26.B (`CHECK_150` at `warn` severity) → operator fixes Bucket A first → re-probe → fix Bucket D → fix Bucket C → fix Bucket B → re-probe → promote `CHECK_150` to `fail` (v26.C).
+- Bucket A is the highest-leverage operator action right now (5 sites × ~2 min in Vercel dashboard each ≈ 10 min total to recover homepage indexation across 5 domains).
+- Bucket E sites need separate triage (likely DNS / cert / DNS-only-no-deploy) — outside this entry's scope.
+
+
+### 2026-05-25 — homeloom.app apex→www redirect is 307 (temporary), blocks Google indexation; fleetwide canonical-redirect standard needed
+
+**Repro**
+
+```
+$ curl -sI https://homeloom.app/
+HTTP/2 307
+location: https://www.homeloom.app/
+```
+
+**Expected**
+
+Apex (or www) is the chosen canonical; the *other* variant 308-redirects to it. The redirect must be permanent (308 or 301), not temporary (307 or 302), so Google consolidates ranking signals onto the canonical URL.
+
+**Actual**
+
+`homeloom.app/` → 307 → `www.homeloom.app/`. GSC reports:
+
+```
+Coverage (top 4 inspected — 0/4 indexed, 0%)
+  ✗ https://homeloom.app/   page with redirect   verdict=NEUTRAL
+```
+
+Google treats 307 as "this redirect might revert" and refuses to consolidate signals. Result: apex stays uncanonicalized AND the www target inherits no rank — both URLs are in indexation limbo.
+
+The other "crawled - currently not indexed" rows (`/about`, `/privacy`, `/terms`) are normal for a <90d-old site (11 imp, 2-13d since crawl) and are NOT in scope of this bug — they'll resolve on their own with time.
+
+**Where (guess)**
+
+Vercel project-domain configuration for homeloom.app. Likely `vercel.json` or the project's Domains dashboard has `homeloom.app` set as a redirect (307) to `www.homeloom.app` (the primary). Two clean fixes:
+
+1. **Flip canonical to apex** (recommended — matches the rest of the fleet): in Vercel → Project Settings → Domains, set `homeloom.app` as the primary domain; mark `www.homeloom.app` as "Redirect to" with permanent (308). This is the fleetwide convention (see below).
+2. **Keep www as canonical**: change the 307 to a 308 by editing the redirect type in the Vercel dashboard or via `vercel.json`'s `redirects` block with `permanent: true`.
+
+**Severity** — `major` for homeloom.app SEO (the homepage is non-indexable until fixed; ~zero organic until then).
+
+**Notes — fleetwide canonical-redirect standard**
+
+Adopt this convention across all `sites/<domain>/` projects:
+
+1. **Apex is canonical.** Use the bare domain (`homeloom.app`, `airsucks.com`) as the primary URL. Rationale:
+   - Matches Cloudflare Pages/Workers defaults (most of the fleet).
+   - Single canonical → single SEO signal pool, no split-rank.
+   - HSTS preload requires apex coverage.
+   - Cleaner for marketing / link sharing.
+
+2. **`www` subdomain is optional. If present, it MUST 308 → apex.**
+   - CF Pages/Workers: typically no www DNS record at all — clean.
+   - Vercel: set apex as primary; Vercel auto-308s www → apex.
+
+3. **Redirect status MUST be permanent — 308 or 301, never 307 or 302.**
+   - 308/301: Google consolidates ranking signals onto the canonical.
+   - 307/302: Google holds signals back; canonical never accrues authority.
+
+4. **HTTPS only.** All HTTP requests 308 → HTTPS. (CF + Vercel both do this by default; verify on any provider that doesn't.)
+
+5. **Trailing-slash policy: no trailing slash on non-root URLs.** `/about`, not `/about/`. Either 308-redirect one form to the other, or set `<link rel="canonical">` to the preferred form. Secondary — only fix if GSC flags duplicates.
+
+**Check candidate (`fleet seo` extension):** add `check_NNN_canonical_redirect.py` that asserts, for every fleet domain:
+- apex → 200 OR apex → 308 → www→200 (one variant must 200, the other must 308 to it);
+- HTTP → 308 → HTTPS;
+- No 307 / 302 on the canonical-redirect chain.
+
+A single check would have flagged homeloom.app in `fleet seo` and could prevent the next inversion. Not in scope to ship as part of this bug fix — log as `for-seo-check-improvements.md` follow-up and resurface when the operator wants a v(N).X bundle.
+
+
 ### 2026-05-25 — `new bootstrap` smart-paste misses positional-numbered LLM responses (numbers map to prompt order, not labels)
 
 **Repro**
