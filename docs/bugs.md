@@ -1373,7 +1373,7 @@ The diagnostic reported ✓; CHECK_057's purge_files call immediately 401'd beca
 
 `src/portfolio/cli.py`: `settings cloudflare check-token` renderer prints one row per zone with all three marks side-by-side (`✓ DNS:Edit  ✓ Cache Purge  ✓ Zone Settings:Edit`).
 
-**Fixed in** — `<SHA on commit>` (16 new tests: 13 in `test_cloudflare_v25e.py` for the two new probes — 200/400/401/403/404/5xx/request-shape paths — plus 3 in `test_v25d_diagnostics.py` covering the kwizicle scenario, zone-settings-missing, and all-three-scopes-missing)
+**Fixed in** — `50ef776` (16 new tests: 13 in `test_cloudflare_v25e.py` for the two new probes — 200/400/401/403/404/5xx/request-shape paths — plus 3 in `test_v25d_diagnostics.py` covering the kwizicle scenario, zone-settings-missing, and all-three-scopes-missing)
 
 **Notes**
 
