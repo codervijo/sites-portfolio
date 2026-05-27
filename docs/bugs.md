@@ -1488,7 +1488,7 @@ v15.I — Deploy kwizicle.com (platform=cf-pages · slug=kwizicle ...)
 
 Added `read_local_origin()` + `parse_github_remote()` helpers in `gh_repo.py`. In `_deploy_cf_unified` Step 0 (after `gh_owner` resolution), probe the local origin; if it parses as `<gh_owner>/<X>` and `X != slug`, override `gh_repo_target = X` (with a `↷` banner). Step 1 + Step 2 + Step 5's CF Pages source binding all flow through `gh_repo_target`. The CF Pages project name (`slug`) stays as `_project_name(domain)` — CF naming constraints disallow dots — but the GH source binding tracks the operator's actual remote.
 
-**Fixed in** — `<SHA on commit>` (slug-mismatch fix; 13 new tests in `test_gh_repo.py`)
+**Fixed in** — `ea65347` (slug-mismatch fix; 13 new tests in `test_gh_repo.py`)
 
 **Notes**
 
