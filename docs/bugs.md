@@ -1343,6 +1343,47 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-27 — `fleet fix` auto-toggled `always_use_https` on csinorcal.church (dark sites had no first-class config classification)
+
+**Repro (today's incident)**
+
+```
+$ lamill fleet fix --rule CHECK_150 --apply --yes
+...
+[7/31] ✓ csinorcal.church          1 fix(es)
+...
+Done: 6 fix(es) applied across 31 project(s)
+```
+
+csinorcal.church is documented in global memory as a **dark site** ("internal; ignore its SEO failures"), but the codebase had no first-class concept of dark sites — only narrow `--skip-ga4` help text mentioning it. `_list_fleet_eligible_projects()` had two filters (`ignore_repos`, `to-be-deleted category`); neither caught it. The fleetwide CHECK_150 apply correctly classified it as a failing canonical-redirect site and toggled `always_use_https` on its CF zone.
+
+The write was probably safe (HTTPS-on for an internal site is fine in 99% of cases), but it shouldn't have been auto-applied. The same gap would silently apply other future fleet-fix tier-1 writes to any dark site too.
+
+**Severity** — `minor`. No data loss; reversible via CF dashboard. But the pattern (operator memory mentions a constraint that the code doesn't enforce) is the load-bearing failure shape — would have repeated on the next fleetwide auto-fix.
+
+**Fix**
+
+`src/portfolio/checks/config.py`:
+- New `DEFAULT_DARK_SITES = ["csinorcal.church"]` constant.
+- `CheckConfig.dark_sites: list[str]` field with that default.
+- New `[fleet] dark_sites = [...]` TOML section honored by `load_config`. Mirrors `ignore_repos` semantics: explicit list replaces default; empty list disables; missing section uses default. Values lowercased on load for case-insensitive comparison.
+
+`src/portfolio/cli.py:_list_fleet_eligible_projects()`:
+- Third filter alongside `ignore_repos` + delete-category: skip any repo whose name is in `cfg.dark_sites`.
+
+`src/portfolio/cli.py:_run_project_fix_all()` plan banner:
+- Surfaces `↷ skipping N dark site(s): <names> (edit [fleet] dark_sites in config.toml to change)` so silent exclusion isn't surprising.
+
+**Fixed in** — `<SHA on commit>` (9 new tests: 7 in `test_config_dark_sites.py` covering loader paths — defaults, missing file, missing section, explicit override, empty disable, lowercasing, factory pattern — plus 2 in `test_v6d_fix_all.py` covering the eligibility filter)
+
+**Notes**
+
+- The csinorcal.church 308 redirect that was applied today (commit `b5na35x0w` runtime, not source) wasn't rolled back — operator can revert from CF dashboard if HTTP-only matters for internal access, otherwise leave it (HTTPS is generally safe even for internal sites).
+- Scope of the filter: today's fix only covers `fleet fix`. Other fleet walkers (`fleet check`, `fleet seo`, `fleet focus`) still process dark sites — they're read-only reporters, so the operator can still see dark-site state when they want to. If a future incident surfaces dark sites in read-only output as noise, extend the filter there too.
+- This is the same shape as `DEFAULT_IGNORE_REPOS` (portfolio + rankmill self-exclusion) — operator memory describes a constraint, codebase now enforces it via config defaults rather than relying on memory consistency.
+
+---
+
 ### 2026-05-27 — `settings cloudflare check-token` returns ✓ when token lacks Cache Purge / Zone Settings:Edit (only DNS:Edit was probed per zone)
 
 **Repro (pre-fix)**

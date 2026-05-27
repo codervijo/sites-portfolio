@@ -8062,13 +8062,17 @@ _TIER_2_COST_ESTIMATE_USD = 0.10  # rough per-call estimate for budget hint
 def _list_fleet_eligible_projects():
     """Return [(domain, project_dir)] for every fleetwide-fix-eligible
     project: skip ignore_repos config + skip domains in 'To be deleted
-    immediately' category. Sorted alphabetically."""
+    immediately' category + skip dark_sites (2026-05-27 — internal sites
+    that shouldn't receive auto-applied writes). Sorted alphabetically."""
     from .checks.config import load_config
     cfg = load_config()
     repos = _iterate_repos(cfg.repos_dir, ignore=cfg.ignore_repos)
     domains_by_name = {d.name.lower(): d for d in load_domains()}
+    dark = set(cfg.dark_sites)
     out = []
     for repo_path in repos:
+        if repo_path.name.lower() in dark:
+            continue
         domain_obj = domains_by_name.get(repo_path.name.lower())
         if domain_obj and (domain_obj.category or "").lower() == _DELETE_CATEGORY:
             continue
@@ -8142,6 +8146,17 @@ def _run_project_fix_all(*, apply_changes: bool, rule_filter, assume_yes: bool,
         f"\n[bold]Fleetwide fix plan: {len(projects)} eligible project(s)[/]"
         f"{rule_label}"
     )
+    # 2026-05-27 — surface dark-site exclusions so operator sees what was
+    # filtered (and edits [fleet] dark_sites in config.toml if they
+    # disagree). Silent exclusion hides the wrong-default risk.
+    from .checks.config import load_config as _load_cfg
+    _dark = _load_cfg().dark_sites
+    if _dark:
+        console.print(
+            f"  [dim]↷ skipping {len(_dark)} dark site(s): "
+            f"{', '.join(sorted(_dark))} "
+            f"(edit [cyan][fleet] dark_sites[/] in config.toml to change)[/]"
+        )
     console.print(f"  Tier 1 templated:    {total_t1} fix(es) across the fleet")
     if use_ai:
         cost = total_t2 * _TIER_2_COST_ESTIMATE_USD

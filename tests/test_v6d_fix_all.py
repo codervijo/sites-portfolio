@@ -86,7 +86,8 @@ def test_fleet_honors_ignore_repos(tmp_path, monkeypatch):
     from portfolio.checks.config import CheckConfig
     repos_dir = _make_repos(tmp_path, ["alpha.com", "beta.com", "skip.com"])
     cfg = CheckConfig(repos_dir=repos_dir, github_token="",
-                      skip_checks=[], ignore_repos=["skip.com"])
+                      skip_checks=[], ignore_repos=["skip.com"],
+                      dark_sites=[])
     import portfolio.checks.config as config_module
     monkeypatch.setattr(config_module, "load_config", lambda path=None: cfg)
     import portfolio.cli as cli_module
@@ -95,6 +96,51 @@ def test_fleet_honors_ignore_repos(tmp_path, monkeypatch):
     from portfolio.cli import _list_fleet_eligible_projects
     names = sorted(d for d, _ in _list_fleet_eligible_projects())
     assert names == ["alpha.com", "beta.com"]
+
+
+def test_fleet_skips_dark_sites(tmp_path, monkeypatch):
+    """2026-05-27 — `fleet fix` must skip dark_sites so internal projects
+    don't receive auto-applied writes like always_use_https toggles.
+    csinorcal.church incident (2026-05-27 PM) is the motivating case."""
+    from portfolio.checks.config import CheckConfig
+    repos_dir = _make_repos(tmp_path, [
+        "csinorcal.church", "alpha.com", "intranet.example"
+    ])
+    cfg = CheckConfig(
+        repos_dir=repos_dir, github_token="",
+        skip_checks=[], ignore_repos=[],
+        dark_sites=["csinorcal.church", "intranet.example"],
+    )
+    import portfolio.checks.config as config_module
+    monkeypatch.setattr(config_module, "load_config", lambda path=None: cfg)
+    import portfolio.cli as cli_module
+    monkeypatch.setattr(cli_module, "load_domains", lambda: [])
+
+    from portfolio.cli import _list_fleet_eligible_projects
+    names = sorted(d for d, _ in _list_fleet_eligible_projects())
+    assert names == ["alpha.com"]
+    assert "csinorcal.church" not in names
+    assert "intranet.example" not in names
+
+
+def test_fleet_dark_sites_match_is_case_insensitive(tmp_path, monkeypatch):
+    """Config file may have dark_sites listed in any case; eligibility
+    comparison must lowercase both sides (mirrors load_config behavior)."""
+    from portfolio.checks.config import CheckConfig
+    repos_dir = _make_repos(tmp_path, ["Internal.SITE", "alpha.com"])
+    cfg = CheckConfig(
+        repos_dir=repos_dir, github_token="",
+        skip_checks=[], ignore_repos=[],
+        dark_sites=["internal.site"],  # already lowercased by load_config
+    )
+    import portfolio.checks.config as config_module
+    monkeypatch.setattr(config_module, "load_config", lambda path=None: cfg)
+    import portfolio.cli as cli_module
+    monkeypatch.setattr(cli_module, "load_domains", lambda: [])
+
+    from portfolio.cli import _list_fleet_eligible_projects
+    names = sorted(d for d, _ in _list_fleet_eligible_projects())
+    assert names == ["alpha.com"]
 
 
 # ---------- CLI integration ----------
