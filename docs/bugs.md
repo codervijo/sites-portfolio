@@ -1435,7 +1435,7 @@ In `check_057_cf_edge_cache_fresh.py`:
 
 Conservative: a missing content-type (older test fixtures, network errors) does NOT trigger the exclusion — falls through to existing verdict logic. The original donready scenario (`/sitemap.xml` actually served as `application/xml` but absent from `dist/`) is still flagged stale.
 
-**Fixed in** — `<SHA on commit>` (3 new tests in `test_check_057_cf_edge_cache_fresh.py`: SPA-fallback kwizicle scenario, donready non-masking regression, `_is_spa_fallback` unit cases)
+**Fixed in** — `27d96ac` (3 new tests in `test_check_057_cf_edge_cache_fresh.py`: SPA-fallback kwizicle scenario, donready non-masking regression, `_is_spa_fallback` unit cases)
 
 **Notes**
 
