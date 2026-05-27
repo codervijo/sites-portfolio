@@ -335,7 +335,13 @@ def _stub_cloudflare(monkeypatch, *,
                      patch_raises=None,
                      post_write_http_status=308):
     """Patch the cloudflare.* calls + the post-write http probe to
-    cover one CF branch scenario per test."""
+    cover one CF branch scenario per test.
+
+    `post_write_http_status` can be a single int (returned for every
+    probe attempt) or a list of ints (returned in sequence — last value
+    repeats once the list is exhausted). The list form simulates CF
+    edge propagation: e.g. `[200, 200, 308]` flips to redirect on the
+    3rd attempt."""
     import portfolio.cloudflare as cf
 
     monkeypatch.setattr(cf, "resolve_zone_id",
@@ -349,8 +355,22 @@ def _stub_cloudflare(monkeypatch, *,
         return None
     monkeypatch.setattr(cf, "set_zone_setting", fake_set)
 
-    monkeypatch.setattr(mod, "_http_status",
-                        lambda domain: post_write_http_status)
+    if isinstance(post_write_http_status, list):
+        seq = iter(post_write_http_status)
+        last = [post_write_http_status[-1]]
+        def fake_probe(domain):
+            try:
+                last[0] = next(seq)
+            except StopIteration:
+                pass
+            return last[0]
+        monkeypatch.setattr(mod, "_http_status", fake_probe)
+    else:
+        monkeypatch.setattr(mod, "_http_status",
+                            lambda domain: post_write_http_status)
+
+    # No-op sleep so backoff-poll tests don't actually wait.
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
 
 
 def test_fix_cf_already_on_returns_nothing_to_do(tmp_path, monkeypatch):
@@ -404,8 +424,8 @@ def test_fix_cf_workers_uses_same_branch(tmp_path, monkeypatch):
 
 
 def test_fix_cf_apply_post_write_still_200_returns_error(tmp_path, monkeypatch):
-    """Toggle PATCH succeeded but http still 200 → surface error so the
-    operator can investigate (Page Rule conflict / propagation lag)."""
+    """Toggle PATCH succeeded but http stays 200 across the full backoff
+    window → genuine error (conflicting Page Rule / stuck cache)."""
     site = tmp_path / "example.com"
     site.mkdir()
     _write_lamill_toml(site, "cf-pages")
@@ -413,7 +433,23 @@ def test_fix_cf_apply_post_write_still_200_returns_error(tmp_path, monkeypatch):
     result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
     assert result.status == "error"
     assert "still returns 200" in result.summary
+    assert "probes" in result.summary
     assert "Page Rules" in result.summary
+
+
+def test_fix_cf_apply_post_write_eventually_settles_returns_fixed(tmp_path, monkeypatch):
+    """Backoff verify — http returns 200 on early attempts, then 308
+    on a later attempt (simulates CF edge propagation kicking in).
+    Should return fixed without leaking the early-200 noise."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    # 200, 200, 308 — propagation kicks in on the 3rd probe.
+    _stub_cloudflare(monkeypatch,
+                     post_write_http_status=[200, 200, 308])
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert "now returns 308" in result.summary
 
 
 def test_fix_cf_post_write_probe_unreachable_still_marks_fixed(tmp_path, monkeypatch):

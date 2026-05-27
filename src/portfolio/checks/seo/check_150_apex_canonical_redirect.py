@@ -23,6 +23,7 @@ common case for CF Pages sites without a www DNS record).
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +52,14 @@ _PERMANENT_REDIRECTS = frozenset({301, 308})
 _TEMPORARY_REDIRECTS = frozenset({302, 307})
 _TIMEOUT = 8.0
 _UA = "lamill-CHECK_150/0.1"
+
+# v26.C bug fix 2026-05-26 — CF accepts `always_use_https=on` instantly
+# via API but edges take 5-30s to start serving the redirect. A single
+# immediate verification probe races propagation and falsely reports
+# "still 200." Poll with a short backoff instead — first 308/301 wins;
+# 5 × 3s = 15s budget covers the observed CF flip time with margin.
+_FIX_VERIFY_ATTEMPTS = 5
+_FIX_VERIFY_INTERVAL_S = 3.0
 
 
 @dataclass
@@ -293,31 +302,42 @@ def _apply_cf_always_use_https(
             files_touched=[],
         )
 
-    # Verify: re-probe http://<domain>/. CF flips the upgrade behavior
-    # within seconds of the API write — no propagation lag like DNS.
-    after = _http_status(domain)
-    if after is None:
+    # Verify with backoff — CF edges take 5-30s to start serving the
+    # new redirect even though the API write persists instantly. Poll
+    # `_FIX_VERIFY_ATTEMPTS × _FIX_VERIFY_INTERVAL_S` (~15s default);
+    # first 308/301 wins, all-200 means genuine conflict, unreachable
+    # falls through to "verify manually."
+    last_status: int | None = None
+    for attempt in range(_FIX_VERIFY_ATTEMPTS):
+        last_status = _http_status(domain)
+        if last_status in _PERMANENT_REDIRECTS:
+            return FixResult(
+                status="fixed",
+                summary=f"set always_use_https → on; http://{domain}/ now "
+                        f"returns {last_status}",
+                files_touched=[],
+            )
+        # 200 or None (transient unreachable) — sleep and retry. Skip
+        # the sleep on the last attempt; nothing to wait for after.
+        if attempt < _FIX_VERIFY_ATTEMPTS - 1:
+            time.sleep(_FIX_VERIFY_INTERVAL_S)
+
+    if last_status is None:
         return FixResult(
             status="fixed",
-            summary=f"set always_use_https → on (post-write http probe "
-                    f"failed; verify manually with `curl -sI http://{domain}/`)",
+            summary=f"set always_use_https → on (post-write probe "
+                    f"unreachable after {_FIX_VERIFY_ATTEMPTS} attempts; "
+                    f"verify manually with `curl -sI http://{domain}/`)",
             files_touched=[],
         )
-    if after in _PERMANENT_REDIRECTS:
-        return FixResult(
-            status="fixed",
-            summary=f"set always_use_https → on; http://{domain}/ now "
-                    f"returns {after}",
-            files_touched=[],
-        )
-    # Setting was written but http still 200 — surface as warn-shape error
-    # so the operator can investigate (CF might cache the old behavior
-    # briefly, or a Page Rule could be overriding the setting).
+    # Setting persisted on CF's side but http stayed 200 across the full
+    # ~15s window — likely a conflicting Page Rule / Worker / stuck cache.
     return FixResult(
         status="error",
         summary=f"set always_use_https → on, but http://{domain}/ still "
-                f"returns {after}. Check for conflicting Page Rules or "
-                "wait ~30s and re-probe.",
+                f"returns {last_status} after "
+                f"{_FIX_VERIFY_ATTEMPTS}×{_FIX_VERIFY_INTERVAL_S:.0f}s "
+                f"probes. Check for conflicting Page Rules or stuck cache.",
         files_touched=[],
     )
 

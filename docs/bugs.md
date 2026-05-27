@@ -1343,6 +1343,46 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-26 — CHECK_150 fixer post-write verification races CF edge propagation
+
+**Repro**
+
+Run `fix_tier_1.apply(site, dry_run=False, ...)` on a CF-platform domain whose `always_use_https` is currently `off`. The PATCH succeeds; CF persists the setting. The fixer's immediate `HEAD http://<domain>/` probe still returns 200 because CF edges take 5-30s to start serving the new redirect.
+
+Observed during v26.C's first real fleet run (2026-05-26):
+
+```
+✗ agesdk.dev             error          set always_use_https → on, but http://agesdk.dev/ still returns 200...
+✗ airsucks.com           error          set always_use_https → on, but http://airsucks.com/ still returns 200...
+✓ donready.xyz           fixed          set always_use_https → on; http://donready.xyz/ now returns 301
+✗ (5 more)               error          (same pattern)
+```
+
+7 of 8 CF fixes reported `error` even though the writes had succeeded. A 15-second post-run re-probe confirmed all 8 edges had flipped to 301; the actual fix worked, only the verification step was racing.
+
+**Expected**
+
+Fixer returns `status="fixed"` when the API write succeeds and the edge eventually settles to the expected redirect — even if it takes a few seconds.
+
+**Actual**
+
+Fixer returns `status="error"` with a "still returns 200" message because the single immediate probe ran before propagation completed.
+
+**Where**
+
+`src/portfolio/checks/seo/check_150_apex_canonical_redirect.py:_apply_cf_always_use_https` post-PATCH verification block.
+
+**Severity** — `minor` (false-error cosmetic; the actual fix works; operator can re-probe manually to confirm).
+
+**Notes**
+
+Replaced the single `_http_status(domain)` call with a short backoff poll — up to `_FIX_VERIFY_ATTEMPTS` (5) × `_FIX_VERIFY_INTERVAL_S` (3s) = 15s budget. First 308/301 wins → `status="fixed"`. All probes still 200 → real `status="error"` (genuine conflict). Unreachable → existing `verify manually` path.
+
+Tests updated to monkeypatch `time.sleep` so they don't actually wait; new test `test_fix_cf_apply_post_write_eventually_settles_returns_fixed` proves the backoff works when probes flip mid-window. Suite: 2732 passed.
+
+**Fixed in** — same-commit (2026-05-26; the v26.C polish commit that immediately follows the v26.C ship commit `d0ee313`).
+
+
 ### 2026-05-22 PM — Step 5.5 false-flags legitimate DNS records as conflicts on re-deploy
 
 **Repro**
