@@ -480,11 +480,17 @@ class AccountDiag:
 
 @dataclass(frozen=True)
 class ZoneDiag:
-    """v25.D — per-zone DNS:Edit probe result for the active CF token.
-    Backed by `probe_zone_write_capability` (v25.B)."""
+    """v25.D / v25.E — per-zone scope probe results for the active CF
+    token. Backed by `probe_zone_write_capability` (DNS:Edit),
+    `probe_zone_cache_purge` (Zone:Cache Purge), and
+    `probe_zone_settings_edit` (Zone Settings:Edit). All three scopes
+    are exercised by lamill's deploy + fix pipeline; check-token
+    diagnostic must verify each."""
     zone_id: str
     name: str
     has_dns_edit: bool
+    has_cache_purge: bool = False
+    has_zone_settings_edit: bool = False
 
 
 @dataclass(frozen=True)
@@ -598,13 +604,25 @@ def diagnose_token(*, client: httpx.Client | None = None) -> TokenDiagnostic:
             for z in (zones_resp.json().get("result") or []):
                 zone_id = z.get("id", "")
                 zone_name = z.get("name", "")
-                probe = probe_zone_write_capability(zone_id, client=c)
+                # v25.E: probe each zone-scope lamill actually uses, not
+                # just DNS:Edit. Each probe is one HTTP call; the
+                # incremental cost is ~2 RTTs per zone × N zones — for
+                # a typical 15-zone fleet that's ~0.5s.
+                dns_probe = probe_zone_write_capability(zone_id, client=c)
+                purge_probe = probe_zone_cache_purge(zone_id, client=c)
+                settings_probe = probe_zone_settings_edit(zone_id, client=c)
                 zones.append(ZoneDiag(
                     zone_id=zone_id, name=zone_name,
-                    has_dns_edit=probe.can_write,
+                    has_dns_edit=dns_probe.can_write,
+                    has_cache_purge=purge_probe.can_write,
+                    has_zone_settings_edit=settings_probe.can_write,
                 ))
-                if not probe.can_write:
+                if not dns_probe.can_write:
                     missing_zone_perms.append((zone_name, "DNS:Edit"))
+                if not purge_probe.can_write:
+                    missing_zone_perms.append((zone_name, "Cache Purge"))
+                if not settings_probe.can_write:
+                    missing_zone_perms.append((zone_name, "Zone Settings:Edit"))
         else:
             missing_account_perms.append(
                 f"/zones list returned HTTP {zones_resp.status_code} "
@@ -1433,6 +1451,119 @@ def probe_zone_write_capability(
         raise CloudflareAPIError(
             f"POST /zones/{zone_id}/dns_records (write-probe) → "
             f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    finally:
+        if own_client:
+            c.close()
+
+
+def probe_zone_cache_purge(
+    zone_id: str, *,
+    client: httpx.Client | None = None,
+) -> ZoneWriteProbe:
+    """v25.E — probe whether the active CF token can purge cache on
+    this specific zone, without modifying state.
+
+    Same approach as `probe_zone_write_capability` (v25.B). Closes the
+    gap surfaced 2026-05-27: kwizicle.com's `check-token` returned ✓
+    (DNS:Edit on every zone) but CHECK_057's purge_files call 401'd
+    immediately because the token lacked Zone:Cache Purge on that
+    specific zone.
+
+    Approach: POST `/zones/{id}/purge_cache` with `{"files": []}`.
+    Either 200 (CF accepts no-op empty purge) or 400 (CF rejects
+    empty files array) confirms auth passed; both are state-neutral.
+
+      - HTTP 403 → token lacks Zone:Cache Purge on this zone.
+      - HTTP 401 → token globally invalid.
+      - HTTP 200 → auth passed; empty purge is a no-op. can_write=True.
+      - HTTP 400 → auth passed; validation rejected. can_write=True.
+      - HTTP 404 → zone not found; raises CloudflareAPIError.
+      - Other → raises CloudflareAPIError.
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.post(f"/zones/{zone_id}/purge_cache", json={"files": []})
+        if resp.status_code == 403:
+            return ZoneWriteProbe(
+                can_write=False,
+                missing_scope="Zone → Cache Purge on this zone",
+            )
+        if resp.status_code == 401:
+            return ZoneWriteProbe(
+                can_write=False,
+                missing_scope="CF_API_TOKEN rejected (401 from POST /purge_cache)",
+            )
+        if resp.status_code == 404:
+            raise CloudflareAPIError(
+                f"POST /zones/{zone_id}/purge_cache → HTTP 404 (zone not "
+                f"found). The zone_id may be stale."
+            )
+        if resp.status_code in (200, 400):
+            return ZoneWriteProbe(can_write=True, missing_scope=None)
+        raise CloudflareAPIError(
+            f"POST /zones/{zone_id}/purge_cache (cache-purge probe) → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    finally:
+        if own_client:
+            c.close()
+
+
+def probe_zone_settings_edit(
+    zone_id: str, *,
+    client: httpx.Client | None = None,
+) -> ZoneWriteProbe:
+    """v25.E — probe whether the active CF token can edit zone settings
+    on this specific zone, without modifying state.
+
+    Same approach as `probe_zone_write_capability` (v25.B). Closes the
+    gap surfaced 2026-05-27: CHECK_150 (v26.C) needs `Zone Settings:
+    Edit` to PATCH `always_use_https`; `check-token` didn't probe it.
+
+    Approach: PATCH `/zones/{id}/settings/development_mode` with
+    `{"value": "invalid"}` — CF validates `value` as enum ("on" |
+    "off"); the bogus literal is rejected at validation, which runs
+    AFTER authorization.
+
+      - HTTP 403 → token lacks Zone Settings:Edit on this zone.
+      - HTTP 401 → token globally invalid.
+      - HTTP 400 → auth passed; bogus value rejected. can_write=True.
+      - HTTP 404 → zone not found; raises CloudflareAPIError.
+      - Other (incl. unexpected 200) → raises CloudflareAPIError so the
+        unexpected accept is surfaced (CF should never normalize the
+        bogus enum to a default; if it does, the probe needs to switch
+        to a different setting before shipping).
+    """
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.patch(
+            f"/zones/{zone_id}/settings/development_mode",
+            json={"value": "invalid"},
+        )
+        if resp.status_code == 403:
+            return ZoneWriteProbe(
+                can_write=False,
+                missing_scope="Zone → Zone Settings:Edit on this zone",
+            )
+        if resp.status_code == 401:
+            return ZoneWriteProbe(
+                can_write=False,
+                missing_scope="CF_API_TOKEN rejected (401 from PATCH /settings)",
+            )
+        if resp.status_code == 404:
+            raise CloudflareAPIError(
+                f"PATCH /zones/{zone_id}/settings/development_mode → HTTP "
+                f"404 (zone or setting not found). The zone_id may be stale."
+            )
+        if resp.status_code == 400:
+            return ZoneWriteProbe(can_write=True, missing_scope=None)
+        raise CloudflareAPIError(
+            f"PATCH /zones/{zone_id}/settings/development_mode "
+            f"(zone-settings probe) → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
         )
     finally:
         if own_client:

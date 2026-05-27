@@ -66,57 +66,6 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-05-27 — `settings cloudflare check-token` returns ✓ when token lacks Cache Purge / Zone Settings:Edit / Zone:Edit (only DNS:Edit is probed per zone)
-
-**Repro**
-
-```
-$ lamill settings cloudflare check-token
-...
-Zones (14 accessible)
-  ✓ DNS:Edit   kwizicle.com
-  ✓ DNS:Edit   (13 more)
-✓ Token has all permissions lamill needs.
-
-$ lamill project fix kwizicle.com --apply
-  ✗ CHECK_057  purge call failed: POST purge_cache → HTTP 401: ...
-```
-
-Diagnostic reports the token is complete; CHECK_057's `purge_files` call immediately 401's because the token lacks **Zone:Cache Purge** on the kwizicle.com zone. The 401 (not 403) is CF's response shape when a token misses a specific zone-scope permission — same shape as a fully-invalid token, which is why the diagnostic's `/user/tokens/verify` succeeds.
-
-**Expected**
-
-`check-token` enumerates every zone-scope lamill actually uses and probes each — Cache Purge, Zone Settings:Edit, DNS:Edit. When any is missing, surface per-zone + recommend the exact CF dashboard permission to add.
-
-**Actual**
-
-`diagnose_token()` only attempts ONE write per zone (a DNS record with a deliberately-invalid TTL via `probe_zone_write_capability`). DNS:Edit ✓ means "this zone is fine" in the diagnostic's mental model. No probe attempted for any other zone-scope.
-
-**Where (guess)**
-
-`src/portfolio/cloudflare.py:diagnose_token` (v25.D). The `ZoneDiag` dataclass has a single `dns_edit_ok` field; the per-zone probe loop only calls `probe_zone_write_capability`. To close the gap: add per-zone probes for the other operations lamill performs.
-
-Unverified scopes vs lamill operations:
-
-| Operation | Endpoint | Scope | Probed today? |
-|---|---|---|---|
-| Step 5.5 DNS purge | `POST /zones/{id}/dns_records` | DNS:Edit | ✓ |
-| CHECK_057 cache purge | `POST /zones/{id}/purge_cache` | **Zone:Cache Purge** | ✗ |
-| CHECK_150 / v26.C | `PATCH /zones/{id}/settings/always_use_https` | **Zone Settings:Edit** | ✗ |
-| `new deploy` zone create | `POST /zones` | Zone:Edit | ✗ (intentionally — would create a real zone) |
-
-**Severity** — `major`. The diagnostic exists specifically to prevent "token issue surprise mid-deploy" — a clean ✓ that turns into a 401 during the first actual operation defeats its purpose. Same shape failure the dropaudit.co 2026-05-22 incident motivated v25.D to solve in the first place.
-
-**Notes**
-
-- Fix shape: extend `ZoneDiag` with `cache_purge_ok` + `zone_settings_ok`; add two more per-zone probes in `diagnose_token`'s zone loop. Both use the v25.B "deliberately-invalid payload, 4xx-on-success" pattern (no state-changing side effects):
-  - Cache Purge: `POST /zones/{id}/purge_cache` with `{"files": []}` → 400 = scope OK; 401/403 = missing.
-  - Zone Settings: `PATCH /zones/{id}/settings/development_mode` with `{"value": "invalid"}` → 400 = scope OK; 403 = missing.
-- The `/user/tokens/verify` endpoint includes a `policies` array that lists declared permissions, but per the v25.B design notes that array's shape is undocumented for machine-parsing — the attempt-the-operation pattern is more reliable.
-- Workaround until fixed: when CHECK_057 (or any zone-scoped fix) 401's despite `check-token` ✓, the missing permission is one of {Cache Purge, Zone Settings:Edit}. Add both at the CF dashboard while you're in there.
-- Related: same operator-visible failure-shape pattern as the dropaudit.co incident (2026-05-22 PM) that motivated v25.D itself. v25.D solved the deploy-pipeline side; this entry surfaces the same gap on the fix-pipeline side.
-
-
 ### 2026-05-25 — `project seo` renders pending sitemap re-fetches as `✗ ERROR` (red) when they should be `↷ PENDING` (yellow)
 
 **Repro**
@@ -1393,6 +1342,46 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-27 — `settings cloudflare check-token` returns ✓ when token lacks Cache Purge / Zone Settings:Edit (only DNS:Edit was probed per zone)
+
+**Repro (pre-fix)**
+
+```
+$ lamill settings cloudflare check-token
+...
+Zones (14 accessible)
+  ✓ DNS:Edit   kwizicle.com
+  ✓ DNS:Edit   (13 more)
+✓ Token has all permissions lamill needs.
+
+$ lamill project fix kwizicle.com --apply
+  ✗ CHECK_057  purge call failed: POST purge_cache → HTTP 401: ...
+```
+
+The diagnostic reported ✓; CHECK_057's purge_files call immediately 401'd because the token lacked Zone:Cache Purge on that zone. CF returns 401 (not 403) when a token misses a specific zone-scope permission — same shape as a fully-invalid token, which is why `/user/tokens/verify` succeeded.
+
+**Severity** — `major`. The diagnostic exists specifically to prevent mid-pipeline token-scope surprises; a clean ✓ that turns into a 401 mid-fix defeats its purpose. Same shape as the dropaudit.co 2026-05-22 incident that motivated v25.D in the first place.
+
+**Fix (v25.E)**
+
+`src/portfolio/cloudflare.py`:
+- New `probe_zone_cache_purge(zone_id)` — POST `/zones/{id}/purge_cache` with `{"files": []}`. 200 or 400 = auth OK + state-neutral; 401/403 = missing.
+- New `probe_zone_settings_edit(zone_id)` — PATCH `/zones/{id}/settings/development_mode` with `{"value": "invalid"}`. 400 = auth OK + value rejected; 401/403 = missing. Unexpected 200 raises (defensive: if CF ever normalizes the bogus enum, the probe needs to switch settings before any state risk).
+- `ZoneDiag` extended with `has_cache_purge` + `has_zone_settings_edit`.
+- `diagnose_token` per-zone loop now calls all three probes; each missing scope appears as its own entry in `missing_zone_permissions`.
+
+`src/portfolio/cli.py`: `settings cloudflare check-token` renderer prints one row per zone with all three marks side-by-side (`✓ DNS:Edit  ✓ Cache Purge  ✓ Zone Settings:Edit`).
+
+**Fixed in** — `<SHA on commit>` (16 new tests: 13 in `test_cloudflare_v25e.py` for the two new probes — 200/400/401/403/404/5xx/request-shape paths — plus 3 in `test_v25d_diagnostics.py` covering the kwizicle scenario, zone-settings-missing, and all-three-scopes-missing)
+
+**Notes**
+
+- Zone:Edit (`POST /zones` to create new zones) intentionally NOT probed — it would create a real zone with side effects. The current `new deploy` Step 3 catches that 403 inline with an actionable dashboard link.
+- Cost per `check-token` run: now 3 RTTs per zone (was 1). For a 15-zone fleet, ~0.5s additional.
+- Same false-confidence shape as CHECK_057's pre-fix purge-as-universal-remedy (also closed 2026-05-27, `27d96ac`). The "diagnostic honesty" framing was real; both halves of it are now shipped.
+
+---
 
 ### 2026-05-27 — CHECK_057 false-fails non-HTML paths served by CF's SPA-fallback handler (originally diagnosed as origin-orphans)
 

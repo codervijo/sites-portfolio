@@ -9937,8 +9937,17 @@ def settings_cloudflare_check_token() -> None:
             f"\n[bold]Zones[/] [dim]({len(diag.zones)} accessible)[/]"
         )
         for zone in diag.zones:
-            mark = "[green]✓[/]" if zone.has_dns_edit else "[red]✗[/]"
-            console.print(f"  {mark} DNS:Edit   [cyan]{zone.name}[/]")
+            dns_mark = "[green]✓[/]" if zone.has_dns_edit else "[red]✗[/]"
+            purge_mark = "[green]✓[/]" if zone.has_cache_purge else "[red]✗[/]"
+            settings_mark = (
+                "[green]✓[/]" if zone.has_zone_settings_edit else "[red]✗[/]"
+            )
+            console.print(
+                f"  [cyan]{zone.name}[/]   "
+                f"{dns_mark} DNS:Edit   "
+                f"{purge_mark} Cache Purge   "
+                f"{settings_mark} Zone Settings:Edit"
+            )
 
     if not (diag.missing_account_permissions or diag.missing_zone_permissions):
         console.print(

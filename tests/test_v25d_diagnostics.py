@@ -81,6 +81,12 @@ def test_diagnose_token_happy_path():
             return httpx.Response(400, json={
                 "success": False, "errors": [{"code": 9021, "message": "TTL invalid"}],
             })
+        if req.method == "POST" and path.endswith("/purge_cache"):
+            # v25.E cache-purge probe — empty files array → 400 = auth OK.
+            return httpx.Response(400, json={"success": False})
+        if req.method == "PATCH" and path.endswith("/settings/development_mode"):
+            # v25.E zone-settings probe — bogus enum → 400 = auth OK.
+            return httpx.Response(400, json={"success": False})
         return httpx.Response(404, text=f"unexpected {req.method} {path}")
 
     client = _client_for(handler)
@@ -97,6 +103,8 @@ def test_diagnose_token_happy_path():
     assert len(diag.zones) == 1
     assert diag.zones[0].name == "example.com"
     assert diag.zones[0].has_dns_edit is True
+    assert diag.zones[0].has_cache_purge is True
+    assert diag.zones[0].has_zone_settings_edit is True
     assert diag.missing_account_permissions == []
     assert diag.missing_zone_permissions == []
 
@@ -150,6 +158,11 @@ def test_diagnose_token_zone_dns_edit_missing():
             return httpx.Response(400, json={"success": False})  # has DNS:Edit
         if req.method == "POST" and "/zones/zoneB/dns_records" in path:
             return httpx.Response(403, json={"success": False})  # missing
+        # v25.E — both zones have cache-purge + settings:edit in this test.
+        if req.method == "POST" and path.endswith("/purge_cache"):
+            return httpx.Response(400, json={"success": False})
+        if req.method == "PATCH" and path.endswith("/settings/development_mode"):
+            return httpx.Response(400, json={"success": False})
         return httpx.Response(404)
 
     client = _client_for(handler)
@@ -193,6 +206,104 @@ def test_diagnose_token_accounts_list_403():
 
     assert diag.accounts == []
     assert any("/accounts list returned HTTP 403" in p for p in diag.missing_account_permissions)
+
+
+# ---- v25.E: cache-purge + zone-settings probes integrated in diagnose_token ----
+
+
+def test_diagnose_token_kwizicle_scenario_cache_purge_missing():
+    """2026-05-27 regression: token has DNS:Edit on every zone but
+    lacks Zone:Cache Purge on one of them. Pre-fix, check-token said
+    ✓ then CHECK_057's purge_files call 401'd mid-fix. Post-fix, the
+    diagnostic must flag the gap by zone."""
+    def handler(req):
+        path = req.url.path
+        if path.endswith("/user/tokens/verify"):
+            return httpx.Response(200, json={"success": True, "result": {"status": "active"}})
+        if path == "/client/v4/accounts":
+            return httpx.Response(200, json={"success": True, "result": []})
+        if path == "/client/v4/zones":
+            return httpx.Response(200, json={
+                "success": True,
+                "result": [{"id": "zoneK", "name": "kwizicle.com"}],
+            })
+        if req.method == "POST" and path.endswith("/dns_records"):
+            return httpx.Response(400, json={"success": False})  # DNS:Edit OK
+        if req.method == "POST" and path.endswith("/purge_cache"):
+            return httpx.Response(403, json={"success": False})  # missing!
+        if req.method == "PATCH" and path.endswith("/settings/development_mode"):
+            return httpx.Response(400, json={"success": False})  # Zone Settings OK
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    diag = diagnose_token(client=client)
+
+    assert len(diag.zones) == 1
+    z = diag.zones[0]
+    assert z.has_dns_edit is True
+    assert z.has_cache_purge is False
+    assert z.has_zone_settings_edit is True
+    assert ("kwizicle.com", "Cache Purge") in diag.missing_zone_permissions
+    assert ("kwizicle.com", "DNS:Edit") not in diag.missing_zone_permissions
+
+
+def test_diagnose_token_zone_settings_missing():
+    """Token has DNS:Edit + Cache Purge but lacks Zone Settings:Edit.
+    Blocks CHECK_150 (v26.C always_use_https PATCH)."""
+    def handler(req):
+        path = req.url.path
+        if path.endswith("/user/tokens/verify"):
+            return httpx.Response(200, json={"success": True, "result": {"status": "active"}})
+        if path == "/client/v4/accounts":
+            return httpx.Response(200, json={"success": True, "result": []})
+        if path == "/client/v4/zones":
+            return httpx.Response(200, json={
+                "success": True,
+                "result": [{"id": "zoneS", "name": "example.com"}],
+            })
+        if req.method == "POST" and path.endswith("/dns_records"):
+            return httpx.Response(400, json={"success": False})
+        if req.method == "POST" and path.endswith("/purge_cache"):
+            return httpx.Response(400, json={"success": False})
+        if req.method == "PATCH" and path.endswith("/settings/development_mode"):
+            return httpx.Response(403, json={"success": False})  # missing!
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    diag = diagnose_token(client=client)
+
+    z = diag.zones[0]
+    assert z.has_dns_edit is True
+    assert z.has_cache_purge is True
+    assert z.has_zone_settings_edit is False
+    assert ("example.com", "Zone Settings:Edit") in diag.missing_zone_permissions
+
+
+def test_diagnose_token_all_three_zone_scopes_missing_lists_all():
+    """When a zone lacks all three scopes, missing_zone_permissions
+    surfaces each independently so the operator sees the full gap."""
+    def handler(req):
+        path = req.url.path
+        if path.endswith("/user/tokens/verify"):
+            return httpx.Response(200, json={"success": True, "result": {"status": "active"}})
+        if path == "/client/v4/accounts":
+            return httpx.Response(200, json={"success": True, "result": []})
+        if path == "/client/v4/zones":
+            return httpx.Response(200, json={
+                "success": True,
+                "result": [{"id": "z1", "name": "underscoped.example"}],
+            })
+        if req.method in ("POST", "PATCH"):
+            return httpx.Response(403, json={"success": False})
+        return httpx.Response(404)
+
+    client = _client_for(handler)
+    diag = diagnose_token(client=client)
+
+    missing = set(diag.missing_zone_permissions)
+    assert ("underscoped.example", "DNS:Edit") in missing
+    assert ("underscoped.example", "Cache Purge") in missing
+    assert ("underscoped.example", "Zone Settings:Edit") in missing
 
 
 # ---- gsc_admin.classify_403 -----------------------------------------
