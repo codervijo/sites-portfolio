@@ -6212,7 +6212,8 @@ def _deploy_cf_unified(
     from .gh_repo import (
         GhAuthError, GhError, auth_path,
         detect_gh_owner, ensure_origin_remote,
-        ensure_repo, push_to_origin,
+        ensure_repo, parse_github_remote, push_to_origin,
+        read_local_origin,
     )
     from .porkbun_dns import (
         PorkbunDnsError, get_porkbun_ns, ns_matches, update_porkbun_ns,
@@ -6301,6 +6302,31 @@ def _deploy_cf_unified(
     console.print(f"  [green]✓[/] GitHub owner: [cyan]{gh_owner}[/]")
     console.print(f"  [green]✓[/] CF project slug: [cyan]{slug}[/]")
 
+    # 2026-05-27 — slug-mismatch fix. When the operator's local
+    # origin points at <gh_owner>/<X>, treat <X> as the canonical
+    # GH repo target (overriding the TLD-stripped default). Without
+    # this, operators with pre-lamill repo naming (e.g.
+    # `codervijo/kwizicle.com.git`) hit a Step 2 push failure because
+    # ensure_origin_remote strict-checks the URL and Step 1 created
+    # /detected the wrong repo. `slug` (the CF Pages project name)
+    # stays as _project_name(domain) — CF naming constraints don't
+    # allow dots — but the GH repo target tracks the operator's
+    # actual remote. See docs/bugs.md (2026-05-27 entry).
+    gh_repo_target = slug
+    if not skip_repo:
+        local_origin = read_local_origin(Path(project_dir))
+        if local_origin:
+            parsed = parse_github_remote(local_origin)
+            if parsed and parsed.owner.lower() == gh_owner.lower():
+                if parsed.name != slug:
+                    gh_repo_target = parsed.name
+                    console.print(
+                        f"  [yellow]↷[/] local origin → "
+                        f"[cyan]{parsed.owner}/{parsed.name}[/] — using "
+                        f"[cyan]{parsed.name}[/] as GH repo target "
+                        f"[dim](override of derived [cyan]{slug}[/])[/]"
+                    )
+
     # v15.R — Porkbun per-domain API access pre-check. The account-
     # level API key works for /domain/listAll (v15.F refresh) but
     # each domain has a SEPARATE per-domain toggle. Catch this at
@@ -6348,18 +6374,18 @@ def _deploy_cf_unified(
     console.print("\n[bold]1. GitHub repo[/]")
     if skip_repo:
         console.print(f"  [yellow]↷[/] skipped (--skip-repo)")
-        gh_repo_name = slug
-        clone_url = f"git@github.com:{gh_owner}/{slug}.git"
+        gh_repo_name = gh_repo_target
+        clone_url = f"git@github.com:{gh_owner}/{gh_repo_target}.git"
     elif dry_run:
         console.print(
-            f"  [dim]would: ensure_repo({slug}, owner={gh_owner}, "
+            f"  [dim]would: ensure_repo({gh_repo_target}, owner={gh_owner}, "
             f"private={private})[/]"
         )
-        gh_repo_name = slug
-        clone_url = f"git@github.com:{gh_owner}/{slug}.git"
+        gh_repo_name = gh_repo_target
+        clone_url = f"git@github.com:{gh_owner}/{gh_repo_target}.git"
     else:
         try:
-            repo = ensure_repo(slug, owner=gh_owner, private=private)
+            repo = ensure_repo(gh_repo_target, owner=gh_owner, private=private)
         except (GhAuthError, GhError) as e:
             console.print(f"  [red]✗[/] GitHub repo step failed: {e}")
             raise typer.Exit(3)

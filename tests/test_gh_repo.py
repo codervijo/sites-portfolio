@@ -12,6 +12,7 @@ from portfolio.gh_repo import (
     GhAuthError,
     GhCliError,
     GhError,
+    ParsedRemote,
     RepoInfo,
     auth_path,
     detect_gh_owner,
@@ -19,7 +20,9 @@ from portfolio.gh_repo import (
     ensure_origin_remote,
     ensure_repo,
     get_repo,
+    parse_github_remote,
     push_to_origin,
+    read_local_origin,
 )
 
 
@@ -277,3 +280,90 @@ def test_push_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: proc)
     with pytest.raises(GhError, match="git push"):
         push_to_origin(tmp_path)
+
+
+# ---- read_local_origin (slug-mismatch fix; 2026-05-27) ----
+
+
+def test_read_local_origin_returns_url(monkeypatch, tmp_path):
+    proc = MagicMock(
+        returncode=0,
+        stdout="git@github.com:codervijo/kwizicle.com.git\n",
+        stderr="",
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: proc)
+    assert read_local_origin(tmp_path) == "git@github.com:codervijo/kwizicle.com.git"
+
+
+def test_read_local_origin_returns_none_when_no_origin(monkeypatch, tmp_path):
+    proc = MagicMock(returncode=1, stdout="", stderr="error: No such remote 'origin'")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: proc)
+    assert read_local_origin(tmp_path) is None
+
+
+def test_read_local_origin_returns_none_when_git_missing(monkeypatch, tmp_path):
+    def runner(*a, **kw):
+        raise FileNotFoundError("git: command not found")
+    monkeypatch.setattr(subprocess, "run", runner)
+    assert read_local_origin(tmp_path) is None
+
+
+def test_read_local_origin_returns_none_on_timeout(monkeypatch, tmp_path):
+    def runner(*a, **kw):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=10.0)
+    monkeypatch.setattr(subprocess, "run", runner)
+    assert read_local_origin(tmp_path) is None
+
+
+def test_read_local_origin_strips_blank_returns_none(monkeypatch, tmp_path):
+    proc = MagicMock(returncode=0, stdout="   \n", stderr="")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: proc)
+    assert read_local_origin(tmp_path) is None
+
+
+# ---- parse_github_remote (slug-mismatch fix; 2026-05-27) ----
+
+
+def test_parse_github_remote_ssh_shorthand():
+    p = parse_github_remote("git@github.com:codervijo/kwizicle.com.git")
+    assert p == ParsedRemote(owner="codervijo", name="kwizicle.com")
+
+
+def test_parse_github_remote_ssh_full():
+    p = parse_github_remote("ssh://git@github.com/codervijo/kwizicle.git")
+    assert p == ParsedRemote(owner="codervijo", name="kwizicle")
+
+
+def test_parse_github_remote_https():
+    p = parse_github_remote("https://github.com/codervijo/kwizicle.com.git")
+    assert p == ParsedRemote(owner="codervijo", name="kwizicle.com")
+
+
+def test_parse_github_remote_https_without_dot_git_suffix():
+    p = parse_github_remote("https://github.com/codervijo/airsucks.com")
+    assert p == ParsedRemote(owner="codervijo", name="airsucks.com")
+
+
+def test_parse_github_remote_http():
+    p = parse_github_remote("http://github.com/codervijo/repo.git")
+    assert p == ParsedRemote(owner="codervijo", name="repo")
+
+
+def test_parse_github_remote_non_github_returns_none():
+    assert parse_github_remote("git@gitlab.com:owner/repo.git") is None
+    assert parse_github_remote("https://bitbucket.org/owner/repo.git") is None
+
+
+def test_parse_github_remote_empty_returns_none():
+    assert parse_github_remote("") is None
+
+
+def test_parse_github_remote_malformed_returns_none():
+    # Missing owner.
+    assert parse_github_remote("git@github.com:/repo.git") is None
+    # Missing repo.
+    assert parse_github_remote("git@github.com:owner/.git") is None
+    # Extra path segments (e.g. enterprise URLs / subdirs).
+    assert parse_github_remote("https://github.com/owner/repo/extra") is None
+    # No path at all.
+    assert parse_github_remote("https://github.com/") is None

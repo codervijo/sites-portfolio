@@ -66,73 +66,6 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-05-27 — `new deploy` fails Step 2 when local origin uses `<domain>` form (e.g. `kwizicle.com`) but slug derivation produces `<short>` form (`kwizicle`)
-
-**Repro**
-
-```
-$ lamill new deploy kwizicle.com --yes
-v15.I — Deploy kwizicle.com (platform=cf-pages · slug=kwizicle ...)
-
-1. GitHub repo
-  ✓ exists, skipping: codervijo/kwizicle (visibility=private; default_branch=master)
-
-2. Git push origin/main
-  ✗ git push step failed: origin already points to
-    'git@github.com:codervijo/kwizicle.com.git' but expected
-    'git@github.com:codervijo/kwizicle.git'. Operator must reconcile
-    (e.g. `git remote set-url origin git@github.com:codervijo/kwizicle.git`).
-```
-
-**Expected**
-
-`new deploy <domain>` should respect the project's existing `origin` remote naming as the canonical reference for the entire pipeline (Steps 1-9). If the local repo already points to `<owner>/<X>` and that repo exists on GitHub, `X` becomes the slug for CF Pages project name, GitHub repo target, and remote-check — overriding the TLD-stripped default.
-
-Equivalently: operator should be able to deploy a project that's already wired up with the `<domain>` form of the repo name (`kwizicle.com`) without having to rename it locally + remotely to match lamill's `<short>` form (`kwizicle`).
-
-**Actual**
-
-`bootstrap._project_name(domain)` deterministically returns the TLD-stripped form (`kwizicle.com` → `kwizicle`). The whole v15.I pipeline threads that `slug` through every step:
-
-  - Step 1: `ensure_repo("kwizicle", owner="codervijo", ...)` — finds the lamill-created empty repo `codervijo/kwizicle` (NOT the operator's actual repo `codervijo/kwizicle.com`); says "exists, skipping."
-  - Step 2: `ensure_origin_remote(..., clone_url="git@github.com:codervijo/kwizicle.git")` — strict-checks `current == clone_url`; operator's `origin` is `kwizicle.com.git` → raises `GhError`.
-
-Even if Step 2 accepted both variants (band-aid fix), the CF Pages project at Step 5 would still be wired to `codervijo/kwizicle` (empty repo) — so deploys would never fire when the operator pushes to `kwizicle.com`. Mismatch is structural; needs to be resolved at slug derivation (Step 0 / Step 1) not at remote check (Step 2).
-
-**Where (guess)**
-
-  - `src/portfolio/bootstrap.py:_project_name` — slug derivation. Add an optional `hint_from_local_remote` parameter that, when provided, takes precedence over the TLD-strip default.
-  - `src/portfolio/cli.py:_deploy_cf_unified` (and `_deploy_cf_workers_unified`) — read the project's `origin` URL before calling `_project_name`; parse `<owner>/<name>`; if owner matches `gh_owner`, use `name` as the slug override.
-  - `src/portfolio/gh_repo.py:ensure_origin_remote` — fine as-is once slug derivation respects the local truth; no change needed.
-
-**Severity** — `major`. Blocks operator-initiated re-deploy of any existing repo whose GitHub naming predates lamill's slug convention. Affects more than just kwizicle.com — any operator-created repo named with the full domain (a common pre-lamill convention) hits the same wall.
-
-**Notes**
-
-- Two real GitHub repos exist for kwizicle today, both under `codervijo`:
-  - `kwizicle.com` (operator's actual project; pushes go here; CF Pages should auto-build from here).
-  - `kwizicle` (lamill-created empty placeholder; no commits; CF Pages currently bound here from a prior deploy attempt).
-- Cleanup question after the fix lands: should lamill delete the empty `kwizicle` placeholder? Probably out of scope of this bug — `gh repo delete` is destructive and operator can do it from the dashboard. Just don't keep creating new orphans.
-
-- **Proposed fix shape — operator's local origin is the source of truth:**
-  ```python
-  # In _deploy_cf_unified, before _project_name:
-  existing_remote = _read_local_origin(project_dir)
-  remote_name = None
-  if existing_remote:
-      parsed = _parse_github_remote(existing_remote)  # (owner, name) or None
-      if parsed and parsed.owner.lower() == gh_owner.lower():
-          remote_name = parsed.name
-  slug = remote_name or _project_name(domain)
-  ```
-  Add a CLI banner noting the override when it fires:
-  `↷ origin already → codervijo/kwizicle.com — using "kwizicle.com" as the slug (override of derived "kwizicle")`
-
-- **Alternative (smaller, band-aid):** just accept both variants in `ensure_origin_remote`. Faster to ship, but leaves Steps 5-9 wired to the wrong repo for the CF integration. Not recommended.
-
-- Reproduces against any sibling site whose local origin uses the full-domain naming. Worth a one-off sweep after the fix lands: `cd ~/work/projects/sites && for d in */; do (cd "$d" && git remote get-url origin 2>/dev/null | grep -oE "codervijo/[^.]+(\.[^.]+)?"); done` — surfaces which sites currently use the `<domain>` form.
-
-
 ### 2026-05-27 — CHECK_057 fix (CF cache purge) is the wrong remedy when stale paths are origin-orphans, not edge-cache leftovers
 
 **Repro**
@@ -1522,6 +1455,48 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-27 — `new deploy` fails Step 2 when local origin uses `<domain>` form (e.g. `kwizicle.com`) but slug derivation produces `<short>` form (`kwizicle`)
+
+**Repro**
+
+```
+$ lamill new deploy kwizicle.com --yes
+v15.I — Deploy kwizicle.com (platform=cf-pages · slug=kwizicle ...)
+
+1. GitHub repo
+  ✓ exists, skipping: codervijo/kwizicle (visibility=private; default_branch=master)
+
+2. Git push origin/main
+  ✗ git push step failed: origin already points to
+    'git@github.com:codervijo/kwizicle.com.git' but expected
+    'git@github.com:codervijo/kwizicle.git'. Operator must reconcile
+    (e.g. `git remote set-url origin git@github.com:codervijo/kwizicle.git`).
+```
+
+**Expected**
+
+`new deploy <domain>` should respect the project's existing `origin` remote naming as the canonical reference for the GH-side of the pipeline. If the local repo already points to `<owner>/<X>` and that repo exists on GitHub, `X` becomes the GH repo target — overriding the TLD-stripped default.
+
+**Actual** (pre-fix)
+
+`bootstrap._project_name(domain)` deterministically returns the TLD-stripped form (`kwizicle.com` → `kwizicle`); the pre-fix pipeline threaded that into Step 1's `ensure_repo` + Step 2's `clone_url` strict-check, hitting the operator's `kwizicle.com.git` origin and raising.
+
+**Severity** — `major`. Blocked operator-initiated re-deploy of any existing repo whose GitHub naming predates lamill's slug convention (a common pre-lamill convention).
+
+**Fix**
+
+Added `read_local_origin()` + `parse_github_remote()` helpers in `gh_repo.py`. In `_deploy_cf_unified` Step 0 (after `gh_owner` resolution), probe the local origin; if it parses as `<gh_owner>/<X>` and `X != slug`, override `gh_repo_target = X` (with a `↷` banner). Step 1 + Step 2 + Step 5's CF Pages source binding all flow through `gh_repo_target`. The CF Pages project name (`slug`) stays as `_project_name(domain)` — CF naming constraints disallow dots — but the GH source binding tracks the operator's actual remote.
+
+**Fixed in** — `<SHA on commit>` (slug-mismatch fix; 13 new tests in `test_gh_repo.py`)
+
+**Notes**
+
+- Cleanup of pre-existing orphans (e.g. `codervijo/kwizicle` empty placeholder + the wrong-source CF Pages project it spawned) is out of scope of this fix; operator handles those manually via dashboard. The fix prevents creating new orphans.
+- The "fleetwide sweep" command in the original notes is still worth running to confirm no other sites are silently affected:
+  `cd ~/work/projects/sites && for d in */; do (cd "$d" && git remote get-url origin 2>/dev/null | grep -oE "codervijo/[^.]+(\.[^.]+)?"); done`
+
+---
 
 ### 2026-05-26 — CHECK_150 fixer post-write verification races CF edge propagation
 

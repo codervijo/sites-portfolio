@@ -381,6 +381,76 @@ def push_to_origin(project_dir: Path, *, branch: str = "main") -> bool:
     )
 
 
+# ---- local-origin readers (slug-mismatch fix; 2026-05-27) -----------
+
+
+def read_local_origin(project_dir: Path) -> Optional[str]:
+    """Return the value of `git remote get-url origin` for project_dir,
+    or None if origin isn't set / git isn't installed / the dir isn't
+    a repo. Never raises.
+
+    Used by the deploy pipeline to detect when an operator's local
+    repo already points at a GH name that differs from lamill's
+    TLD-stripped default (e.g. `kwizicle.com.git` vs `kwizicle.git`).
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=str(project_dir),
+            capture_output=True, text=True, timeout=10.0, check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    url = proc.stdout.strip()
+    return url or None
+
+
+@dataclass(frozen=True)
+class ParsedRemote:
+    owner: str
+    name: str
+
+
+def parse_github_remote(url: str) -> Optional[ParsedRemote]:
+    """Parse a GitHub remote URL into (owner, name), or None if it
+    isn't a recognizable GitHub URL.
+
+    Accepts the four shapes git emits:
+      - `git@github.com:owner/name.git` (SSH)
+      - `ssh://git@github.com/owner/name.git`
+      - `https://github.com/owner/name.git`
+      - `https://github.com/owner/name` (no `.git` suffix)
+
+    Returns None for non-GitHub hosts and malformed inputs. Does not
+    lowercase — the repo name on GH is case-preserving even though
+    lookups are case-insensitive.
+    """
+    if not url:
+        return None
+    s = url.strip()
+
+    # SSH shorthand: git@github.com:owner/name(.git)?
+    if s.startswith("git@github.com:"):
+        path = s[len("git@github.com:"):]
+    elif s.startswith("ssh://git@github.com/"):
+        path = s[len("ssh://git@github.com/"):]
+    elif s.startswith("https://github.com/"):
+        path = s[len("https://github.com/"):]
+    elif s.startswith("http://github.com/"):
+        path = s[len("http://github.com/"):]
+    else:
+        return None
+
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = path.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        return None
+    return ParsedRemote(owner=parts[0], name=parts[1])
+
+
 # ---- internal: JSON → RepoInfo -------------------------------------
 
 
