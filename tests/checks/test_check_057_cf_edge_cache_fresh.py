@@ -135,6 +135,102 @@ def test_run_passes_when_critical_paths_return_404(tmp_path):
     assert mod._stale_paths(rows) == []
 
 
+def test_spa_fallback_xml_path_is_not_flagged_stale(tmp_path):
+    """kwizicle.com regression (2026-05-27): the wrangler.jsonc config
+    `not_found_handling: single-page-application` returns the SPA's
+    index.html (200 + text/html) for any unknown path. Pre-fix, CHECK_057
+    saw `/sitemap-index.xml` returning 200 + missing-from-dist and flagged
+    it as stale → purge ran ✓ → next request re-fired the SPA fallback →
+    flagged again, indefinitely. Discriminator: non-HTML suffix served
+    as text/html → not stale (purge is a no-op)."""
+    repo = _repo(tmp_path, dist_files=["index.html", "robots.txt",
+                                        "sitemap.xml"])
+    # /sitemap-index.xml + /sitemap-0.xml absent from dist; SPA fallback
+    # returns HTML 200 for both.
+    responses = {
+        "/": httpx.Response(200, headers={"content-type": "text/html"}),
+        "/robots.txt": httpx.Response(
+            200, headers={"content-type": "text/plain"}),
+        "/sitemap.xml": httpx.Response(
+            200, headers={"content-type": "application/xml",
+                          "cf-cache-status": "HIT"}),
+        "/sitemap-index.xml": httpx.Response(
+            200, headers={"content-type": "text/html; charset=utf-8",
+                          "cf-cache-status": "HIT"}),
+        "/sitemap-0.xml": httpx.Response(
+            200, headers={"content-type": "text/html",
+                          "cf-cache-status": "HIT"}),
+    }
+    with _client_for(responses) as client:
+        rows = mod._run_probes(repo, repo.name, client=client)
+    # SPA-fallback rows are recognized.
+    sitemap_idx = next(r for r in rows if r["path"] == "/sitemap-index.xml")
+    sitemap_0 = next(r for r in rows if r["path"] == "/sitemap-0.xml")
+    assert mod._is_spa_fallback(sitemap_idx) is True
+    assert mod._is_spa_fallback(sitemap_0) is True
+    # No stale paths — the real /sitemap.xml is in dist; the others are
+    # SPA-synthesized fallbacks, not edge-cached files.
+    assert mod._stale_paths(rows, critical_only=True) == []
+    assert mod._stale_paths(rows) == []
+
+
+def test_spa_fallback_does_not_mask_real_xml_stale(tmp_path):
+    """The original donready scenario must still fire: a path returning
+    application/xml content but absent from dist/ IS stale — the edge
+    is genuinely serving a leftover file. SPA-fallback discriminator
+    only excludes text/html responses."""
+    repo = _repo(tmp_path, dist_files=["index.html", "robots.txt",
+                                        "sitemap-index.xml", "sitemap-0.xml"])
+    responses = {
+        "/": httpx.Response(200, headers={"content-type": "text/html"}),
+        "/robots.txt": httpx.Response(
+            200, headers={"content-type": "text/plain"}),
+        # /sitemap.xml absent from dist but edge serves a REAL XML
+        # response — this is the donready bug, must still flag stale.
+        "/sitemap.xml": httpx.Response(
+            200, headers={"content-type": "application/xml",
+                          "cf-cache-status": "HIT",
+                          "etag": '"leftover"'}),
+        "/sitemap-index.xml": httpx.Response(
+            200, headers={"content-type": "application/xml"}),
+        "/sitemap-0.xml": httpx.Response(
+            200, headers={"content-type": "application/xml"}),
+    }
+    with _client_for(responses) as client:
+        rows = mod._run_probes(repo, repo.name, client=client)
+    stale = mod._stale_paths(rows, critical_only=True)
+    assert [r["path"] for r in stale] == ["/sitemap.xml"]
+
+
+def test_is_spa_fallback_helper_unit():
+    # Non-HTML suffix + text/html response → SPA fallback.
+    assert mod._is_spa_fallback(
+        {"path": "/sitemap.xml", "content_type": "text/html"}) is True
+    assert mod._is_spa_fallback(
+        {"path": "/sitemap-0.xml", "content_type": "text/html; charset=utf-8"}
+    ) is True
+    assert mod._is_spa_fallback(
+        {"path": "/robots.txt", "content_type": "text/html"}) is True
+    assert mod._is_spa_fallback(
+        {"path": "/data.json", "content_type": "text/html"}) is True
+    # Same path with proper content-type → not SPA fallback.
+    assert mod._is_spa_fallback(
+        {"path": "/sitemap.xml", "content_type": "application/xml"}) is False
+    assert mod._is_spa_fallback(
+        {"path": "/robots.txt", "content_type": "text/plain"}) is False
+    # HTML path served as HTML → not SPA fallback (it's a real page).
+    assert mod._is_spa_fallback(
+        {"path": "/", "content_type": "text/html"}) is False
+    assert mod._is_spa_fallback(
+        {"path": "/about", "content_type": "text/html"}) is False
+    # Missing content-type → no exclusion, falls through to existing logic.
+    assert mod._is_spa_fallback(
+        {"path": "/sitemap.xml", "content_type": None}) is False
+    assert mod._is_spa_fallback(
+        {"path": "/sitemap.xml", "content_type": ""}) is False
+    assert mod._is_spa_fallback({"path": "/sitemap.xml"}) is False
+
+
 def test_run_does_not_flag_legitimate_301_as_stale(tmp_path):
     """donready regression: /sitemap.xml correctly 301s to
     /sitemap-index.xml (operator's intentional fix after the original

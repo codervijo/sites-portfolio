@@ -66,68 +66,6 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-05-27 — CHECK_057 fix (CF cache purge) is the wrong remedy when stale paths are origin-orphans, not edge-cache leftovers
-
-**Repro**
-
-```
-$ lamill fleet focus --refresh
-  #2  kwizicle.com  🔴 Stale CF edge cache: stale at edge: /sitemap-index.xml (cache=HIT),
-      /sitemap-0.xml (cache=HIT) — run 'portfolio project fix <domain> --apply' to purge
-
-$ lamill project fix kwizicle.com --apply
-  + CHECK_057  purge stale paths from Cloudflare edge cache
-  ✓ CHECK_057  purged 2 path(s)
-
-$ lamill fleet focus --refresh
-  #2  kwizicle.com  🔴 Stale CF edge cache: stale at edge: /sitemap-index.xml (cache=HIT),
-      /sitemap-0.xml (cache=HIT) — run 'portfolio project fix <domain> --apply' to purge
-```
-
-The fix runs cleanly, reports ✓, then the same stale signal reappears immediately. Loop is indefinite — every purge succeeds but the next probe still flags the same paths as stale.
-
-**Expected**
-
-The fixer detects when purging the edge doesn't actually resolve the staleness (because the underlying origin still serves the orphan files) and:
-
-(a) Re-probes each purged path with a cache-buster (`?cb=<timestamp>`) after the purge call, OR
-(b) Surfaces a different `FixResult.status` ("manual" with "origin-orphan; redeploy needed" message) when the post-purge probe still 200's.
-
-Either way, operator sees "→ redeploy this site" instead of "→ purge again" as the next-action hint.
-
-**Actual**
-
-The fixer assumes "served + not in `dist/`" maps cleanly to "edge cache problem fixable by purge." That assumption breaks when the origin (CF Pages assets / Workers asset bundle) still contains the orphan files from a prior deploy. The purge invalidates the edge → next request → MISS → fetch from origin → origin still has the file → 200 with stale content → cache re-populates with HIT → check fails again identically.
-
-**Where (guess)**
-
-`src/portfolio/checks/deploy/check_057_cf_edge_cache_fresh.py`:
-
-  - `run()` verdict logic ("served + not in dist = stale") is correct as a *detection*. No change needed there.
-  - `_apply_purge` (the Tier-1 fixer) treats purge as a universal remedy. Two reasonable changes:
-    1. Post-purge verification — after `purge_files()` succeeds, re-probe each purged path with a cache-buster query string (`?cb=<ms>`). If status is still 200 → upgrade to `FixResult(status="manual", summary="origin orphan — redeploy needed; CF edge purge doesn't help here")`. The existing 200→404 verification logic already exists; just needs the cache-buster to bypass the new HIT.
-    2. Tier-2 fallback — add a `fix_tier_2` that triggers a redeploy via `lamill new deploy <domain>` when Tier-1's new "origin-orphan" sentinel fires.
-
-**Severity** — `minor`. False-confidence cosmetic: operator runs the fix, sees ✓, then sees the same alert next refresh. Doesn't block downstream operations; just creates a recurring noise signal that erodes trust in the diagnostic. Same false-confidence shape as the 2026-05-27 `check-token` entry above (a tool reporting "fixed" when the underlying issue persists).
-
-**Notes**
-
-- Concrete kwizicle.com diagnostic data (2026-05-27):
-  - Local `dist/` has only `sitemap.xml` + `robots.txt` (last built 2026-05-06).
-  - CF edge serves `/sitemap.xml` + `/sitemap-index.xml` + `/sitemap-0.xml` + `/robots.txt` — all 200 + `cf-cache-status: HIT`.
-  - The `sitemap-index.xml` / `sitemap-0.xml` files are Astro `@astrojs/sitemap`'s output shape — kwizicle.com once had that plugin; doesn't anymore; deployment retains the orphans.
-
-- **Worker-vs-Pages variant matters.** kwizicle.com is served by a **CF Worker** (URL: `dash.cloudflare.com/.../workers/services/view/kwizicle/production`), not CF Pages. The Worker's build step is `pnpm run build` then `npx wrangler versions upload`. Workers may preserve assets across versions differently than Pages does (Pages replaces the entire deploy on each push; Workers asset bindings persist by hash). Worth a follow-up to verify whether `wrangler versions upload` actually replaces orphan assets or appends. If the latter, redeploy alone may not be enough — needs a deeper "delete orphan assets" step.
-
-- **Workaround for kwizicle.com today:** trigger a fresh deploy from the CF dashboard ("New deployment" button on the Worker settings page) OR from terminal:
-  ```
-  lamill new deploy kwizicle.com --yes
-  ```
-  Verify after with `lamill fleet focus --refresh` — expect kwizicle.com to drop off the priority list once the orphans are gone.
-
-- **Related:** same-shape false-confidence as the `check-token` entry directly below this one — both are diagnostics/fixers that return ✓ while the underlying problem persists. Worth bundling fixes into one "diagnostic honesty" mini-tier when v26 wraps.
-
-
 ### 2026-05-27 — `settings cloudflare check-token` returns ✓ when token lacks Cache Purge / Zone Settings:Edit / Zone:Edit (only DNS:Edit is probed per zone)
 
 **Repro**
@@ -1455,6 +1393,58 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-27 — CHECK_057 false-fails non-HTML paths served by CF's SPA-fallback handler (originally diagnosed as origin-orphans)
+
+**Repro**
+
+```
+$ lamill fleet focus --refresh
+  #2  kwizicle.com  🔴 Stale CF edge cache: stale at edge: /sitemap-index.xml (cache=HIT),
+      /sitemap-0.xml (cache=HIT) — run 'portfolio project fix <domain> --apply' to purge
+
+$ lamill project fix kwizicle.com --apply
+  + CHECK_057  purge stale paths from Cloudflare edge cache
+  ✓ CHECK_057  purged 2 path(s)
+
+$ lamill fleet focus --refresh
+  #2  kwizicle.com  🔴 Stale CF edge cache: ... (same paths)
+```
+
+The fix runs cleanly, reports ✓, then the same stale signal reappears immediately. Loop is indefinite.
+
+**Actual root cause (diagnosed 2026-05-27)**
+
+Not origin orphans — **SPA-fallback misclassification**. kwizicle.com's `wrangler.jsonc` has `not_found_handling: "single-page-application"`, so CF returns the SPA's `index.html` (HTTP 200, `content-type: text/html`) for any unknown path. CHECK_057 trusted status alone:
+
+- `/sitemap-index.xml` HEAD → 200 + `text/html` (NOT XML — SPA fallback).
+- `dist/sitemap-index.xml` doesn't exist locally.
+- Pre-fix verdict: `(200) AND (not in dist) = stale` → fail.
+- Purge clears CF's cached fallback → next request → fallback re-fires → 200 again → re-flagged.
+
+These paths aren't files at all — neither at the edge nor in the origin. The signature is: non-HTML asset suffix (`.xml`, `.txt`, `.json`) served as `text/html`. This shape will trip every Vite/Astro SPA in the fleet, not just kwizicle.com.
+
+**Severity** — `minor`. False-confidence cosmetic: operator runs the fix, sees ✓, then sees the same alert next refresh.
+
+**Fix**
+
+In `check_057_cf_edge_cache_fresh.py`:
+- `_probe_one` now captures `content_type` (lowercased, no params).
+- New `_is_spa_fallback(row)` helper: returns True iff `path` ends in `.xml`/`.txt`/`.json` AND `content_type` starts with `text/html`.
+- `_stale_paths` excludes SPA-fallback rows alongside the existing in-dist / non-200 filters.
+
+Conservative: a missing content-type (older test fixtures, network errors) does NOT trigger the exclusion — falls through to existing verdict logic. The original donready scenario (`/sitemap.xml` actually served as `application/xml` but absent from `dist/`) is still flagged stale.
+
+**Fixed in** — `<SHA on commit>` (3 new tests in `test_check_057_cf_edge_cache_fresh.py`: SPA-fallback kwizicle scenario, donready non-masking regression, `_is_spa_fallback` unit cases)
+
+**Notes**
+
+- The original write-up hypothesized "origin orphans" (the live origin still ships the files from a prior build, so purge is no-op). That root cause is plausible but didn't match the kwizicle.com evidence: HEAD probe showed `content-type: text/html` on the two flagged paths, ruling out a real XML file at the edge. The proposed `_apply_purge` post-purge cache-buster + Tier-2 redeploy fallback weren't shipped — the SPA-fallback discriminator alone clears kwizicle.com.
+- True origin-orphan case (paths shipped by old build, content-type still XML) is rare and would still surface correctly under the new logic. If it ever becomes a real fleet signal, ship the post-purge cache-buster from the original write-up.
+- Still relevant from the original notes: kwizicle.com is served by a CF Worker, and `wrangler versions upload` asset semantics around orphan deletion are worth verifying separately if a true-origin-orphan case ever appears.
+- **Related:** same false-confidence shape as the `check-token` entry directly below — both are diagnostics that return ✓ while the underlying signal persists. The "diagnostic honesty" mini-tier framing from the original notes is still worth bundling.
+
+---
 
 ### 2026-05-27 — `new deploy` fails Step 2 when local origin uses `<domain>` form (e.g. `kwizicle.com`) but slug derivation produces `<short>` form (`kwizicle`)
 

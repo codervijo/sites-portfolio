@@ -76,13 +76,16 @@ def _probe_one(client: httpx.Client, domain: str, path: str) -> dict[str, Any]:
         resp = client.get(url)
     except httpx.HTTPError as e:
         return {"path": path, "url": url, "status": None,
-                "cf_cache_status": None, "etag": None,
+                "cf_cache_status": None, "content_type": None,
+                "etag": None,
                 "error": f"{type(e).__name__}: {e}"}
+    raw_ct = resp.headers.get("content-type") or ""
     return {
         "path": path,
         "url": url,
         "status": resp.status_code,
         "cf_cache_status": resp.headers.get("cf-cache-status"),
+        "content_type": raw_ct.split(";")[0].strip().lower(),
         "etag": resp.headers.get("etag"),
         "error": None,
     }
@@ -117,16 +120,47 @@ def _run_probes(repo_path: Path, domain: str, *,
     return rows
 
 
+# Non-HTML asset suffixes — a 200 + text/html response on these paths
+# is the signature of CF's not_found_handling = single-page-application
+# config synthesizing a fallback response (see _is_spa_fallback).
+_NON_HTML_ASSET_SUFFIXES: tuple[str, ...] = (".xml", ".txt", ".json")
+
+
+def _is_spa_fallback(row: dict[str, Any]) -> bool:
+    """Return True when a non-HTML-asset path is being served as
+    text/html — the signature of CF's `not_found_handling = single-
+    page-application` config returning the SPA's index.html for any
+    unknown path.
+
+    These responses are NOT real files at the edge and NOT origin
+    orphans either: every cache miss re-fires the fallback and returns
+    200+text/html again. Purging is a no-op (verified on kwizicle.com
+    2026-05-27 — endless fix/refresh loop pre-fix). Excluding them
+    here prevents the false-fail on every Vite/Astro SPA in the fleet.
+
+    A missing content-type (older test stubs, network errors) does
+    NOT trigger the exclusion — the row falls through to the existing
+    in-dist / stale verdict path."""
+    path = row.get("path") or ""
+    if not any(path.endswith(s) for s in _NON_HTML_ASSET_SUFFIXES):
+        return False
+    ct = row.get("content_type") or ""
+    return ct.startswith("text/html")
+
+
 def _stale_paths(rows: list[dict[str, Any]], *, critical_only: bool = False
                  ) -> list[dict[str, Any]]:
     """Filter probe rows for stale-cached entries (200 served + not in
-    dist). `critical_only=True` limits to critical paths — used by the
-    check's fail verdict; the fix purges any stale path (critical or not)."""
+    dist + not a SPA-fallback synthesized response). `critical_only=
+    True` limits to critical paths — used by the check's fail verdict;
+    the fix purges any stale path (critical or not)."""
     out = []
     for r in rows:
         if r.get("status") != 200:
             continue
         if r.get("in_dist"):
+            continue
+        if _is_spa_fallback(r):
             continue
         if critical_only and not r.get("is_critical"):
             continue
