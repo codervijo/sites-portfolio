@@ -297,26 +297,6 @@ def test_fix_dispatch_non_domain_dir_skips(tmp_path):
     assert "not a domain-shaped dir" in result.summary
 
 
-def test_fix_dispatch_vercel_returns_manual_with_hint(tmp_path):
-    """Vercel platform → manual + v26.D pointer."""
-    site = tmp_path / "example.com"
-    site.mkdir()
-    _write_lamill_toml(site, "vercel")
-    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
-    assert result.status == "manual"
-    assert "v26.D" in result.summary
-    assert "Primary" in result.summary
-
-
-def test_fix_dispatch_netlify_returns_manual_with_hint(tmp_path):
-    site = tmp_path / "example.com"
-    site.mkdir()
-    _write_lamill_toml(site, "netlify")
-    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
-    assert result.status == "manual"
-    assert "v26.E" in result.summary
-
-
 def test_fix_dispatch_hostgator_returns_manual_with_hint(tmp_path):
     site = tmp_path / "example.com"
     site.mkdir()
@@ -525,3 +505,266 @@ def test_fix_tier_1_registered_under_check_150():
     spec = fix_registry.get_tier_1("CHECK_150")
     assert spec is not None
     assert spec.check_id == "CHECK_150"
+
+
+# ============================================================================
+# v26.D — Vercel branch tests
+# ============================================================================
+#
+# The Vercel branch is mocked at the `portfolio.vercel` module level:
+# `find_project_by_domain`, `get_project_domain`,
+# `update_domain_redirect`, `add_domain_to_project`. This isolates the
+# branch logic from the actual API client (which has its own
+# `tests/test_vercel.py` coverage).
+
+
+def _stub_vercel(monkeypatch, *,
+                 project_id="proj_homeloom",
+                 project_name="homeloom",
+                 apex_cfg=None,
+                 www_cfg=None,
+                 find_raises=None,
+                 read_raises=None,
+                 write_raises=None,
+                 post_apply_apex_status=200,
+                 post_apply_www_status=308):
+    """Patch the vercel.* calls + the verification probe to cover one
+    Vercel-branch scenario per test. Pass DomainConfig instances (or
+    None for unattached) for apex_cfg / www_cfg."""
+    import portfolio.vercel as v
+
+    if find_raises is not None:
+        def fake_find(d, client=None, page_size=100, max_pages=20):
+            raise find_raises
+        monkeypatch.setattr(v, "find_project_by_domain", fake_find)
+    else:
+        monkeypatch.setattr(v, "find_project_by_domain",
+                            lambda d, client=None, page_size=100, max_pages=20:
+                            v.ProjectRef(project_id=project_id, name=project_name))
+
+    def fake_get(pid, domain, client=None):
+        if read_raises is not None:
+            raise read_raises
+        return apex_cfg if domain.count(".") == 1 else www_cfg
+    monkeypatch.setattr(v, "get_project_domain", fake_get)
+
+    write_calls: list[tuple[str, str, str, dict]] = []
+
+    def fake_update(pid, domain, *, redirect_to, status_code=308, client=None):
+        if write_raises is not None:
+            raise write_raises
+        write_calls.append(("PATCH", pid, domain,
+                             {"redirect_to": redirect_to, "status_code": status_code}))
+    monkeypatch.setattr(v, "update_domain_redirect", fake_update)
+
+    def fake_add(pid, name, *, redirect_to=None, status_code=308, client=None):
+        if write_raises is not None:
+            raise write_raises
+        write_calls.append(("POST", pid, name,
+                             {"redirect_to": redirect_to, "status_code": status_code}))
+    monkeypatch.setattr(v, "add_domain_to_project", fake_add)
+
+    def fake_probe(url):
+        return post_apply_apex_status if "/www." not in url else post_apply_www_status
+    monkeypatch.setattr(mod, "_probe_status", fake_probe)
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+
+    return write_calls
+
+
+def _domain_cfg(name: str, *, redirect=None, status=None) -> object:
+    """Build a portfolio.vercel.DomainConfig — lazy import so the
+    fixture file doesn't depend on portfolio.vercel being importable
+    at module collection time."""
+    from portfolio.vercel import DomainConfig
+    return DomainConfig(name=name, redirect=redirect,
+                        redirect_status_code=status, verified=True)
+
+
+def test_fix_vercel_missing_token_returns_error(tmp_path, monkeypatch):
+    """VERCEL_TOKEN unset → error with `settings apikeys set` hint."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    import portfolio.vercel as v
+    def raise_missing(d, **kw):
+        raise v.MissingCredentialsError("VERCEL_TOKEN not set")
+    monkeypatch.setattr(v, "find_project_by_domain", raise_missing)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "error"
+    assert "Vercel token missing" in result.summary
+
+
+def test_fix_vercel_project_not_found_returns_manual(tmp_path, monkeypatch):
+    """find_project_by_domain raises VercelAPIError ("no project
+    attaches X") → surface as manual so operator investigates project
+    ownership / TOML drift."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    import portfolio.vercel as v
+    _stub_vercel(monkeypatch,
+                 find_raises=v.VercelAPIError("no Vercel project attaches example.com"))
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "manual"
+    assert "not found" in result.summary
+
+
+def test_fix_vercel_already_clean_returns_nothing_to_do(tmp_path, monkeypatch):
+    """apex serves directly + www→apex 308 already → no writes; skip."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    calls = _stub_vercel(
+        monkeypatch,
+        apex_cfg=_domain_cfg("example.com", redirect=None, status=None),
+        www_cfg=_domain_cfg("www.example.com", redirect="example.com", status=308),
+    )
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "nothing-to-do"
+    assert "already 308" in result.summary
+    assert calls == []   # no writes fired
+
+
+def test_fix_vercel_apex_inverted_homeloom_pattern_dry_run(tmp_path, monkeypatch):
+    """The homeloom.app shape: apex redirects to www (307 or 308), www
+    serves directly. Dry-run shows the plan with both changes."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    calls = _stub_vercel(
+        monkeypatch,
+        apex_cfg=_domain_cfg("example.com",
+                              redirect="www.example.com", status=308),
+        www_cfg=_domain_cfg("www.example.com", redirect=None, status=None),
+    )
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "would-fix"
+    assert "clear redirect on example.com" in result.summary
+    assert "www.example.com redirect" in result.summary
+    assert calls == []   # dry-run — no writes
+
+
+def test_fix_vercel_apex_inverted_apply_writes_and_verifies(tmp_path, monkeypatch):
+    """Same shape as above — apply commits the writes; verification
+    probe shows apex=200 + www=308 → fixed."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    calls = _stub_vercel(
+        monkeypatch,
+        apex_cfg=_domain_cfg("example.com",
+                              redirect="www.example.com", status=308),
+        www_cfg=_domain_cfg("www.example.com", redirect=None, status=None),
+        post_apply_apex_status=200,
+        post_apply_www_status=308,
+    )
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    # Two PATCH calls expected — apex (clear) + www (set redirect).
+    assert len(calls) == 2
+    verbs = [c[0] for c in calls]
+    assert verbs == ["PATCH", "PATCH"]
+    apex_call = next(c for c in calls if c[2] == "example.com")
+    assert apex_call[3]["redirect_to"] is None
+    www_call = next(c for c in calls if c[2] == "www.example.com")
+    assert www_call[3]["redirect_to"] == "example.com"
+    assert www_call[3]["status_code"] == 308
+
+
+def test_fix_vercel_www_not_attached_uses_post(tmp_path, monkeypatch):
+    """Apex serves direct + www isn't in the project's domain list →
+    POST to add www with the 308 redirect already baked in."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    calls = _stub_vercel(
+        monkeypatch,
+        apex_cfg=_domain_cfg("example.com", redirect=None, status=None),
+        www_cfg=None,
+        post_apply_apex_status=200,
+        post_apply_www_status=308,
+    )
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert len(calls) == 1
+    verb, _, name, body = calls[0]
+    assert verb == "POST"
+    assert name == "www.example.com"
+    assert body["redirect_to"] == "example.com"
+    assert body["status_code"] == 308
+
+
+def test_fix_vercel_www_has_wrong_status_code_307(tmp_path, monkeypatch):
+    """www redirects to apex but with statusCode=307 (temp) → fix
+    needs to flip to 308."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    calls = _stub_vercel(
+        monkeypatch,
+        apex_cfg=_domain_cfg("example.com", redirect=None, status=None),
+        www_cfg=_domain_cfg("www.example.com", redirect="example.com", status=307),
+    )
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "would-fix"
+    assert "www.example.com redirect" in result.summary
+    assert calls == []
+
+
+def test_fix_vercel_apex_not_attached_returns_manual(tmp_path, monkeypatch):
+    """find_project_by_domain returned a project, but `get_project_domain`
+    for the apex returns None (apex isn't attached). Odd shape — route
+    manual so operator investigates the dashboard."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    _stub_vercel(
+        monkeypatch,
+        apex_cfg=None,
+        www_cfg=_domain_cfg("www.example.com", redirect=None, status=None),
+    )
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "manual"
+    assert "isn't attached" in result.summary
+
+
+def test_fix_vercel_api_error_mid_write_returns_error(tmp_path, monkeypatch):
+    """One of the PATCH/POST calls 5xxs mid-fix → partial state; surface
+    as error with re-run hint."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    import portfolio.vercel as v
+    _stub_vercel(
+        monkeypatch,
+        apex_cfg=_domain_cfg("example.com",
+                              redirect="www.example.com", status=308),
+        www_cfg=_domain_cfg("www.example.com", redirect=None, status=None),
+        write_raises=v.VercelAPIError("HTTP 500: server error"),
+    )
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "error"
+    assert "API write failed" in result.summary
+    assert "idempotent" in result.summary
+
+
+def test_fix_vercel_verify_doesnt_settle_returns_fixed_with_caveat(tmp_path, monkeypatch):
+    """Writes succeed but the post-write probe doesn't show apex=200 +
+    www=308 within the backoff window — Vercel can take longer than CF
+    for edge propagation. Mark fixed with the manual re-probe hint."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "vercel")
+    _stub_vercel(
+        monkeypatch,
+        apex_cfg=_domain_cfg("example.com",
+                              redirect="www.example.com", status=308),
+        www_cfg=_domain_cfg("www.example.com", redirect=None, status=None),
+        post_apply_apex_status=200,   # apex flipped
+        post_apply_www_status=200,    # www hasn't propagated yet
+    )
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert "Re-probe in" in result.summary
+    assert "www=200" in result.summary

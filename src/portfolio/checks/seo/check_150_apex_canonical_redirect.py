@@ -343,18 +343,8 @@ def _apply_cf_always_use_https(
 
 
 # Manual-fix hints per platform — surfaced when the fixer dispatcher
-# can't run an automated fix for this platform (v26.D/E land later).
+# can't run an automated fix for this platform (v26.E lands HostGator).
 _MANUAL_HINTS: dict[str, str] = {
-    "vercel": (
-        "Vercel fixer ships in v26.D. Manual path: Project Settings → "
-        "Domains → set apex as Primary; mark www as 'Redirect to' apex "
-        "(Vercel defaults to 308)."
-    ),
-    "netlify": (
-        "Netlify fixer ships in v26.E. Manual path: Site settings → "
-        "Domain management → set apex as Primary; configure www→apex "
-        "redirect."
-    ),
     "hostgator": (
         "HostGator fixer ships in v26.E. Manual path: edit `.htaccess` "
         "in public_html to force HTTPS + 301 www→apex."
@@ -366,6 +356,174 @@ _MANUAL_HINTS: dict[str, str] = {
     "custom": "Platform=`custom`: fixer can't automate — fix in your hosting config.",
     "none": "Platform=`none`: no fix applicable.",
 }
+
+
+def _apply_vercel_canonical_redirect(domain: str, *, dry_run: bool) -> FixResult:
+    """Set apex as primary + www→apex 308 on the Vercel project that
+    owns the domain.
+
+    Strategy:
+      1. Locate the project that has `<apex>` attached.
+      2. Read current configs for apex and www.<apex>.
+      3. Decide what needs to change:
+           - apex must have redirect=None (i.e., serve directly).
+           - www.<apex> must have redirect=<apex> + statusCode=308.
+           - www missing from project → POST to add it as a redirect.
+      4. On --apply: issue the PATCH/POST calls.
+      5. Verify by re-probing https://<apex>/ and https://www.<apex>/.
+
+    Returns FixResult with status: `fixed`, `nothing-to-do`,
+    `would-fix`, `error`, or `manual`.
+    """
+    from ... import vercel
+
+    apex = domain
+    www_name = f"www.{domain}"
+
+    try:
+        project = vercel.find_project_by_domain(apex)
+    except vercel.MissingCredentialsError as e:
+        return FixResult(
+            status="error",
+            summary=f"Vercel token missing: {e}",
+            files_touched=[],
+        )
+    except vercel.VercelAPIError as e:
+        # "no Vercel project attaches X" lands here too — surface as
+        # `manual` so operator can check project ownership vs the
+        # `lamill.toml [deploy].platform` declaration.
+        return FixResult(
+            status="manual",
+            summary=f"Vercel project for {apex} not found: {e}",
+            files_touched=[],
+        )
+
+    try:
+        apex_cfg = vercel.get_project_domain(project.project_id, apex)
+        www_cfg = vercel.get_project_domain(project.project_id, www_name)
+    except vercel.VercelAPIError as e:
+        return FixResult(
+            status="error",
+            summary=f"read domain configs failed: {e}",
+            files_touched=[],
+        )
+
+    # Decide the changes.
+    apex_needs_clear = apex_cfg is not None and apex_cfg.redirect is not None
+    www_needs_update = (
+        www_cfg is None
+        or www_cfg.redirect != apex
+        or www_cfg.redirect_status_code != 308
+    )
+    www_needs_add = www_cfg is None
+
+    if apex_cfg is None:
+        # Apex not attached to this project — odd shape; route manual.
+        return FixResult(
+            status="manual",
+            summary=f"apex {apex} isn't attached to project "
+                    f"{project.name!r} — check Vercel dashboard.",
+            files_touched=[],
+        )
+
+    if not apex_needs_clear and not www_needs_update:
+        return FixResult(
+            status="nothing-to-do",
+            summary=f"apex serves directly; www→apex already 308 "
+                    f"(project {project.name!r})",
+            files_touched=[],
+        )
+
+    plan_bits: list[str] = []
+    if apex_needs_clear:
+        plan_bits.append(f"clear redirect on {apex}")
+    if www_needs_add:
+        plan_bits.append(f"add {www_name} → 308 → {apex}")
+    elif www_needs_update:
+        plan_bits.append(f"set {www_name} redirect → 308 → {apex}")
+    plan_text = "; ".join(plan_bits)
+
+    if dry_run:
+        return FixResult(
+            status="would-fix",
+            summary=f"would {plan_text} (project {project.name!r})",
+            files_touched=[],
+        )
+
+    try:
+        if apex_needs_clear:
+            vercel.update_domain_redirect(
+                project.project_id, apex,
+                redirect_to=None,
+            )
+        if www_needs_add:
+            vercel.add_domain_to_project(
+                project.project_id, www_name,
+                redirect_to=apex, status_code=308,
+            )
+        elif www_needs_update:
+            vercel.update_domain_redirect(
+                project.project_id, www_name,
+                redirect_to=apex, status_code=308,
+            )
+    except vercel.VercelAPIError as e:
+        return FixResult(
+            status="error",
+            summary=f"Vercel API write failed mid-fix: {e}\n"
+                    "  Project state may be partially updated; re-run with "
+                    "--apply (idempotent) once the issue is resolved.",
+            files_touched=[],
+        )
+
+    # Verify with same backoff posture as the CF branch — Vercel edges
+    # also need a moment to start serving the new redirect after the
+    # API write.
+    apex_ok = False
+    www_ok = False
+    last_apex: int | None = None
+    last_www: int | None = None
+    for attempt in range(_FIX_VERIFY_ATTEMPTS):
+        last_apex = _probe_status(f"https://{apex}/")
+        last_www = _probe_status(f"https://{www_name}/")
+        apex_ok = last_apex == 200
+        # www_ok if it permanent-redirects to apex (or returns NXDOMAIN
+        # which would mean www was never DNS-attached — unusual after
+        # an add, so don't accept that here)
+        www_ok = (
+            last_www in _PERMANENT_REDIRECTS
+        )
+        if apex_ok and www_ok:
+            return FixResult(
+                status="fixed",
+                summary=f"{plan_text}; verified apex=200, www={last_www}",
+                files_touched=[],
+            )
+        if attempt < _FIX_VERIFY_ATTEMPTS - 1:
+            time.sleep(_FIX_VERIFY_INTERVAL_S)
+
+    # Writes succeeded but verification didn't settle — Vercel can take
+    # longer than CF for edge propagation. Mark fixed-with-caveat.
+    return FixResult(
+        status="fixed",
+        summary=f"{plan_text}; post-write probe shows apex={last_apex}, "
+                f"www={last_www} after "
+                f"{_FIX_VERIFY_ATTEMPTS}×{_FIX_VERIFY_INTERVAL_S:.0f}s. "
+                f"Re-probe in ~1 min: `curl -sI https://{apex}/` + "
+                f"`curl -sI https://{www_name}/`.",
+        files_touched=[],
+    )
+
+
+def _probe_status(url: str) -> int | None:
+    """Variant of `_http_status` that takes a full URL (not just a
+    domain). Used by the Vercel verification step which probes both
+    apex (https) and www (https), not just http upgrade."""
+    try:
+        with httpx.Client(timeout=_TIMEOUT, headers={"User-Agent": _UA}) as c:
+            r = c.head(url, follow_redirects=False)
+            return r.status_code
+    except httpx.RequestError:
+        return None
 
 
 def _apply_canonical_redirect_fix(
@@ -396,6 +554,9 @@ def _apply_canonical_redirect_fix(
 
     if platform in ("cf-pages", "cf-workers"):
         return _apply_cf_always_use_https(domain, dry_run=dry_run)
+
+    if platform == "vercel":
+        return _apply_vercel_canonical_redirect(domain, dry_run=dry_run)
 
     hint = _MANUAL_HINTS.get(
         platform,
