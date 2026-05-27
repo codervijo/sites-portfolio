@@ -1374,7 +1374,7 @@ The write was probably safe (HTTPS-on for an internal site is fine in 99% of cas
 `src/portfolio/cli.py:_run_project_fix_all()` plan banner:
 - Surfaces `↷ skipping N dark site(s): <names> (edit [fleet] dark_sites in config.toml to change)` so silent exclusion isn't surprising.
 
-**Fixed in** — `<SHA on commit>` (9 new tests: 7 in `test_config_dark_sites.py` covering loader paths — defaults, missing file, missing section, explicit override, empty disable, lowercasing, factory pattern — plus 2 in `test_v6d_fix_all.py` covering the eligibility filter)
+**Fixed in** — `fc415cd` (9 new tests: 7 in `test_config_dark_sites.py` covering loader paths — defaults, missing file, missing section, explicit override, empty disable, lowercasing, factory pattern — plus 2 in `test_v6d_fix_all.py` covering the eligibility filter)
 
 **Notes**
 
