@@ -1098,8 +1098,8 @@ a fresh chance to land in the same hole.
 | v26.A | ✅ | **Kickoff planning.** Lock decisions before implementation: (a) **Canonical is apex** for the entire fleet — bare domain (`<domain>`) is the 200 endpoint; matches CF Pages/Workers defaults (most of fleet) + HSTS-preload requirements + cleaner share URLs. www-as-canonical is non-conformant. (b) **Required redirect type is 308 or 301** (permanent); 307 / 302 fail the check — Google holds signal-transfer indefinitely on temporary redirects. (c) **HTTP→HTTPS** is in scope of the same check (`http://<apex>/` must 308→ `https://<apex>/`); folds naturally into the redirect-chain probe. (d) **Trailing-slash policy** is OUT of scope — `<link rel="canonical">` (CHECK_072) + framework defaults handle that orthogonally; a separate check can land later if GSC flags duplicates. (e) **HSTS preload** is OUT of scope — separate concern, lower-priority, separate check. (f) **www DNS absent is PASS** — sites without a www DNS record at all (CF Pages default) satisfy the rule trivially; no www → no possibility of split-canonical. (g) **Severity ramp**: ship as `warn` for one soak cycle (lets operator audit fleet without dashboard going red overnight), promote to `fail` in v26.C after offenders are fixed. (h) **Check ID = 150** (next available; current high is CHECK_149). (i) **Category = `seo/`** (runs as part of `fleet seo` / `project seo`). (j) **No ADR required** — implementation is a checklist of network behaviors, not a load-bearing architectural decision; the convention itself goes in `docs/CLAUDE.md § Locked target shapes` (light, not ADR-weight). |
 | v26.B | ✅ | **Ship `CHECK_150_apex_canonical_redirect.py` at `warn` severity.** Probe sequence per domain: (1) `HEAD https://<apex>/` — must be 200 (else `fail`: "apex isn't the canonical endpoint"). (2) `HEAD https://www.<apex>/` — must be 308/301 → `https://<apex>/` (else `fail`: "www is a second canonical" OR "redirect is temporary — 308 needed"); DNS NXDOMAIN on www is `pass` (no www = no split). (3) `HEAD http://<apex>/` — must be 308/301 → `https://<apex>/` (else `fail`: "HTTP→HTTPS not permanent"). Each step ends with one `✓ ✗ ↷` marker (per global output discipline). Severity = `warn` for the soak cycle. ~3 HEAD requests × ~22 domains ≈ 5s under existing probe budget. Reuses the `requests`-session pattern from `seo/_live.py`. Add `tests/test_check_150_apex_canonical_redirect.py` covering: apex-200 + www-308 (pass), apex-307 (fail), apex-200 + www-307 (fail — temp redirect), apex-200 + www-200 (fail — split canonical), apex-200 + www-NXDOMAIN (pass — no www), HTTP-302 (fail), `requests` exception (warn: "could not reach domain"), archived sites (skipped — same posture as CHECK_042). |
 | v26.C | ✅ | **`fix_tier_1` dispatch + Cloudflare fixer.** Add `fix_tier_1: FixerSpec` to `check_150_apex_canonical_redirect.py` (mirrors v6 fixer pattern; check-fix pairing). Dispatcher reads `lamill.toml [deploy].platform` and routes to per-platform helpers. **First helper: CF Pages + CF Workers** — toggles `always_use_https` setting via the existing `cloudflare.py` client (`PATCH /zones/{zone_id}/settings/always_use_https`). Covers 7 of 19 offenders (6 cf-pages + 1 cf-workers). Dry-run by default; `--apply` commits (matches CHECK_057 fixer posture). Returns `FixResult(status="fixed", summary="always_use_https → on")` on success; `error` with the specific 4xx/5xx body on API failure. Verification: re-runs the http-probe portion of `run()` after the toggle to confirm `http=200` → `http=308`. |
-| v26.D | ☐ | **Vercel fixer.** New `vercel.py` module (parallel to `cloudflare.py`) wrapping the Vercel REST API. New `VERCEL_API_TOKEN` slot in `settings apikeys` with the same atomic-write + connectivity-probe pattern. Per-site fix: locate the project ID by domain (`GET /v9/projects?search=<domain>`); set apex as primary (`POST /v10/projects/{id}/domains/<apex>`); configure www→apex 308 redirect (`PATCH /v9/projects/{id}/domains/www.<apex>` with `redirect=<apex>` + `redirectStatusCode=308`). Covers 10 of 19 offenders (homeloom.app, keralavotemap.site, linkedcsi.live, washcalc.app, civictools.app, lamill.io, iotbastion.com, whizgraphs.com — plus Bucket E broken sites iotnews.today + lamillrentals.com once their underlying issues are resolved). Dry-run default; verification re-probes apex + www after the changes. |
-| v26.E | ☐ | **Netlify + HostGator fixers.** Netlify: 1 site (calcengine.site). Either new `netlify.py` module wrapping the Netlify API (`PATCH /api/v1/sites/{id}` for primary-domain config) OR fold into v26.D as "non-CF redirect fixer" if the API shape is similar enough. HostGator: 1 site (streamsgalaxy.com). Reuses existing v11.N UAPI integration to push an `.htaccess` patch (force-HTTPS + 301 www→apex block). Pattern preserves for the 4 no-local-repo HG-shaped sites if their fleet entries get wired up later. Dry-run default. |
+| v26.D | ☐ | **Vercel fixer.** New `vercel.py` module (parallel to `cloudflare.py`) wrapping the Vercel REST API. New `VERCEL_API_TOKEN` slot in `settings apikeys` with the same atomic-write + connectivity-probe pattern. Per-site fix: locate the project ID by domain (`GET /v9/projects?search=<domain>`); set apex as primary (`POST /v10/projects/{id}/domains/<apex>`); configure www→apex 308 redirect (`PATCH /v9/projects/{id}/domains/www.<apex>` with `redirect=<apex>` + `redirectStatusCode=308`). Covers 11 of 20 remaining offenders post-v26.C (homeloom.app, keralavotemap.site, linkedcsi.live, washcalc.app, civictools.app, lamill.io, iotbastion.com, whizgraphs.com, calcengine.site — plus Bucket E broken sites iotnews.today + lamillrentals.com once their underlying issues are resolved). Dry-run default; verification re-probes apex + www after the changes. |
+| v26.E | ☐ | **HostGator fixer.** Reuses existing v11.N UAPI integration to push an `.htaccess` patch (force-HTTPS + 301 www→apex block) to the project's public_html. Covers 1 of 20 remaining offenders (streamsgalaxy.com). Pattern preserves for the 4 no-local-repo HG-shaped sites (maslist.com, veezp.com, yesuinnu.com, carrepairsite.com) if their fleet entries get wired up later. Dry-run default; verification re-probes apex + www + http after the upload. |
 | v26.F | ☐ | **Fleetwide audit + promote to `fail` + lock invariant.** Once v26.C/D/E ship: re-run the fleetwide CHECK_150 probe (already exists as `_classify` in the check module — can wrap as a one-off bulk runner). Expect the count to drop from `29 fail / 6 pass` toward fleet-clean. For any remaining offenders (Bucket E broken sites, no-local-repo entries): log per-site in `docs/bugs.md` with platform + reason. Once the fleet is clean (or every remaining offender has a justified exemption logged), promote CHECK_150 from `warn` to `fail` (one-line `SEVERITY` change). Update `docs/CLAUDE.md § Locked target shapes` with the apex-canonical + 308-permanent invariant + cross-link to CHECK_150 so future bootstraps inherit it. |
 
 #### Design notes
@@ -1169,18 +1169,29 @@ module level; v26 inherits that pattern without ceremony.
 already owns the canonical platform record via `lamill.toml`. Probing
 HTTP headers (`server: Vercel`) is heuristic — the 2026-05-25 audit
 proved how easily a single pattern (307 apex→www) maps to multiple
-platforms with different defaults (Vercel + Netlify both produce it).
-Reading the declared platform is one TOML load per fix; cheaper +
-more reliable than probe-and-classify.
+platforms with similar defaults. Reading the declared platform is
+one TOML load per fix; cheaper than probe-and-classify.
+
+The TOML itself can drift (calcengine.site's declared platform was
+stale 2026-05-26 — declared `netlify` while Vercel was serving;
+corrected via `lamill settings deploy set`). `CHECK_143 deploy-drift`
+catches this class of inconsistency by comparing the declared
+platform to a fingerprint of the live response; running it before
+v26.D/E fix sweeps surfaces stale TOMLs before they mis-route a
+fixer.
 
 **Why ship per-platform fixers in distinct phases (v26.C/D/E split).**
 Each platform's API surface is non-trivial enough that mixing two in
-one phase muddies testing + commit shape. CF is the easy win (existing
+one phase muddies testing + commit shape. CF was the easy win (existing
 `cloudflare.py` + token; ~one API call); Vercel needs a new module +
 token slot + the `settings apikeys` extension. Bundling them would
 force the simpler half to wait on the harder half's design decisions.
-Each phase ships independent value: v26.C covers 7/19, v26.D covers
-10/19, v26.E covers 2/19. v26.F is the gate.
+Each phase ships independent value: v26.C covered 8/19 (CF Pages +
+Workers); v26.D covers 11/20 (Vercel, after calcengine.site
+re-classification); v26.E covers 1/20 (HostGator). v26.F is the gate.
+(Netlify was originally scoped into v26.E based on calcengine.site's
+TOML declaration; the fleet actually has zero Netlify sites, so the
+Netlify branch is out of scope — keeps v26.E to the one HG site.)
 
 **Why `--apply` (not auto-apply) by default.** Mirrors lamill's
 existing `project fix` posture (CHECK_012, CHECK_057, etc.). Operator
