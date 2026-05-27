@@ -66,6 +66,186 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-05-27 — `new deploy` fails Step 2 when local origin uses `<domain>` form (e.g. `kwizicle.com`) but slug derivation produces `<short>` form (`kwizicle`)
+
+**Repro**
+
+```
+$ lamill new deploy kwizicle.com --yes
+v15.I — Deploy kwizicle.com (platform=cf-pages · slug=kwizicle ...)
+
+1. GitHub repo
+  ✓ exists, skipping: codervijo/kwizicle (visibility=private; default_branch=master)
+
+2. Git push origin/main
+  ✗ git push step failed: origin already points to
+    'git@github.com:codervijo/kwizicle.com.git' but expected
+    'git@github.com:codervijo/kwizicle.git'. Operator must reconcile
+    (e.g. `git remote set-url origin git@github.com:codervijo/kwizicle.git`).
+```
+
+**Expected**
+
+`new deploy <domain>` should respect the project's existing `origin` remote naming as the canonical reference for the entire pipeline (Steps 1-9). If the local repo already points to `<owner>/<X>` and that repo exists on GitHub, `X` becomes the slug for CF Pages project name, GitHub repo target, and remote-check — overriding the TLD-stripped default.
+
+Equivalently: operator should be able to deploy a project that's already wired up with the `<domain>` form of the repo name (`kwizicle.com`) without having to rename it locally + remotely to match lamill's `<short>` form (`kwizicle`).
+
+**Actual**
+
+`bootstrap._project_name(domain)` deterministically returns the TLD-stripped form (`kwizicle.com` → `kwizicle`). The whole v15.I pipeline threads that `slug` through every step:
+
+  - Step 1: `ensure_repo("kwizicle", owner="codervijo", ...)` — finds the lamill-created empty repo `codervijo/kwizicle` (NOT the operator's actual repo `codervijo/kwizicle.com`); says "exists, skipping."
+  - Step 2: `ensure_origin_remote(..., clone_url="git@github.com:codervijo/kwizicle.git")` — strict-checks `current == clone_url`; operator's `origin` is `kwizicle.com.git` → raises `GhError`.
+
+Even if Step 2 accepted both variants (band-aid fix), the CF Pages project at Step 5 would still be wired to `codervijo/kwizicle` (empty repo) — so deploys would never fire when the operator pushes to `kwizicle.com`. Mismatch is structural; needs to be resolved at slug derivation (Step 0 / Step 1) not at remote check (Step 2).
+
+**Where (guess)**
+
+  - `src/portfolio/bootstrap.py:_project_name` — slug derivation. Add an optional `hint_from_local_remote` parameter that, when provided, takes precedence over the TLD-strip default.
+  - `src/portfolio/cli.py:_deploy_cf_unified` (and `_deploy_cf_workers_unified`) — read the project's `origin` URL before calling `_project_name`; parse `<owner>/<name>`; if owner matches `gh_owner`, use `name` as the slug override.
+  - `src/portfolio/gh_repo.py:ensure_origin_remote` — fine as-is once slug derivation respects the local truth; no change needed.
+
+**Severity** — `major`. Blocks operator-initiated re-deploy of any existing repo whose GitHub naming predates lamill's slug convention. Affects more than just kwizicle.com — any operator-created repo named with the full domain (a common pre-lamill convention) hits the same wall.
+
+**Notes**
+
+- Two real GitHub repos exist for kwizicle today, both under `codervijo`:
+  - `kwizicle.com` (operator's actual project; pushes go here; CF Pages should auto-build from here).
+  - `kwizicle` (lamill-created empty placeholder; no commits; CF Pages currently bound here from a prior deploy attempt).
+- Cleanup question after the fix lands: should lamill delete the empty `kwizicle` placeholder? Probably out of scope of this bug — `gh repo delete` is destructive and operator can do it from the dashboard. Just don't keep creating new orphans.
+
+- **Proposed fix shape — operator's local origin is the source of truth:**
+  ```python
+  # In _deploy_cf_unified, before _project_name:
+  existing_remote = _read_local_origin(project_dir)
+  remote_name = None
+  if existing_remote:
+      parsed = _parse_github_remote(existing_remote)  # (owner, name) or None
+      if parsed and parsed.owner.lower() == gh_owner.lower():
+          remote_name = parsed.name
+  slug = remote_name or _project_name(domain)
+  ```
+  Add a CLI banner noting the override when it fires:
+  `↷ origin already → codervijo/kwizicle.com — using "kwizicle.com" as the slug (override of derived "kwizicle")`
+
+- **Alternative (smaller, band-aid):** just accept both variants in `ensure_origin_remote`. Faster to ship, but leaves Steps 5-9 wired to the wrong repo for the CF integration. Not recommended.
+
+- Reproduces against any sibling site whose local origin uses the full-domain naming. Worth a one-off sweep after the fix lands: `cd ~/work/projects/sites && for d in */; do (cd "$d" && git remote get-url origin 2>/dev/null | grep -oE "codervijo/[^.]+(\.[^.]+)?"); done` — surfaces which sites currently use the `<domain>` form.
+
+
+### 2026-05-27 — CHECK_057 fix (CF cache purge) is the wrong remedy when stale paths are origin-orphans, not edge-cache leftovers
+
+**Repro**
+
+```
+$ lamill fleet focus --refresh
+  #2  kwizicle.com  🔴 Stale CF edge cache: stale at edge: /sitemap-index.xml (cache=HIT),
+      /sitemap-0.xml (cache=HIT) — run 'portfolio project fix <domain> --apply' to purge
+
+$ lamill project fix kwizicle.com --apply
+  + CHECK_057  purge stale paths from Cloudflare edge cache
+  ✓ CHECK_057  purged 2 path(s)
+
+$ lamill fleet focus --refresh
+  #2  kwizicle.com  🔴 Stale CF edge cache: stale at edge: /sitemap-index.xml (cache=HIT),
+      /sitemap-0.xml (cache=HIT) — run 'portfolio project fix <domain> --apply' to purge
+```
+
+The fix runs cleanly, reports ✓, then the same stale signal reappears immediately. Loop is indefinite — every purge succeeds but the next probe still flags the same paths as stale.
+
+**Expected**
+
+The fixer detects when purging the edge doesn't actually resolve the staleness (because the underlying origin still serves the orphan files) and:
+
+(a) Re-probes each purged path with a cache-buster (`?cb=<timestamp>`) after the purge call, OR
+(b) Surfaces a different `FixResult.status` ("manual" with "origin-orphan; redeploy needed" message) when the post-purge probe still 200's.
+
+Either way, operator sees "→ redeploy this site" instead of "→ purge again" as the next-action hint.
+
+**Actual**
+
+The fixer assumes "served + not in `dist/`" maps cleanly to "edge cache problem fixable by purge." That assumption breaks when the origin (CF Pages assets / Workers asset bundle) still contains the orphan files from a prior deploy. The purge invalidates the edge → next request → MISS → fetch from origin → origin still has the file → 200 with stale content → cache re-populates with HIT → check fails again identically.
+
+**Where (guess)**
+
+`src/portfolio/checks/deploy/check_057_cf_edge_cache_fresh.py`:
+
+  - `run()` verdict logic ("served + not in dist = stale") is correct as a *detection*. No change needed there.
+  - `_apply_purge` (the Tier-1 fixer) treats purge as a universal remedy. Two reasonable changes:
+    1. Post-purge verification — after `purge_files()` succeeds, re-probe each purged path with a cache-buster query string (`?cb=<ms>`). If status is still 200 → upgrade to `FixResult(status="manual", summary="origin orphan — redeploy needed; CF edge purge doesn't help here")`. The existing 200→404 verification logic already exists; just needs the cache-buster to bypass the new HIT.
+    2. Tier-2 fallback — add a `fix_tier_2` that triggers a redeploy via `lamill new deploy <domain>` when Tier-1's new "origin-orphan" sentinel fires.
+
+**Severity** — `minor`. False-confidence cosmetic: operator runs the fix, sees ✓, then sees the same alert next refresh. Doesn't block downstream operations; just creates a recurring noise signal that erodes trust in the diagnostic. Same false-confidence shape as the 2026-05-27 `check-token` entry above (a tool reporting "fixed" when the underlying issue persists).
+
+**Notes**
+
+- Concrete kwizicle.com diagnostic data (2026-05-27):
+  - Local `dist/` has only `sitemap.xml` + `robots.txt` (last built 2026-05-06).
+  - CF edge serves `/sitemap.xml` + `/sitemap-index.xml` + `/sitemap-0.xml` + `/robots.txt` — all 200 + `cf-cache-status: HIT`.
+  - The `sitemap-index.xml` / `sitemap-0.xml` files are Astro `@astrojs/sitemap`'s output shape — kwizicle.com once had that plugin; doesn't anymore; deployment retains the orphans.
+
+- **Worker-vs-Pages variant matters.** kwizicle.com is served by a **CF Worker** (URL: `dash.cloudflare.com/.../workers/services/view/kwizicle/production`), not CF Pages. The Worker's build step is `pnpm run build` then `npx wrangler versions upload`. Workers may preserve assets across versions differently than Pages does (Pages replaces the entire deploy on each push; Workers asset bindings persist by hash). Worth a follow-up to verify whether `wrangler versions upload` actually replaces orphan assets or appends. If the latter, redeploy alone may not be enough — needs a deeper "delete orphan assets" step.
+
+- **Workaround for kwizicle.com today:** trigger a fresh deploy from the CF dashboard ("New deployment" button on the Worker settings page) OR from terminal:
+  ```
+  lamill new deploy kwizicle.com --yes
+  ```
+  Verify after with `lamill fleet focus --refresh` — expect kwizicle.com to drop off the priority list once the orphans are gone.
+
+- **Related:** same-shape false-confidence as the `check-token` entry directly below this one — both are diagnostics/fixers that return ✓ while the underlying problem persists. Worth bundling fixes into one "diagnostic honesty" mini-tier when v26 wraps.
+
+
+### 2026-05-27 — `settings cloudflare check-token` returns ✓ when token lacks Cache Purge / Zone Settings:Edit / Zone:Edit (only DNS:Edit is probed per zone)
+
+**Repro**
+
+```
+$ lamill settings cloudflare check-token
+...
+Zones (14 accessible)
+  ✓ DNS:Edit   kwizicle.com
+  ✓ DNS:Edit   (13 more)
+✓ Token has all permissions lamill needs.
+
+$ lamill project fix kwizicle.com --apply
+  ✗ CHECK_057  purge call failed: POST purge_cache → HTTP 401: ...
+```
+
+Diagnostic reports the token is complete; CHECK_057's `purge_files` call immediately 401's because the token lacks **Zone:Cache Purge** on the kwizicle.com zone. The 401 (not 403) is CF's response shape when a token misses a specific zone-scope permission — same shape as a fully-invalid token, which is why the diagnostic's `/user/tokens/verify` succeeds.
+
+**Expected**
+
+`check-token` enumerates every zone-scope lamill actually uses and probes each — Cache Purge, Zone Settings:Edit, DNS:Edit. When any is missing, surface per-zone + recommend the exact CF dashboard permission to add.
+
+**Actual**
+
+`diagnose_token()` only attempts ONE write per zone (a DNS record with a deliberately-invalid TTL via `probe_zone_write_capability`). DNS:Edit ✓ means "this zone is fine" in the diagnostic's mental model. No probe attempted for any other zone-scope.
+
+**Where (guess)**
+
+`src/portfolio/cloudflare.py:diagnose_token` (v25.D). The `ZoneDiag` dataclass has a single `dns_edit_ok` field; the per-zone probe loop only calls `probe_zone_write_capability`. To close the gap: add per-zone probes for the other operations lamill performs.
+
+Unverified scopes vs lamill operations:
+
+| Operation | Endpoint | Scope | Probed today? |
+|---|---|---|---|
+| Step 5.5 DNS purge | `POST /zones/{id}/dns_records` | DNS:Edit | ✓ |
+| CHECK_057 cache purge | `POST /zones/{id}/purge_cache` | **Zone:Cache Purge** | ✗ |
+| CHECK_150 / v26.C | `PATCH /zones/{id}/settings/always_use_https` | **Zone Settings:Edit** | ✗ |
+| `new deploy` zone create | `POST /zones` | Zone:Edit | ✗ (intentionally — would create a real zone) |
+
+**Severity** — `major`. The diagnostic exists specifically to prevent "token issue surprise mid-deploy" — a clean ✓ that turns into a 401 during the first actual operation defeats its purpose. Same shape failure the dropaudit.co 2026-05-22 incident motivated v25.D to solve in the first place.
+
+**Notes**
+
+- Fix shape: extend `ZoneDiag` with `cache_purge_ok` + `zone_settings_ok`; add two more per-zone probes in `diagnose_token`'s zone loop. Both use the v25.B "deliberately-invalid payload, 4xx-on-success" pattern (no state-changing side effects):
+  - Cache Purge: `POST /zones/{id}/purge_cache` with `{"files": []}` → 400 = scope OK; 401/403 = missing.
+  - Zone Settings: `PATCH /zones/{id}/settings/development_mode` with `{"value": "invalid"}` → 400 = scope OK; 403 = missing.
+- The `/user/tokens/verify` endpoint includes a `policies` array that lists declared permissions, but per the v25.B design notes that array's shape is undocumented for machine-parsing — the attempt-the-operation pattern is more reliable.
+- Workaround until fixed: when CHECK_057 (or any zone-scoped fix) 401's despite `check-token` ✓, the missing permission is one of {Cache Purge, Zone Settings:Edit}. Add both at the CF dashboard while you're in there.
+- Related: same operator-visible failure-shape pattern as the dropaudit.co incident (2026-05-22 PM) that motivated v25.D itself. v25.D solved the deploy-pipeline side; this entry surfaces the same gap on the fix-pipeline side.
+
+
 ### 2026-05-25 — `project seo` renders pending sitemap re-fetches as `✗ ERROR` (red) when they should be `↷ PENDING` (yellow)
 
 **Repro**
