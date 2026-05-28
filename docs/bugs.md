@@ -1375,7 +1375,7 @@ Step 1/6 — Brand collision check  (gpt-5-mini)
 `src/portfolio/cli.py`:
 - `_decide_step1_brand_collision` + its `_menu_decide` caller thread `topic` + `vocab_terms` (Step 3 already had them).
 
-**Fixed in** — `<SHA on commit>` (3 new tests in `test_suggest.py`: topic reaches the prompt, no-topic degrades cleanly, `_collision_topic_block` unit)
+**Fixed in** — `84d8164` (3 new tests in `test_suggest.py`: topic reaches the prompt, no-topic degrades cleanly, `_collision_topic_block` unit)
 
 **Notes**
 
