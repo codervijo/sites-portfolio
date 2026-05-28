@@ -953,7 +953,7 @@ When GSC is mid-refetch (`isPending: true`), the error count is from the PRIOR f
 
 `project_seo_diagnostics._sitemap_status` cascade reordered to `pending > error > warn > ok` — `is_pending` now short-circuits to PENDING regardless of the stale error count. The `is_pending` field was already plumbed through `SitemapDetail` + `fetch_sitemap_details` (prior partial work); only the cascade order was wrong. The cli renderer now annotates the stale count on a PENDING row: `N error(s) from prior fetch (clears on next download)`.
 
-**Fixed in** — `<SHA on commit>` (updated `test_sitemap_status_error_wins` → `_error_wins_when_not_pending`; new `_pending_beats_stale_errors`)
+**Fixed in** — `d122445` (updated `test_sitemap_status_error_wins` → `_error_wins_when_not_pending`; new `_pending_beats_stale_errors`)
 
 ---
 
@@ -963,7 +963,7 @@ The sitemap tail-bits builder appended both `f"{errs} error(s)"` and `error_summ
 
 **Severity** — `cosmetic`.
 
-**Fixed in** — `<SHA on commit>` (doc-drift — the `if errs:` append was already removed before this session; verified 2026-05-28 the cli render path appends only `error_summary` for the error count, no duplicate). No code change in the bundle for this entry.
+**Fixed in** — `d122445` (doc-drift — the `if errs:` append was already removed before this session; verified 2026-05-28 the cli render path appends only `error_summary` for the error count, no duplicate). No code change in the bundle for this entry.
 
 ---
 
@@ -979,7 +979,7 @@ Three defects on the v13.B per-project GSC diagnostics surface, surfaced togethe
 2. **`--top N` capped at 10.** The `--top` flag is now plumbed end-to-end (`cli.py:8432` → `build_diagnostics(top_n=)` → `fetch_coverage_details(top_n=)` → `fetch_sitemap_urls(limit=top_n)` + `urls[:top_n]`). Appears resolved since the original report — **verify live** with a real `--top 30` run against a GSC-verified site (depends on URL Inspection daily quota + actual sitemap URL count).
 3. **`0y ago` relative-date bug.** `_human_age_from_iso` jumped weeks (<90d) straight to years, so any 90-364 day delta rendered "0y ago" (`secs // (86400*365) == 0`). Added a months branch → `Nmo ago`. Fixed. (The original report guessed "crawled today," but the formatter only emits 0y for the 90-364 day range — the URL was months old, not today.)
 
-**Fixed in** — `<SHA on commit>` (tests: `_normalize_coverage_state` human-text→canonical + passthrough/edges; `_human_age_from_iso` months branch + no-`0y` regression + year boundary)
+**Fixed in** — `d122445` (tests: `_normalize_coverage_state` human-text→canonical + passthrough/edges; `_human_age_from_iso` months branch + no-`0y` regression + year boundary)
 
 ---
 
