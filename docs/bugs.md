@@ -922,7 +922,7 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 - `seo_runtime.sort_rows` — added a `"domain"` key (case-insensitive alphabetical) and made it the fall-through default.
 - `cli.py:check_seo` (`fleet seo` impl) — `--sort` default flipped `impressions` → `domain`; allow-list + validation message + help text updated. Impressions-desc still available via `--sort impressions` (and `clicks`/`position`/`ctr` unchanged).
 
-**Fixed in** — `<SHA on commit>` (2 new tests in `test_seo_runtime.py`: `sort_rows` domain alphabetical + unknown-key falls through to alphabetical)
+**Fixed in** — `d0de306` (2 new tests in `test_seo_runtime.py`: `sort_rows` domain alphabetical + unknown-key falls through to alphabetical)
 
 **Notes**
 
