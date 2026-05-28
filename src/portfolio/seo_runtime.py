@@ -804,7 +804,10 @@ def run_seo(
 
 
 def sort_rows(rows: list[SEORow], key: str) -> list[SEORow]:
-    """Sort by 'impressions' (default), 'clicks', 'position', or 'ctr'."""
+    """Sort by 'domain' (default — alphabetical), 'impressions', 'clicks',
+    'position', or 'ctr'."""
+    if key == "impressions":
+        return sorted(rows, key=lambda r: -(r.gsc_impressions or 0))
     if key == "clicks":
         return sorted(rows, key=lambda r: -(r.gsc_clicks or 0))
     if key == "position":
@@ -814,5 +817,7 @@ def sort_rows(rows: list[SEORow], key: str) -> list[SEORow]:
         ))
     if key == "ctr":
         return sorted(rows, key=lambda r: -(r.gsc_ctr or 0.0))
-    # Default: impressions desc.
-    return sorted(rows, key=lambda r: -(r.gsc_impressions or 0))
+    # Default: domain alphabetical (2026-05-28). Scanning a mostly-young
+    # fleet by name beats impressions-desc, which buried most domains in
+    # a 0-impression block.
+    return sorted(rows, key=lambda r: r.domain.lower())

@@ -634,8 +634,8 @@ def check_seo(
     repo: str = typer.Option("", "--repo", help="[Deprecated — use --domain]"),
     only: str = typer.Option("wip", "--only", "-o", help="Scope: 'wip' or 'all' (used when refreshing snapshot)"),
     concurrency: int = typer.Option(20, "--concurrency", "-c", help="Max parallel HTTP requests when refreshing snapshot"),
-    sort_by: str = typer.Option("impressions", "--sort",
-                                help="Sort by: impressions | clicks | position | ctr"),
+    sort_by: str = typer.Option("domain", "--sort",
+                                help="Sort by: domain (default, alphabetical) | impressions | clicks | position | ctr"),
     refresh: bool = typer.Option(False, "--refresh",
                                  help="Ignore cached SEO snapshot and re-probe (HTTP + GSC + CrUX)"),
 ) -> None:
@@ -1111,8 +1111,8 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
     from .seo_runtime import _live_domains_from_snapshot, run_seo, sort_rows
     from .suggest import load_env
 
-    if sort_by not in ("impressions", "clicks", "position", "ctr"):
-        console.print(f"[red]--sort must be impressions|clicks|position|ctr, got {sort_by!r}[/]")
+    if sort_by not in ("domain", "impressions", "clicks", "position", "ctr"):
+        console.print(f"[red]--sort must be domain|impressions|clicks|position|ctr, got {sort_by!r}[/]")
         raise typer.Exit(2)
     if only not in ("wip", "all"):
         console.print(f"[red]--only must be 'wip' or 'all', got {only!r}.[/]")

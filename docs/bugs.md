@@ -66,38 +66,6 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-05-28 — `fleet seo` results table should order domains alphabetically (not impressions-desc) by default
-
-**Repro**
-
-```
-$ lamill fleet seo --refresh
-... results table sorted by GSC impressions, descending
-```
-
-**Expected**
-
-The fleet SEO results table lists domains in alphabetical order by domain name, so the operator can scan for a specific domain by eye.
-
-**Actual**
-
-Sorted by GSC impressions descending (`sort_rows` default, `seo_runtime.py:818`). For a fleet that's mostly young / zero-impression sites, this puts the 2-3 sites with traffic at the top and then a large block of 0-impression domains in stable iteration order — the operator can't quickly locate a given domain by name.
-
-**Where (guess)**
-
-- `src/portfolio/seo_runtime.py:sort_rows()` — add a `"domain"` key sorting by `r.domain` (case-insensitive).
-- `src/portfolio/cli.py` — `fleet seo` (`_run_check_seo_mode`) `--sort` option default. Two shapes:
-  1. Add `domain` to the `--sort` allow-list AND make it the default (impressions-desc available via `--sort impressions`).
-  2. Keep impressions default, add `domain` as an opt-in.
-
-**Severity** — `minor` (ordering ergonomics).
-
-**Notes**
-
-- Operator asked for alphabetical 2026-05-28 after reviewing `fleet seo` order — reads as wanting it the **default** (option 1). Confirm the default-change vs opt-in at fix time (changing the default affects every `fleet seo` run; impressions-desc is still useful for the few high-traffic sites).
-- `project seo <domain>` is single-domain so ordering is moot there; this is a `fleet seo` (multi-domain table) change only. Both currently route through `sort_rows` via `_run_check_seo_mode`.
-
-
 ### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
 
 **Motivation**
@@ -942,6 +910,25 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-28 — `fleet seo` results table should order domains alphabetically (not impressions-desc) by default
+
+`fleet seo` sorted its results table by GSC impressions descending — for a mostly-young/zero-impression fleet, that buried most domains in an undifferentiated block and the operator couldn't locate a domain by name.
+
+**Severity** — `minor` (ordering ergonomics).
+
+**Fix** (operator chose the default-change shape)
+
+- `seo_runtime.sort_rows` — added a `"domain"` key (case-insensitive alphabetical) and made it the fall-through default.
+- `cli.py:check_seo` (`fleet seo` impl) — `--sort` default flipped `impressions` → `domain`; allow-list + validation message + help text updated. Impressions-desc still available via `--sort impressions` (and `clicks`/`position`/`ctr` unchanged).
+
+**Fixed in** — `<SHA on commit>` (2 new tests in `test_seo_runtime.py`: `sort_rows` domain alphabetical + unknown-key falls through to alphabetical)
+
+**Notes**
+
+- `project seo <domain>` is single-domain so ordering is moot there; this is the `fleet seo` table only.
+
+---
 
 ### 2026-05-25 — `project seo` renders pending sitemap re-fetches as `✗ ERROR` (red) when they should be `↷ PENDING` (yellow)
 

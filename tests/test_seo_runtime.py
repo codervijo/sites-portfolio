@@ -925,6 +925,29 @@ def test_sort_rows_position_lower_first_none_last():
     assert [r.domain for r in out] == ["b", "a", "c"]
 
 
+def test_sort_rows_domain_alphabetical():
+    """2026-05-28 — `domain` key sorts alphabetically (case-insensitive),
+    independent of GSC metrics. This is now the `fleet seo` default."""
+    rows = [
+        SEORow(domain="Zebra.com", gsc_impressions=999),
+        SEORow(domain="alpha.com", gsc_impressions=0),
+        SEORow(domain="mango.app", gsc_impressions=None),
+    ]
+    out = sort_rows(rows, "domain")
+    assert [r.domain for r in out] == ["alpha.com", "mango.app", "Zebra.com"]
+
+
+def test_sort_rows_default_unknown_key_is_alphabetical():
+    """An unrecognized key falls through to the domain-alphabetical
+    default (matches the 2026-05-28 default-sort change)."""
+    rows = [
+        SEORow(domain="b.com", gsc_impressions=100),
+        SEORow(domain="a.com", gsc_impressions=1),
+    ]
+    out = sort_rows(rows, "")
+    assert [r.domain for r in out] == ["a.com", "b.com"]
+
+
 # ---------- snapshot-scope refresh logic ----------
 
 
