@@ -18,6 +18,7 @@ case the same way as a registered-but-broken case.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -98,13 +99,19 @@ def _coerce_int(value: Any) -> int:
 
 
 def _sitemap_status(errors: int, warnings: int, is_pending: bool) -> str:
-    """Per-sitemap status cascade — error > warn > pending > ok.
-    Matches the cascade `fleet focus`'s sitemap-error detector
-    uses against aggregate counts."""
-    if errors > 0:
-        return "ERROR"
+    """Per-sitemap status cascade — pending > error > warn > ok.
+
+    2026-05-28 — `is_pending` wins over a non-zero error/warning count.
+    When GSC is mid-refetch (`isPending: true`) the error/warning counts
+    are from the PRIOR fetch and may clear on the next download —
+    surfacing ERROR would send the operator chasing a problem that may
+    not exist (the boxchive.com case). The renderer notes the stale
+    count alongside the PENDING status so the prior errors aren't hidden.
+    """
     if is_pending:
         return "PENDING"
+    if errors > 0:
+        return "ERROR"
     if warnings > 0:
         return "WARN"
     return "OK"
@@ -187,6 +194,44 @@ def _origin_from_property(property_url: str) -> str:
     return property_url.rstrip("/")
 
 
+# 2026-05-28 — GSC's URL Inspection API returns `coverageState` as
+# human text ("Submitted and indexed", "Crawled - currently not
+# indexed"), but the renderer's indexed-count + glyph and the hints
+# generator all key on underscored canonical tokens ("submitted_indexed",
+# "crawled_not_indexed"). Without normalization every URL on a healthy
+# site fell through to ✗ and "0/N indexed, 0%". Map the documented GSC
+# strings to the canonical keys; pass already-canonical values through.
+_GSC_COVERAGE_STATE_ALIASES: dict[str, str] = {
+    "submitted and indexed": "submitted_indexed",
+    "indexed, not submitted in sitemap": "submitted_indexed",
+    "crawled - currently not indexed": "crawled_not_indexed",
+    "discovered - currently not indexed": "discovered_not_indexed",
+    "page with redirect": "redirect_error",
+    "blocked by robots.txt": "blocked_by_robots",
+    "not found (404)": "not_found_404",
+    "soft 404": "soft_404",
+    "server error (5xx)": "server_error",
+}
+
+
+def _normalize_coverage_state(raw: str | None) -> str | None:
+    """Map GSC's human-text `coverageState` to the canonical underscored
+    key the renderer + hints key on. Already-canonical (underscored)
+    values pass through unchanged; unknown human strings collapse to a
+    safe underscore token so comparisons stay stable. None/empty → as-is.
+    """
+    if not raw:
+        return raw
+    key = raw.strip().lower()
+    if key in _GSC_COVERAGE_STATE_ALIASES:
+        return _GSC_COVERAGE_STATE_ALIASES[key]
+    if " " not in key and "-" not in key:
+        # Already a token like "submitted_indexed" (defensive — covers
+        # any caller that pre-normalized or a future API shape change).
+        return key
+    return re.sub(r"[^a-z0-9]+", "_", key).strip("_")
+
+
 def fetch_coverage_details(service, property_url: str, *,
                            top_n: int = 10) -> list[CoverageDetail]:
     """Pick the top-N URLs from the property's live sitemap and
@@ -210,7 +255,7 @@ def fetch_coverage_details(service, property_url: str, *,
         ui: UrlInspection = inspect_one_url(service, property_url, u)
         details.append(CoverageDetail(
             url=u,
-            coverage_state=ui.coverage_state,
+            coverage_state=_normalize_coverage_state(ui.coverage_state),
             indexing_state=ui.indexing_state,
             verdict=ui.verdict,
             page_fetch_state=ui.page_fetch_state,

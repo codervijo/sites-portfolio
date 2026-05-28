@@ -42,8 +42,18 @@ def _capturing_console() -> Console:
 # ---------- sitemap status cascade ----------
 
 
-def test_sitemap_status_error_wins():
-    assert _sitemap_status(errors=2, warnings=3, is_pending=True) == "ERROR"
+def test_sitemap_status_error_wins_when_not_pending():
+    """Error beats warn when the sitemap is NOT mid-refetch."""
+    assert _sitemap_status(errors=2, warnings=3, is_pending=False) == "ERROR"
+
+
+def test_sitemap_status_pending_beats_stale_errors():
+    """2026-05-28 — pending wins over a non-zero error count. The error
+    count during a refetch is from the PRIOR fetch and may clear on the
+    next download, so showing ERROR would send the operator chasing a
+    problem that may not exist (boxchive.com case)."""
+    assert _sitemap_status(errors=2, warnings=3, is_pending=True) == "PENDING"
+    assert _sitemap_status(errors=1, warnings=0, is_pending=True) == "PENDING"
 
 
 def test_sitemap_status_pending_above_warn():
@@ -58,6 +68,65 @@ def test_sitemap_status_warn():
 
 def test_sitemap_status_ok():
     assert _sitemap_status(errors=0, warnings=0, is_pending=False) == "OK"
+
+
+# ---------- coverage_state normalization (2026-05-28, bug #4.1) ----------
+
+
+def test_normalize_coverage_state_human_text_to_canonical():
+    from portfolio.project_seo_diagnostics import _normalize_coverage_state
+    assert _normalize_coverage_state("Submitted and indexed") == "submitted_indexed"
+    assert _normalize_coverage_state(
+        "Indexed, not submitted in sitemap") == "submitted_indexed"
+    assert _normalize_coverage_state(
+        "Crawled - currently not indexed") == "crawled_not_indexed"
+    assert _normalize_coverage_state(
+        "Discovered - currently not indexed") == "discovered_not_indexed"
+
+
+def test_normalize_coverage_state_passthrough_and_edges():
+    from portfolio.project_seo_diagnostics import _normalize_coverage_state
+    # Already-canonical token passes through unchanged.
+    assert _normalize_coverage_state("submitted_indexed") == "submitted_indexed"
+    # None / empty pass through.
+    assert _normalize_coverage_state(None) is None
+    assert _normalize_coverage_state("") == ""
+    # Unknown human text collapses to a stable underscore token.
+    assert _normalize_coverage_state("Some New State") == "some_new_state"
+
+
+# ---------- _human_age_from_iso months branch (2026-05-28, bug #4.3) ----------
+
+
+def _iso_days_ago(days: float) -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def test_human_age_months_branch_no_0y_for_sub_year():
+    """Regression: a 90-364 day delta previously fell through to the
+    years branch and rendered "0y ago" (delta_days // 365 == 0). Now it
+    renders months."""
+    out = cli_mod._human_age_from_iso(_iso_days_ago(120))
+    assert "0y" not in out
+    assert out.endswith("mo ago")
+    # 120 days // 30 = 4 months.
+    assert out == "4mo ago"
+
+
+def test_human_age_year_boundary():
+    out = cli_mod._human_age_from_iso(_iso_days_ago(400))
+    assert out == "1y ago"
+
+
+def test_human_age_short_deltas_unchanged():
+    assert cli_mod._human_age_from_iso(_iso_days_ago(5)) == "5d ago"
+    # 30 days < 90 → weeks branch: 30 // 7 = 4.
+    assert cli_mod._human_age_from_iso(_iso_days_ago(30)) == "4w ago"
+
+
+def test_human_age_none_and_bad_input():
+    assert cli_mod._human_age_from_iso(None) == "—"
+    assert cli_mod._human_age_from_iso("not-a-date") == "—"
 
 
 # ---------- origin extraction ----------

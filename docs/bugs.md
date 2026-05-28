@@ -66,57 +66,36 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-05-25 — `project seo` renders pending sitemap re-fetches as `✗ ERROR` (red) when they should be `↷ PENDING` (yellow)
+### 2026-05-28 — `fleet seo` results table should order domains alphabetically (not impressions-desc) by default
 
 **Repro**
 
-Submit a sitemap to GSC; before Google finishes processing the new fetch (`isPending: true`, no `lastDownloaded` timestamp yet), run:
-
 ```
-$ lamill project seo boxchive.com --refresh
-...
-  GSC diagnostics
-    📋 Sitemaps (1 submitted)
-      ✗ ERROR    https://boxchive.com/sitemap.xml 1 error(s)
-```
-
-The raw GSC Sitemaps API response shows:
-
-```json
-{
-  "path": "https://boxchive.com/sitemap.xml",
-  "lastSubmitted": "2026-05-26T00:19:14.441Z",
-  "isPending": true,
-  "isSitemapsIndex": false,
-  "warnings": "0",
-  "errors": "1"
-}
+$ lamill fleet seo --refresh
+... results table sorted by GSC impressions, descending
 ```
 
 **Expected**
 
-When `isPending: true`, lamill renders a distinct in-progress status (e.g., `↷ PENDING` yellow) and notes that the error count is from a previous fetch:
-
-```
-      ↷ PENDING  https://boxchive.com/sitemap.xml submitted 1h ago · errors (1) from prior fetch, will update on next download
-```
+The fleet SEO results table lists domains in alphabetical order by domain name, so the operator can scan for a specific domain by eye.
 
 **Actual**
 
-Renders `✗ ERROR` red — operator reads it as "your sitemap is broken right now," which prompts wasted investigation. The actual situation is "Google's still processing; the error count is stale and may drop to 0 when the next fetch completes."
+Sorted by GSC impressions descending (`sort_rows` default, `seo_runtime.py:818`). For a fleet that's mostly young / zero-impression sites, this puts the 2-3 sites with traffic at the top and then a large block of 0-impression domains in stable iteration order — the operator can't quickly locate a given domain by name.
 
 **Where (guess)**
 
-`src/portfolio/project_seo_diagnostics.py:_sitemap_status()` cascade. Currently it's `error > warn > pending > ok` — but with `errors > 0 AND isPending: true`, the operator's mental model is closer to `pending > error` (the pending state invalidates the trust in the error count). Reorder so `is_pending=True` short-circuits to `pending` regardless of stale error count, OR introduce a new `pending_with_stale_errors` state and render it distinctly.
+- `src/portfolio/seo_runtime.py:sort_rows()` — add a `"domain"` key sorting by `r.domain` (case-insensitive).
+- `src/portfolio/cli.py` — `fleet seo` (`_run_check_seo_mode`) `--sort` option default. Two shapes:
+  1. Add `domain` to the `--sort` allow-list AND make it the default (impressions-desc available via `--sort impressions`).
+  2. Keep impressions default, add `domain` as an opt-in.
 
-Also need to pass `isPending` through the SitemapDetail dataclass — current shape captures errors/warnings but discards `isPending`. Adjust `fetch_sitemap_details()` to set `is_pending`, and propagate to the renderer.
-
-**Severity** — `minor`. Operator can read past it once they know the pattern, but the misclassification cost real investigation time on boxchive.com 2026-05-25 (operator had to ask "what is the sitemap parse error?" and we had to query the raw API to discover `isPending: true` was the actual story).
+**Severity** — `minor` (ordering ergonomics).
 
 **Notes**
 
-- Closely related: GSC's Sitemaps API doesn't include the textual error reason in the response — even when `isPending` is false, the operator can't see *what* the error was without going to the dashboard. Separate diagnostic gap (could fold into the same fix: when errors > 0 AND not pending, surface "open GSC → Sitemaps → click for textual reason"; today that hint is implicit via the generic `💡 Hints` text).
-- This bug + the `lamill project sitemap resubmit <domain>` feature request below + the existing 2026-05-25 dup-rendering bug below are three improvements to the same diagnostic surface — could bundle as a single small phase if/when they're addressed together.
+- Operator asked for alphabetical 2026-05-28 after reviewing `fleet seo` order — reads as wanting it the **default** (option 1). Confirm the default-change vs opt-in at fix time (changing the default affects every `fleet seo` run; impressions-desc is still useful for the few high-traffic sites).
+- `project seo <domain>` is single-domain so ordering is moot there; this is a `fleet seo` (multi-domain table) change only. Both currently route through `sort_rows` via `_run_check_seo_mode`.
 
 
 ### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
@@ -155,66 +134,6 @@ New verb under `project sitemap` namespace (parallel to `project seo` / `project
 - The GSC OAuth scope is already `webmasters` (write) per v24.B — submission already works; just no CLI surface today.
 - Could fold into the same phase as the rendering-bug fix (both touch GSC sitemap diagnostics).
 - If the rendering-bug fix lands first, the typical operator workflow becomes: `project seo` shows PENDING → wait or resubmit. If the pending state takes too long, this verb is the resolution. Natural pairing.
-
-
-### 2026-05-25 — `project seo` sitemap line renders `"N error(s)  ·  N error(s)"` (duplicate count from two render paths)
-
-**Repro**
-
-```
-$ lamill project seo boxchive.com --refresh
-...
-  GSC diagnostics
-    Property: sc-domain:boxchive.com
-    📋 Sitemaps (1 submitted)
-      ✗ ERROR    https://boxchive.com/sitemap.xml 1 error(s)  ·  1 error(s)
-```
-
-**Expected**
-
-The error count appears once in the tail-bits, e.g.:
-
-```
-      ✗ ERROR    https://boxchive.com/sitemap.xml 1 error(s)
-```
-
-Or, when the API returns enough detail, the more informative `error_summary` form:
-
-```
-      ✗ ERROR    https://boxchive.com/sitemap.xml 1 error(s) across 1 URL(s)
-```
-
-But never both.
-
-**Actual**
-
-`"1 error(s)  ·  1 error(s)"` — the count is rendered twice, separated by ` · `.
-
-**Where**
-
-`src/portfolio/cli.py:5500-5507` (the `📋 Sitemaps` per-row tail-bits builder). The current code unconditionally appends two strings that both convey the error count:
-
-```python
-if errs:
-    tail_bits.append(f"{errs} error(s)")        # ← first append
-if warns:
-    tail_bits.append(f"{warns} warning(s)")
-if last_dl:
-    tail_bits.append(f"fetched {_human_age_from_iso(last_dl)}")
-if summary:
-    tail_bits.append(summary)                   # ← second append (same text)
-```
-
-`summary` comes from `project_seo_diagnostics._summarize_error()`, which returns either `"N error(s)"` (when GSC didn't include `contents`) or `"N error(s) across M URL(s)"` (when it did). In both branches, the text starts with the same `"N error(s)"` as the first append → visible duplication.
-
-**Severity** — `cosmetic`. Operator can read past it; no functional impact on the diagnostic decision.
-
-**Notes**
-
-- Fix: remove the `if errs:` branch (lines 5500-5501). `error_summary` already conveys the count more informatively — preserves the "across M URL(s)" variant when GSC provides it.
-- The warnings branch (`if warns:`) stays — there's no `_summarize_warning()` counterpart.
-- Separate-but-adjacent gap (NOT this bug — log later if it bites): the GSC Sitemaps list API doesn't include the textual error reason ("Couldn't fetch", "Parse error", etc.). The diagnostic could call URL Inspection on the sitemap URL to surface the actual cause; today it just says "N error(s)" with a generic hint. Feature, not bug.
-- Real boxchive.com sitemap.xml is valid (manually `curl`-checked 2026-05-25 — 200, valid XML, single URL). The GSC error is likely a stale snapshot from before the deploy completed; resubmitting the sitemap in GSC should clear it. Not in scope of this bug entry.
 
 
 ### 2026-05-25 — fleetwide canonical-redirect audit (v26.A scoping baseline) — 29 of 35 probed sites non-conforming
@@ -695,107 +614,6 @@ all current warns + future warns consistently.
 
 ---
 
-### 2026-05-20 — v13.B `project seo` GSC diagnostics — 3 rendering/classification issues
-
-**Repro**
-    lamill project seo hybridautopart.com --top 30
-
-Run against a live, GSC-verified site. One operator run surfaced
-all three sub-issues at once.
-
-**Expected**
-- Coverage section accurately reflects GSC URL Inspection verdicts
-  (URLs reported as "submitted and indexed" should count as
-  indexed and render with a pass marker).
-- `--top N` is honored beyond 10 — `--top 30` should inspect up to
-  30 URLs.
-- Relative-date formatter renders sub-day deltas as "today" or
-  "~0d ago", never "0y ago".
-
-**Actual**
-Three rendering/classification defects in one run, captured below:
-
-1. **Coverage state misclassified.** Every URL in the output was
-   labeled "submitted and indexed" by the GSC URL Inspection API,
-   but the renderer marked them all with ✗ (red cross) and counted
-   them as **0/10 indexed (0%)**. The classifier likely expects the
-   GSC verdict token `submitted_indexed` (underscored) but the API
-   is returning `submitted and indexed` (human text), so nothing
-   matches the pass case and everything falls through to the fail
-   rendering. The header `📊 Coverage (top 10 inspected — 0/10
-   indexed, 0%)` is therefore wrong on a healthy site.
-
-2. **`--top N` not honored beyond 10.** Operator passed `--top 30`
-   but only 10 URLs were shown. Either the API call caps at 10, or
-   the top-N truncation happens before the user's value is applied,
-   or both. Either way the flag is silently capped.
-
-3. **Relative-date formatter unit bug.** One row reads `crawled 0y
-   ago` — "0 years ago" — for a URL crawled today (or very
-   recently). The relative-time formatter is picking the wrong unit
-   at the low end. Should read "today" or "~0d ago".
-
-Full operator terminal output:
-
-```
-$ lamill project seo hybridautopart.com --top 30
-Probing 1 domain(s) — HTTP + GSC (28d) + CrUX...
-  [1/1] hybridautopart.com
-check --seo · 1 domains · GSC 28d · sort=impressions
- SEO  Domain              HTTP    Robots  Sitemap  GSC  GSC sm     Imp  Clicks   CTR   Pos
- 🟡   hybridautopart.com  🟢 200    🟢      🟢     🟢     🟡    26,378     117  0.4%  13.3
-
-  GSC diagnostics
-    Property: https://hybridautopart.com/
-    📋 Sitemaps (1 submitted)
-      ⚠ WARN     /sitemap_index.xml               3 warning(s)  ·  fetched 17h ago
-    📊 Coverage (top 10 inspected — 0/10 indexed, 0%)
-      ✗ https://hybridautopart.com/            submitted and indexed     crawled 4d ago
-      ✗ https://hybridauto…-en/subaru-hybrids/ submitted and indexed     crawled 5d ago
-      ✗ https://hybridauto…blog-en/phev-guide/ crawled - currently not indexed  verdict=NEUTRAL · crawled 0y ago
-      ✗ https://hybridauto…rgy-drive-problems/ submitted and indexed     crawled 4d ago
-      ✗ https://hybridauto…-en/prius-charging/ submitted and indexed     crawled 3w ago
-      ✗ https://hybridauto…ing-courses-online/ submitted and indexed     crawled 3w ago
-      ✗ https://hybridauto…og-en/mhev-vs-phev/ submitted and indexed     crawled 9d ago
-      ✗ https://hybridauto…power-split-device/ submitted and indexed     crawled 9d ago
-      ✗ https://hybridauto…ible-link-assembly/ submitted and indexed     crawled 8w ago
-      ✗ https://hybridauto…tion-engine-heater/ submitted and indexed     crawled 3d ago
-```
-
-**Where (guess)**
-`src/portfolio/project_seo_diagnostics.py` — the coverage
-classifier + renderer + relative-date formatter all live here (or
-in a helper module called from here). Suggested fix directions:
-
-- *Issue 1:* Normalize the GSC verdict string before matching
-  against the pass case (`submitted_indexed` / `submitted and
-  indexed` → same key). Case-fold + collapse spaces/underscores
-  before comparison.
-- *Issue 2:* Check the URL Inspection API call's `top_n` path;
-  ensure `top_n=30` is plumbed all the way through (from CLI flag
-  → diagnostics entry point → API call → result truncation).
-  Default cap may be hardcoded to 10 somewhere along the chain.
-- *Issue 3:* In the relative-date formatter, add a "today" / "0d"
-  branch before the years/weeks/days cascade falls through to
-  years for sub-1d deltas. Likely an integer-divide ordering issue
-  where `delta_days // 365 == 0` is being formatted as "0y" instead
-  of falling through to the days/hours/today branch.
-
-**Severity**
-minor — cosmetic + small accuracy issue. The Coverage% misread is
-the most visible (operator can't trust the "0/10 indexed" header
-on a healthy site), but no data loss; underlying GSC data is
-correct, just rendered wrong.
-
-**Notes**
-All three issues surfaced in v13.B (per-project GSC diagnostics as
-`project seo` default — shipped in commit `a693d96`). Likely
-shippable as one small follow-up phase (v13.C?) since they share
-a file and a renderer. Self-contained — full repro output captured
-above so the bug record stands alone.
-
----
-
 ### 2026-05-18 — `settings deploy set` fails for sites/ dirs missing from portfolio.json
 
 **Repro**
@@ -1124,6 +942,46 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-25 — `project seo` renders pending sitemap re-fetches as `✗ ERROR` (red) when they should be `↷ PENDING` (yellow)
+
+When GSC is mid-refetch (`isPending: true`), the error count is from the PRIOR fetch and may clear on the next download — but `_sitemap_status` checked `errors > 0` before `is_pending`, so the boxchive.com sitemap rendered red `✗ ERROR` and sent the operator chasing a stale error.
+
+**Severity** — `minor`.
+
+**Fix**
+
+`project_seo_diagnostics._sitemap_status` cascade reordered to `pending > error > warn > ok` — `is_pending` now short-circuits to PENDING regardless of the stale error count. The `is_pending` field was already plumbed through `SitemapDetail` + `fetch_sitemap_details` (prior partial work); only the cascade order was wrong. The cli renderer now annotates the stale count on a PENDING row: `N error(s) from prior fetch (clears on next download)`.
+
+**Fixed in** — `<SHA on commit>` (updated `test_sitemap_status_error_wins` → `_error_wins_when_not_pending`; new `_pending_beats_stale_errors`)
+
+---
+
+### 2026-05-25 — `project seo` sitemap line renders `"N error(s)  ·  N error(s)"` (duplicate count from two render paths)
+
+The sitemap tail-bits builder appended both `f"{errs} error(s)"` and `error_summary` (which also starts with `"N error(s)"`), so the count rendered twice.
+
+**Severity** — `cosmetic`.
+
+**Fixed in** — `<SHA on commit>` (doc-drift — the `if errs:` append was already removed before this session; verified 2026-05-28 the cli render path appends only `error_summary` for the error count, no duplicate). No code change in the bundle for this entry.
+
+---
+
+### 2026-05-20 — v13.B `project seo` GSC diagnostics — 3 rendering/classification issues
+
+Three defects on the v13.B per-project GSC diagnostics surface, surfaced together on a healthy `hybridautopart.com` run.
+
+**Severity** — `minor` (Coverage% misread was the most visible — "0/N indexed" on a healthy site).
+
+**Fix** (per sub-issue)
+
+1. **Coverage misclassified as 0% indexed.** GSC's URL Inspection returns `coverageState` as human text ("Submitted and indexed"), but the renderer + hints key on underscored tokens (`submitted_indexed`). Added `_normalize_coverage_state` mapping the documented GSC strings → canonical keys, applied in `fetch_coverage_details` so the indexed-count, glyph, AND hints all match. Fixed.
+2. **`--top N` capped at 10.** The `--top` flag is now plumbed end-to-end (`cli.py:8432` → `build_diagnostics(top_n=)` → `fetch_coverage_details(top_n=)` → `fetch_sitemap_urls(limit=top_n)` + `urls[:top_n]`). Appears resolved since the original report — **verify live** with a real `--top 30` run against a GSC-verified site (depends on URL Inspection daily quota + actual sitemap URL count).
+3. **`0y ago` relative-date bug.** `_human_age_from_iso` jumped weeks (<90d) straight to years, so any 90-364 day delta rendered "0y ago" (`secs // (86400*365) == 0`). Added a months branch → `Nmo ago`. Fixed. (The original report guessed "crawled today," but the formatter only emits 0y for the 90-364 day range — the URL was months old, not today.)
+
+**Fixed in** — `<SHA on commit>` (tests: `_normalize_coverage_state` human-text→canonical + passthrough/edges; `_human_age_from_iso` months branch + no-`0y` regression + year boundary)
+
+---
 
 ### 2026-05-20 — `new bootstrap` prompt layout makes Audience/ICP visually confusable
 

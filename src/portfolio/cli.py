@@ -5565,6 +5565,11 @@ def _human_age_from_iso(iso: str | None) -> str:
             return f"{secs // 86400}d ago"
         if secs < 86400 * 90:
             return f"{secs // (86400 * 7)}w ago"
+        # 2026-05-28 — months branch. Without it, any delta in the
+        # 90-364 day range fell through to the years branch and rendered
+        # "0y ago" (secs // (86400*365) == 0). Surface "Nmo ago" instead.
+        if secs < 86400 * 365:
+            return f"{secs // (86400 * 30)}mo ago"
         return f"{secs // (86400 * 365)}y ago"
     except (ValueError, TypeError):
         return "—"
@@ -5625,7 +5630,16 @@ def _render_project_seo_diagnostics(diag, console) -> None:
             if last_dl:
                 tail_bits.append(f"fetched {_human_age_from_iso(last_dl)}")
             if summary:
-                tail_bits.append(summary)
+                # 2026-05-28 — when GSC is mid-refetch (PENDING), the
+                # error count is from the prior fetch and may clear on
+                # the next download. Annotate so the operator doesn't
+                # chase a stale error.
+                if status == "PENDING":
+                    tail_bits.append(
+                        f"{summary} from prior fetch (clears on next download)"
+                    )
+                else:
+                    tail_bits.append(summary)
             if tail_bits:
                 line += "[dim]" + "  ·  ".join(tail_bits) + "[/]"
             console.print(line)
