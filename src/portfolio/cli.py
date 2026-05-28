@@ -4202,6 +4202,21 @@ def _apply_inventory_decision(domain: str, decision: dict) -> None:
             )
 
 
+# Bug-fix 2026-05-28 — per-section prompt numbers, matching the preflight
+# banner + LLM-template prompt order (1=Lovable, 2=Summary, …, 9=Growth).
+# Inline `[N/9]` on each prompt + a "✓ saved as <section>" echo break the
+# visual blend that let the operator type ICP content into the Audience
+# prompt (the ICP description rendered immediately after the Audience
+# input with no boundary).
+_OPERATOR_SECTION_NUMBERS: dict[str, str] = {
+    "Summary": "2",
+    "Audience": "3",
+    "ICP": "4",
+    "Goals": "5",
+    "Content strategy": "6",
+}
+
+
 def _collect_operator_inputs(*,
                              summary: str, audience: str, icp: str,
                              goal: str, content_strategy: str,
@@ -4310,8 +4325,10 @@ def _collect_operator_inputs(*,
                         "(Paste a multi-section response here to fill "
                         "all prompts at once.)"
                     )
+                _num = _OPERATOR_SECTION_NUMBERS.get(spec.heading, "?")
                 answer = _prompt_multiline(
-                    f"\n  [cyan]{spec.heading}[/] — [dim]{spec.description}[/]",
+                    f"\n  [bold][{_num}/9][/] [cyan]{spec.heading}[/]"
+                    f" — [dim]{spec.description}[/]",
                     hint=hint,
                 ).strip()
                 # Smart-paste detection runs on the FIRST paragraph
@@ -4338,14 +4355,20 @@ def _collect_operator_inputs(*,
                         # but no Summary).
                         continue
             else:
+                _num = _OPERATOR_SECTION_NUMBERS.get(spec.heading, "?")
                 console.print(
-                    f"\n  [cyan]{spec.heading}[/] — [dim]{spec.description}[/]"
+                    f"\n  [bold][{_num}/9][/] [cyan]{spec.heading}[/]"
+                    f" — [dim]{spec.description}[/]"
                 )
                 answer = typer.prompt(
                     "  >", default="", show_default=False,
                 ).strip()
             if answer:
                 inputs[spec.heading] = answer
+                # Echo a confirmation so the next prompt's description
+                # can't blend into this section's input area (the
+                # Audience/ICP confusion, 2026-05-28).
+                console.print(f"  [green]✓ saved as {spec.heading}[/]")
 
     return inputs
 

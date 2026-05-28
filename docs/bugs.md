@@ -586,85 +586,6 @@ commit.
 
 ---
 
-### 2026-05-20 — `new bootstrap` prompt layout makes Audience/ICP visually confusable
-
-**Repro**
-
-    lamill new bootstrap agesdk.dev
-
-The operator's 2026-05-20 test session captured this exact
-behavior:
-
-```
-  Audience — one sentence: who this is for (broad demographic)
-  >: ICP: RN/Expo developer or small-team CTO at a consumer app
-     with California users. Never dealt with age compliance before.
-     Found the law via a legal email or Twitter. Will self-serve,
-     will not talk to sales.
-
-  ICP — the specific ideal customer — demographics, pain points,
-  what they use today. More detail than Audience: Audience is the
-  broad demo ("homeowners with EV chargers"), ICP is the specific
-  targetable subset ("Tesla owners in CA who installed in last 90d,
-  paid $2k+")
-  >: <empty>
-```
-
-Operator typed the ICP content into the AUDIENCE prompt because:
-
-  1. Each prompt's instruction text wraps onto multiple lines.
-  2. The ICP prompt header (`ICP — the specific ideal customer
-     — demographics, pain points, what they use today.`) starts
-     immediately after the operator's Audience input.
-  3. Operator's eye treated the ICP description text as additional
-     context for the Audience question — natural pattern-matching
-     failure on the visual hierarchy.
-
-**Expected**
-
-Each prompt is visually distinct enough that the operator can't
-accidentally type a later prompt's content into an earlier one.
-Concrete options (combinable):
-
-  1. Echo the operator's input back after each prompt with a
-     "[saved as <section>]" confirmation before moving on.
-  2. Add a visual separator (rule line / blank line / bold
-     heading) between sections so the next prompt's intro doesn't
-     blend into the prior section's input area.
-  3. Show only the H2-name + the `>:` line, with full description
-     printed BEFORE the input field rather than between sections.
-  4. Number each prompt (`[2/9] Audience:`) so operator can track
-     which one they're on without re-reading the surrounding text.
-
-**Actual**
-
-Two operator sections got mis-routed in real testing. Bootstrap
-saved incorrect content + left the correct slots empty (rendered
-as `(to be filled in)` placeholders, requiring manual edit later).
-
-**Where (guess)**
-
-Whichever function in `src/portfolio/cli.py` /
-`src/portfolio/bootstrap.py` orchestrates the v9.B AI_AGENTS
-section prompts. The visual layout fix is the same place; the
-"[saved as X]" confirmation is the same pattern.
-
-Pairs with the cut-and-paste LLM prompt fix above — when operator
-uses the LLM-staged flow (paste structured response section-by-
-section), this confusion mostly disappears because each section
-is already pre-labeled by the LLM.
-
-**Severity** — `major`
-
-Operator hit it on their first test session.
-
-**Notes**
-
-Surfaced 2026-05-20 by operator during the same test session that
-surfaced the multi-paragraph paste + Lovable repo + pre-flight
-listing bugs.
-
----
 
 ### 2026-05-20 — `new bootstrap` prompts don't validate input format
 
@@ -1203,6 +1124,24 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-20 — `new bootstrap` prompt layout makes Audience/ICP visually confusable
+
+In the operator's test session, the ICP content got typed into the Audience prompt: the multi-line ICP description rendered immediately after the Audience input with no boundary, so the eye read the ICP description as extra context for the Audience question. Two sections got mis-routed (saved wrong + left the correct slots empty).
+
+**Severity** — `major` (hit on first test session).
+
+**Fix**
+
+`src/portfolio/cli.py:_collect_operator_inputs`:
+- Each section prompt now carries an inline `[N/9]` number matching the preflight banner + LLM-template order (`_OPERATOR_SECTION_NUMBERS`: Summary 2, Audience 3, ICP 4, Goals 5, Content strategy 6).
+- After a non-empty answer, a `✓ saved as <section>` line prints — the confirmation breaks the visual blend so the next prompt's description can't read as continuation of the prior input.
+
+Combines options 1 (saved-as echo) + 4 (numbering) from the original write-up. Also reinforced by the copy-paste LLM template (`220bbe1`) + smart-paste (`b8b3d40`): when the operator uses the LLM-stage → single-paste flow, the per-prompt typing that triggered this is bypassed entirely.
+
+**Fixed in** — `<SHA on commit>` (3 new tests in `test_v9b_bootstrap_operator_inputs.py`: prompts carry `[N/9]`, saved-as echo per answered section, no echo for skipped sections)
+
+---
 
 ### 2026-05-20 — `new bootstrap` should generate a copy-paste LLM prompt first
 

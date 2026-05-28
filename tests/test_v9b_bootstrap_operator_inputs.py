@@ -114,6 +114,68 @@ def test_collect_prompts_for_missing_sections_only(monkeypatch):
     assert len(prompts_called) == 4
 
 
+def test_collect_prompts_carry_prompt_order_numbers(monkeypatch):
+    """Bug-fix 2026-05-28: each section prompt carries an inline
+    `[N/9]` matching the preflight banner / LLM-template order so the
+    operator can't blend a later prompt's description into an earlier
+    answer (the Audience/ICP confusion).
+
+    Multiline section labels (Summary/ICP/Content strategy) ride on
+    `_prompt_multiline`'s arg; single-line labels (Audience/Goals)
+    print via `console.print` above the `  >` input — capture both."""
+    seen = []
+
+    def fake_prompt(prompt_str, default="", show_default=True):
+        return "answer"
+    monkeypatch.setattr(typer, "prompt", fake_prompt)
+    monkeypatch.setattr(
+        cli_mod, "_prompt_multiline",
+        lambda *a, **k: (seen.append(a[0] if a else "") or "answer"),
+    )
+    monkeypatch.setattr(
+        cli_mod.console, "print",
+        lambda *a, **k: seen.append(" ".join(str(x) for x in a)),
+    )
+    _collect()
+    joined = "\n".join(seen)
+    # Prompt-order numbers from the preflight banner — all 5 sections.
+    for num in ("[2/9]", "[3/9]", "[4/9]", "[5/9]", "[6/9]"):
+        assert num in joined, f"missing prompt number {num}"
+
+
+def test_collect_echoes_saved_confirmation_after_each_answer(monkeypatch):
+    """Bug-fix 2026-05-28: after a non-empty answer, a `✓ saved as
+    <section>` line prints so the next prompt's description doesn't
+    blend into the prior section's input area."""
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: "audience answer")
+    monkeypatch.setattr(cli_mod, "_prompt_multiline",
+                        lambda *a, **k: "para answer")
+    captured = []
+    monkeypatch.setattr(
+        cli_mod.console, "print",
+        lambda *a, **k: captured.append(" ".join(str(x) for x in a)),
+    )
+    _collect()
+    joined = "\n".join(captured)
+    for heading in ("Summary", "Audience", "ICP", "Goals", "Content strategy"):
+        assert f"saved as {heading}" in joined, f"missing echo: {heading}"
+
+
+def test_collect_no_saved_echo_for_skipped_section(monkeypatch):
+    """Empty answer (operator hit Enter to skip) → no `saved as` echo
+    for that section (nothing was saved)."""
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: "")
+    monkeypatch.setattr(cli_mod, "_prompt_multiline", lambda *a, **k: "")
+    captured = []
+    monkeypatch.setattr(
+        cli_mod.console, "print",
+        lambda *a, **k: captured.append(" ".join(str(x) for x in a)),
+    )
+    _collect()
+    joined = "\n".join(captured)
+    assert "saved as" not in joined
+
+
 def test_collect_empty_prompt_answer_renders_placeholder_downstream(monkeypatch):
     """Pressing Enter on a prompt → empty string in the inputs dict
     → renderer drops in the `(to be filled in)` placeholder. The
