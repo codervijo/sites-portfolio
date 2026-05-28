@@ -3647,6 +3647,18 @@ def new_bootstrap(
         registered=registered, registrar=registrar,
     )
 
+    # Bug-fix 2026-05-28 — copy-paste LLM prompt template. Printed after
+    # the preflight banner so the operator can stage the 6 content
+    # sections in ChatGPT/claude.ai and paste the whole reply at the
+    # first prompt (smart-paste fills the rest). No-op on --non-interactive
+    # or when every content section is already flag-supplied.
+    _render_llm_prompt_template(
+        domain=domain, topic=topic, non_interactive=non_interactive,
+        summary=summary, audience=audience, icp=icp, goal=goal,
+        content_strategy=content_strategy,
+        growth_hypothesis=growth_hypothesis,
+    )
+
     # Bug-fix 2026-05-20 — Lovable repo URL prompt. Asked FIRST so the
     # operator's UI is in place before the AI_AGENTS docs are filled
     # in (those docs should be able to reference the actual code).
@@ -3912,6 +3924,90 @@ def _render_bootstrap_preflight(
     console.print(
         "  [dim]Paragraph prompts (1, 2, 4, 6, 9): "
         "finish with Enter twice or Ctrl-D.[/]"
+    )
+
+
+# Bug-fix 2026-05-28 — copy-paste LLM prompt template. Before the first
+# interactive prompt, print a ready-to-paste prompt the operator can drop
+# into ChatGPT / claude.ai. The template instructs the LLM to format its
+# reply in the EXACT numbered+labeled shape the smart-paste parser
+# (bootstrap_paste) expects, so the operator pastes the whole reply at the
+# first prompt and every section auto-fills. Pairs with the multi-section
+# paste parser (2026-05-25) to make the LLM-stage → paste workflow one step.
+
+# The 6 LLM-draftable content sections + their bootstrap prompt-order
+# numbers (matching _POSITIONAL_ORDER / the preflight banner). Prompts 1
+# (Lovable repo), 7 (registered), 8 (registrar) aren't LLM-draftable, so
+# they're omitted from the template.
+_LLM_TEMPLATE_SECTIONS: list[tuple[str, str, str]] = [
+    ("2", "Summary",
+     "One paragraph (3-5 sentences): what this site IS and DOES. Concrete, not aspirational."),
+    ("3", "Audience",
+     "One sentence: the broad demographic (e.g. \"homeowners with EV chargers\")."),
+    ("4", "ICP",
+     "One paragraph: the specific targetable subset — demographics, pain points, what they use "
+     "today. Precise enough to write an ad-targeting brief from."),
+    ("5", "Goals",
+     "1-2 sentences: the primary business/product goal. Time-bound if there's a relevant deadline."),
+    ("6", "Content strategy",
+     "One paragraph: page types this site needs · initial topics · format mix (long-form vs "
+     "reference vs tool)."),
+    ("9", "Growth hypothesis",
+     "One paragraph: your bet for how this site reaches its audience — distribution channel + "
+     "why it's defensible + the timing window."),
+]
+
+
+def _render_llm_prompt_template(
+    *, domain: str, topic: str, non_interactive: bool,
+    summary: str, audience: str, icp: str, goal: str,
+    content_strategy: str, growth_hypothesis: str,
+) -> None:
+    """Print a copy-paste LLM prompt for the content sections.
+
+    No-op when:
+      - `non_interactive=True` (no prompts fire), OR
+      - every content section already has a flag value (nothing to draft).
+    """
+    if non_interactive:
+        return
+    all_content_supplied = all(
+        bool(s.strip()) for s in (
+            summary, audience, icp, goal, content_strategy, growth_hypothesis,
+        )
+    )
+    if all_content_supplied:
+        return
+
+    if topic.strip():
+        topic_line = f"\n\nTopic: {topic.strip()}"
+    else:
+        topic_line = (
+            "\n\n(Replace this line with a 1-2 sentence description of "
+            "the site's topic.)"
+        )
+
+    console.print(
+        "\n[bold]─── Copy-paste this into ChatGPT / claude.ai "
+        "───────────────[/]"
+    )
+    console.print(
+        f"I'm scaffolding a new website at {domain}.{topic_line}\n\n"
+        "Draft the following sections for the site. Keep each within the "
+        "noted length. IMPORTANT: format your reply EXACTLY like the "
+        "template below — each section begins with its number + label on "
+        "its own line, content underneath — so I can paste the whole reply "
+        "at once:\n"
+    )
+    for num, label, hint in _LLM_TEMPLATE_SECTIONS:
+        console.print(f"{num}. {label}\n{hint}\n")
+    console.print(
+        "[bold]──────────────────────────────────────────────────────────[/]"
+    )
+    console.print(
+        "[dim]Then paste the whole reply at the first prompt below "
+        "(Summary) — smart-paste fills every section automatically. Or "
+        "answer each prompt by hand.[/]"
     )
 
 

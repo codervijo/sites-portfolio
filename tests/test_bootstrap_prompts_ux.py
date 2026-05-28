@@ -285,6 +285,82 @@ def test_preflight_banner_mentions_domain(monkeypatch):
     assert "example.com" in joined
 
 
+# ---------- _render_llm_prompt_template (2026-05-28) ----------
+
+
+def _render_llm_template(monkeypatch, **overrides):
+    captured = _capture_console(monkeypatch)
+    kwargs = dict(
+        domain="agesdk.dev", topic="", non_interactive=False,
+        summary="", audience="", icp="", goal="",
+        content_strategy="", growth_hypothesis="",
+    )
+    kwargs.update(overrides)
+    cli_mod._render_llm_prompt_template(**kwargs)
+    return "\n".join(captured)
+
+
+def test_llm_template_uses_numbered_labeled_format(monkeypatch):
+    """The template must emit each section as `N. Label` matching the
+    smart-paste parser's expected shape (bootstrap_paste header form),
+    so the operator can paste the whole reply at the first prompt."""
+    joined = _render_llm_template(monkeypatch)
+    # Numbered + labeled headers matching the prompt order.
+    for header in (
+        "2. Summary", "3. Audience", "4. ICP", "5. Goals",
+        "6. Content strategy", "9. Growth hypothesis",
+    ):
+        assert header in joined, f"template missing header: {header}"
+    # Non-content prompts (Lovable repo / registered / registrar) are NOT
+    # in the template — they aren't LLM-draftable.
+    assert "Registrar" not in joined
+    assert "Lovable" not in joined
+
+
+def test_llm_template_includes_domain_and_topic(monkeypatch):
+    joined = _render_llm_template(
+        monkeypatch, topic="An EV-charger compliance tracker for CA homeowners",
+    )
+    assert "agesdk.dev" in joined
+    assert "EV-charger compliance tracker" in joined
+
+
+def test_llm_template_placeholder_when_no_topic(monkeypatch):
+    """No --topic → the template tells the operator to add a topic line
+    (the LLM needs context to draft useful sections)."""
+    joined = _render_llm_template(monkeypatch, topic="")
+    assert "Topic:" not in joined  # no real topic interpolated
+    assert "description of" in joined.lower()
+
+
+def test_llm_template_skipped_when_non_interactive(monkeypatch):
+    captured = _capture_console(monkeypatch)
+    cli_mod._render_llm_prompt_template(
+        domain="agesdk.dev", topic="x", non_interactive=True,
+        summary="", audience="", icp="", goal="",
+        content_strategy="", growth_hypothesis="",
+    )
+    assert captured == []
+
+
+def test_llm_template_skipped_when_all_content_supplied(monkeypatch):
+    """Every content section flag-supplied → nothing to draft → no-op."""
+    captured = _capture_console(monkeypatch)
+    cli_mod._render_llm_prompt_template(
+        domain="agesdk.dev", topic="x", non_interactive=False,
+        summary="s", audience="a", icp="i", goal="g",
+        content_strategy="c", growth_hypothesis="h",
+    )
+    assert captured == []
+
+
+def test_llm_template_prints_when_partial_content(monkeypatch):
+    """Some but not all content supplied → template still prints (the
+    remaining sections still need drafting)."""
+    joined = _render_llm_template(monkeypatch, summary="already have this")
+    assert "2. Summary" in joined
+
+
 # ---------- registrar validation (interactive) ----------
 
 

@@ -518,103 +518,6 @@ bootstrap template.
 
 ---
 
-### 2026-05-20 — `new bootstrap` should generate a copy-paste LLM prompt first
-
-**Repro**
-
-    lamill new bootstrap agesdk.dev
-
-Operator runs bootstrap → faced with 5+ paragraph-style prompts
-(Summary / Audience / ICP / Goals / Content strategy / Growth
-hypothesis) cold. Has to compose each answer in-prompt without
-any AI assistance, OR open ChatGPT/Claude in a separate window
-and manually feed each prompt one at a time.
-
-**Expected**
-
-BEFORE firing the first interactive prompt, bootstrap renders a
-ready-to-paste prompt template the operator can drop into
-chatgpt.com / claude.ai. The template asks for all the section
-contents at once + the growth hypothesis, organized clearly so
-the LLM's response can be split section-by-section into the
-bootstrap prompts.
-
-Something like:
-
-```
-─── Copy-paste prompt for ChatGPT / claude.ai ─────────────────
-
-I'm scaffolding a new site at agesdk.dev. Topic: <prompt me or use
---topic flag if supplied>.
-
-Please draft the following for me. Keep each section under
-the indicated length. Put each section under its labeled H2
-heading so I can copy-paste them one at a time:
-
-## Summary
-One paragraph (3-5 sentences). What this site IS and what it
-DOES. Concrete, not aspirational.
-
-## Audience
-One sentence. The broad demographic (e.g. "homeowners with EV
-chargers" / "RN/Expo developers shipping consumer apps").
-
-## ICP
-One paragraph. The SPECIFIC targetable subset — demographics,
-pain points, what they use today. More precise than Audience.
-Concrete enough you could write an ad-targeting brief from it.
-
-## Goals
-1-2 sentences. The primary business / product goal. Time-bound
-if there's a relevant deadline.
-
-## Content strategy
-One paragraph. Page types this site needs · initial topics ·
-format mix (long-form vs reference vs tool).
-
-## Growth hypothesis
-One paragraph. Your bet for how this site reaches its audience.
-Distribution channel + why it's defensible + the timing window.
-
-──────────────────────────────────────────────────────────────
-
-When you have the response, the next prompts will ask for each
-section one at a time. Paste each one in.
-```
-
-The operator can either:
-  (a) Type answers freehand (current behavior — preserved); OR
-  (b) Open the LLM, paste this template, copy the structured
-      response, then paste section-by-section into each prompt.
-
-**Actual**
-
-Bootstrap fires the prompts cold. Operator either composes each
-one freehand (slow) or shuttles between windows manually.
-
-**Where (guess)**
-
-Print the template right after the pre-flight question list
-banner (the other 2026-05-20 bug). New helper
-`_render_llm_prompt_template(domain, topic)` in bootstrap-orchestrator
-code. Skip when `--non-interactive` set.
-
-**Severity** — `major`
-
-The cold-prompt experience is a real friction point — operator's
-test session showed two sections answered with content from the
-NEXT section over (Summary got the Goals content, Audience got the
-ICP content), because composing in-prompt without context is hard.
-An LLM-staged response makes section-to-prompt mapping mechanical.
-
-**Notes**
-
-Surfaced 2026-05-20 by operator. Pairs naturally with the multi-
-paragraph paste fix (also 2026-05-20) — together they make the
-LLM-stage → paste-each-section workflow clean.
-
----
-
 ### 2026-05-20 — `new bootstrap` should ask whether the frontend is already designed
 
 **Repro**
@@ -1300,6 +1203,20 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-20 — `new bootstrap` should generate a copy-paste LLM prompt first
+
+Bootstrap fired the 6 content prompts (Summary / Audience / ICP / Goals / Content strategy / Growth hypothesis) cold — the operator had to compose each freehand or shuttle to ChatGPT manually, one prompt at a time. The original test session showed two sections answered with the *next* section's content because composing in-prompt without context is error-prone.
+
+**Severity** — `major`.
+
+**Fix**
+
+New `_render_llm_prompt_template(domain, topic, ...)` in `cli.py`, printed right after the preflight banner (no-op on `--non-interactive` or when every content section is flag-supplied). Design refinement over the original write-up: the template instructs the LLM to format its reply in the **numbered+labeled** shape (`2. Summary` … `9. Growth hypothesis`) that the smart-paste parser ([[2026-05-25 positional fix]], `b8b3d40`) detects — so the operator pastes the whole reply at the first prompt and every section auto-fills, rather than the original "paste section-by-section" plan. The two fixes now form one LLM-stage → single-paste workflow. Only the 6 LLM-draftable sections are templated (Lovable repo / registered / registrar are omitted).
+
+**Fixed in** — `<SHA on commit>` (6 new tests in `test_bootstrap_prompts_ux.py`: numbered-labeled format, domain+topic interpolation, no-topic placeholder, non-interactive skip, all-content-supplied skip, partial-content prints)
+
+---
 
 ### 2026-05-25 — `new bootstrap` smart-paste misses positional-numbered LLM responses (numbers map to prompt order, not labels)
 
