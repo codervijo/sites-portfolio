@@ -1214,7 +1214,7 @@ Bootstrap fired the 6 content prompts (Summary / Audience / ICP / Goals / Conten
 
 New `_render_llm_prompt_template(domain, topic, ...)` in `cli.py`, printed right after the preflight banner (no-op on `--non-interactive` or when every content section is flag-supplied). Design refinement over the original write-up: the template instructs the LLM to format its reply in the **numbered+labeled** shape (`2. Summary` … `9. Growth hypothesis`) that the smart-paste parser ([[2026-05-25 positional fix]], `b8b3d40`) detects — so the operator pastes the whole reply at the first prompt and every section auto-fills, rather than the original "paste section-by-section" plan. The two fixes now form one LLM-stage → single-paste workflow. Only the 6 LLM-draftable sections are templated (Lovable repo / registered / registrar are omitted).
 
-**Fixed in** — `<SHA on commit>` (6 new tests in `test_bootstrap_prompts_ux.py`: numbered-labeled format, domain+topic interpolation, no-topic placeholder, non-interactive skip, all-content-supplied skip, partial-content prints)
+**Fixed in** — `220bbe1` (6 new tests in `test_bootstrap_prompts_ux.py`: numbered-labeled format, domain+topic interpolation, no-topic placeholder, non-interactive skip, all-content-supplied skip, partial-content prints)
 
 ---
 
