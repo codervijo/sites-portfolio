@@ -911,6 +911,26 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-28 — `new domain` option 1 row picker rejects full domain names and gives cryptic TLD hint
+
+**Repro**
+
+1. Run `lamill new domain` → shortlist names → run option 7 (decide) → option 1 (pick a row).
+2. Type `drdebug.dev` (full domain name) → `'drdebug.dev': expected a row number (e.g. 5 or 5.app)`.
+3. Back up and type bare `1` for a row whose `.com` is poisoned → `Row has no recommended TLD (.com poisoned). Use N.tld syntax to override.` — no example of what to type; operator doesn't know which TLDs are valid.
+
+**Severity** — `minor` (UX friction; workaround is to type `1.dev`).
+
+**Fix**
+
+- `_menu_pick` in `cli.py` — added name-lookup fallback: when `parse_pick_input` fails and the input matches `name.tld` or bare `name`, scan `rows` for a matching `row.name` and resolve to the equivalent `N.tld` form. Accepts exact match, then prefix match; ambiguous prefix match surfaces all matches.
+- Prompt label updated from `(N or N.tld)` → `(N, N.tld, or name.tld)`.
+- `pick_tld is None` error message now shows a concrete example: `— e.g. \`1.dev\` for drdebug.dev` using the first available TLD for that row.
+
+**Fixed in** — `1d9f768` (2026-05-28)
+
+---
+
 ### 2026-05-28 — `fleet seo` results table should order domains alphabetically (not impressions-desc) by default
 
 `fleet seo` sorted its results table by GSC impressions descending — for a mostly-young/zero-impression fleet, that buried most domains in an undifferentiated block and the operator couldn't locate a domain by name.

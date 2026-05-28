@@ -2363,13 +2363,33 @@ def _menu_keys_hint() -> str:
 
 def _menu_pick(rows, tld_list):
     """Sub-prompt for menu option 1. Returns (row, tld) on success or None."""
-    sub = typer.prompt("Which row? (N or N.tld)", default="", show_default=False).strip().lower()
+    sub = typer.prompt("Which row? (N, N.tld, or name.tld)", default="", show_default=False).strip().lower()
     if not sub:
         return None
     idx, override_tld, err = parse_pick_input(sub, len(rows), tld_list)
     if err:
-        console.print(f"[red]{err}[/]")
-        return None
+        # Also accept "name.tld" or bare "name" — look up the row by name.
+        if "." in sub:
+            name_part, tld_part = sub.split(".", 1)
+            lookup_tld: str | None = "." + tld_part
+        else:
+            name_part, lookup_tld = sub, None
+        if not name_part.isdigit() and re.match(r"^[a-z][a-z0-9-]*$", name_part):
+            matches = [i for i, r in enumerate(rows) if r.name.lower() == name_part]
+            if not matches:
+                matches = [i for i, r in enumerate(rows) if r.name.lower().startswith(name_part)]
+            if len(matches) == 1:
+                idx, override_tld, err = matches[0], lookup_tld, None
+                if lookup_tld is not None and lookup_tld not in tld_list:
+                    console.print(f"[red]TLD {lookup_tld} not in displayed columns; choose from {' '.join(tld_list)}[/]")
+                    return None
+            elif len(matches) > 1:
+                names = ", ".join(rows[i].name for i in matches[:5])
+                console.print(f"[red]'{name_part}' is ambiguous: {names}[/]")
+                return None
+        if err:
+            console.print(f"[red]{err}[/]")
+            return None
     row = rows[idx]
     if override_tld is not None:
         cell = row.cells.get(override_tld)
@@ -2384,7 +2404,10 @@ def _menu_pick(rows, tld_list):
             return None
         return row, override_tld
     if row.pick_tld is None:
-        console.print("[red]Row has no recommended TLD (.com poisoned). Use N.tld syntax to override.[/]")
+        avail = [t for t, c in row.cells.items() if c.available is not False and not c.over_max]
+        hint = f" — e.g. `{idx + 1}{avail[0]}` for {row.name}{avail[0]}" if avail else ""
+        console.print(f"[red]{row.name} has no recommended TLD (.com poisoned). "
+                      f"Use N.tld to specify{hint}.[/]")
         return None
     return row, row.pick_tld
 
