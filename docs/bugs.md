@@ -363,48 +363,6 @@ Adopt this convention across all `sites/<domain>/` projects:
 A single check would have flagged homeloom.app in `fleet seo` and could prevent the next inversion. Not in scope to ship as part of this bug fix — log as `for-seo-check-improvements.md` follow-up and resurface when the operator wants a v(N).X bundle.
 
 
-### 2026-05-25 — `new bootstrap` smart-paste misses positional-numbered LLM responses (numbers map to prompt order, not labels)
-
-**Repro**
-
-At the Summary prompt of `lamill new bootstrap <domain> --git-url <url> --budget 5.0`, paste an LLM response where each section is numbered to match the 9-prompt order *without* a header label — the answer follows the number directly:
-
-    2. Earnlog is a mobile-first earnings intelligence platform for California rideshare and delivery drivers navigating the new collective bargaining rights created by AB 1340. ...
-
-    3. Full-time and part-time rideshare and delivery drivers in California ...
-
-    4. A full-time Uber or Lyft driver in California doing 35+ hours per week ...
-    ... (sections 5–9 follow the same pattern)
-
-(The prompt template that produces this shape is the operator's own LLM-staging prompt — it answers the 9 numbered prompts shown in the bootstrap intro by re-printing the digit before each answer.)
-
-**Expected**
-
-Smart-paste detects the multi-section paste and offers to auto-fill all remaining prompts (same UX as the labeled `2. Summary\n<content>` form): preview banner appears, operator hits Enter, prompts 3-9 skip.
-
-**Actual**
-
-Smart-paste does NOT fire. The entire paste lands in the Summary field and prompts 3-9 fire empty. Operator session for earnlog.xyz showed prompt 3 (Audience) re-prompting after the paste:
-
-    Paragraph prompts (1, 2, 4, 6, 9): finish with Enter twice or Ctrl-D.
-    2. Earnlog is a mobile-first ...
-    ... (rest of paste consumed as Summary)
-
-      Audience — one sentence: who this is for (broad demographic)
-      >:
-
-**Where (guess)**
-
-`src/portfolio/bootstrap_paste.py:_HEADER_RE` + `_match_header()`. The header regex captures the entire line after `\d+\. ` as the header text. When the operator omits the label (because the number alone references the prompt order), `_match_header()` falls through to `None` and the section is skipped. With all 8 sections (#2–9) skipped, `len(sections) < 3` returns None and the paste is treated as single-section.
-
-**Severity** — `major` (a primary smart-paste UX path silently regresses depending on how the operator's LLM formats the answer; the operator gets re-prompted for every section after pasting).
-
-**Notes**
-
-- The labeled form (`2. Summary\n<content>`) still works — this is an additive gap, not a break.
-- Fix shape: positional fallback. When header-based parse yields <3 canonical sections but ≥4 sequentially-numbered blocks exist with unique digits in 1-9, map digit → canonical key via the prompt order (1→lovable_repo, 2→summary, …, 9→growth_hypothesis) and use the full line content as the section body. Threshold ≥4 (not ≥3) reduces false positives on stray numbered lists in plain prose.
-
-
 ### 2026-05-23 — Step 5.5 reports `↷ probe failed` on CF-managed read-only DNS records
 
 **Repro**
@@ -1342,6 +1300,16 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-25 — `new bootstrap` smart-paste misses positional-numbered LLM responses (numbers map to prompt order, not labels)
+
+Operator pastes an LLM response that answers the 9 numbered prompts by reprinting just the digit + content (`2. <summary>` / `3. <audience>` / …) with no header label. Pre-fix, the header-based parser found 0 canonical sections, `len(sections) < 3` returned None, and the whole blob landed in Summary while prompts 3-9 fired empty.
+
+**Severity** — `major`.
+
+**Fixed in** — `b8b3d40` (`portfolio: bugs — paste parser handles positional 2. <answer> LLM responses`). Doc-drift: the fix landed the same day the bug was filed (2026-05-25) but the entry was never moved out of Open bugs. Verified 2026-05-28 against the operator's exact earnlog repro — `bootstrap_paste._try_positional_paste` + `_POSITIONAL_ORDER` (digit→canonical-key) + `_POSITIONAL_MIN_SECTIONS=4` threshold are present and tested (`test_bootstrap_smart_paste.py::test_parser_positional_paste_maps_digits_to_prompt_order` uses the verbatim earnlog paste; 28 paste tests green).
+
+---
 
 ### 2026-05-28 — `new domain` Step 1 brand-collision check (gpt-5-mini) false-negatives same-category niche competitors
 
