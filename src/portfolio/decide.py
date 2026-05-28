@@ -43,27 +43,57 @@ class CollisionResult:
 # (Step 2 USPTO + your own Google) remains the catch-all.
 
 
+# 2026-05-28 — the prompt is topic-aware. The pre-fix prompt asked only
+# "is {name} a *well-known* brand?" with no category context, which
+# structurally missed same-vertical niche competitors (the marginready
+# false-negative: an existing Amazon-seller margin tool the model didn't
+# flag because it isn't globally famous). A direct competitor in the
+# operator's exact category is the MOST dangerous collision, so the
+# prompt now (a) receives the topic + concept anchors and (b) explicitly
+# weights same/adjacent-category collisions above fame. When no topic is
+# supplied (older callers, tests) `{topic_block}` is empty and the prompt
+# degrades to the original category-agnostic behavior.
 _AI_COLLISION_PROMPT = """\
-Is "{name}" the name of any well-known company, product, brand, app, or
-website? Answer in one short sentence:
+You are doing brand-collision due-diligence on a candidate domain name.
+{topic_block}Does "{name}" collide with any existing company, product,
+brand, app, or website? Weight collisions in or adjacent to the category
+above MOST heavily — a direct competitor in the same vertical is the most
+dangerous collision even if it is NOT a globally famous brand.
 
-- If YES, name what it is (e.g. "Yes — Stripe is a payments company").
+Answer in one short sentence:
+- If YES (a famous brand OR a niche product in/near this category), name
+  it and flag the category overlap (e.g. "Yes — MarginReady is an existing
+  Amazon-seller margin tool, same category").
 - If NO, say "No notable brand match."
-- If UNCERTAIN (small/regional/niche), say so plainly.
-
-Be concise. The user is doing brand-collision due-diligence on a candidate
-domain name — they want to know if registering this name would compete
-with an existing recognized brand.
+- If UNCERTAIN (small/regional/niche you can't confirm from memory), say so
+  plainly and recommend a manual web search before registering.
 
 Name: {name}
 """
 
 
-def assess_brand_collision_via_ai(name: str, api_key: str) -> str:
-    """Single gpt-5-mini call asking whether `name` matches a known brand.
-    Returns the model's one-sentence verdict. Raises on HTTP error.
+def _collision_topic_block(topic: str, vocab_terms: list[str] | None) -> str:
+    """Render the topic + concept-anchor context block for the collision
+    prompt. Empty string when no topic — preserves pre-2026-05-28
+    category-agnostic behavior for callers that don't pass a topic."""
+    if not topic.strip():
+        return ""
+    block = f"\nCategory / topic the candidate will operate in:\n{topic.strip()}\n"
+    if vocab_terms:
+        block += f"Concept anchors: {', '.join(vocab_terms)}\n"
+    return block + "\n"
+
+
+def assess_brand_collision_via_ai(name: str, api_key: str, *,
+                                  topic: str = "",
+                                  vocab_terms: list[str] | None = None) -> str:
+    """Single gpt-5-mini call asking whether `name` collides with an
+    existing brand — topic-weighted when `topic` is supplied. Returns the
+    model's one-sentence verdict. Raises on HTTP error.
     """
-    prompt = _AI_COLLISION_PROMPT.format(name=name)
+    prompt = _AI_COLLISION_PROMPT.format(
+        name=name, topic_block=_collision_topic_block(topic, vocab_terms),
+    )
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     body = {"model": OPENAI_MODEL, "input": prompt}
     r = requests.post(OPENAI_RESPONSES_URL, headers=headers, json=body, timeout=OPENAI_TIMEOUT)
@@ -71,16 +101,23 @@ def assess_brand_collision_via_ai(name: str, api_key: str) -> str:
     return _parse_openai_text(r.json()).strip() or "No verdict returned."
 
 
-def check_brand_collision(name: str, openai_key: str) -> CollisionResult:
+def check_brand_collision(name: str, openai_key: str, *,
+                          topic: str = "",
+                          vocab_terms: list[str] | None = None) -> CollisionResult:
     """Step 1. AI-only brand-collision check via gpt-5-mini. Always returns
     a `CollisionResult` (never raises) so the decide flow keeps moving.
     Returns backend="skipped" if no API key or the call fails.
+
+    `topic` + `vocab_terms` (2026-05-28) make the check category-aware so
+    same-vertical competitors are surfaced, not just famous brands.
     """
     if not openai_key:
         return CollisionResult(name=name, backend="skipped",
                                error="no OPENAI_API_KEY")
     try:
-        verdict = assess_brand_collision_via_ai(name, openai_key)
+        verdict = assess_brand_collision_via_ai(
+            name, openai_key, topic=topic, vocab_terms=vocab_terms,
+        )
         return CollisionResult(name=name, backend="ai", ai_verdict=verdict)
     except Exception as e:
         return CollisionResult(name=name, backend="skipped",

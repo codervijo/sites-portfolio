@@ -2622,11 +2622,15 @@ def _render_decide_table(finalists, max_price: float) -> None:
     console.print(t)
 
 
-def _decide_step1_brand_collision(finalists, openai_key: str) -> None:
+def _decide_step1_brand_collision(finalists, topic: str,
+                                  vocab_terms: list[str] | None,
+                                  openai_key: str) -> None:
     from .decide import check_brand_collision
     console.print("\n[bold]Step 1/6 — Brand collision check[/]  [dim](gpt-5-mini)[/]")
     for row in finalists:
-        result = check_brand_collision(row.name, openai_key)
+        result = check_brand_collision(
+            row.name, openai_key, topic=topic, vocab_terms=vocab_terms,
+        )
         console.print(f"  [bold]{row.name}[/]")
         if result.backend == "ai":
             console.print(f"    {result.ai_verdict}")
@@ -2712,7 +2716,7 @@ def _menu_decide(rows, shortlist: list[str], tld_list: list[str],
         return None
 
     _render_decide_table(finalists, max_price=max_price)
-    _decide_step1_brand_collision(finalists, openai_key)
+    _decide_step1_brand_collision(finalists, topic, vocab_terms, openai_key)
     _decide_step2_uspto(finalists)
     _decide_step3_extensibility(finalists, topic, vocab_terms, openai_key)
     _decide_step4_cost(finalists)

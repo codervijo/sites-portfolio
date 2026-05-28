@@ -2523,6 +2523,76 @@ def test_v4b_check_brand_collision_skipped_on_api_failure(monkeypatch):
     assert "failed" in result.error.lower()
 
 
+# 2026-05-28 — topic-aware collision check (marginready false-negative fix)
+
+
+def test_collision_prompt_includes_topic_when_supplied(monkeypatch):
+    """The topic + concept anchors must reach the model so it can weight
+    same-category collisions — the marginready regression."""
+    from portfolio.decide import check_brand_collision
+
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["input"] = json["input"]
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {
+            "output_text": "Yes — MarginReady is an Amazon seller margin tool, same category."
+        }
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    result = check_brand_collision(
+        "marginready", openai_key="ok",
+        topic="A tool showing TikTok Shop sellers their per-SKU profit.",
+        vocab_terms=["margin", "profit"],
+    )
+    assert result.backend == "ai"
+    # Topic + anchors are in the prompt the model received.
+    assert "TikTok Shop" in captured["input"]
+    assert "margin" in captured["input"]
+    # The prompt instructs same-category weighting, not just fame.
+    assert "category" in captured["input"].lower()
+
+
+def test_collision_prompt_omits_topic_block_when_no_topic(monkeypatch):
+    """No topic → the prompt degrades to the category-agnostic form
+    (backward-compatible with pre-2026-05-28 callers + tests)."""
+    from portfolio.decide import check_brand_collision
+
+    captured = {}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["input"] = json["input"]
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"output_text": "No notable brand match."}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    monkeypatch.setattr("portfolio.decide.requests.post", fake_post)
+    check_brand_collision("zzqwx", openai_key="ok")
+    # No "Category / topic" header rendered when topic is empty.
+    assert "Category / topic" not in captured["input"]
+    assert "zzqwx" in captured["input"]
+
+
+def test_collision_topic_block_helper():
+    from portfolio.decide import _collision_topic_block
+    # Empty topic → empty block.
+    assert _collision_topic_block("", None) == ""
+    assert _collision_topic_block("   ", ["x"]) == ""
+    # Topic present → header + topic text.
+    block = _collision_topic_block("seller profit tool", ["margin", "sku"])
+    assert "Category / topic" in block
+    assert "seller profit tool" in block
+    assert "margin, sku" in block
+    # Topic without anchors → no "Concept anchors" line.
+    block2 = _collision_topic_block("seller profit tool", None)
+    assert "Concept anchors" not in block2
+    assert "seller profit tool" in block2
+
+
 def test_v4b_uspto_tess_url_quotes_name():
     from portfolio.decide import uspto_tess_url
     url = uspto_tess_url("scrub sync")

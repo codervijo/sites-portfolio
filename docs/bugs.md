@@ -1343,6 +1343,47 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-28 — `new domain` Step 1 brand-collision check (gpt-5-mini) false-negatives same-category niche competitors
+
+**Repro**
+
+```
+$ lamill new domain   # topic: "A tool that shows TikTok Shop sellers their
+                      #  real per-SKU profit ... subtracting cost."
+... shortlist: marginradar, marginready → option 7 (Decide from shortlist)
+
+Step 1/6 — Brand collision check  (gpt-5-mini)
+  marginradar    No notable brand match.
+  marginready    No notable brand match.
+```
+
+`marginready` is an existing product in the operator's exact category (Amazon / e-commerce seller margin tooling). The check returned a clean "No notable brand match" — a false negative on the most dangerous collision class (a direct same-category competitor).
+
+**Actual (pre-fix)**
+
+`assess_brand_collision_via_ai` sent a **topic-agnostic** prompt — `Is "{name}" the name of any well-known company...?` — with two structural flaws: (1) the topic was never passed to Step 1 (only Step 3 extensibility got it), so the model had no category context; (2) the "well-known" framing biased the model to dismiss niche-but-same-vertical competitors, which are exactly the dangerous ones.
+
+**Severity** — `major`. The collision check is a primary due-diligence gate; a false "no match" misleads toward registering a name that collides with a direct competitor (wasted registration + SEO/TM exposure).
+
+**Fix**
+
+`src/portfolio/decide.py`:
+- `_AI_COLLISION_PROMPT` reframed: receives a `{topic_block}` (topic + concept anchors) and explicitly instructs the model to weight same/adjacent-category collisions above fame ("a direct competitor in the same vertical is the most dangerous collision even if NOT globally famous").
+- New `_collision_topic_block(topic, vocab_terms)` helper — renders the context block; empty string when no topic (degrades to the original category-agnostic prompt for backward compat).
+- `assess_brand_collision_via_ai` + `check_brand_collision` gain keyword-only `topic` + `vocab_terms` params.
+
+`src/portfolio/cli.py`:
+- `_decide_step1_brand_collision` + its `_menu_decide` caller thread `topic` + `vocab_terms` (Step 3 already had them).
+
+**Fixed in** — `<SHA on commit>` (3 new tests in `test_suggest.py`: topic reaches the prompt, no-topic degrades cleanly, `_collision_topic_block` unit)
+
+**Notes**
+
+- Doesn't fully close the niche-recall gap — still AI-only, no live web search (Brave's free tier was dropped 2026-05-08). The deferred decision-aids work ([[project_deferred_decision_aids]] — USPTO/GitHub/social pre-checks) is the path to a live collision backstop if the topic-aware prompt proves insufficient in soak. Topic-awareness is the cheap high-value first step.
+- The operator should re-run the marginready decide flow to confirm the model now flags it — the prompt is correct, but model recall of that specific niche brand isn't guaranteed even with category context.
+
+---
+
 ### 2026-05-27 — `fleet fix` auto-toggled `always_use_https` on csinorcal.church (dark sites had no first-class config classification)
 
 **Repro (today's incident)**
