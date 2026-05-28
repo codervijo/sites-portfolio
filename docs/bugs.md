@@ -1139,7 +1139,7 @@ In the operator's test session, the ICP content got typed into the Audience prom
 
 Combines options 1 (saved-as echo) + 4 (numbering) from the original write-up. Also reinforced by the copy-paste LLM template (`220bbe1`) + smart-paste (`b8b3d40`): when the operator uses the LLM-stage → single-paste flow, the per-prompt typing that triggered this is bypassed entirely.
 
-**Fixed in** — `<SHA on commit>` (3 new tests in `test_v9b_bootstrap_operator_inputs.py`: prompts carry `[N/9]`, saved-as echo per answered section, no echo for skipped sections)
+**Fixed in** — `b02ab6d` (3 new tests in `test_v9b_bootstrap_operator_inputs.py`: prompts carry `[N/9]`, saved-as echo per answered section, no echo for skipped sections)
 
 ---
 
