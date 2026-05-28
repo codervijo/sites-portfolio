@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-05-20T19:35:23.978103+00:00",
+  "generated_at": "2026-05-28T07:48:55.096549+00:00",
   "domains": [
     {
       "name": "agesdk.dev",
@@ -115,6 +115,25 @@
       "transfer_locked": true,
       "launched": null,
       "domain_created": "2012-03-22"
+    },
+    {
+      "name": "boxchive.com",
+      "registrar": "porkbun",
+      "tld": ".com",
+      "expires": "2027-05-26",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-05-26",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true,
+      "launched": null,
+      "domain_created": null
     },
     {
       "name": "calcengine.site",
@@ -649,6 +668,25 @@
       "domain_created": "2008-01-15"
     },
     {
+      "name": "marginready.com",
+      "registrar": "porkbun",
+      "tld": ".com",
+      "expires": "2027-05-28",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-05-28",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true,
+      "launched": null,
+      "domain_created": null
+    },
+    {
       "name": "maslist.com",
       "registrar": "godaddy",
       "tld": ".COM",
@@ -723,6 +761,25 @@
       "transfer_locked": true,
       "launched": null,
       "domain_created": "2007-12-25"
+    },
+    {
+      "name": "permittruck.xyz",
+      "registrar": "porkbun",
+      "tld": ".xyz",
+      "expires": "2027-05-24",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-05-24",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true,
+      "launched": null,
+      "domain_created": null
     },
     {
       "name": "picsonaphone.com",
