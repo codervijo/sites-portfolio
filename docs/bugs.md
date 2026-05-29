@@ -947,7 +947,7 @@ recurs there.
 confirmed both excluded and footer renders `(edit [fleet] dark_sites in
 config.toml to change)`.
 
-**Fixed in** — *(working tree; SHA recorded on commit)*
+**Fixed in** — `5c9f8fc` (fleet focus dark_sites filter)
 
 ### 2026-05-29 — `new bootstrap` smart-paste mis-routes when the pasted reply has bare-label headers (numbers stripped by markdown copy)
 
