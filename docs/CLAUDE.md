@@ -230,6 +230,57 @@ anti-pattern. The full reasoning is in
 this exact command immediately, does the second run succeed cleanly
 without modifying state?" If no, the change isn't ready.
 
+### 🔒 `lamill.toml` additive-optional invariant (v27 — accepted 2026-05-29)
+
+**Any optional table in `lamill.toml` must remain optional everywhere —
+no parser, check, or consumer may require it.**
+
+If you're adding or touching a `lamill.toml` consumer, this is
+non-negotiable:
+
+1. **Loader defaults missing tables; never errors.** `_parse_doc` treats
+   an absent optional table as its empty/`None` form (e.g. `todos == []`,
+   `stack is None`). Missing tables are not a `ParseError`; they're the
+   baseline state for every existing file. CHECK_059 must stay green on
+   a `lamill.toml` that has only `schema` + `[deploy]`.
+
+2. **Consumers fall back; no warn-just-because-missing.** Every reader
+   (`fleet check`, `project check`, deploy pipeline, hosting, focus,
+   `new bootstrap`, `settings deploy set`, dashboards) must function on
+   a file that has neither the new table nor any historical version of
+   it. Stack-aware checks fall back to file-system heuristics; todo-
+   aware surfaces simply have nothing to render. Emitting a `warn` /
+   `fail` *solely because* an optional table is absent is a bug.
+
+3. **Drift checks skip quietly when the declaration is absent.** A drift
+   check (e.g. `stack-drift`) compares *declared vs detected*. With no
+   declaration there is nothing to compare — return `pass` (or `warn`
+   with "no declaration to drift from") rather than failing.
+
+4. **Test plans cover the "neither table present" baseline.** Every PR
+   that adds or touches an optional-table consumer ships at least one
+   test that loads a minimal `lamill.toml` (just `schema` + `[deploy]`)
+   and exercises the consumer's happy path. If that baseline isn't
+   tested, the invariant isn't shipped.
+
+5. **Schema string doesn't bump on additive-optional changes.** Adding
+   an optional table is backward-compatible in both directions (old
+   files parse; old readers ignore the new table), so
+   `schema = "lamill-toml-v1"` stays. Bumping to v2 is reserved for
+   genuinely breaking changes — the v27.A ADR captures this posture.
+
+**Why this is load-bearing:** the fleet has 30+ sites and only a handful
+will carry any given optional table at any given moment. Making a table
+mandatory forces a fleetwide migration treadmill for every new piece of
+metadata *and* breaks every old `lamill.toml` in unrelated tooling.
+`lamill.toml` evolves additively — new tables surface new capabilities
+without imposing them on files that don't need them yet.
+
+**Self-check for any change touching `lamill.toml` consumers:** "If I
+delete `[[todo]]` and `[stack]` (and any future optional table) from
+every file in the fleet, does my code still work?" If no, the change
+isn't ready.
+
 ### v7.A — CLI restructure to scope-first (`project` / `fleet`) + `settings` *(SHIPPED — superseded by v14)*
 
 > **Status: SUPERSEDED.** v7.A shipped 2026-05-10; v14.B (2026-05-20)

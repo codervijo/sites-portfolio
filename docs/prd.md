@@ -1209,65 +1209,119 @@ wait on them; the operator can log exemptions in `docs/bugs.md`
 the site is live again") and the promote-to-fail proceeds without
 those domains.
 
-### v27 — per-site todo tracking in `lamill.toml` *(new 2026-05-28 after drdebug.dev's `[[todo]]` pilot)*
+### v27 — per-site todo + stack tracking in `lamill.toml` *(new 2026-05-28; scope expanded 2026-05-29 to absorb `[stack]` alongside `[[todo]]` — one durability pass for both additive tables)*
 
-Adopt a `[[todo]]` array-of-tables in each site's `lamill.toml` as the
-canonical per-site work tracker, piloted in `drdebug.dev` (3 done + 5
-open). The loader already tolerates the table — `_parse_doc` reads only
-known sections via `doc.get(...)`, so unknown tables are ignored on read
-(no `ParseError`, CHECK_059 stays green; confirmed empirically). But the
-writer is the hole: `to_dict()` emits only `schema/deploy/hosting/
-backend/analytics/notes` and `tomli_w` drops comments, so any write path
-(`settings deploy set`, hosting set, `new bootstrap`) silently erases the
-entire `[[todo]]` array + the `#` gating comment.
+Two additive optional tables for each site's `lamill.toml`:
 
-**Durability before rollout** is therefore the gating requirement: make
-`[[todo]]` first-class in the schema so round-trips preserve it, *then*
-surface the data in dedicated read commands + `fleet focus`. Sprinkling
-the section into the other 30 sites before the writer is fixed would set
-a fleetwide data-loss trap that springs the first time the operator runs
-`settings deploy set` on a site that has todos.
+1. **`[[todo]]`** — canonical per-site work tracker, piloted in
+   `drdebug.dev` (3 done + 5 open).
+2. **`[stack]`** — explicit frontend-stack declaration (`astro` /
+   `vite-react` / `tanstack` / `nextjs` / `sveltekit` / `wordpress` /
+   `static` / `none`). Today this is re-inferred in FOUR places —
+   `checks/stack/__init__.py` heuristics, `bootstrap.detect_stack_from_pkg`,
+   `stack_translate.detect_stack`, and `hosting.py` (WP via the HostGator
+   cPanel WordPress Manager API) — with no single source of truth and
+   inconsistent vocabularies (`vite` vs `vite-react`, no `wordpress`
+   constant outside hosting). HostGator-WP sites have no local markers at
+   all; declaration is the only durable way to model them.
 
-Decisions locked 2026-05-28 (operator): schema string stays
-`lamill-toml-v1` (additive + optional table — old files parse, old
+Same gating problem applies to both: the loader already tolerates unknown
+tables (no `ParseError`, CHECK_059 stays green), but `write()` →
+`to_dict()` emits only `schema/deploy/hosting/backend/analytics/notes`
+and `tomli_w` drops comments, so any write path (`settings deploy set`,
+hosting set, `new bootstrap`) silently erases the table on round-trip.
+**Durability before rollout** is therefore the gating requirement, and
+shipping both schemas in one writer pass is the cheapest path: same code
+change, same ADR, same risk surface.
+
+Fleet baseline (classifier ran 2026-05-29 across 37 sibling dirs):
+**14 astro** (agesdk, boxchive, calcengine, dailyring, disclosur,
+donready, drdebug, dropaudit, dunam, earnlog, lamillrentals, marginready,
+permittruck, vijocherian) · **11 vite-react** (civictools,
+cricketfansite, csinorcal, homeloom, isitholiday, keralavotemap,
+kwizicle, lamill.io, levents, voltloop, washcalc) · **1 tanstack**
+(airsucks) · **9 wordpress-or-static / no-local-repo** (hybridautopart,
+streamsgalaxy, iotnews, iotbastion, linkedcsi, thoralox, whizgraphs,
+hostkit, harmonia) · **2 sibling-tools / artifacts** (`rankmill`,
+`node_modules`). One anomaly: `lamillrentals.com` carries BOTH
+`astro.config.mjs` and `vite.config.ts` — likely a half-finished
+migration; surfaces as `stack-drift` once v27.E lands.
+
+Decisions locked 2026-05-28/29 (operator): schema string stays
+`lamill-toml-v1` (both tables additive optional — old files parse, old
 readers ignore); the writer regenerates a canonical `#` header comment
-(operator freeform comments are not preserved verbatim through a
-`tomli_w` round-trip); CLI verbs are plural + symmetric
-(`project todos` / `fleet todos`).
+on `[[todo]]` (operator freeform comments are not preserved verbatim;
+`[stack]` has no equivalent comment requirement); CLI surface scope —
+**plural symmetric** `project todos` / `fleet todos` for the
+collection-typed `[[todo]]`; **no operator-facing CLI** for `[stack]` —
+it's a tooling-internal declaration (`new bootstrap` writes it, `v27.C`
+backfills, stack-aware checks read it, `v27.E` `stack-drift` surfaces
+mismatches through the existing `project check` / `fleet check`
+surfaces).
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v27.A | ☐ | **Kickoff / decisions lock.** (a) Schema stays `lamill-toml-v1` — `[[todo]]` is an additive *optional* table; no version bump (old files parse; old readers ignore the table). (b) Comment handling: the writer regenerates a canonical `#` header comment block above the todo array; operator freeform comments are NOT preserved verbatim through a `tomli_w` round-trip. (c) Field schema: `status ∈ {done, open}` (required); `task` non-empty string (required); `priority ∈ {high, medium, low}` (open items only — `priority` on a `done` item is a `ParseError`). (d) CLI = plural + symmetric: `lamill project todos <domain>` + `lamill fleet todos` (NOT singular `todo`). (e) Write an ADR capturing the schema-evolution posture — *additive optional tables stay on the same schema string* — so future tables (not just todo) inherit the rule. (f) The todo pattern + field conventions land in `docs/CLAUDE.md § Locked target shapes` so future bootstraps inherit the shape. **No code in this phase.** |
-| v27.B | ☐ | **Make `[[todo]]` first-class (durability — blocks rollout).** Add `TodoItem(status, task, priority=None)` dataclass + `LamillToml.todos: list[TodoItem]`. `_parse_doc` reads `doc.get("todo", [])` and validates in the existing strict style (→ `ParseError` on bad `status`/`priority`, missing `task`, or `priority` on a `done` item). `to_dict()` emits the `todo` array-of-tables when non-empty so all four write paths round-trip it (`project_deploy.py:187` + `:719`, `hosting.py:1695`, `bootstrap.py:2082`). Writer prepends the canonical `#` header comment. Validity rides on CHECK_059 (no new check). Tests: load the drdebug pilot (3 done / 5 open) → round-trip → assert todos + header comment survive; bad `status` / bad `priority` → `ParseError`; `priority` on `done` → `ParseError`; no `[[todo]]` table → `todos == []`; existing v1 files without todos are unaffected. |
-| v27.C | ☐ | **`lamill project todos <domain>` read view.** Render one site's todos: done dimmed, open grouped by priority (high → low), `✓` / `☐` markers + a count line (e.g. `3 done · 5 open (2 high)`). Pure read of `lamill.toml`; no live fetch. `--status open\|done\|all` filter. Matches the existing `project seo` / `project check` per-site read posture. |
-| v27.D | ☐ | **`lamill fleet todos` + `fleet focus` integration.** `fleet todos [--priority high] [--status open]` aggregates open todos across all sites, grouped by priority then site — a fleetwide worklist. `fleet focus` gains a `📝` signal: each site's top open `high` todo becomes a focus one-liner (`headline` / `action` = the task), ranked below 🔴 down / ⚠️ but feeding the same `_add_signal` plumbing in `focus.py`. Reads `lamill.toml` only → honors focus's "never blocks on a live fetch" contract. |
-| v27.E | ☐ | **(Reactive) write verbs.** `lamill project todos <domain> --add "<task>" --priority high` / `--done <n>` / `--reopen <n>` — mutate via the v27.B serializer (round-trip safe; regenerates the header comment). Build ONLY if hand-editing the TOML in `$EDITOR` proves annoying; deferred until operator-felt friction per the reactive-over-proactive posture. |
-| v27.F | ☐ | **Rollout.** With v27.B durable, add `[[todo]]` per-site as real work arises (`drdebug.dev` stays the reference), NOT a bulk-seed of 31 empty arrays. Optional: `new bootstrap` seeds an empty commented `[[todo]]` skeleton so new sites start with the shape. |
+| v27.A | ☐ | **Kickoff / decisions lock — both tables.** (a) Schema stays `lamill-toml-v1`; both `[[todo]]` and `[stack]` are additive *optional* tables. (b) `[[todo]]` field schema: `status ∈ {done, open}` (required); `task` non-empty string (required); `priority ∈ {high, medium, low}` (open items only — `priority` on a `done` item is a `ParseError`). (c) `[stack]` field schema: `framework ∈ {astro, vite-react, tanstack, nextjs, sveltekit, wordpress, static, none}` required when the section is present; optional `build_tool` (e.g. `vite` under astro/tanstack). (d) CLI surface: plural symmetric `lamill project todos <d>` / `lamill fleet todos` for `[[todo]]`; **no CLI for `[stack]`** — it's tooling-internal (`new bootstrap` writes it, `v27.C` backfills, stack-aware checks read it; operator inspects via the file). (e) Writer regenerates a canonical `#` header comment above `[[todo]]`; operator freeform comments are NOT preserved verbatim through a `tomli_w` round-trip. (f) ADR on the additive-optional schema-evolution posture — *adding an optional table doesn't bump the schema string* — so future tables inherit the rule rather than re-litigating. (g) Both patterns land in `docs/CLAUDE.md § Locked target shapes`. **No code in this phase.** |
+| v27.B | ☐ | **Both tables first-class (durability — blocks rollout).** Add `TodoItem(status, task, priority=None)` + `LamillToml.todos: list[TodoItem]`; add `StackBlock(framework, build_tool=None)` + `LamillToml.stack: StackBlock \| None`. `_parse_doc` reads `doc.get("todo", [])` and `doc.get("stack")` and validates strictly (→ `ParseError` on bad enums, missing required fields, or `priority` on a `done` item). `to_dict()` emits both when present so all four write paths round-trip them (`project_deploy.py:187` + `:719`, `hosting.py:1695`, `bootstrap.py:2082`). Writer prepends the canonical `#` header comment on `[[todo]]`. Validity rides on CHECK_059 (no new check). Tests: round-trip the drdebug pilot (todos + header comment survive); valid `[stack]` parses; bad `framework` → `ParseError`; both tables absent → fields default empty/`None`; existing v1 files without either are unaffected. |
+| v27.C | ☐ | **Backfill `[stack]` fleetwide.** Run the classifier (same heuristics as the 2026-05-29 scan: `package.json` deps + config-file presence + WP markers / no-local-repo) and write `[stack].framework` to each site's `lamill.toml`. Sweep ~25-30 real sites; skip non-site sibling dirs (`rankmill`, `node_modules`, `tarball`). Flag `lamillrentals.com` for operator review (two-config drift). Todos remain LAZY — added per-site as real work arises (drdebug stays the reference, no bulk-seed). |
+| v27.D | ☐ | **Read views — todos only.** `lamill project todos <d>` (done dimmed; open grouped by priority; counts) + `lamill fleet todos [--priority --status]` (fleetwide worklist). Stack has no read CLI — drift surfaces through the v27.E `stack-drift` check on the existing `project check` / `fleet check` surfaces. Pure reads of `lamill.toml`; no live fetch. |
+| v27.E | ☐ | **Stack-aware checks read declaration + add `CHECK_xxx stack-drift`.** Existing stack-aware checks (`CHECK_035 vite-version-ok`, `CHECK_036 astro-version-ok`, `CHECK_037 build-dev-scripts`, …) read `[stack].framework` first and skip cleanly when it says `wordpress` / `static`; fall back to the existing config-file heuristic when no declaration is present. New `CHECK_xxx stack-drift` compares declared vs detected (same posture as `CHECK_143 deploy-drift` for platform), catching the `lamillrentals` two-config case + accidental in-flight migrations. |
+| v27.F | ☐ | **`fleet focus` `📝` todo signal.** Each site's top open `high` todo becomes a focus one-liner (`headline`/`action` = the task), ranked below 🔴 down / ⚠️ but feeding the same `_add_signal` plumbing in `focus.py`. Reads `lamill.toml` only → honors focus's "never blocks on a live fetch" contract. |
+| v27.G | ☐ | **(Reactive) todo write verbs.** `lamill project todos <d> --add "<task>" --priority high` / `--done <n>` / `--reopen <n>` — mutate via the v27.B serializer (round-trip safe; regenerates the header comment). Stack values change rarely and `settings deploy set` covers occasional edits, so no `--stack` write verb today. Build the todo verbs ONLY if hand-editing the TOML in `$EDITOR` proves annoying. |
+| v27.H | ☐ | **Closure.** `new bootstrap` writes `[stack]` automatically from the detector (one less manual step on new sites). Optional: bootstrap seeds an empty commented `[[todo]]` skeleton so new sites start with the shape. `docs/CLAUDE.md § Locked target shapes` updated with both invariants. |
 
 #### Design notes
 
-**Why durability is the gate (v27.B must precede v27.F).** The risk
-isn't a broken deploy — the loader ignores unknown tables, so `[[todo]]`
-parses fine today and CHECK_059 stays green. The risk is silent data
-loss: `lamill_toml.write()` serializes from the dataclass via
-`to_dict()` + `tomli_w`, which (a) only emits known sections and (b)
-can't carry comments. Four call sites write the file — `settings deploy
-set` (×2), hosting set, and `new bootstrap` — and `settings deploy set`
-is the realistic trigger (operator adds a custom domain or a GA4 ID on a
-site that already has todos, and the whole `[[todo]]` array + gating
-comment vanish on save). Making the table first-class closes the hole
-before the section spreads across the fleet.
+**Backward-compatibility invariant — `lamill.toml` files without either
+table must keep working everywhere (operator-stated 2026-05-29).** Both
+`[[todo]]` and `[stack]` are additive optional in the truest sense: no
+parser is allowed to *require* either, and no consumer (checks, deploy
+pipeline, hosting, focus, `new bootstrap`, `settings deploy set`) may
+fail or warn just because they're missing. A site with a bare `[deploy]`
+block stays valid forever. Concretely: `_parse_doc` treats absent tables
+as `todos == []` and `stack is None`; backfill (v27.C) is operator-policy,
+not a parser requirement; stack-aware checks fall back to the existing
+config-file heuristic when `[stack]` is absent; CHECK_059 still passes;
+the new `stack-drift` check (v27.E) skips quietly when there's nothing
+to compare. Every test plan in v27.B must include the "neither table
+present" baseline.
 
-**Why schema stays `lamill-toml-v1` (operator decision 2026-05-28).** An
-optional additive table is backward-compatible in both directions: old
-files (no `[[todo]]`) still parse, and an older reader simply ignores the
-new table. Bumping to v2 would force a decision on how the loader treats
-v1-vs-v2 files for zero correctness benefit. The reusable posture —
-*additive optional tables don't bump the schema string* — is captured in
-an ADR (v27.A) so future tables follow the same rule rather than
-re-litigating it.
+**Why one durability pass for both tables (v27.B).** Same write-path
+drops, same schema-evolution posture, same risk surface. Splitting the
+writer change across two tiers would mean revising `to_dict()` twice +
+re-testing the four write paths twice for no incremental safety. The
+combined pass is one ADR, one commit, one round of test churn.
+
+**Why durability is the gate (v27.B must precede v27.C/F).** The risk
+isn't a broken deploy — the loader ignores unknown tables, so a
+hand-added `[[todo]]` or `[stack]` parses fine today and CHECK_059 stays
+green. The risk is silent data loss: `lamill_toml.write()` → `to_dict()`
+only emits known sections and `tomli_w` can't carry comments. The four
+write paths are `project_deploy.py:187` + `:719` (`settings deploy set`),
+`hosting.py:1695` (hosting set), and `bootstrap.py:2082` (`new
+bootstrap`). `settings deploy set` is the realistic clobber trigger
+(operator adds a custom domain on a site that has todos or a declared
+stack — both vanish on save).
+
+**Why declare stack at all (vs continue inferring).** Today four places
+redo the inference with inconsistent vocabularies (`vite` vs
+`vite-react`, no `wordpress` constant outside hosting). HostGator-WP
+sites have no local markers, so every check guesses from side channels.
+A `[stack].framework` declaration is the single source of truth: faster
+(one TOML read, no file-system probing), cleaner (checks skip-by-
+declaration on `wordpress` / `static`), and enables a drift check.
+Matches the existing `feedback_trust_operator_fleet_categorization`
+posture — *operator declares, tools trust*.
+
+**Why schema stays `lamill-toml-v1` (operator decision 2026-05-28/29).**
+Two additive optional tables are still backward-compatible in both
+directions: old files (without either) parse, older readers ignore both.
+Bumping to v2 would force a decision on how the loader treats v1-vs-v2
+files for zero correctness benefit. The reusable posture — *adding an
+optional table doesn't bump the schema string* — is captured in the
+v27.A ADR so future tables follow the rule rather than re-litigating.
 
 **Why regenerate the comment vs adopt `tomlkit` (operator decision
 2026-05-28).** `tomli_w` can't round-trip comments. `tomlkit` would
@@ -1275,36 +1329,45 @@ preserve all operator comments + formatting, but switching the writer to
 it touches all four write paths + the serialization tests and risks
 output-format churn across the fleet. A regenerated canonical `#` header
 is deterministic, zero-dependency, and preserves the *data* losslessly;
-the known tradeoff is that operator freeform notes inside the file aren't
-preserved verbatim. Revisit `tomlkit` only if comment fidelity becomes
-operator-felt friction.
+freeform notes aren't preserved verbatim. Revisit `tomlkit` only if
+comment fidelity becomes operator-felt friction.
 
-**Why plural + symmetric `todos` (operator decision 2026-05-28).** The
-verb is a noun-as-collection (`project todos` lists *the todos*), and the
-project/fleet pair must read identically — `project todos <domain>` and
-`fleet todos` — matching the scope-first surface from v14. Singular
-`todo` reads like a mutation verb and breaks the symmetry.
+**Why plural symmetric `todos`, no CLI for `stack` (operator decision
+2026-05-29).** The `cli-naming-plural-symmetric` memory makes
+`project todos` / `fleet todos` plural and mirrored across scopes. For
+`[stack]`, the operator chose **no operator-facing CLI**: stack is a
+tooling-internal declaration that `new bootstrap` writes, v27.C
+backfills, and stack-aware checks read — drift surfaces through `project
+check` / `fleet check` via the v27.E `stack-drift` check, not a
+dedicated verb. Keeps the CLI surface area smaller; operator inspects
+the value by reading the file when needed.
 
 **Why `fleet focus` consumes todos (vs a standalone dashboard).** `focus`
 is already the "where do I spend my scarce hours today" surface — it
 ranks domains by their worst signal and prints an actionable one-liner
-each. A high-priority open todo is exactly that kind of signal, and it
-slots into the existing `_add_signal` ranking without a new surface.
-Reading `lamill.toml` (a local cache) keeps focus's never-block-on-a-
-live-fetch contract intact.
+each. A high-priority open todo is exactly that kind of signal and slots
+into the existing `_add_signal` ranking without a new surface. Reading
+`lamill.toml` (a local cache) keeps focus's never-block-on-a-live-fetch
+contract intact.
 
-**Why write verbs are deferred (v27.E).** Per the reactive-over-proactive
-posture, hand-editing `[[todo]]` in `$EDITOR` may be perfectly fine —
-the pilot was authored that way. Build `--add` / `--done` / `--reopen`
-only when the operator actually hits friction maintaining todos by hand,
-not on spec.
+**Why backfill stack (v27.C) but lazy-rollout todos.** Stack is
+deterministic for every existing site — the classifier runs in seconds
+across the whole fleet and produces a definitive answer. Todos are
+operator-authored content that doesn't apply until real work arises;
+bulk-seeding empty arrays adds noise without value. Different shapes,
+different rollout strategies.
 
-**Why rollout is lazy, not bulk-seed (v27.F).** Seeding 31 empty
-`[[todo]]` arrays adds noise without value; most sites have no tracked
-work at a given moment. Adding the section when real work arises keeps
-each file meaningful, with `drdebug.dev` as the canonical shape
-reference. A bootstrap-time empty skeleton is the one place a
-proactively-seeded (but commented/empty) array earns its keep.
+**Why a `stack-drift` check (v27.E).** Catches the `lamillrentals.com`
+two-config case automatically and surfaces accidental in-flight
+migrations + stale declarations the moment they happen. Same posture as
+`CHECK_143 deploy-drift` for the platform field — declaration is the
+canonical record; the check enforces that on-disk markers stay aligned.
+
+**Why no `--stack` write verb today (v27.G).** Stack declarations change
+rarely (only on a real migration). `settings deploy set` already covers
+occasional one-off edits, and a dedicated `--stack` flag is easy to add
+later if the operator hits friction. The todo verbs themselves stay
+deferred per the reactive-over-proactive posture.
 
 ## 8. Open questions
 
