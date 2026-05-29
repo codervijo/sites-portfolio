@@ -281,6 +281,78 @@ delete `[[todo]]` and `[stack]` (and any future optional table) from
 every file in the fleet, does my code still work?" If no, the change
 isn't ready.
 
+### 🔒 `lamill.toml` `[[todo]]` shape (v27 — accepted 2026-05-29)
+
+Per-site work tracker. Array-of-tables.
+
+**Required fields:** `status` (`"done"` | `"open"`); `task` (non-empty
+string).
+**Optional field:** `priority` (`"high"` | `"medium"` | `"low"`) — only
+valid on `open` items; `priority` on a `done` item is a `ParseError`.
+
+The writer (`lamill_toml.write()`) regenerates a canonical `#` header
+comment above the `[[todo]]` array on every round-trip:
+
+```
+# Tracked todos for <site>. status: "done" | "open".
+# Optional context line about gating/conventions for this site.
+```
+
+Operator freeform comments above or inside the array are NOT preserved
+verbatim — `tomli_w` doesn't carry them. If preserving them becomes
+operator-felt friction, switch to `tomlkit` (deferred per v27 design
+notes).
+
+**CLI: plural symmetric** — `lamill project todos <domain>` and `lamill
+fleet todos`. No singular form (`todo` reads as a mutation verb and
+breaks the cross-scope symmetry rule).
+
+**Why this is load-bearing:** todos are operator-authored content. The
+writer's round-trip must preserve every item or `settings deploy set`
+silently erases work. The field schema (especially `priority`-on-`open`-
+only) is the contract every consumer reads against — `fleet focus`,
+`project todos`, fleet aggregates.
+
+See: ADR-0017 (additive-optional posture), `🔒 lamill.toml
+additive-optional invariant` (above), `src/portfolio/lamill_toml.py`.
+
+### 🔒 `lamill.toml` `[stack]` shape (v27 — accepted 2026-05-29)
+
+Frontend-stack declaration. Single table (not an array).
+
+**Required field:** `framework`, an enum:
+
+```
+astro · vite-react · tanstack · nextjs · sveltekit ·
+wordpress · static · none
+```
+
+**Optional field:** `build_tool` (e.g. `vite` under astro/tanstack) —
+free string for now; tighten to an enum later if it earns its keep.
+
+**No operator-facing CLI.** `[stack]` is tooling-internal: `new
+bootstrap` writes it from the detector, v27.C backfills it fleetwide,
+the stack-aware checks (`CHECK_035 vite-version-ok` / `CHECK_036
+astro-version-ok` / `CHECK_037 build-dev-scripts` / …) read it, and
+`CHECK_xxx stack-drift` surfaces declared-vs-detected mismatches via
+the existing `project check` / `fleet check` surfaces. Operators
+inspect / edit the value by reading the file directly; declarations
+change rarely enough that a dedicated `--stack` write verb hasn't
+earned its keep.
+
+**Why this is load-bearing:** today the frontend stack is re-inferred
+in four places (`checks/stack/__init__.py` heuristics,
+`bootstrap.detect_stack_from_pkg`, `stack_translate.detect_stack`,
+`hosting.py` for WP-via-cPanel) with three different vocabularies
+(`vite` vs `vite-react`, no `wordpress` constant outside hosting).
+Declaration is the single source of truth — checks read it first, fall
+back to the file-system heuristic only when absent (per the
+additive-optional invariant).
+
+See: ADR-0017 (additive-optional posture), `🔒 lamill.toml
+additive-optional invariant` (above), `docs/prd.md` § v27.B/C/E,
+`src/portfolio/lamill_toml.py`.
+
 ### v7.A — CLI restructure to scope-first (`project` / `fleet`) + `settings` *(SHIPPED — superseded by v14)*
 
 > **Status: SUPERSEDED.** v7.A shipped 2026-05-10; v14.B (2026-05-20)

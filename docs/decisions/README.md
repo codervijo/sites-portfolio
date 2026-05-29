@@ -29,6 +29,7 @@ trade-offs were, and what the consequences are.
 | 0014 | Multi-method verification (HTML file before DNS TXT) + zone-level pre-flight probe pattern | Accepted | —         |
 | 0015 | `new deploy` pipeline must remain idempotent; `--watch` is opt-in | Accepted | —         |
 | 0016 | GSC verification method ↔ property type are coupled; default to DNS_TXT + Domain | Accepted | —         |
+| 0017 | Additive-optional `lamill.toml` tables stay on schema = `lamill-toml-v1` | Accepted | —         |
 
 ## When to write an ADR
 
