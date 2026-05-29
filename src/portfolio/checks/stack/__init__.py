@@ -46,3 +46,29 @@ def _parse_semver_min(version_spec: str) -> int | None:
         return int(m.group(0))
     except ValueError:
         return None
+
+
+# v27.E — re-export the pure classifier helpers so the stack checks have
+# one import source for both detection (`foreign_config_markers`) and the
+# non-JS framework set.
+from ...stack_classifier import NON_JS_FRAMEWORKS, foreign_config_markers  # noqa: E402,F401
+
+
+def declared_stack(repo_path: str) -> str | None:
+    """Return `[stack].framework` from `<repo_path>/lamill.toml`, or None.
+
+    None when the file is absent, has no `[stack]` table, or fails to
+    parse. Per the additive-optional invariant (docs/CLAUDE.md), a
+    missing declaration is the baseline — callers fall back to the
+    file-system heuristic rather than warning. Parse errors are swallowed
+    to None here so this helper never raises into a check's hot path;
+    CHECK_151 surfaces parse errors itself via its own `load()`.
+    """
+    from ...lamill_toml import ParseError, load
+    try:
+        doc = load(Path(repo_path))
+    except ParseError:
+        return None
+    if doc is None or doc.stack is None:
+        return None
+    return doc.stack.framework

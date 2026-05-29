@@ -2,7 +2,14 @@
 from __future__ import annotations
 
 from ..result import CheckResult
-from . import _has_vite_config, _is_web_project, _parse_semver_min, _read_package_json
+from . import (
+    NON_JS_FRAMEWORKS,
+    _has_vite_config,
+    _is_web_project,
+    _parse_semver_min,
+    _read_package_json,
+    declared_stack,
+)
 
 CHECK_ID = "CHECK_035"
 CHECK_NAME = "vite-version-ok"
@@ -14,6 +21,14 @@ MIN_VITE = 6
 
 
 def run(repo_path: str) -> CheckResult:
+    # v27.E — read [stack] first. A wordpress/static/none site has no
+    # vite to version-check; skip by declaration rather than risk firing
+    # on a stray package.json. Absent declaration → fall through to the
+    # config-file heuristic below (additive-optional invariant).
+    declared = declared_stack(repo_path)
+    if declared in NON_JS_FRAMEWORKS:
+        return CheckResult(status="warn",
+                           message=f"stack declared {declared} — not a vite site")
     if not _is_web_project(repo_path):
         return CheckResult(status="warn", message="not a web project — skipped")
     if not _has_vite_config(repo_path):

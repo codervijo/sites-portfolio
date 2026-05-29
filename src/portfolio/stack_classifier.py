@@ -175,3 +175,50 @@ def classify_stack(repo_path: Path) -> StackDetection:
             notes="no JS / WP markers — caller decides (static? wordpress?)",
         )
     return StackDetection(framework=None, signals=signals)
+
+
+# v27.E — frameworks that aren't JS build-pipeline sites. The vite /
+# astro / build-script checks (CHECK_035/036/037) don't apply: a
+# WordPress or plain-static site legitimately has no vite, no astro, and
+# no npm `build`/`dev` scripts. `none` is the explicit "no frontend
+# stack" declaration. When `[stack].framework` is one of these, those
+# checks skip by declaration instead of mis-firing on a stray
+# package.json.
+NON_JS_FRAMEWORKS: frozenset[str] = frozenset({"wordpress", "static", "none"})
+
+# v27.E — framework-specific config files → the framework(s) they're
+# native to. A config file present whose native set EXCLUDES the declared
+# framework is a drift signal: a stray artifact from an in-flight
+# migration (e.g. `lamillrentals.com` declares `astro` but still carries
+# a root `vite.config.ts` from its vite-react origins). `vite` is native
+# to vite-react AND tanstack (both configure vite at the project root)
+# but NOT to astro — astro manages vite internally via `astro.config`, so
+# a root `vite.config` on an astro project is foreign.
+_CONFIG_MARKERS: dict[str, frozenset[str]] = {
+    "astro.config.mjs": frozenset({"astro"}),
+    "astro.config.ts": frozenset({"astro"}),
+    "astro.config.js": frozenset({"astro"}),
+    "next.config.js": frozenset({"nextjs"}),
+    "next.config.mjs": frozenset({"nextjs"}),
+    "next.config.ts": frozenset({"nextjs"}),
+    "svelte.config.js": frozenset({"sveltekit"}),
+    "svelte.config.mjs": frozenset({"sveltekit"}),
+    "vite.config.ts": frozenset({"vite-react", "tanstack"}),
+    "vite.config.js": frozenset({"vite-react", "tanstack"}),
+    "vite.config.mjs": frozenset({"vite-react", "tanstack"}),
+}
+
+
+def foreign_config_markers(repo_path: Path, declared: str) -> list[str]:
+    """Config files present in `repo_path` that don't belong to `declared`.
+
+    A non-empty result means stray framework config — typically a
+    migration artifact. Pure: reads the filesystem only, never
+    `lamill.toml` (preserves this module's no-circularity property).
+    Sorted for deterministic output.
+    """
+    return sorted(
+        fname
+        for fname, native in _CONFIG_MARKERS.items()
+        if (repo_path / fname).is_file() and declared not in native
+    )

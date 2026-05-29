@@ -171,6 +171,16 @@ Universal conformance catalog at `src/portfolio/checks/<category>/check_NNN_<slu
   `message`, `details` (optional dict).
 - **Category taxonomy**: `scaffold`, `git`, `stack`, `deploy`, `seo`,
   `content`. Numbered ranges per category (e.g. SEO is CHECK_050+).
+- **Stack checks read `[stack]` first (v27.E)**: `CHECK_035`
+  (vite-version) / `CHECK_036` (astro-version) / `CHECK_037`
+  (build-dev-scripts) call `checks.stack.declared_stack()` and warn-skip
+  when `[stack].framework ∈ {wordpress, static, none}` — those sites
+  have no JS build pipeline. When `[stack]` is absent they fall through
+  to the package.json / config-file heuristic (additive-optional
+  invariant). `CHECK_151` (stack-drift) compares the declaration against
+  `classify_stack()` + `foreign_config_markers()` (stray framework
+  config like a root `vite.config` on an astro site); mirrors
+  `CHECK_143 deploy-drift`.
 - **Runner**: `project.py:run_checks(repo_path, *, filters)` invokes
   the registry against one repo. `fleet check` invokes it across
   every `sites/<domain>/` not in `ignore_repos`.
@@ -1174,6 +1184,7 @@ candidate refactor if a third LLM provider lands.
 | `dashboard.py` | `fleet dashboard` unified view | `render_dashboard` |
 | `focus.py` | `fleet focus` priority ranker | `compute_focus` |
 | `todos.py` (v27.D) | `project todos` / `fleet todos` read views over the `lamill.toml [[todo]]` table; pure reads, no live fetch | `build_project_todos`, `render_project_todos`, `build_fleet_todos`, `render_fleet_todos` |
+| `stack_classifier.py` (v27.C/E) | Single source of truth for the per-site frontend-stack heuristic — detection + drift signals. Consumed by the v27.C backfill + the stack checks (CHECK_035/036/037/151). Pure: never reads `lamill.toml` (no circularity) | `classify_stack`, `foreign_config_markers`, `NON_JS_FRAMEWORKS` |
 | `drift.py` | `fleet drift` cross-source comparator | `compute_drift` |
 | `diagnose.py` | `project diagnose <domain>` 5-layer auto-investigate | `diagnose_domain` |
 | `menu.py` | Interactive launcher | `launch_menu` |

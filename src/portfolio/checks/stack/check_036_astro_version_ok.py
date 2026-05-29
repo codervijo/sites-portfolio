@@ -2,7 +2,14 @@
 from __future__ import annotations
 
 from ..result import CheckResult
-from . import _has_astro_config, _is_web_project, _parse_semver_min, _read_package_json
+from . import (
+    NON_JS_FRAMEWORKS,
+    _has_astro_config,
+    _is_web_project,
+    _parse_semver_min,
+    _read_package_json,
+    declared_stack,
+)
 
 CHECK_ID = "CHECK_036"
 CHECK_NAME = "astro-version-ok"
@@ -14,6 +21,12 @@ MIN_ASTRO = 5
 
 
 def run(repo_path: str) -> CheckResult:
+    # v27.E — read [stack] first; skip wordpress/static/none by
+    # declaration. Absent declaration → fall through to the heuristic.
+    declared = declared_stack(repo_path)
+    if declared in NON_JS_FRAMEWORKS:
+        return CheckResult(status="warn",
+                           message=f"stack declared {declared} — not an astro site")
     if not _is_web_project(repo_path):
         return CheckResult(status="warn", message="not a web project — skipped")
     if not _has_astro_config(repo_path):

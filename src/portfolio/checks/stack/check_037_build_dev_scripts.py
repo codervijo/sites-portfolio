@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 from ..result import CheckResult
-from . import _is_web_project, _read_package_json
+from . import (
+    NON_JS_FRAMEWORKS,
+    _is_web_project,
+    _read_package_json,
+    declared_stack,
+)
 
 CHECK_ID = "CHECK_037"
 CHECK_NAME = "package-json-build-and-dev-scripts"
@@ -12,6 +17,13 @@ DESCRIPTION = "package.json has both `build` and `dev` scripts."
 
 
 def run(repo_path: str) -> CheckResult:
+    # v27.E — read [stack] first. A wordpress/static/none site has no npm
+    # build pipeline, so build/dev scripts aren't required; skip by
+    # declaration. Absent declaration → fall through to the heuristic.
+    declared = declared_stack(repo_path)
+    if declared in NON_JS_FRAMEWORKS:
+        return CheckResult(status="warn",
+                           message=f"stack declared {declared} — no npm build pipeline")
     if not _is_web_project(repo_path):
         return CheckResult(status="warn", message="not a web project — skipped")
     pkg = _read_package_json(repo_path)
