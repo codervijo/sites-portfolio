@@ -911,6 +911,44 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-29 — `fleet focus` ignores `[fleet] dark_sites`; csinorcal.church + virtually.co.in surface despite operator-declared exclusion
+
+**Repro** — Add `virtually.co.in` to `[fleet] dark_sites` in
+`~/.config/portfolio/config.toml`. Run `lamill fleet focus --all`.
+`virtually.co.in` is still listed as `🔴 Site is ssl-broken` (and
+`csinorcal.church` too — same issue, never caught because it had no
+recent live failure).
+
+**Actual (pre-fix)** — `cli.py focus()` loaded `all_domains` from
+`portfolio.json` but never consulted `cfg.dark_sites`. The config knob
+was only honored by `fleet fix` (`cli.py:8259`) — `fleet focus` /
+`fleet seo` / `fleet dashboard` never read it. The global memory rule
+`[[project-dark-sites]]` says dark sites should be ignored across all
+public-SEO surfaces; the implementation was narrower than the policy.
+
+**Fix** — `focus()` now loads `load_config().dark_sites` and filters
+in two places: (1) `all_domains` is dropped early so the CF cache probe
+and signal aggregation skip dark sites; (2) the `items` output from
+`build_focus_list` is filtered again to catch any dark site that
+surfaces purely from cached snapshot data (build_focus_list iterates
+the live/seo snapshots directly). A footer `↷ excluding N dark site(s):
+…` surfaces the exclusion (mirrors `fleet fix`'s footer); silent
+suppression would hide the wrong-default risk.
+
+**Where** — `src/portfolio/cli.py` `focus()`.
+
+**Severity** — `minor` (operator-visible noise; no data corruption).
+`fleet seo` likely has the same gap and should follow up if the noise
+recurs there.
+
+**Tests** — covered by existing `test_focus.py` (171 passed unchanged)
++ manual: ran `lamill fleet focus --all` with
+`config.toml [fleet] dark_sites = ["csinorcal.church", "virtually.co.in"]`,
+confirmed both excluded and footer renders `(edit [fleet] dark_sites in
+config.toml to change)`.
+
+**Fixed in** — *(working tree; SHA recorded on commit)*
+
 ### 2026-05-29 — `new bootstrap` smart-paste mis-routes when the pasted reply has bare-label headers (numbers stripped by markdown copy)
 
 **Repro**

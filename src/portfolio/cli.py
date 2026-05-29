@@ -132,6 +132,19 @@ def focus(
     seo_data = load_seo(seo_path) if seo_path else None
 
     all_domains = load_domains()
+
+    # 2026-05-29 — honor `[fleet] dark_sites` (per docs/CLAUDE.md global
+    # memory "Dark sites — not for public SEO"): drop internal/private
+    # domains from every focus surface (CF cache probe, signal
+    # aggregation, ranked output). Mirrors the same config knob that
+    # `fleet fix` already honors at cli.py:8259.
+    from .checks.config import load_config as _focus_load_cfg
+    _focus_dark = {s.lower() for s in _focus_load_cfg().dark_sites}
+    if _focus_dark:
+        all_domains = [
+            d for d in all_domains if d.name.lower() not in _focus_dark
+        ]
+
     domains_expiry = domains_with_expiry_from_portfolio(all_domains)
     # Build domain → category map so focus can skip "To be deleted immediately"
     # rows. Lowercase keys for case-insensitive matching.
@@ -191,6 +204,17 @@ def focus(
         suppressed_young_out=suppressed_young,
     )
 
+    # 2026-05-29 — second pass on the output: build_focus_list iterates
+    # over live/seo snapshot data directly, so a dark site that was
+    # probed before being marked dark would still surface a signal from
+    # the cache. Drop those here.
+    if _focus_dark:
+        _items_before = len(items)
+        items = [it for it in items if it.domain.lower() not in _focus_dark]
+        _dark_skipped = _items_before - len(items)
+    else:
+        _dark_skipped = 0
+
     # Header notes: which sources were available?
     notes = []
     if live_path:
@@ -249,6 +273,16 @@ def focus(
             f"\n[dim]🌱 {len(suppressed_young)} young site(s) <90d "
             f"({sample}{more}) had SEO signals suppressed — "
             f"use --include-young to see them.[/]"
+        )
+
+    # Surface the dark-site exclusion (mirrors the `fleet fix` footer).
+    # Silent exclusion hides the wrong-default risk. `\[fleet\]` escapes
+    # the literal brackets so Rich doesn't read them as a markup tag.
+    if _focus_dark:
+        console.print(
+            f"\n[dim]↷ excluding {len(_focus_dark)} dark site(s): "
+            f"{', '.join(sorted(_focus_dark))} "
+            f"(edit [cyan]\\[fleet] dark_sites[/] in config.toml to change)[/]"
         )
 
 
