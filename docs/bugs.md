@@ -954,7 +954,7 @@ copy-from-rendered-markdown path).
 `test_is_section_header_line_detection`,
 `test_collect_bare_label_blob_routes_all`.
 
-**Fixed in** — *(working tree; SHA recorded on commit)*
+**Fixed in** — `561bf28` (bare-label smart-paste + code-block template tune)
 
 ### 2026-05-28 — `new bootstrap` smart-paste mis-routes every section when the pasted LLM reply uses blank-line section separators
 
