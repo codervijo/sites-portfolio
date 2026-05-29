@@ -3795,16 +3795,6 @@ def new_bootstrap(
 # EOF (Ctrl-D). Used for paragraph-style operator-input prompts in
 # `new bootstrap`: Summary, ICP, Content strategy, Growth hypothesis.
 
-# A leading numbered-section-header shape — e.g. `2. Summary`,
-# `9. Growth hypothesis`, or a positional `2. <answer>`. When the FIRST
-# non-blank line of a smart-paste-eligible prompt matches this, the
-# input is a pasted multi-section LLM reply: its blank lines are section
-# separators, not terminators. Fixes the 2026-05-28 mis-route where a
-# double blank line between sections truncated the capture and the
-# remaining sections leaked into the later single-line prompts.
-_LEADING_SECTION_HEADER_RE = re.compile(r"^\s*\d+\.\s+\S")
-
-
 def _prompt_multiline(label: str, *, hint: str | None = None,
                       detect_blob: bool = False) -> str:
     """Read multi-line input until two blank lines or EOF.
@@ -3863,8 +3853,14 @@ def _prompt_multiline(label: str, *, hint: str | None = None,
         blank_run = 0
         if not seen_nonblank:
             seen_nonblank = True
-            if detect_blob and _LEADING_SECTION_HEADER_RE.match(stripped):
-                blob_mode = True
+            if detect_blob:
+                # A multi-section paste — a ```code fence```, a numbered
+                # header (`2. Summary`), or a bare canonical label
+                # (`Summary`). In blob mode blank lines are section
+                # separators, not terminators (read to EOF/Ctrl-D).
+                from .bootstrap_paste import is_section_header_line
+                if stripped.startswith("```") or is_section_header_line(stripped):
+                    blob_mode = True
         lines.append(stripped)
 
     # Drop trailing blank lines from the captured buffer.
@@ -4035,7 +4031,9 @@ def _render_llm_prompt_template(
     console.print("\n[bold]─── Paste into ChatGPT / claude.ai ───[/]")
     console.print(
         f"{lead}\n"
-        "Reply with each section as `N. Label`, content on the next line:\n"
+        "Put your WHOLE reply in one fenced code block (```), each section "
+        "as `N. Label` on its own line with its content on the line(s) "
+        "below — the code block keeps the numbers intact when you copy it:\n"
     )
     for num, label, length in _LLM_TEMPLATE_SECTIONS:
         console.print(f"{num}. {label}  ({length})")
@@ -6386,7 +6384,8 @@ def _deploy_cf_unified(
         read_local_origin,
     )
     from .porkbun_dns import (
-        PorkbunDnsError, get_porkbun_ns, ns_matches, update_porkbun_ns,
+        PorkbunApiAccessError, PorkbunDnsError, get_porkbun_ns, ns_matches,
+        update_porkbun_ns,
     )
 
     slug = _project_name(domain)
@@ -6505,29 +6504,20 @@ def _deploy_cf_unified(
         registrar_now = _lookup_registrar(domain) or ""
         if registrar_now.lower() == "porkbun":
             try:
-                from .porkbun_dns import get_porkbun_ns, PorkbunDnsError
+                from .porkbun_dns import (
+                    PorkbunApiAccessError, PorkbunDnsError, get_porkbun_ns,
+                )
                 get_porkbun_ns(domain, api_key=pb_key, secret=pb_secret)
+            except PorkbunApiAccessError:
+                # Operator-action-needed (a dashboard toggle, no API for it).
+                # Fail fast at Step 0 so the operator isn't surprised mid-run.
+                console.print(f"  [red]✗[/] {_porkbun_api_access_help(domain)}")
+                raise typer.Exit(2)
             except PorkbunDnsError as e:
-                if "API_ACCESS_DISABLED" in str(e) or "not opted in" in str(e):
-                    console.print(
-                        f"  [red]✗[/] Porkbun per-domain API access disabled for "
-                        f"[cyan]{domain}[/].\n"
-                        f"\n  [bold yellow]Manual enable required:[/]\n"
-                        f"    1. Open: [link]https://porkbun.com/account/domains[/link]\n"
-                        f"    2. Click on [cyan]{domain}[/]\n"
-                        f"    3. Scroll to [bold]API ACCESS[/] section\n"
-                        f"    4. Toggle [bold]API Access[/] to [bold]ON[/] → Save\n"
-                        f"  [dim]Then re-run `lamill new deploy {domain} --yes`. "
-                        f"Account-level API works (v15.F sync uses it) but "
-                        f"per-domain toggle defaults OFF for newly-registered "
-                        f"domains — each domain enables once.[/]"
-                    )
-                    raise typer.Exit(2)
-                else:
-                    # Other error (network, etc.) — non-fatal pre-flight.
-                    console.print(
-                        f"  [yellow]↷[/] Porkbun NS probe failed (continuing): {e}"
-                    )
+                # Other error (network, etc.) — non-fatal pre-flight.
+                console.print(
+                    f"  [yellow]↷[/] Porkbun NS probe failed (continuing): {e}"
+                )
             else:
                 console.print(
                     f"  [green]✓[/] Porkbun per-domain API access enabled for "
@@ -6698,6 +6688,9 @@ def _deploy_cf_unified(
             current_ns = get_porkbun_ns(
                 domain, api_key=pb_key, secret=pb_secret,
             )
+        except PorkbunApiAccessError:
+            console.print(f"  [red]✗[/] {_porkbun_api_access_help(domain)}")
+            raise typer.Exit(6)
         except PorkbunDnsError as e:
             console.print(f"  [red]✗[/] could not read current Porkbun NS: {e}")
             raise typer.Exit(6)
@@ -6728,6 +6721,9 @@ def _deploy_cf_unified(
                         domain, api_key=pb_key, secret=pb_secret,
                         ns_list=target_ns,
                     )
+                except PorkbunApiAccessError:
+                    console.print(f"  [red]✗[/] {_porkbun_api_access_help(domain)}")
+                    raise typer.Exit(7)
                 except PorkbunDnsError as e:
                     console.print(f"  [red]✗[/] Porkbun NS update failed: {e}")
                     raise typer.Exit(7)
@@ -7298,6 +7294,28 @@ def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> None:
             "expected within ~30min of NS update (DNS propagation + "
             "edge SSL provisioning)."
         )
+
+
+def _porkbun_api_access_help(domain: str) -> str:
+    """Operator-facing fix for Porkbun's per-domain API-access toggle.
+
+    The toggle defaults OFF on newly-registered domains and Porkbun
+    exposes no API to flip it, so the deploy pipeline can't read or set
+    nameservers until the operator enables it once in the dashboard.
+    Returns rich markup; the caller prefixes the `✗`."""
+    return (
+        f"Porkbun per-domain API access is OFF for [cyan]{domain}[/] — the "
+        f"API can't read or set its nameservers until you enable it.\n"
+        f"\n  [bold yellow]Manual enable (one-time per domain; no API exists "
+        f"for this):[/]\n"
+        f"    1. Open: [link]https://porkbun.com/account/domains[/link]\n"
+        f"    2. Click [cyan]{domain}[/]\n"
+        f"    3. Find the [bold]API ACCESS[/] section\n"
+        f"    4. Toggle [bold]API ACCESS[/] to [bold]ON[/] → Save\n"
+        f"  [dim]Then re-run `lamill new deploy {domain} --yes`. The account-"
+        f"level key works (`apikeys list` shows ✓ valid, `fleet sync` uses "
+        f"it), but the per-domain toggle is separate and defaults OFF.[/]"
+    )
 
 
 def _deploy_watch_loop(

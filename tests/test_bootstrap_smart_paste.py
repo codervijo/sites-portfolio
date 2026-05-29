@@ -32,7 +32,10 @@ import pytest
 import typer
 
 from portfolio import cli as cli_mod
-from portfolio.bootstrap_paste import parse_multisection_paste
+from portfolio.bootstrap_paste import (
+    is_section_header_line,
+    parse_multisection_paste,
+)
 
 
 # The exact 9-section paste shape captured in the operator's 2026-05-20
@@ -777,3 +780,79 @@ def test_parser_positional_rejects_numbered_list_inside_prose():
         "4. A waitlist signup form\n"
     )
     assert parse_multisection_paste(text) is None
+
+
+# ---------- bare-label + code-fence headers — 2026-05-29 bug fix ----------
+
+
+# claude.ai renders `2. Summary` as markdown; copy-paste strips the `N.`,
+# leaving a bare label on its own line. The parser must still route it.
+BARE_LABEL_PASTE = (
+    "Summary\nVijo runs an archive site.\n"
+    "Audience\nTechnical peers and recruiters.\n"
+    "ICP\nA senior eng manager who reads a post then clicks the CV.\n"
+    "Goals\nA durable indexable home that compounds in SEO.\n"
+    "Content strategy\nTwo low-cadence tracks: founder notes + systems writing.\n"
+    "Growth hypothesis\nGrowth by accretion — each post a durable SEO asset.\n"
+)
+
+
+def test_parser_bare_label_headers_route_correctly():
+    """Bare canonical labels (no `N.`) parse — the operator's
+    vijocherian.com mis-route (whole blob fell into Summary)."""
+    result = parse_multisection_paste(BARE_LABEL_PASTE)
+    assert result is not None
+    assert result["summary"] == "Vijo runs an archive site."
+    assert result["audience"] == "Technical peers and recruiters."
+    assert result["icp"].startswith("A senior eng manager")
+    assert result["goals"].startswith("A durable indexable home")
+    assert result["content_strategy"].startswith("Two low-cadence tracks")
+    assert result["growth_hypothesis"].startswith("Growth by accretion")
+
+
+def test_parser_strips_wrapping_code_fence():
+    """A numbered reply wrapped in a ``` code block (select-all keeps the
+    fences) still parses — the fences are stripped."""
+    fenced = "```\n2. Summary\nS.\n\n3. Audience\nA.\n\n4. Goals\nG.\n```"
+    result = parse_multisection_paste(fenced)
+    assert result is not None
+    assert result["summary"] == "S."
+    assert result["audience"] == "A."
+    assert result["goals"] == "G."
+
+
+def test_parser_bare_label_does_not_promote_prose_lines():
+    """A single-paragraph summary that merely mentions a label word in
+    prose isn't a multi-section paste (no standalone label lines)."""
+    text = "This site is a summary of audience goals and content strategy."
+    assert parse_multisection_paste(text) is None
+
+
+def test_is_section_header_line_detection():
+    assert is_section_header_line("2. Summary")
+    assert is_section_header_line("Summary")
+    assert is_section_header_line("Content strategy:")
+    assert is_section_header_line("growth hypothesis")
+    assert not is_section_header_line("Vijo runs an archive site.")
+    assert not is_section_header_line("")
+
+
+def test_collect_bare_label_blob_routes_all(monkeypatch):
+    """Integration: the vijocherian.com repro — a bare-label reply pasted
+    at the full-paste prompt routes every section to its slot instead of
+    dumping the whole blob into Summary."""
+    _patch_stdin(monkeypatch, BARE_LABEL_PASTE)
+    answers = iter(["Y"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert inputs["Summary"] == "Vijo runs an archive site."
+    assert inputs["Audience"] == "Technical peers and recruiters."
+    assert inputs["ICP"].startswith("A senior eng manager")
+    assert inputs["Goals"].startswith("A durable indexable home")
+    assert inputs["Content strategy"].startswith("Two low-cadence tracks")
+    assert extras["growth_hypothesis"].startswith("Growth by accretion")

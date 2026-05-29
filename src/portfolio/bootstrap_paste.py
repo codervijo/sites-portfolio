@@ -116,6 +116,60 @@ def _normalize_header(text: str) -> str:
     return lowered
 
 
+# Normalized full canonical labels → key, for BARE-label header
+# detection. LLMs (and markdown copy-paste, which strips the `N.` off
+# ordered-list / bold headings) frequently emit `Summary` / `Content
+# strategy:` on its own line instead of `2. Summary`. We promote those
+# to numbered headers so the parser recognizes them. Built from
+# CANONICAL_LABELS (full labels only) — NOT the fuzzy `_HEADER_ALIASES`
+# (whose short words like `content` / `growth` would false-match prose).
+_BARE_LABEL_KEYS: dict[str, str] = {
+    _normalize_header(label): key for key, label in CANONICAL_LABELS.items()
+}
+
+
+def _promote_bare_label_headers(text: str) -> str:
+    """Prepend a number to any line that is EXACTLY a canonical section
+    label (normalized) and isn't already a `N.` header — so the
+    numbered-header parser below recognizes bare-label replies. Exact
+    full-label match only; content/prose lines are left untouched."""
+    out: list[str] = []
+    for line in text.split("\n"):
+        if _HEADER_RE.match(line):
+            out.append(line)
+            continue
+        if _normalize_header(line) in _BARE_LABEL_KEYS:
+            out.append(f"0. {line.strip()}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def is_section_header_line(line: str) -> bool:
+    """True if `line` looks like a section header — numbered
+    (`2. Summary`) or a bare canonical label (`Summary` /
+    `Content strategy:`). Used by the bootstrap prompt to detect a
+    multi-section paste so it reads through blank-line separators to EOF
+    instead of stopping at the first double blank."""
+    if _HEADER_RE.match(line):
+        return True
+    return _normalize_header(line) in _BARE_LABEL_KEYS
+
+
+def _strip_code_fences(text: str) -> str:
+    """Drop a wrapping ```…``` fence. The template asks the LLM to reply
+    inside one code block (so the `N.` numbers survive copy-paste); the
+    code-block Copy button excludes the fences, but a select-all keeps
+    them. Strip a leading fence line and a trailing fence line so either
+    way parses; inner content is untouched."""
+    lines = text.strip("\n").split("\n")
+    if lines and lines[0].lstrip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines)
+
+
 def _match_header(normalized: str) -> str | None:
     """Map a normalized header to a canonical key, or return None.
 
@@ -217,11 +271,21 @@ def parse_multisection_paste(text: str) -> dict[str, str] | None:
     if not text or not text.strip():
         return None
 
+    # 2026-05-29 — unwrap a ```…``` code block (the tuned template asks
+    # the LLM to reply inside one so the numbers survive copy-paste).
+    text = _strip_code_fences(text)
+
     # 2026-05-24 — pre-process to insert newlines before any inline
     # section-header patterns (e.g., "Y8. Registrar" with no newline
     # between the Y answer and the next section). Only splits on
     # known-alias matches; safe for content with stray digits.
     text = _split_inline_section_starts(text)
+
+    # 2026-05-29 — promote bare canonical labels (`Summary` on its own
+    # line) to numbered headers. LLMs render `2. Summary` as markdown and
+    # copy-paste strips the `N.`, leaving a bare label; without this the
+    # whole blob mis-routes into the first section.
+    text = _promote_bare_label_headers(text)
 
     # Find all numbered headers and their byte spans.
     matches = list(_HEADER_RE.finditer(text))

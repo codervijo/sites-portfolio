@@ -27,6 +27,31 @@ class PorkbunDnsError(RuntimeError):
     surprise."""
 
 
+class PorkbunApiAccessError(PorkbunDnsError):
+    """Raised when Porkbun rejects an NS call because the domain's
+    per-domain "API ACCESS" toggle is OFF.
+
+    This is operator-action-needed, not transient: Porkbun exposes no
+    API to flip the toggle, so the fix is a one-time dashboard click per
+    domain. Callers should surface the enable-it instructions rather
+    than a raw error. Distinct subclass so the deploy pipeline can catch
+    it specifically (and `except PorkbunDnsError` still works as a
+    catch-all)."""
+
+
+def _api_access_off(body: dict) -> bool:
+    """True when a non-SUCCESS Porkbun body signals the per-domain API
+    access toggle is OFF (e.g. status=ERROR, message "Domain is not
+    opted in to API access."). Matches defensively on the known
+    phrasings so a wording tweak doesn't silently regress detection."""
+    msg = str(body.get("message", "")).lower()
+    return (
+        "not opted in" in msg
+        or "api access" in msg
+        or "api_access_disabled" in msg
+    )
+
+
 def get_porkbun_ns(domain: str, *, api_key: str, secret: str) -> list[str]:
     """Fetch current nameservers for `domain`. Returns a sorted list
     of lowercased nameserver hostnames; empty if the domain has no NS
@@ -63,6 +88,10 @@ def get_porkbun_ns(domain: str, *, api_key: str, secret: str) -> list[str]:
         ) from e
 
     if not isinstance(body, dict) or body.get("status") != "SUCCESS":
+        if isinstance(body, dict) and _api_access_off(body):
+            raise PorkbunApiAccessError(
+                f"per-domain API access is OFF for {domain}"
+            )
         raise PorkbunDnsError(
             f"getNs/{domain} status != SUCCESS: {body}"
         )
@@ -119,6 +148,10 @@ def update_porkbun_ns(
         ) from e
 
     if not isinstance(body, dict) or body.get("status") != "SUCCESS":
+        if isinstance(body, dict) and _api_access_off(body):
+            raise PorkbunApiAccessError(
+                f"per-domain API access is OFF for {domain}"
+            )
         raise PorkbunDnsError(
             f"updateNs/{domain} status != SUCCESS: {body}"
         )

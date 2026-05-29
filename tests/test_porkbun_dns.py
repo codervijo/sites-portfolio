@@ -11,6 +11,7 @@ import pytest
 
 from portfolio.porkbun_dns import (
     PORKBUN_API,
+    PorkbunApiAccessError,
     PorkbunDnsError,
     get_porkbun_ns,
     ns_matches,
@@ -121,3 +122,40 @@ def test_update_ns_failure_status(monkeypatch):
     monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(200, json={"status": "ERROR", "message": "invalid"}))
     with pytest.raises(PorkbunDnsError, match="status != SUCCESS"):
         update_porkbun_ns("example.com", api_key="k", secret="s", ns_list=["a.b"])
+
+
+# ---- per-domain API-access detection (2026-05-29) ----
+
+
+def test_get_ns_api_access_off_raises_typed_error(monkeypatch):
+    """Porkbun's "not opted in to API access" → typed
+    PorkbunApiAccessError (so the deploy pipeline can show the
+    enable-it instructions), not a generic PorkbunDnsError."""
+    monkeypatch.setattr(
+        httpx, "post",
+        lambda url, **kw: httpx.Response(
+            200,
+            json={"status": "ERROR",
+                  "message": "Domain is not opted in to API access."},
+        ),
+    )
+    with pytest.raises(PorkbunApiAccessError, match="per-domain API access is OFF"):
+        get_porkbun_ns("example.com", api_key="k", secret="s")
+
+
+def test_update_ns_api_access_off_raises_typed_error(monkeypatch):
+    monkeypatch.setattr(
+        httpx, "post",
+        lambda url, **kw: httpx.Response(
+            200,
+            json={"status": "ERROR",
+                  "message": "Domain is not opted in to API access."},
+        ),
+    )
+    with pytest.raises(PorkbunApiAccessError, match="per-domain API access is OFF"):
+        update_porkbun_ns("example.com", api_key="k", secret="s", ns_list=["a.b"])
+
+
+def test_api_access_error_is_a_porkbun_dns_error():
+    """Subclass relationship — `except PorkbunDnsError` still catches it."""
+    assert issubclass(PorkbunApiAccessError, PorkbunDnsError)

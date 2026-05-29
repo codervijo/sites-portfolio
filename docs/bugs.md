@@ -911,6 +911,51 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-29 — `new bootstrap` smart-paste mis-routes when the pasted reply has bare-label headers (numbers stripped by markdown copy)
+
+**Repro**
+
+1. `lamill new bootstrap vijocherian.com --git-url <url> --budget 5.0`
+2. Generate the reply in claude.ai from the copy-paste template, then
+   paste it at the full-reply prompt. claude.ai renders `2. Summary` as a
+   markdown ordered-list / bold heading; copying the rendered text strips
+   the `N.`, so what reaches lamill is bare labels on their own lines
+   (`Summary` / `Audience` / …, content beneath).
+
+**Actual (pre-fix)** — `parse_multisection_paste` only recognized
+numbered headers (`_HEADER_RE = ^\d+\.`), so bare-label headers matched
+nothing → returned `None`, and the whole blob was saved as the Summary
+("✓ saved as Summary"), then prompts 3-9 fired empty. (Confirmed against
+the operator's screenshot: claude.ai output was correct; the markdown
+copy dropped the numbers.)
+
+**Fix** — two layers:
+- Parser: `_promote_bare_label_headers` prepends a number to any line
+  that is EXACTLY a canonical section label (normalized; full labels
+  only, not the fuzzy short aliases), so bare-label replies parse.
+  `_strip_code_fences` unwraps a ```…``` block. `is_section_header_line`
+  (numbered OR bare label) now also drives the prompt's blob detection,
+  and blob mode triggers on a leading ``` fence too.
+- Template tuned: asks the LLM to put the whole reply in one fenced code
+  block so the `N.` numbers survive copy-paste verbatim.
+
+**Where** — `src/portfolio/bootstrap_paste.py`
+(`_promote_bare_label_headers` / `_strip_code_fences` /
+`is_section_header_line`), `src/portfolio/cli.py` (`_prompt_multiline`
+blob detection + `_render_llm_prompt_template`).
+
+**Severity** — `major` (silent content corruption; the common
+copy-from-rendered-markdown path).
+
+**Tests** — `tests/test_bootstrap_smart_paste.py`:
+`test_parser_bare_label_headers_route_correctly`,
+`test_parser_strips_wrapping_code_fence`,
+`test_parser_bare_label_does_not_promote_prose_lines`,
+`test_is_section_header_line_detection`,
+`test_collect_bare_label_blob_routes_all`.
+
+**Fixed in** — *(working tree; SHA recorded on commit)*
+
 ### 2026-05-28 — `new bootstrap` smart-paste mis-routes every section when the pasted LLM reply uses blank-line section separators
 
 **Repro**
