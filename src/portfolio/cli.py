@@ -8553,6 +8553,38 @@ def project_seo(
                                  refresh=refresh, console=console)
 
 
+# v27.D — per-site todo read view. Reads `lamill.toml [[todo]]` only;
+# no live fetch. Plural-symmetric with `fleet todos` (CLI naming rule).
+@project_app.command("todos")
+def project_todos(
+    name: str = typer.Argument(..., metavar="DOMAIN", help="Domain or repo dir name"),
+) -> None:
+    """Per-project todo tracker — open items grouped by priority, done dimmed.
+
+    Pure read of the site's `lamill.toml [[todo]]` table. A site with no
+    `lamill.toml` (or no todos declared) simply renders empty — todos are
+    an additive-optional table, never required.
+    """
+    from .project import resolve_project, SITES_ROOT
+    from . import todos as todos_mod
+    from . import lamill_toml
+
+    res = resolve_project(name)
+    if not res.matched:
+        console.print(f"[red]No project matches '{name}'.[/]")
+        if res.candidates:
+            console.print(f"[dim]Did you mean: {', '.join(res.candidates)}?[/]")
+        raise typer.Exit(1)
+
+    try:
+        pt = todos_mod.build_project_todos(SITES_ROOT / res.matched,
+                                           domain=res.matched)
+    except lamill_toml.ParseError as e:
+        console.print(f"[red]✗ {res.matched}: malformed lamill.toml — {e}[/]")
+        raise typer.Exit(1)
+    todos_mod.render_project_todos(pt, console)
+
+
 @project_app.command("diagnose")
 def project_diagnose(
     domain: str = typer.Argument(..., help="Domain to investigate (e.g. lamill.us)"),
@@ -8984,6 +9016,51 @@ def fleet_focus(
 ) -> None:
     """Top priorities across the fleet — ranked attention list."""
     focus(show_all=show_all, refresh=refresh, include_young=include_young)
+
+
+# v27.D — fleetwide todo worklist. Reads every site's `lamill.toml
+# [[todo]]` table; no live fetch. Plural-symmetric with `project todos`.
+@fleet_app.command("todos")
+def fleet_todos(
+    priority: str = typer.Option(
+        "", "--priority", "-p",
+        help="Filter to one priority: high / medium / low.",
+    ),
+    status: str = typer.Option(
+        "open", "--status", "-s",
+        help="Filter by status: open / done / all.",
+    ),
+) -> None:
+    """Fleetwide todo worklist — every site's todos in one ranked list.
+
+    Default shows open items grouped by priority (high → unset). Use
+    `--priority` to narrow to one level and `--status done`/`all` to
+    change the slice. Sites without a `lamill.toml` or `[[todo]]` table
+    contribute nothing; a malformed file is skipped, not fatal.
+    """
+    from .fleet_repos import list_site_dirs
+    from . import todos as todos_mod
+
+    prio = priority.lower() or None
+    if prio is not None and prio not in todos_mod._PRIORITY_RANK:
+        console.print("[red]--priority must be one of: high, medium, low.[/]")
+        raise typer.Exit(2)
+
+    status_norm = status.lower()
+    if status_norm == "all":
+        status_filter: str | None = None
+    elif status_norm in ("open", "done"):
+        status_filter = status_norm
+    else:
+        console.print("[red]--status must be one of: open, done, all.[/]")
+        raise typer.Exit(2)
+
+    rows = todos_mod.build_fleet_todos(
+        list_site_dirs(), priority=prio, status=status_filter
+    )
+    todos_mod.render_fleet_todos(
+        rows, console, priority=prio, status=status_filter
+    )
 
 
 @fleet_app.command("domains")

@@ -956,6 +956,7 @@ lamill
 │   ├── check <name>                                 ✅ v7.A
 │   ├── fix <name>                                   ✅ v6.D
 │   ├── seo <name>                                   ✅ v7.A (+ v13.B GSC diagnostics)
+│   ├── todos <name>                                 ✅ v27.D — read [[todo]] table
 │   ├── diagnose <name>                              ✅ v7.F
 │   ├── version <name>                               ⏳ v15.B — read local
 │   │                                                          version.json
@@ -965,6 +966,7 @@ lamill
 │
 ├── fleet                                            # cross-portfolio ops
 │   ├── focus                                        ✅ v7.D
+│   ├── todos [--priority] [--status]                ✅ v27.D — fleetwide worklist
 │   ├── domains [--summary [--verbose]]              ✅ v5.G; flag-overload v14.B
 │   │           [--expiring N]                                 (was `fleet info
 │   │                                                          summary/expiring`)
@@ -1171,6 +1173,7 @@ candidate refactor if a third LLM provider lands.
 | `fleet_repos.py` | `fleet repos` audit + naming consistency | `audit_repos` |
 | `dashboard.py` | `fleet dashboard` unified view | `render_dashboard` |
 | `focus.py` | `fleet focus` priority ranker | `compute_focus` |
+| `todos.py` (v27.D) | `project todos` / `fleet todos` read views over the `lamill.toml [[todo]]` table; pure reads, no live fetch | `build_project_todos`, `render_project_todos`, `build_fleet_todos`, `render_fleet_todos` |
 | `drift.py` | `fleet drift` cross-source comparator | `compute_drift` |
 | `diagnose.py` | `project diagnose <domain>` 5-layer auto-investigate | `diagnose_domain` |
 | `menu.py` | Interactive launcher | `launch_menu` |
