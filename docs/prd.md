@@ -1209,6 +1209,103 @@ wait on them; the operator can log exemptions in `docs/bugs.md`
 the site is live again") and the promote-to-fail proceeds without
 those domains.
 
+### v27 — per-site todo tracking in `lamill.toml` *(new 2026-05-28 after drdebug.dev's `[[todo]]` pilot)*
+
+Adopt a `[[todo]]` array-of-tables in each site's `lamill.toml` as the
+canonical per-site work tracker, piloted in `drdebug.dev` (3 done + 5
+open). The loader already tolerates the table — `_parse_doc` reads only
+known sections via `doc.get(...)`, so unknown tables are ignored on read
+(no `ParseError`, CHECK_059 stays green; confirmed empirically). But the
+writer is the hole: `to_dict()` emits only `schema/deploy/hosting/
+backend/analytics/notes` and `tomli_w` drops comments, so any write path
+(`settings deploy set`, hosting set, `new bootstrap`) silently erases the
+entire `[[todo]]` array + the `#` gating comment.
+
+**Durability before rollout** is therefore the gating requirement: make
+`[[todo]]` first-class in the schema so round-trips preserve it, *then*
+surface the data in dedicated read commands + `fleet focus`. Sprinkling
+the section into the other 30 sites before the writer is fixed would set
+a fleetwide data-loss trap that springs the first time the operator runs
+`settings deploy set` on a site that has todos.
+
+Decisions locked 2026-05-28 (operator): schema string stays
+`lamill-toml-v1` (additive + optional table — old files parse, old
+readers ignore); the writer regenerates a canonical `#` header comment
+(operator freeform comments are not preserved verbatim through a
+`tomli_w` round-trip); CLI verbs are plural + symmetric
+(`project todos` / `fleet todos`).
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v27.A | ☐ | **Kickoff / decisions lock.** (a) Schema stays `lamill-toml-v1` — `[[todo]]` is an additive *optional* table; no version bump (old files parse; old readers ignore the table). (b) Comment handling: the writer regenerates a canonical `#` header comment block above the todo array; operator freeform comments are NOT preserved verbatim through a `tomli_w` round-trip. (c) Field schema: `status ∈ {done, open}` (required); `task` non-empty string (required); `priority ∈ {high, medium, low}` (open items only — `priority` on a `done` item is a `ParseError`). (d) CLI = plural + symmetric: `lamill project todos <domain>` + `lamill fleet todos` (NOT singular `todo`). (e) Write an ADR capturing the schema-evolution posture — *additive optional tables stay on the same schema string* — so future tables (not just todo) inherit the rule. (f) The todo pattern + field conventions land in `docs/CLAUDE.md § Locked target shapes` so future bootstraps inherit the shape. **No code in this phase.** |
+| v27.B | ☐ | **Make `[[todo]]` first-class (durability — blocks rollout).** Add `TodoItem(status, task, priority=None)` dataclass + `LamillToml.todos: list[TodoItem]`. `_parse_doc` reads `doc.get("todo", [])` and validates in the existing strict style (→ `ParseError` on bad `status`/`priority`, missing `task`, or `priority` on a `done` item). `to_dict()` emits the `todo` array-of-tables when non-empty so all four write paths round-trip it (`project_deploy.py:187` + `:719`, `hosting.py:1695`, `bootstrap.py:2082`). Writer prepends the canonical `#` header comment. Validity rides on CHECK_059 (no new check). Tests: load the drdebug pilot (3 done / 5 open) → round-trip → assert todos + header comment survive; bad `status` / bad `priority` → `ParseError`; `priority` on `done` → `ParseError`; no `[[todo]]` table → `todos == []`; existing v1 files without todos are unaffected. |
+| v27.C | ☐ | **`lamill project todos <domain>` read view.** Render one site's todos: done dimmed, open grouped by priority (high → low), `✓` / `☐` markers + a count line (e.g. `3 done · 5 open (2 high)`). Pure read of `lamill.toml`; no live fetch. `--status open\|done\|all` filter. Matches the existing `project seo` / `project check` per-site read posture. |
+| v27.D | ☐ | **`lamill fleet todos` + `fleet focus` integration.** `fleet todos [--priority high] [--status open]` aggregates open todos across all sites, grouped by priority then site — a fleetwide worklist. `fleet focus` gains a `📝` signal: each site's top open `high` todo becomes a focus one-liner (`headline` / `action` = the task), ranked below 🔴 down / ⚠️ but feeding the same `_add_signal` plumbing in `focus.py`. Reads `lamill.toml` only → honors focus's "never blocks on a live fetch" contract. |
+| v27.E | ☐ | **(Reactive) write verbs.** `lamill project todos <domain> --add "<task>" --priority high` / `--done <n>` / `--reopen <n>` — mutate via the v27.B serializer (round-trip safe; regenerates the header comment). Build ONLY if hand-editing the TOML in `$EDITOR` proves annoying; deferred until operator-felt friction per the reactive-over-proactive posture. |
+| v27.F | ☐ | **Rollout.** With v27.B durable, add `[[todo]]` per-site as real work arises (`drdebug.dev` stays the reference), NOT a bulk-seed of 31 empty arrays. Optional: `new bootstrap` seeds an empty commented `[[todo]]` skeleton so new sites start with the shape. |
+
+#### Design notes
+
+**Why durability is the gate (v27.B must precede v27.F).** The risk
+isn't a broken deploy — the loader ignores unknown tables, so `[[todo]]`
+parses fine today and CHECK_059 stays green. The risk is silent data
+loss: `lamill_toml.write()` serializes from the dataclass via
+`to_dict()` + `tomli_w`, which (a) only emits known sections and (b)
+can't carry comments. Four call sites write the file — `settings deploy
+set` (×2), hosting set, and `new bootstrap` — and `settings deploy set`
+is the realistic trigger (operator adds a custom domain or a GA4 ID on a
+site that already has todos, and the whole `[[todo]]` array + gating
+comment vanish on save). Making the table first-class closes the hole
+before the section spreads across the fleet.
+
+**Why schema stays `lamill-toml-v1` (operator decision 2026-05-28).** An
+optional additive table is backward-compatible in both directions: old
+files (no `[[todo]]`) still parse, and an older reader simply ignores the
+new table. Bumping to v2 would force a decision on how the loader treats
+v1-vs-v2 files for zero correctness benefit. The reusable posture —
+*additive optional tables don't bump the schema string* — is captured in
+an ADR (v27.A) so future tables follow the same rule rather than
+re-litigating it.
+
+**Why regenerate the comment vs adopt `tomlkit` (operator decision
+2026-05-28).** `tomli_w` can't round-trip comments. `tomlkit` would
+preserve all operator comments + formatting, but switching the writer to
+it touches all four write paths + the serialization tests and risks
+output-format churn across the fleet. A regenerated canonical `#` header
+is deterministic, zero-dependency, and preserves the *data* losslessly;
+the known tradeoff is that operator freeform notes inside the file aren't
+preserved verbatim. Revisit `tomlkit` only if comment fidelity becomes
+operator-felt friction.
+
+**Why plural + symmetric `todos` (operator decision 2026-05-28).** The
+verb is a noun-as-collection (`project todos` lists *the todos*), and the
+project/fleet pair must read identically — `project todos <domain>` and
+`fleet todos` — matching the scope-first surface from v14. Singular
+`todo` reads like a mutation verb and breaks the symmetry.
+
+**Why `fleet focus` consumes todos (vs a standalone dashboard).** `focus`
+is already the "where do I spend my scarce hours today" surface — it
+ranks domains by their worst signal and prints an actionable one-liner
+each. A high-priority open todo is exactly that kind of signal, and it
+slots into the existing `_add_signal` ranking without a new surface.
+Reading `lamill.toml` (a local cache) keeps focus's never-block-on-a-
+live-fetch contract intact.
+
+**Why write verbs are deferred (v27.E).** Per the reactive-over-proactive
+posture, hand-editing `[[todo]]` in `$EDITOR` may be perfectly fine —
+the pilot was authored that way. Build `--add` / `--done` / `--reopen`
+only when the operator actually hits friction maintaining todos by hand,
+not on spec.
+
+**Why rollout is lazy, not bulk-seed (v27.F).** Seeding 31 empty
+`[[todo]]` arrays adds noise without value; most sites have no tracked
+work at a given moment. Adding the section when real work arises keeps
+each file meaningful, with `drdebug.dev` as the canonical shape
+reference. A bootstrap-time empty skeleton is the one place a
+proactively-seeded (but commented/empty) array earns its keep.
+
 ## 8. Open questions
 
 Append-only log. Questions get answered (with date) but never
