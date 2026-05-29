@@ -321,6 +321,16 @@ def _try_positional_paste(
     if len(matches) < _POSITIONAL_MIN_SECTIONS:
         return None
 
+    # 2026-05-28 — the paste must *start* with a numbered block for the
+    # positional reading to apply. A numbered list embedded inside prose
+    # (e.g. a Content-strategy paragraph that lists "1. … 2. … 3. … 4. …"
+    # after a sentence) is NOT a positional answer-set; firing here would
+    # scatter the list items across Lovable-repo/Summary/Audience/ICP.
+    # Require the first non-blank line to be the first numbered block.
+    first_nonblank = first_nonblank_line(text)
+    if not first_nonblank or not _HEADER_RE.match(first_nonblank):
+        return None
+
     digits: list[int] = []
     for m in matches:
         try:

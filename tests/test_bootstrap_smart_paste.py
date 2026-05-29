@@ -694,3 +694,86 @@ def test_collect_smart_paste_default_enter_accepts_confirm(monkeypatch):
     assert inputs["Summary"] == "S."
     assert inputs["Audience"] == "A."
     assert inputs["Goals"] == "G."
+
+
+# ---------- double-blank-separator blob — 2026-05-28 bug fix ----------
+
+
+# Sections separated by TWO blank lines (`\n\n\n` between blocks). Some
+# models format replies this way. Pre-fix `_prompt_multiline` stopped at
+# the first double blank, capturing only the Summary block and leaking
+# the rest into later prompts one slot off; the detect_blob path now
+# reads the whole reply to EOF.
+DOUBLE_BLANK_PASTE = (
+    "2. Summary\nThe daily ring summary paragraph.\n\n\n"
+    "3. Audience\nThe broad audience sentence.\n\n\n"
+    "4. ICP\nThe specific ICP paragraph.\n\n\n"
+    "5. Goals\nThe goals sentence.\n\n\n"
+    "6. Content strategy\nThe content strategy paragraph.\n\n\n"
+    "9. Growth hypothesis\nThe growth hypothesis paragraph.\n"
+)
+
+
+def test_prompt_multiline_blob_mode_reads_through_double_blanks(monkeypatch):
+    """With detect_blob, a leading numbered header switches the reader
+    to blob mode: double blanks between sections no longer terminate, so
+    the whole reply is captured (terminated by EOF)."""
+    import sys
+    monkeypatch.setattr(sys, "stdin", io.StringIO(DOUBLE_BLANK_PASTE))
+    captured = cli_mod._prompt_multiline("", detect_blob=True)
+    # Every section header survived the single capture.
+    for header in ("2. Summary", "3. Audience", "4. ICP", "5. Goals",
+                   "6. Content strategy", "9. Growth hypothesis"):
+        assert header in captured, f"missing {header!r}"
+
+
+def test_prompt_multiline_plain_paragraph_still_ends_on_double_blank(monkeypatch):
+    """Regression guard: prose input (no leading numbered header) keeps
+    the classic two-blank-line terminator even when detect_blob is set —
+    so anything typed after the double blank is NOT captured."""
+    import sys
+    monkeypatch.setattr(
+        sys, "stdin",
+        io.StringIO("A plain summary paragraph.\n\n\nLeaked next answer.\n"),
+    )
+    captured = cli_mod._prompt_multiline("", detect_blob=True)
+    assert captured == "A plain summary paragraph."
+    assert "Leaked" not in captured
+
+
+def test_collect_smart_paste_double_blank_separators_routes_all(monkeypatch):
+    """2026-05-28 fix (dailyring.xyz repro): a pasted reply whose
+    sections are separated by TWO blank lines routes every section to
+    its correct slot. Pre-fix, Summary got `2. Summary\\n<text>` and the
+    rest leaked one slot off."""
+    # No trailing Enter-twice — blob mode reads to EOF (StringIO end).
+    _patch_stdin(monkeypatch, DOUBLE_BLANK_PASTE)
+    answers = iter(["Y"])
+    monkeypatch.setattr(typer, "prompt", lambda *a, **k: next(answers, ""))
+
+    extras: dict = {}
+    inputs = cli_mod._collect_operator_inputs(
+        summary="", audience="", icp="", goal="", content_strategy="",
+        non_interactive=False, extras_out=extras,
+    )
+    assert inputs["Summary"] == "The daily ring summary paragraph."
+    assert inputs["Audience"] == "The broad audience sentence."
+    assert inputs["ICP"] == "The specific ICP paragraph."
+    assert inputs["Goals"] == "The goals sentence."
+    assert inputs["Content strategy"] == "The content strategy paragraph."
+    assert extras["growth_hypothesis"] == "The growth hypothesis paragraph."
+
+
+def test_parser_positional_rejects_numbered_list_inside_prose():
+    """2026-05-28 fix: a single section whose body is a numbered list
+    (preceded by a prose preamble) must NOT trip the positional
+    fallback — the paste doesn't START with a numbered block, so it
+    stays single-section (parser returns None)."""
+    text = (
+        "The site needs:\n"
+        "1. A landing page with the core pitch\n"
+        "2. A pattern-library reference of error fixes\n"
+        "3. Blog posts on common agent failures\n"
+        "4. A waitlist signup form\n"
+    )
+    assert parse_multisection_paste(text) is None

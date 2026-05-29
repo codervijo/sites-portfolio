@@ -88,11 +88,12 @@ def test_collect_non_interactive_skips_all_prompts(monkeypatch):
 
 
 def test_collect_prompts_for_missing_sections_only(monkeypatch):
-    """One flag value supplied → that section skips the prompt; the
-    other 4 sections get prompted in canonical order.
+    """One flag value supplied → that section skips its per-section
+    prompt; the other 4 sections get prompted in canonical order.
 
-    Bug-fix 2026-05-20: paragraph-style sections (Summary / ICP /
-    Content strategy) use `_prompt_multiline`; one-line sections
+    2026-05-29: the collector leads with a full cut-and-paste prompt,
+    then prompts each still-empty section. Paragraph sections (Summary /
+    ICP / Content strategy) use `_prompt_multiline`; one-line sections
     (Audience / Goals) stay on `typer.prompt`. Patch both."""
     prompts_called = []
 
@@ -110,8 +111,9 @@ def test_collect_prompts_for_missing_sections_only(monkeypatch):
     assert inputs["ICP"] == "answer"
     assert inputs["Goals"] == "answer"
     assert inputs["Content strategy"] == "answer"
-    # Four prompts fired (not five — Summary was supplied via flag).
-    assert len(prompts_called) == 4
+    # 5 prompts: the leading full-paste prompt + 4 section prompts
+    # (Summary supplied via flag, so it isn't prompted section-by-section).
+    assert len(prompts_called) == 5
 
 
 def test_collect_prompts_carry_prompt_order_numbers(monkeypatch):
@@ -130,7 +132,7 @@ def test_collect_prompts_carry_prompt_order_numbers(monkeypatch):
     monkeypatch.setattr(typer, "prompt", fake_prompt)
     monkeypatch.setattr(
         cli_mod, "_prompt_multiline",
-        lambda *a, **k: (seen.append(a[0] if a else "") or "answer"),
+        lambda *a, **k: (seen.append(a[0] if a else "") or ""),
     )
     monkeypatch.setattr(
         cli_mod.console, "print",
@@ -241,7 +243,7 @@ def test_collect_prompts_in_canonical_order(monkeypatch):
     # It prints the label itself, so we capture headings from that
     # call too (the label arg is a rich-markup string containing
     # `[cyan]Summary[/]`).
-    def fake_multiline(label, *, hint=None):
+    def fake_multiline(label, *, hint=None, detect_blob=False):
         capture_print(label)
         return ""
     monkeypatch.setattr(cli_mod, "_prompt_multiline", fake_multiline)

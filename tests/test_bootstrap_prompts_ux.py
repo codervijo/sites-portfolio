@@ -329,8 +329,8 @@ def test_llm_template_placeholder_when_no_topic(monkeypatch):
     """No --topic → the template tells the operator to add a topic line
     (the LLM needs context to draft useful sections)."""
     joined = _render_llm_template(monkeypatch, topic="")
-    assert "Topic:" not in joined  # no real topic interpolated
-    assert "description of" in joined.lower()
+    assert "agesdk.dev —" not in joined  # no topic interpolated into the lead
+    assert "one line on what it is" in joined.lower()
 
 
 def test_llm_template_skipped_when_non_interactive(monkeypatch):

@@ -911,6 +911,74 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-05-28 — `new bootstrap` smart-paste mis-routes every section when the pasted LLM reply uses blank-line section separators
+
+**Repro**
+
+1. `lamill new bootstrap <domain> --git-url <url> --budget 5.0`
+2. At `[2/9] Summary`, paste a full multi-section LLM reply (sections
+   2/3/4/5/6/9) where sections are separated by **two consecutive blank
+   lines** (some models format their replies this way).
+
+Single-blank-line separation routed correctly — it was specifically ≥2
+blank lines *between* sections that triggered the bug.
+
+**Actual (pre-fix)** — `_prompt_multiline` terminated at the first run of
+two blank lines, capturing only the Summary block. Smart-paste then saw a
+single section → `parse_multisection_paste` returned `None`, and the
+remaining buffered lines leaked into the subsequent prompts shifted one
+slot (Summary got `2. Summary\n<text>`, Audience got `3. Audience`, ICP
+got the Audience content, etc.). Silent content corruption.
+
+**Fix** — `_prompt_multiline` gained a `detect_blob` flag (set on the
+first smart-paste-eligible prompt). When the first non-blank line matches
+a leading numbered-section header (`_LEADING_SECTION_HEADER_RE`), the
+read switches to blob mode: blank lines no longer terminate (they're a
+blob's section separators); the capture ends only on EOF (Ctrl-D) or a
+run of 3+ blank lines. The whole reply lands in one buffer, so
+`parse_multisection_paste` routes every section. Plain prose input (no
+leading numbered header) keeps the classic two-blank terminator. The
+first-prompt hint now reads "One paragraph → Enter twice. OR paste the
+whole multi-section reply → finish with Ctrl-D."
+
+**Where** — `src/portfolio/cli.py` `_prompt_multiline` +
+`_collect_operator_inputs`.
+
+**Severity** — `major`.
+
+**Tests** — `tests/test_bootstrap_smart_paste.py`:
+`test_prompt_multiline_blob_mode_reads_through_double_blanks`,
+`test_prompt_multiline_plain_paragraph_still_ends_on_double_blank`,
+`test_collect_smart_paste_double_blank_separators_routes_all`.
+
+**Fixed in** — *(working tree; SHA recorded on commit)*
+
+### 2026-05-28 — `new bootstrap` smart-paste positional fallback mis-routes a single section whose content is a numbered list
+
+**Repro** — At `[2/9] Summary`, paste a single section whose body is a
+numbered list of ≥4 items preceded by a prose line, e.g. `The site
+needs:` then `1. … 2. … 3. … 4. …`.
+
+**Actual (pre-fix)** — `_try_positional_paste` fired (≥4 unique digits
+1-9 at line start) and mapped the list items to prompt order
+(1→Lovable repo, 2→Summary, 3→Audience, 4→ICP), dropping the preamble and
+scattering the list across four slots behind a spurious "Detected a
+multi-section paste" banner.
+
+**Fix** — `_try_positional_paste` now requires the paste to *start* with
+a numbered block (first non-blank line matches `_HEADER_RE`). A numbered
+list embedded after prose no longer trips the fallback; labeled and
+genuine positional pastes (which begin with a numbered block) are
+unaffected.
+
+**Where** — `src/portfolio/bootstrap_paste.py` `_try_positional_paste`.
+
+**Severity** — `minor`.
+
+**Tests** — `tests/test_bootstrap_smart_paste.py::test_parser_positional_rejects_numbered_list_inside_prose`.
+
+**Fixed in** — *(working tree; SHA recorded on commit)*
+
 ### 2026-05-28 — `new domain` option 1 row picker rejects full domain names and gives cryptic TLD hint
 
 **Repro**

@@ -3795,7 +3795,18 @@ def new_bootstrap(
 # EOF (Ctrl-D). Used for paragraph-style operator-input prompts in
 # `new bootstrap`: Summary, ICP, Content strategy, Growth hypothesis.
 
-def _prompt_multiline(label: str, *, hint: str | None = None) -> str:
+# A leading numbered-section-header shape — e.g. `2. Summary`,
+# `9. Growth hypothesis`, or a positional `2. <answer>`. When the FIRST
+# non-blank line of a smart-paste-eligible prompt matches this, the
+# input is a pasted multi-section LLM reply: its blank lines are section
+# separators, not terminators. Fixes the 2026-05-28 mis-route where a
+# double blank line between sections truncated the capture and the
+# remaining sections leaked into the later single-line prompts.
+_LEADING_SECTION_HEADER_RE = re.compile(r"^\s*\d+\.\s+\S")
+
+
+def _prompt_multiline(label: str, *, hint: str | None = None,
+                      detect_blob: bool = False) -> str:
     """Read multi-line input until two blank lines or EOF.
 
     Behavior:
@@ -3808,6 +3819,15 @@ def _prompt_multiline(label: str, *, hint: str | None = None) -> str:
 
     Single-line answers still work: type the line, hit Enter, hit
     Enter again to terminate.
+
+    When `detect_blob` is set and the first non-blank line looks like a
+    numbered section header, the input is treated as a pasted
+    multi-section reply: blank lines no longer terminate (a blob's own
+    section separators are blank lines), so reading continues until EOF
+    (Ctrl-D) or a run of 3+ consecutive blank lines. This keeps the
+    whole blob in one capture so smart-paste can route every section,
+    instead of stopping at the first double blank and leaking the rest
+    into later prompts.
     """
     import sys
 
@@ -3818,6 +3838,8 @@ def _prompt_multiline(label: str, *, hint: str | None = None) -> str:
 
     lines: list[str] = []
     blank_run = 0
+    blob_mode = False
+    seen_nonblank = False
     while True:
         try:
             line = sys.stdin.readline()
@@ -3830,11 +3852,19 @@ def _prompt_multiline(label: str, *, hint: str | None = None) -> str:
         stripped = line.rstrip("\n").rstrip("\r")
         if stripped == "":
             blank_run += 1
-            if blank_run >= 2:
+            # A detected blob uses blank lines as section separators, so
+            # only a long run (3+) or EOF ends it; plain input still
+            # ends on the usual double blank.
+            terminator = 3 if blob_mode else 2
+            if blank_run >= terminator:
                 break
             lines.append("")
             continue
         blank_run = 0
+        if not seen_nonblank:
+            seen_nonblank = True
+            if detect_blob and _LEADING_SECTION_HEADER_RE.match(stripped):
+                blob_mode = True
         lines.append(stripped)
 
     # Drop trailing blank lines from the captured buffer.
@@ -3962,22 +3992,17 @@ def _render_bootstrap_preflight(
 # numbers (matching _POSITIONAL_ORDER / the preflight banner). Prompts 1
 # (Lovable repo), 7 (registered), 8 (registrar) aren't LLM-draftable, so
 # they're omitted from the template.
+# (number, label, length-hint). Rendered as `N. Label  (length-hint)` —
+# the bare template (2026-05-29): one line per section, no descriptive
+# prose. The reply-format instruction above the list tells the LLM to
+# put content on the next line so smart-paste can route each section.
 _LLM_TEMPLATE_SECTIONS: list[tuple[str, str, str]] = [
-    ("2", "Summary",
-     "One paragraph (3-5 sentences): what this site IS and DOES. Concrete, not aspirational."),
-    ("3", "Audience",
-     "One sentence: the broad demographic (e.g. \"homeowners with EV chargers\")."),
-    ("4", "ICP",
-     "One paragraph: the specific targetable subset — demographics, pain points, what they use "
-     "today. Precise enough to write an ad-targeting brief from."),
-    ("5", "Goals",
-     "1-2 sentences: the primary business/product goal. Time-bound if there's a relevant deadline."),
-    ("6", "Content strategy",
-     "One paragraph: page types this site needs · initial topics · format mix (long-form vs "
-     "reference vs tool)."),
-    ("9", "Growth hypothesis",
-     "One paragraph: your bet for how this site reaches its audience — distribution channel + "
-     "why it's defensible + the timing window."),
+    ("2", "Summary", "one paragraph"),
+    ("3", "Audience", "one sentence"),
+    ("4", "ICP", "one paragraph"),
+    ("5", "Goals", "1-2 sentences"),
+    ("6", "Content strategy", "one paragraph"),
+    ("9", "Growth hypothesis", "one paragraph"),
 ]
 
 
@@ -4003,34 +4028,21 @@ def _render_llm_prompt_template(
         return
 
     if topic.strip():
-        topic_line = f"\n\nTopic: {topic.strip()}"
+        lead = f"Draft positioning for {domain} — {topic.strip()}."
     else:
-        topic_line = (
-            "\n\n(Replace this line with a 1-2 sentence description of "
-            "the site's topic.)"
-        )
+        lead = f"Draft positioning for {domain} (one line on what it is: …)."
 
+    console.print("\n[bold]─── Paste into ChatGPT / claude.ai ───[/]")
     console.print(
-        "\n[bold]─── Copy-paste this into ChatGPT / claude.ai "
-        "───────────────[/]"
+        f"{lead}\n"
+        "Reply with each section as `N. Label`, content on the next line:\n"
     )
+    for num, label, length in _LLM_TEMPLATE_SECTIONS:
+        console.print(f"{num}. {label}  ({length})")
+    console.print("[bold]───[/]")
     console.print(
-        f"I'm scaffolding a new website at {domain}.{topic_line}\n\n"
-        "Draft the following sections for the site. Keep each within the "
-        "noted length. IMPORTANT: format your reply EXACTLY like the "
-        "template below — each section begins with its number + label on "
-        "its own line, content underneath — so I can paste the whole reply "
-        "at once:\n"
-    )
-    for num, label, hint in _LLM_TEMPLATE_SECTIONS:
-        console.print(f"{num}. {label}\n{hint}\n")
-    console.print(
-        "[bold]──────────────────────────────────────────────────────────[/]"
-    )
-    console.print(
-        "[dim]Then paste the whole reply at the first prompt below "
-        "(Summary) — smart-paste fills every section automatically. Or "
-        "answer each prompt by hand.[/]"
+        "[dim]Paste the whole reply at the first prompt below — smart-paste "
+        "fills every section. Or answer section-by-section.[/]"
     )
 
 
@@ -4131,9 +4143,10 @@ def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
         if registered is None:
             return {"action": "skip"}
         # Flag set in non-interactive mode but registrar omitted →
-        # default to "other" so we don't lose the registration signal.
+        # assume porkbun, the fleet default (operator policy 2026-05-29).
+        # An explicit --registrar always overrides.
         return {"action": "append", "registered": registered,
-                "registrar": registrar or "other"}
+                "registrar": registrar or "porkbun"}
 
     # Interactive path. Prompt for registration status, then registrar.
     console.print(
@@ -4321,64 +4334,61 @@ def _collect_operator_inputs(*,
             " [dim](press Enter to skip; "
             "section will render `(to be filled in)`)[/]"
         )
-        # Bug-fix 2026-05-20 — paragraph-style sections (Summary, ICP,
-        # Content strategy) use the multi-line prompt helper so
-        # multi-paragraph pastes don't overflow into the shell. The
+        # Paragraph-style sections use the multi-line prompt helper so
+        # multi-paragraph input doesn't overflow into the shell; the
         # one-line sections (Audience, Goals) stay on `typer.prompt`.
         multiline_sections = {"Summary", "ICP", "Content strategy"}
-        smart_paste_attempted = False
+
+        # 2026-05-29 — lead with the full cut-and-paste. The operator's
+        # primary path is: generate the reply in ChatGPT / claude.ai (the
+        # template above) and paste the whole thing here. Pressing Enter
+        # falls through to section-by-section prompts (Summary first). A
+        # single non-blob paragraph here is taken as the Summary.
+        pasted = _prompt_multiline(
+            "\n  [bold]Paste the full reply[/] from the box above"
+            " — finish with [bold]Ctrl-D[/].",
+            hint=(
+                "Smart-paste fills every section. Or press Enter to "
+                "answer section-by-section instead."
+            ),
+            detect_blob=True,
+        ).strip()
+        if pasted:
+            parsed = parse_multisection_paste(pasted)
+            if parsed is not None and _confirm_multisection_paste(
+                parsed, current_heading="Summary",
+            ):
+                _apply_multisection_paste(
+                    parsed,
+                    inputs=inputs,
+                    extras_out=extras_out,
+                    paste_key_to_heading=paste_key_to_heading,
+                    single_line_headings=single_line_headings,
+                    current_heading="Summary",
+                )
+            elif any(s.heading == "Summary" for s in pending_for_prompt):
+                # Not a multi-section blob — a single paragraph the
+                # operator typed → take it as the Summary; the remaining
+                # sections still get prompted below.
+                inputs["Summary"] = pasted
+                console.print("  [green]✓ saved as Summary[/]")
+
+        # Section-by-section for anything still empty (Summary included,
+        # when the operator chose the by-hand path).
         for spec in pending_for_prompt:
-            # If smart-paste already filled this section, skip the prompt.
             if inputs.get(spec.heading):
                 continue
+            _num = _OPERATOR_SECTION_NUMBERS.get(spec.heading, "?")
             if spec.heading in multiline_sections:
-                # Bug-fix 2026-05-20 — smart-paste hint on the first
-                # paragraph prompt only. Once we've checked one
-                # multiline answer for paste-shape, don't check again
-                # (otherwise the second Summary-ish prompt would
-                # double-prompt on a single section's content).
-                hint = (
-                    "Hit Enter twice when done, or Ctrl-D. "
-                    "Enter twice immediately to skip."
-                )
-                if not smart_paste_attempted:
-                    hint = (
-                        "Hit Enter twice when done, or Ctrl-D. "
-                        "Enter twice immediately to skip. "
-                        "(Paste a multi-section response here to fill "
-                        "all prompts at once.)"
-                    )
-                _num = _OPERATOR_SECTION_NUMBERS.get(spec.heading, "?")
                 answer = _prompt_multiline(
                     f"\n  [bold][{_num}/9][/] [cyan]{spec.heading}[/]"
                     f" — [dim]{spec.description}[/]",
-                    hint=hint,
+                    hint=(
+                        "Hit Enter twice when done, or Ctrl-D. "
+                        "Enter twice immediately to skip."
+                    ),
                 ).strip()
-                # Smart-paste detection runs on the FIRST paragraph
-                # answer only. Subsequent paragraph prompts use plain
-                # capture.
-                if not smart_paste_attempted:
-                    smart_paste_attempted = True
-                    parsed = parse_multisection_paste(answer)
-                    if parsed is not None and _confirm_multisection_paste(
-                        parsed, current_heading=spec.heading,
-                    ):
-                        _apply_multisection_paste(
-                            parsed,
-                            inputs=inputs,
-                            extras_out=extras_out,
-                            paste_key_to_heading=paste_key_to_heading,
-                            single_line_headings=single_line_headings,
-                            current_heading=spec.heading,
-                        )
-                        # Skip setting `inputs[spec.heading] = answer`
-                        # below — the paste payload supplied the
-                        # correct section content (or left it blank
-                        # if the operator pasted the OTHER sections
-                        # but no Summary).
-                        continue
             else:
-                _num = _OPERATOR_SECTION_NUMBERS.get(spec.heading, "?")
                 console.print(
                     f"\n  [bold][{_num}/9][/] [cyan]{spec.heading}[/]"
                     f" — [dim]{spec.description}[/]"

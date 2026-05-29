@@ -223,15 +223,15 @@ def test_resolve_inventory_non_interactive_no_flag_skips(monkeypatch, tmp_path):
 
 def test_resolve_inventory_non_interactive_with_flag_defaults_registrar(monkeypatch, tmp_path):
     """--non-interactive --registered without --registrar → registrar
-    defaults to "other" (preserves the registration signal without
-    requiring the registrar argument)."""
+    assumes "porkbun" (the fleet default; operator policy 2026-05-29).
+    An explicit --registrar overrides."""
     _patch_portfolio_json(monkeypatch, tmp_path)
     decision = cli_mod._resolve_inventory_inputs(
         domain="new.dev", registered=True, registrar="",
         non_interactive=True,
     )
     assert decision == {"action": "append", "registered": True,
-                        "registrar": "other"}
+                        "registrar": "porkbun"}
 
 
 def test_resolve_inventory_interactive_yes_porkbun(monkeypatch, tmp_path):
