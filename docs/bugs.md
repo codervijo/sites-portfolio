@@ -951,7 +951,7 @@ whole multi-section reply → finish with Ctrl-D."
 `test_prompt_multiline_plain_paragraph_still_ends_on_double_blank`,
 `test_collect_smart_paste_double_blank_separators_routes_all`.
 
-**Fixed in** — *(working tree; SHA recorded on commit)*
+**Fixed in** — `c08231d` (new bootstrap smart-paste mis-route + paste-first UX)
 
 ### 2026-05-28 — `new bootstrap` smart-paste positional fallback mis-routes a single section whose content is a numbered list
 
@@ -977,7 +977,7 @@ unaffected.
 
 **Tests** — `tests/test_bootstrap_smart_paste.py::test_parser_positional_rejects_numbered_list_inside_prose`.
 
-**Fixed in** — *(working tree; SHA recorded on commit)*
+**Fixed in** — `c08231d` (new bootstrap smart-paste mis-route + paste-first UX)
 
 ### 2026-05-28 — `new domain` option 1 row picker rejects full domain names and gives cryptic TLD hint
 
