@@ -19,11 +19,16 @@ from portfolio.lamill_toml import (
     LAMILL_TOML_FILENAME,
     PLATFORM_VALUES,
     SCHEMA_VERSION,
+    STACK_FRAMEWORK_VALUES,
+    TODO_PRIORITY_VALUES,
+    TODO_STATUS_VALUES,
     BackendBlock,
     DeployBlock,
     HostingBlock,
     LamillToml,
     ParseError,
+    StackBlock,
+    TodoItem,
     detect_platform_signals,
     infer_from_existing_configs,
     load,
@@ -762,3 +767,294 @@ def test_hosting_block_deploy_source_must_be_string(tmp_path: Path):
     ''')
     with pytest.raises(ParseError, match="deploy_source"):
         load(tmp_path)
+
+
+# ---------- v27.B — [[todo]] + [stack] additive optional tables ----------
+
+
+def test_baseline_neither_table_present_defaults_clean(tmp_path: Path):
+    """Additive-optional invariant (docs/CLAUDE.md): a file with only
+    schema + [deploy] must keep parsing; both new tables default to
+    empty/None."""
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+    ''')
+    payload = load(tmp_path)
+    assert payload.stack is None
+    assert payload.todos == []
+
+
+def test_load_with_stack_minimal(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [stack]
+        framework = "astro"
+    ''')
+    payload = load(tmp_path)
+    assert payload.stack == StackBlock(framework="astro", build_tool=None)
+
+
+def test_load_with_stack_build_tool(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [stack]
+        framework = "tanstack"
+        build_tool = "vite"
+    ''')
+    payload = load(tmp_path)
+    assert payload.stack == StackBlock(framework="tanstack", build_tool="vite")
+
+
+@pytest.mark.parametrize("framework", list(STACK_FRAMEWORK_VALUES))
+def test_load_each_stack_framework(tmp_path: Path, framework: str):
+    _write(tmp_path, f'''
+        [deploy]
+        platform = "cf-pages"
+
+        [stack]
+        framework = "{framework}"
+    ''')
+    payload = load(tmp_path)
+    assert payload.stack is not None
+    assert payload.stack.framework == framework
+
+
+def test_load_raises_on_missing_stack_framework(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [stack]
+        build_tool = "vite"
+    ''')
+    with pytest.raises(ParseError, match=r"\[stack\]\.framework is required"):
+        load(tmp_path)
+
+
+def test_load_raises_on_bad_stack_framework(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [stack]
+        framework = "ember-classic"
+    ''')
+    with pytest.raises(ParseError, match="not a valid framework"):
+        load(tmp_path)
+
+
+def test_load_raises_on_non_string_stack_build_tool(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [stack]
+        framework = "astro"
+        build_tool = 42
+    ''')
+    with pytest.raises(ParseError, match="build_tool must be a string"):
+        load(tmp_path)
+
+
+def test_load_with_todos_done_and_open(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [[todo]]
+        status = "done"
+        task = "Ship the landing page"
+
+        [[todo]]
+        status = "open"
+        priority = "high"
+        task = "Verify Lindy drafts against the live platform"
+    ''')
+    payload = load(tmp_path)
+    assert len(payload.todos) == 2
+    assert payload.todos[0] == TodoItem(
+        status="done", task="Ship the landing page", priority=None,
+    )
+    assert payload.todos[1] == TodoItem(
+        status="open", task="Verify Lindy drafts against the live platform",
+        priority="high",
+    )
+
+
+def test_load_raises_on_bad_todo_status(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [[todo]]
+        status = "blocked"
+        task = "x"
+    ''')
+    with pytest.raises(ParseError, match=r"status='blocked'"):
+        load(tmp_path)
+
+
+def test_load_raises_on_bad_todo_priority(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [[todo]]
+        status = "open"
+        priority = "urgent"
+        task = "x"
+    ''')
+    with pytest.raises(ParseError, match=r"priority='urgent'"):
+        load(tmp_path)
+
+
+def test_load_raises_on_priority_on_done_item(tmp_path: Path):
+    """Locked target shape: `priority` is only valid on open items."""
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [[todo]]
+        status = "done"
+        priority = "high"
+        task = "Shipped"
+    ''')
+    with pytest.raises(
+        ParseError, match=r"status='done' — priority is only valid on open",
+    ):
+        load(tmp_path)
+
+
+def test_load_raises_on_missing_todo_task(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [[todo]]
+        status = "open"
+    ''')
+    with pytest.raises(ParseError, match="task is required"):
+        load(tmp_path)
+
+
+def test_load_raises_on_empty_todo_task(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [[todo]]
+        status = "open"
+        task = "   "
+    ''')
+    with pytest.raises(ParseError, match="must be a non-empty string"):
+        load(tmp_path)
+
+
+def test_load_raises_on_non_list_todo(tmp_path: Path):
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [todo]
+        status = "done"
+        task = "x"
+    ''')
+    with pytest.raises(ParseError, match="must be an array of tables"):
+        load(tmp_path)
+
+
+def test_round_trip_preserves_stack(tmp_path: Path):
+    payload = LamillToml(
+        deploy=DeployBlock(platform="cf-pages"),
+        stack=StackBlock(framework="astro", build_tool="vite"),
+    )
+    write(tmp_path, payload)
+    reloaded = load(tmp_path)
+    assert reloaded.stack == payload.stack
+
+
+def test_round_trip_preserves_todos_and_emits_canonical_comment(tmp_path: Path):
+    """The writer prepends a canonical `# Tracked todos for <site>.
+    status: "done" | "open".` comment above the `[[todo]]` block — the
+    operator can hand-edit the file knowing this minimum context line
+    survives every round-trip."""
+    repo_dir = tmp_path / "drdebug.dev"
+    repo_dir.mkdir()
+    payload = LamillToml(
+        deploy=DeployBlock(platform="cf-pages"),
+        todos=[
+            TodoItem(status="done", task="Shipped the landing page"),
+            TodoItem(
+                status="open", task="Verify drafts", priority="high",
+            ),
+            TodoItem(
+                status="open", task="Wire GA4", priority="medium",
+            ),
+        ],
+    )
+    write(repo_dir, payload)
+    body = (repo_dir / LAMILL_TOML_FILENAME).read_text()
+    assert '# Tracked todos for drdebug.dev. status: "done" | "open".' in body
+    reloaded = load(repo_dir)
+    assert reloaded.todos == payload.todos
+
+
+def test_round_trip_no_todos_omits_canonical_comment(tmp_path: Path):
+    """When `todos` is empty the writer must NOT emit the header comment
+    (no `[[todo]]` block to label)."""
+    payload = LamillToml(deploy=DeployBlock(platform="cf-pages"))
+    write(tmp_path, payload)
+    body = (tmp_path / LAMILL_TOML_FILENAME).read_text()
+    assert "Tracked todos" not in body
+    assert "[[todo]]" not in body
+
+
+def test_round_trip_preserves_both_tables_together(tmp_path: Path):
+    repo_dir = tmp_path / "dailyring.xyz"
+    repo_dir.mkdir()
+    payload = LamillToml(
+        deploy=DeployBlock(platform="cf-pages"),
+        stack=StackBlock(framework="astro"),
+        todos=[TodoItem(status="open", task="Launch", priority="high")],
+    )
+    write(repo_dir, payload)
+    reloaded = load(repo_dir)
+    assert reloaded.stack == payload.stack
+    assert reloaded.todos == payload.todos
+
+
+def test_existing_v1_file_with_unknown_top_level_table_is_ignored(tmp_path: Path):
+    """Forward-compat side of the additive-optional invariant: an old
+    reader (no support for some future table) silently ignores it
+    rather than ParseError-ing."""
+    _write(tmp_path, '''
+        [deploy]
+        platform = "cf-pages"
+
+        [future_feature]
+        flag = "experimental"
+    ''')
+    payload = load(tmp_path)
+    assert payload.deploy.platform == "cf-pages"
+    assert payload.stack is None
+    assert payload.todos == []
+
+
+def test_todo_status_values_match_locked_shape():
+    assert set(TODO_STATUS_VALUES) == {"done", "open"}
+
+
+def test_todo_priority_values_match_locked_shape():
+    assert set(TODO_PRIORITY_VALUES) == {"high", "medium", "low"}
+
+
+def test_stack_framework_values_match_locked_shape():
+    assert set(STACK_FRAMEWORK_VALUES) == {
+        "astro", "vite-react", "tanstack", "nextjs", "sveltekit",
+        "wordpress", "static", "none",
+    }

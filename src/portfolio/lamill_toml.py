@@ -68,6 +68,27 @@ FRAMEWORK_VALUES: tuple[str, ...] = (
 )
 BACKEND_HOSTING_VALUES: tuple[str, ...] = ("fly.io", "managed-provider", "none")
 
+# v27.B — `[[todo]]` per-site work tracker (additive optional table per
+# ADR-0017). See `docs/CLAUDE.md § Locked target shapes § 🔒 lamill.toml
+# [[todo]] shape` for the canonical spec.
+TODO_STATUS_VALUES: tuple[str, ...] = ("done", "open")
+TODO_PRIORITY_VALUES: tuple[str, ...] = ("high", "medium", "low")
+
+# v27.B — `[stack]` frontend-stack declaration (additive optional table
+# per ADR-0017). Single source of truth for the per-site frontend stack;
+# stack-aware checks + bootstrap + translator consume this. See
+# `docs/CLAUDE.md § Locked target shapes § 🔒 lamill.toml [stack] shape`.
+STACK_FRAMEWORK_VALUES: tuple[str, ...] = (
+    "astro",
+    "vite-react",
+    "tanstack",
+    "nextjs",
+    "sveltekit",
+    "wordpress",
+    "static",
+    "none",
+)
+
 
 class ParseError(Exception):
     """Raised when `lamill.toml` is malformed or violates the schema."""
@@ -127,6 +148,26 @@ class AnalyticsBlock:
     ga4_id: str | None = None
 
 
+# v27.B — per-site work tracker item. `priority` is only valid when
+# `status == "open"`; `priority` on a `done` item raises `ParseError`
+# (per the locked target shape).
+@dataclass
+class TodoItem:
+    status: str
+    task: str
+    priority: str | None = None
+
+
+# v27.B — frontend-stack declaration. `framework` is one of
+# `STACK_FRAMEWORK_VALUES`; `build_tool` is a free-form string (e.g.
+# `vite` under astro/tanstack) — left untyped pending a real use-case
+# for an enum.
+@dataclass
+class StackBlock:
+    framework: str
+    build_tool: str | None = None
+
+
 @dataclass
 class LamillToml:
     deploy: DeployBlock
@@ -135,6 +176,11 @@ class LamillToml:
     backend: BackendBlock | None = None
     analytics: AnalyticsBlock | None = None
     notes: str | None = None
+    # v27.B — additive optional tables. Empty / None when absent so
+    # files that don't carry them round-trip cleanly (see ADR-0017 + the
+    # additive-optional invariant in docs/CLAUDE.md).
+    stack: StackBlock | None = None
+    todos: list[TodoItem] = field(default_factory=list)
 
 
 # ---- loader ---------------------------------------------------------
@@ -217,6 +263,35 @@ def _parse_doc(doc: dict, *, source: Path) -> LamillToml:
 
     notes = _parse_notes(doc.get("notes"), source=source)
 
+    # v27.B — `[stack]` is optional; absent → None per the additive-
+    # optional invariant (`docs/CLAUDE.md § 🔒 lamill.toml additive-
+    # optional invariant`). Strict on shape when present.
+    stack_raw = doc.get("stack")
+    if stack_raw is not None and not isinstance(stack_raw, dict):
+        raise ParseError(
+            f"{source}: [stack] must be a table, "
+            f"got {type(stack_raw).__name__}"
+        )
+    stack = (
+        _parse_stack(stack_raw, source=source)
+        if stack_raw is not None
+        else None
+    )
+
+    # v27.B — `[[todo]]` array-of-tables; absent → empty list. Each item
+    # validated strictly (bad enums, missing `task`, or `priority` on a
+    # `done` item → ParseError).
+    todo_raw = doc.get("todo", [])
+    if not isinstance(todo_raw, list):
+        raise ParseError(
+            f"{source}: `todo` must be an array of tables, "
+            f"got {type(todo_raw).__name__}"
+        )
+    todos = [
+        _parse_todo(item, source=source, index=i)
+        for i, item in enumerate(todo_raw)
+    ]
+
     return LamillToml(
         schema=schema,
         deploy=deploy,
@@ -224,6 +299,8 @@ def _parse_doc(doc: dict, *, source: Path) -> LamillToml:
         backend=backend,
         analytics=analytics,
         notes=notes,
+        stack=stack,
+        todos=todos,
     )
 
 
@@ -341,6 +418,76 @@ def _parse_analytics(raw: dict, *, source: Path) -> AnalyticsBlock:
     return AnalyticsBlock(ga4_id=ga4_id)
 
 
+def _parse_stack(raw: dict, *, source: Path) -> StackBlock:
+    framework = raw.get("framework")
+    if not isinstance(framework, str):
+        raise ParseError(
+            f"{source}: [stack].framework is required and must be a string"
+        )
+    if framework not in STACK_FRAMEWORK_VALUES:
+        raise ParseError(
+            f"{source}: [stack].framework={framework!r} is not a valid "
+            f"framework (expected one of "
+            f"{', '.join(STACK_FRAMEWORK_VALUES)})"
+        )
+
+    build_tool = raw.get("build_tool")
+    if build_tool is not None and not isinstance(build_tool, str):
+        raise ParseError(
+            f"{source}: [stack].build_tool must be a string when set"
+        )
+
+    return StackBlock(framework=framework, build_tool=build_tool)
+
+
+def _parse_todo(raw: object, *, source: Path, index: int) -> TodoItem:
+    if not isinstance(raw, dict):
+        raise ParseError(
+            f"{source}: [[todo]][{index}] must be a table, "
+            f"got {type(raw).__name__}"
+        )
+
+    status = raw.get("status")
+    if not isinstance(status, str):
+        raise ParseError(
+            f"{source}: [[todo]][{index}].status is required and must "
+            f"be a string"
+        )
+    if status not in TODO_STATUS_VALUES:
+        raise ParseError(
+            f"{source}: [[todo]][{index}].status={status!r} not in "
+            f"{{{', '.join(TODO_STATUS_VALUES)}}}"
+        )
+
+    task = raw.get("task")
+    if not isinstance(task, str) or not task.strip():
+        raise ParseError(
+            f"{source}: [[todo]][{index}].task is required and must "
+            f"be a non-empty string"
+        )
+
+    priority = raw.get("priority")
+    if priority is not None:
+        if not isinstance(priority, str):
+            raise ParseError(
+                f"{source}: [[todo]][{index}].priority must be a string"
+            )
+        if priority not in TODO_PRIORITY_VALUES:
+            raise ParseError(
+                f"{source}: [[todo]][{index}].priority={priority!r} "
+                f"not in {{{', '.join(TODO_PRIORITY_VALUES)}}}"
+            )
+        # priority is only meaningful on open items — a done item
+        # carrying priority is a schema error (locked target shape).
+        if status == "done":
+            raise ParseError(
+                f"{source}: [[todo]][{index}] has priority={priority!r} "
+                f"but status='done' — priority is only valid on open items"
+            )
+
+    return TodoItem(status=status, task=task.strip(), priority=priority)
+
+
 def _parse_notes(raw: object, *, source: Path) -> str | None:
     if raw is None:
         return None
@@ -363,15 +510,39 @@ def write(repo_path: Path, payload: LamillToml) -> None:
     """Atomically write `<repo_path>/lamill.toml`.
 
     Uses tmpfile + rename so partial writes can't corrupt an existing
-    file. Comments are NOT preserved — tomli-w doesn't carry them
-    through a round-trip, and operator edits go through `$EDITOR`
-    directly (the writer is only invoked from `new bootstrap`,
-    `settings deploy set`, and the migration sweep — paths
-    where the operator hasn't hand-annotated the file yet).
+    file. Operator freeform comments are NOT preserved — `tomli-w`
+    doesn't carry them through a round-trip — but when `payload.todos`
+    is non-empty the writer prepends a canonical `#` header comment
+    above the `[[todo]]` blocks (per v27.B / locked target shape).
     """
     target = repo_path / LAMILL_TOML_FILENAME
     doc = to_dict(payload)
+    # v27.B — serialize `todo` ourselves as `[[todo]]` array-of-tables.
+    # `tomli_w.dumps` decides between inline (`todo = [...]`) and
+    # block (`[[todo]]`) form based on row width, which makes the
+    # output non-deterministic across payloads and breaks the
+    # canonical-comment injection. Pop the key before dumping the rest;
+    # format each row as a `[[todo]]` block manually (using tomli_w on
+    # the inner dict so string escaping stays correct).
+    todo_items = doc.pop("todo", None)
     body = tomli_w.dumps(doc)
+    if todo_items:
+        site = repo_path.name
+        header = (
+            f"# Tracked todos for {site}. "
+            f"status: \"done\" | \"open\".\n"
+        )
+        blocks = [
+            "[[todo]]\n" + tomli_w.dumps(item).rstrip("\n")
+            for item in todo_items
+        ]
+        body = (
+            body.rstrip("\n")
+            + "\n\n"
+            + header
+            + "\n\n".join(blocks)
+            + "\n"
+        )
     _atomic_write(target, body)
 
 
@@ -400,6 +571,15 @@ def to_dict(payload: LamillToml) -> dict:
         deploy["custom_domains"] = list(payload.deploy.custom_domains)
     out["deploy"] = deploy
 
+    # v27.B — emit `[stack]` close to `[deploy]` so config sections
+    # (where + what) cluster at the top of the file; tomli_w preserves
+    # dict insertion order.
+    if payload.stack is not None:
+        stack_out: dict = {"framework": payload.stack.framework}
+        if payload.stack.build_tool is not None:
+            stack_out["build_tool"] = payload.stack.build_tool
+        out["stack"] = stack_out
+
     if payload.hosting is not None:
         out["hosting"] = _serialize_hosting(payload.hosting)
 
@@ -415,6 +595,21 @@ def to_dict(payload: LamillToml) -> dict:
 
     if payload.notes is not None:
         out["notes"] = {"text": payload.notes}
+
+    # v27.B — emit `[[todo]]` last so it sits at the bottom of the file
+    # (matches the drdebug pilot's structure). Each item omits
+    # `priority` when None (round-trip determinism on done items).
+    if payload.todos:
+        # Row key order matches the drdebug pilot's hand-authored shape:
+        # status, [priority], task. (priority omitted when None.)
+        todo_out: list[dict] = []
+        for item in payload.todos:
+            row: dict = {"status": item.status}
+            if item.priority is not None:
+                row["priority"] = item.priority
+            row["task"] = item.task
+            todo_out.append(row)
+        out["todo"] = todo_out
 
     return out
 
