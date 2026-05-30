@@ -1090,7 +1090,7 @@ Resolve before the relevant phase ships.
 | **Cloudflare — fleet walker** | v11.A `fleet hosting` walker — `/accounts/{id}/pages/projects`, `/workers/scripts`, `/workers/domains` | `CF_API_TOKEN` + `CF_ACCOUNT_ID` | Pagination on Pages projects list |
 | **Cloudflare — zones** | v11/v15.I — `resolve_zone_id` (existing) · `ensure_zone` (v15.I; `POST /zones` for create) | `CF_API_TOKEN` + `CF_ACCOUNT_ID` | Zone create returns `name_servers` array for operator to set at registrar |
 | **Cloudflare — Pages-API (v15.I unified deploy)** | `new deploy` for `platform ∈ {cf-pages, cf-workers}` per ADR-0012 — `POST /accounts/{id}/pages/projects` with `source.type=github` for git-integrated create · `GET /accounts/{id}/pages/projects/{name}` idempotency probe · `POST /accounts/{id}/pages/projects/{name}/domains` custom-domain attach (GET-then-POST, no documented idempotency) · `GET /accounts/{id}/pages/projects/{name}/deployments?per_page=1` for build poll (`latest_stage.status` ∈ {success, idle, active, failure, canceled}) | `CF_API_TOKEN` + `CF_ACCOUNT_ID` | **CF GitHub App** must be installed once per CF account at `https://dash.cloudflare.com/?to=/:account/workers-and-pages/create/connect-to-git` (one-time dashboard step; not API-automatable). Pipeline detects + surfaces clear error when missing. |
-| **Vercel** | v11.A `fleet hosting` walker | `VERCEL_TOKEN` (Bearer) | Personal token sees only personal account; multi-team out of scope (`prd.md` v11 Design notes — 11.A) |
+| **Vercel** | v11.A `fleet hosting` walker; v26.D domain/redirect config API (`vercel.py` — `find_project_by_domain` / `get_project_domain` / `add_domain_to_project` / `update_domain_redirect` / `verify_token`); `new deploy` Vercel path (v11.M) shells out to the `vercel` CLI (`vercel deploy --prod`) — **not** a REST deploy | `VERCEL_TOKEN` (Bearer) | Personal token sees only personal account; multi-team out of scope (`prd.md` v11 Design notes — 11.A). Deploy is CLI-dependent + low-coverage — see *Provider API coverage* below |
 | **CrUX (Chrome UX Report)** | `seo_runtime` field data | `CRUX_API_KEY` | `no-data` for personal-portfolio-scale origins (expected; not a bug) |
 | **SerpAPI** | `new validate` real SERP fetch | `SERPAPI_KEY` | Monthly quota tracked in `data/serp/_quota.json` |
 | **Google Search Console** | `gsc.py` ranking + impressions; URL Inspection (v16.C); `gsc_admin.py` (v24.B) write client — `sites.add` / `sitemaps.submit` / Site Verification API (`getToken` + `webResource.insert`) for `new deploy` Step 9 GSC auto-registration | OAuth — scopes `webmasters` (write; bumped from `webmasters.readonly` in v24.B) + `siteverification` (added in v24.B) | 28-day rolling window for analytics; URL Inspection 2000/day quota; Site Verification API + sites.add require the v24.B scope bump (operator re-runs `lamill settings gsc auth --force` once) |
@@ -1099,6 +1099,30 @@ Resolve before the relevant phase ships.
 | **Porkbun — registrar inventory** | v15.F — `fleet sync --refresh` — `POST /domain/listAll` | Same | Returns up to 1000 domains per page; pagination via `start` |
 | **Porkbun — DNS (v15.I)** | `new deploy` — `POST /domain/getNs/{domain}` + `POST /domain/updateNs/{domain}` for NS read + push per ADR-0012's registrar-NS-automation step | Same | Idempotency NOT documented for `updateNs`; pipeline does GET-then-update-if-mismatch |
 | **RDAP** | Availability fallback | Anonymous | Authoritative WHOIS replacement |
+
+### Provider API coverage
+
+How completely each provider's lifecycle is driven by API vs. CLI/manual
+steps. Assessed 2026-05-30 while scoping cross-tool automation.
+
+| Provider | Config / management | Deploy / write action | Verdict |
+|---|---|---|---|
+| **Cloudflare** | REST API (`cloudflare.py` — zones, DNS CRUD, token scope probe) | REST API end-to-end — Pages project create-with-git, custom-domain attach, trigger deployment, poll build status; **no CLI dependency** | **Fully API-driven** |
+| **Vercel** | REST API (`vercel.py` — project/domain lookup, add-domain, redirect config) | `vercel` **CLI** subprocess (`vercel deploy --prod`, v11.M); relies on Vercel git-integration auto-build, not REST deployments API | **Partial** — API config, CLI deploy |
+| **Porkbun** | REST API (NS read) | REST API (NS push — `getNs` / `updateNs`) | **API-driven** (registrar role) |
+| **GoDaddy** | CSV inventory import only (`data/domains/godaddy.csv`) | **Manual** — operator sets NS in the registrar panel; `new deploy` step 4 surfaces the NS values to set | **Not API-driven** |
+| **Namecheap** | — | Manual | **Not API-driven** (deferred, same as GoDaddy) |
+
+**Deferred — full-API Vercel deploy path.** The Vercel deploy is
+CLI-driven (`vercel deploy --prod`), not REST like the Cloudflare path.
+A fully-API Vercel deploy (drive the Vercel deployments API + build
+status directly, drop the CLI binary dependency) is **not being built or
+tested now** — Vercel is low-usage across the fleet, so the effort isn't
+justified. The CLI path works for the rare Vercel deploy. We may add the
+REST deploy path in the future when the need arises (more Vercel sites,
+or a CI context where the `vercel` CLI binary isn't available). Same
+reasoning defers GoDaddy/Namecheap registrar-NS automation — manual NS
+is acceptable while those registrars are a small minority of the fleet.
 
 ### Rate-limit handling
 
