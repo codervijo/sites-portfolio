@@ -34,6 +34,9 @@ from datetime import date
 _RANK_RED = 4
 _RANK_ORANGE = 3
 _RANK_YELLOW = 2
+# v27.F — a tracked high-priority todo is below every live problem: a
+# declared task shouldn't outrank a site that's actually down / buried.
+_RANK_TODO = 1
 _RANK_OK = 0
 
 
@@ -65,6 +68,7 @@ def build_focus_list(
     domain_categories: dict[str, str] | None = None,
     domain_site_age_days: dict[str, int | None] | None = None,
     domain_check_failures: dict[str, dict] | None = None,
+    domain_high_todos: dict[str, str] | None = None,
     include_young: bool = False,
     young_threshold_days: int = YOUNG_SITE_THRESHOLD_DAYS,
     suppressed_young_out: list[str] | None = None,
@@ -93,8 +97,16 @@ def build_focus_list(
     stale Cloudflare edge cache) as focus signals without requiring
     the focus path to re-run network probes itself. None / empty means
     "skip the check-driven signals."
+
+    `domain_high_todos` maps domain → the text of that site's top open
+    `high`-priority todo (from its `lamill.toml` `[[todo]]` table). Each
+    becomes a 📝 signal at `_RANK_TODO` — below every live signal. The
+    caller (`focus()`) gathers this from disk, so the signal is available
+    even when `refresh=False` and no live snapshot exists (honors focus's
+    "never blocks on a live fetch" contract). None / empty means "skip."
     """
     domain_check_failures = domain_check_failures or {}
+    domain_high_todos = domain_high_todos or {}
     domain_categories = domain_categories or {}
     domain_site_age_days = domain_site_age_days or {}
     items: dict[str, FocusItem] = {}
@@ -281,6 +293,13 @@ def build_focus_list(
             f"Stale CF edge cache: {message}",
             f"→ run 'portfolio project fix {d} --apply' (purges via CF API)",
         )
+
+    # 📝 Top open high-priority todo per site (v27.F). Feeds the same
+    # _add_signal plumbing as every other signal, so ignored-category
+    # gating + dedup-per-domain come for free. Ranks below all live
+    # signals — a tracked task is the least-urgent thing on the list.
+    for d, task in domain_high_todos.items():
+        _add_signal(d.lower(), "📝", _RANK_TODO, "todo", task)
 
     # Sort by rank desc, then alphabetical.
     out = list(items.values())

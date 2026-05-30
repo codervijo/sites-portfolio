@@ -192,6 +192,29 @@ def focus(
             dom, msg = r
             domain_check_failures[dom] = {"CHECK_057": msg}
 
+    # v27.F — 📝 todo signal. Each site's top open `high`-priority todo
+    # becomes a focus one-liner. Reads `lamill.toml` only (no fetch), so
+    # it's available even when --refresh is off and no live snapshot
+    # exists — honoring focus's "never blocks on a live fetch" contract.
+    # Additive-optional: a site with no lamill.toml / no [[todo]] table /
+    # no high open todo contributes nothing; a malformed file is skipped
+    # rather than sinking the whole run.
+    from .fleet_repos import list_site_dirs as _focus_list_site_dirs
+    from .lamill_toml import ParseError as _FocusParseError
+    from .todos import build_project_todos as _focus_build_project_todos
+
+    domain_high_todos: dict[str, str] = {}
+    for _site_dir in _focus_list_site_dirs():
+        try:
+            _pt = _focus_build_project_todos(_site_dir, domain=_site_dir.name)
+        except _FocusParseError:
+            continue
+        _high = next(
+            (t for t in _pt.open_items if t.priority == "high"), None
+        )
+        if _high is not None:
+            domain_high_todos[_site_dir.name.lower()] = _high.task
+
     suppressed_young: list[str] = []
     items = build_focus_list(
         live_snapshot=live_data,
@@ -200,6 +223,7 @@ def focus(
         domain_categories=domain_categories,
         domain_site_age_days=domain_site_age,
         domain_check_failures=domain_check_failures,
+        domain_high_todos=domain_high_todos,
         include_young=include_young,
         suppressed_young_out=suppressed_young,
     )

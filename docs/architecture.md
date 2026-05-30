@@ -1182,7 +1182,7 @@ candidate refactor if a third LLM provider lands.
 | `templates.py` | Bootstrap template source + section emitters | `bootstrap_template`, `<doc>_section_<key>()` factories |
 | `fleet_repos.py` | `fleet repos` audit + naming consistency | `audit_repos` |
 | `dashboard.py` | `fleet dashboard` unified view | `render_dashboard` |
-| `focus.py` | `fleet focus` priority ranker | `compute_focus` |
+| `focus.py` | `fleet focus` priority ranker (🔴 down > ⚠️ expiring > 🟠/🟡 SEO > 📝 top open `high` `[[todo]]`, rank 1, `lamill.toml`-only) | `compute_focus` |
 | `todos.py` (v27.D) | `project todos` / `fleet todos` read views over the `lamill.toml [[todo]]` table; pure reads, no live fetch | `build_project_todos`, `render_project_todos`, `build_fleet_todos`, `render_fleet_todos` |
 | `stack_classifier.py` (v27.C/E) | Single source of truth for the per-site frontend-stack heuristic — detection + drift signals. Consumed by the v27.C backfill + the stack checks (CHECK_035/036/037/151). Pure: never reads `lamill.toml` (no circularity) | `classify_stack`, `foreign_config_markers`, `NON_JS_FRAMEWORKS` |
 | `drift.py` | `fleet drift` cross-source comparator | `compute_drift` |
