@@ -506,41 +506,59 @@ def _parse_notes(raw: object, *, source: Path) -> str | None:
 # ---- writer ---------------------------------------------------------
 
 
+def todo_region_text(site: str, todos: list[TodoItem]) -> str:
+    """Canonical `[[todo]]` region text — header comment + blocks, no
+    trailing newline.
+
+    Single source of truth for `[[todo]]` formatting, shared by the
+    full-file writer (`write()`) and the surgical upsert editor
+    (`lamill_toml_edit`) so both emit byte-identical blocks.
+
+    `tomli_w.dumps` decides between inline (`todo = [...]`) and block
+    (`[[todo]]`) form based on row width, which is non-deterministic and
+    breaks the canonical-comment injection — so each row is emitted as
+    an explicit `[[todo]]` block (using `tomli_w` on the inner dict so
+    string escaping stays correct). Row key order matches the drdebug
+    pilot's hand-authored shape: `status`, `[priority]`, `task`
+    (`priority` omitted when None — invalid on done items per the
+    locked shape).
+    """
+    header = f'# Tracked todos for {site}. status: "done" | "open".\n'
+    blocks: list[str] = []
+    for item in todos:
+        row: dict = {"status": item.status}
+        if item.priority is not None:
+            row["priority"] = item.priority
+        row["task"] = item.task
+        blocks.append("[[todo]]\n" + tomli_w.dumps(row).rstrip("\n"))
+    return header + "\n\n".join(blocks)
+
+
 def write(repo_path: Path, payload: LamillToml) -> None:
-    """Atomically write `<repo_path>/lamill.toml`.
+    """Atomically write `<repo_path>/lamill.toml` (full-file rewrite).
 
     Uses tmpfile + rename so partial writes can't corrupt an existing
     file. Operator freeform comments are NOT preserved — `tomli-w`
     doesn't carry them through a round-trip — but when `payload.todos`
     is non-empty the writer prepends a canonical `#` header comment
     above the `[[todo]]` blocks (per v27.B / locked target shape).
+
+    NOTE (ADR-0018): this is a *rewrite*, not an upsert — it drops any
+    table `to_dict()` doesn't know (e.g. `[content]`) and all comments.
+    Use it only for brand-new files (`new bootstrap`). To mutate an
+    existing file use `lamill_toml_edit`'s surgical upserts instead.
     """
     target = repo_path / LAMILL_TOML_FILENAME
     doc = to_dict(payload)
-    # v27.B — serialize `todo` ourselves as `[[todo]]` array-of-tables.
-    # `tomli_w.dumps` decides between inline (`todo = [...]`) and
-    # block (`[[todo]]`) form based on row width, which makes the
-    # output non-deterministic across payloads and breaks the
-    # canonical-comment injection. Pop the key before dumping the rest;
-    # format each row as a `[[todo]]` block manually (using tomli_w on
-    # the inner dict so string escaping stays correct).
-    todo_items = doc.pop("todo", None)
+    # Pop `todo` so `tomli_w.dumps(doc)` doesn't emit it — the `[[todo]]`
+    # region is rendered via the shared canonical emitter below.
+    doc.pop("todo", None)
     body = tomli_w.dumps(doc)
-    if todo_items:
-        site = repo_path.name
-        header = (
-            f"# Tracked todos for {site}. "
-            f"status: \"done\" | \"open\".\n"
-        )
-        blocks = [
-            "[[todo]]\n" + tomli_w.dumps(item).rstrip("\n")
-            for item in todo_items
-        ]
+    if payload.todos:
         body = (
             body.rstrip("\n")
             + "\n\n"
-            + header
-            + "\n\n".join(blocks)
+            + todo_region_text(repo_path.name, payload.todos)
             + "\n"
         )
     _atomic_write(target, body)

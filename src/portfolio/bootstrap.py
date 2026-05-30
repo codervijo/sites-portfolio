@@ -1688,6 +1688,30 @@ def _clone_to_genai(project_dir: Path, git_url: str) -> None:
 # ---------- main ----------
 
 
+def bootstrap_starter_todos(today=None):
+    """v27.I — the starter-set todos `new bootstrap` seeds into a new
+    site's `[[todo]]` table.
+
+    Due dates are text-only (baked into the task string) per the v27
+    decision — no schema field. The SEO check is `medium` so it doesn't
+    surface in `fleet focus` (high-only) the day the site is bootstrapped;
+    the `[content]` fill-in is `high` so focus nudges it until done.
+    `today` is injectable for deterministic tests.
+    """
+    from .lamill_toml import TodoItem
+    from .lamill_toml_edit import due_hint
+    return [
+        TodoItem(status="open", priority="high",
+                 task="Fill in [content] block (site_type, primary_keyword, icp, …)"),
+        TodoItem(status="open", priority="medium",
+                 task="Check SEO: GSC indexation + coverage" + due_hint("+14d", today=today)),
+        TodoItem(status="open", priority="medium",
+                 task="Verify GA4 is receiving data (check Realtime after first traffic)"),
+        TodoItem(status="open", priority="low",
+                 task="Confirm GSC verification + sitemap submitted (re-run deploy if it timed out)"),
+    ]
+
+
 def detect_stack_from_pkg(project_dir: Path) -> str:
     """If package.json exists, infer stack. Default 'vite' if React; 'astro' if astro dep; else fallback."""
     pkg_path = project_dir / "package.json"
@@ -2050,9 +2074,13 @@ def _bootstrap_inner(
             HOSTING_REQUIRED_PLATFORMS,
             LamillToml,
             PLATFORM_VALUES,
+            STACK_FRAMEWORK_VALUES,
+            StackBlock,
             infer_from_existing_configs,
         )
         from .lamill_toml import write as _write_lamill_toml
+        from . import lamill_toml_edit as _lt_edit
+        from .stack_classifier import classify_stack
         if platform is not None:
             if platform not in PLATFORM_VALUES:
                 raise BootstrapError(
@@ -2079,6 +2107,16 @@ def _bootstrap_inner(
             chosen_platform = (
                 inferred.platform if inferred is not None else "cf-workers"
             )
+        # v27.I — auto-declare [stack] from the canonical classifier
+        # (same source of truth as the v27.C backfill + CHECK_151 drift),
+        # so new sites start with a declaration and don't show as drift.
+        detected_framework = classify_stack(project_dir).framework
+        stack_block = (
+            StackBlock(framework=detected_framework)
+            if detected_framework in STACK_FRAMEWORK_VALUES
+            else None
+        )
+
         _write_lamill_toml(
             project_dir,
             LamillToml(
@@ -2086,12 +2124,20 @@ def _bootstrap_inner(
                     platform=chosen_platform,
                     custom_domains=[domain],
                 ),
+                stack=stack_block,
                 analytics=(
                     AnalyticsBlock(ga4_id=measurement_id)
                     if measurement_id else None
                 ),
+                # v27.I — seed the approved starter-set todos.
+                todos=bootstrap_starter_todos(),
             ),
         )
+        # v27.I — match the fleet file shape: header pointer + empty
+        # [content] skeleton (surgical, idempotent; the "fill in
+        # [content]" starter todo references this block).
+        _lt_edit.ensure_content_block(project_dir)
+        _lt_edit.ensure_header_comment(project_dir)
         result.files_written.append("lamill.toml")
 
     initialized, sha = _git_init_and_commit(

@@ -8582,16 +8582,43 @@ def project_seo(
 @project_app.command("todos")
 def project_todos(
     name: str = typer.Argument(..., metavar="DOMAIN", help="Domain or repo dir name"),
+    add: str = typer.Option(
+        None, "--add", metavar="TASK",
+        help="Add an open todo with this task text.",
+    ),
+    priority: str = typer.Option(
+        None, "--priority", "-p",
+        help="Priority for --add: high | medium | low.",
+    ),
+    due: str = typer.Option(
+        None, "--due",
+        help="Due hint for --add (e.g. +14d, +2w, 2026-06-13) appended to "
+             "the task text. Text-only — no schema field.",
+    ),
+    done: int = typer.Option(
+        None, "--done", metavar="N",
+        help="Mark the todo at file-order index N done (strips its priority).",
+    ),
+    reopen: int = typer.Option(
+        None, "--reopen", metavar="N",
+        help="Reopen the done todo at file-order index N.",
+    ),
 ) -> None:
     """Per-project todo tracker — open items grouped by priority, done dimmed.
 
-    Pure read of the site's `lamill.toml [[todo]]` table. A site with no
-    `lamill.toml` (or no todos declared) simply renders empty — todos are
-    an additive-optional table, never required.
+    With no flags, a pure read of the site's `lamill.toml [[todo]]` table
+    (a site with no `lamill.toml` / no todos renders empty — additive-
+    optional, never required). The write verbs mutate in place via a
+    surgical upsert (`lamill_toml_edit`), so `[content]`, comments, and
+    table ordering are preserved (ADR-0018) — then re-render the result.
+
+    `<N>` for --done / --reopen is the 1-based file-order index shown as
+    `[n]` in the read view.
     """
     from .project import resolve_project, SITES_ROOT
     from . import todos as todos_mod
     from . import lamill_toml
+    from . import lamill_toml_edit as edit
 
     res = resolve_project(name)
     if not res.matched:
@@ -8599,10 +8626,39 @@ def project_todos(
         if res.candidates:
             console.print(f"[dim]Did you mean: {', '.join(res.candidates)}?[/]")
         raise typer.Exit(1)
+    repo = SITES_ROOT / res.matched
+
+    # One mutation per call; --priority / --due only modify --add.
+    n_actions = sum(x is not None for x in (add, done, reopen))
+    if n_actions > 1:
+        console.print("[red]✗ choose one of --add / --done / --reopen per call.[/]")
+        raise typer.Exit(2)
+    if (priority is not None or due is not None) and add is None:
+        console.print("[red]✗ --priority / --due only apply with --add.[/]")
+        raise typer.Exit(2)
 
     try:
-        pt = todos_mod.build_project_todos(SITES_ROOT / res.matched,
-                                           domain=res.matched)
+        if add is not None:
+            task = add + (edit.due_hint(due) if due is not None else "")
+            item = edit.add_todo(repo, task=task, priority=priority)
+            console.print(
+                f"[green]✓ added[/] ({priority or 'unprioritized'}) {item.task}"
+            )
+        elif done is not None:
+            item = edit.complete_todo(repo, done)
+            console.print(f"[green]✓ done[/] \\[{done}] {item.task}")
+        elif reopen is not None:
+            item = edit.reopen_todo(repo, reopen)
+            console.print(f"[green]✓ reopened[/] \\[{reopen}] {item.task}")
+    except edit.TodoEditError as e:
+        console.print(f"[red]✗ {res.matched}: {e}[/]")
+        raise typer.Exit(1)
+    except lamill_toml.ParseError as e:
+        console.print(f"[red]✗ {res.matched}: malformed lamill.toml — {e}[/]")
+        raise typer.Exit(1)
+
+    try:
+        pt = todos_mod.build_project_todos(repo, domain=res.matched)
     except lamill_toml.ParseError as e:
         console.print(f"[red]✗ {res.matched}: malformed lamill.toml — {e}[/]")
         raise typer.Exit(1)

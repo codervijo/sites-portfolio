@@ -58,6 +58,10 @@ class ProjectTodos:
     has_toml: bool
     open_items: list[TodoItem] = field(default_factory=list)
     done_items: list[TodoItem] = field(default_factory=list)
+    # v27.H — todos in raw file order, 1-based. The number shown as `[n]`
+    # in the read view IS the index the `--done <n>` / `--reopen <n>`
+    # write verbs accept (file order, stable across priority grouping).
+    numbered: list[tuple[int, TodoItem]] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -87,6 +91,7 @@ def build_project_todos(repo_path: Path, *, domain: str) -> ProjectTodos:
         has_toml=True,
         open_items=open_items,
         done_items=done_items,
+        numbered=list(enumerate(doc.todos, start=1)),
     )
 
 
@@ -101,6 +106,11 @@ def render_project_todos(pt: ProjectTodos, console) -> None:
         console.print("   [dim]no todos declared[/]")
         return
 
+    # File-order index per item — what the `--done <n>` / `--reopen <n>`
+    # verbs accept. Keyed by identity so duplicate task strings stay
+    # distinct (sorted views reuse the same TodoItem objects).
+    num_by_id = {id(item): n for n, item in pt.numbered}
+
     if pt.open_items:
         console.print(
             f"\n[bold]Open[/] [dim]({len(pt.open_items)})[/]"
@@ -113,12 +123,14 @@ def render_project_todos(pt: ProjectTodos, console) -> None:
                 console.print(
                     f"  [{style}]{_priority_label(item.priority)}[/]"
                 )
-            console.print(f"    • {item.task}")
+            console.print(f"    [dim]\\[{num_by_id[id(item)]}][/] • {item.task}")
 
     if pt.done_items:
         console.print(f"\n[dim]Done ({len(pt.done_items)})[/]")
         for item in pt.done_items:
-            console.print(f"  [dim]✓ {item.task}[/]")
+            console.print(
+                f"  [dim]\\[{num_by_id[id(item)]}] ✓ {item.task}[/]"
+            )
 
 
 # ---- fleet view -----------------------------------------------------

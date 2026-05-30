@@ -305,16 +305,34 @@ notes).
 
 **CLI: plural symmetric** — `lamill project todos <domain>` and `lamill
 fleet todos`. No singular form (`todo` reads as a mutation verb and
-breaks the cross-scope symmetry rule).
+breaks the cross-scope symmetry rule). Write verbs hang off the plural
+read command as flags (v27.H): `project todos <d> --add "<task>"
+[--priority] [--due +14d|ISO]` / `--done <n>` / `--reopen <n>`. `<n>` is
+the 1-based file-order index shown as `[n]` in the read view; `--done`
+strips `priority` (invalid on done items); `--due` bakes a text-only
+`(revisit ~<date>)` hint into the task — **no due-date schema field**
+(decided 2026-05-30).
 
-**Why this is load-bearing:** todos are operator-authored content. The
-writer's round-trip must preserve every item or `settings deploy set`
-silently erases work. The field schema (especially `priority`-on-`open`-
-only) is the contract every consumer reads against — `fleet focus`,
-`project todos`, fleet aggregates.
+**Mutations are surgical upserts, never rewrites (ADR-0018).** The write
+verbs go through `lamill_toml_edit.py`, which regenerates only the
+`[[todo]]` region and leaves the rest of the file — `[content]`,
+comments, table ordering — byte-identical. Do NOT mutate an existing
+`lamill.toml` via `lamill_toml.write()` (a full rewrite that drops
+`[content]` + comments); `write()` is for brand-new files only
+(`new bootstrap`). The four legacy rewrite paths (`settings deploy set`,
+deploy pipeline ×2, `hosting`) still violate this — tracked in
+`docs/bugs.md` as **v27.J**.
 
-See: ADR-0017 (additive-optional posture), `🔒 lamill.toml
-additive-optional invariant` (above), `src/portfolio/lamill_toml.py`.
+**Why this is load-bearing:** todos are operator-authored content, and
+so is the `[content]` block that now sits in every file. A rewrite-based
+mutation silently erases `[content]` (proven 2026-05-30) and all
+comments. The field schema (especially `priority`-on-`open`-only) is the
+contract every consumer reads against — `fleet focus`, `project todos`,
+fleet aggregates.
+
+See: ADR-0018 (upsert-not-rewrite), ADR-0017 (additive-optional
+posture), `🔒 lamill.toml additive-optional invariant` (above),
+`src/portfolio/lamill_toml_edit.py`, `src/portfolio/lamill_toml.py`.
 
 ### 🔒 `lamill.toml` `[stack]` shape (v27 — accepted 2026-05-29)
 

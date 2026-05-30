@@ -66,6 +66,24 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-05-30 — legacy `lamill.toml` write paths full-rewrite and drop `[content]` + comments
+
+**Repro**
+1. A site has a hand-authored `[content]` block in its `lamill.toml` (every site does as of the 2026-05-30 fleet migration).
+2. Run any command that writes the file via `lamill_toml.write()` — e.g. `settings deploy set`, the `new deploy` pipeline, or `hosting`'s lamill.toml writeback.
+3. The whole file is re-serialized from the parsed `LamillToml` struct.
+
+**Expected** — the write touches only the field(s) it changes; `[content]`, comments, and table ordering are preserved (upsert, not rewrite).
+
+**Actual** — `write()` does `to_dict → tomli_w.dumps → whole-file write`. `to_dict` only emits the tables it knows (`schema/deploy/stack/hosting/backend/analytics/notes/todo`), so `[content]` (and any unknown table) is **dropped**, and all inline comments + ordering are lost. Proven 2026-05-30: `load → to_dict` round-trip on `drdebug.dev` returns a doc with no `[content]`.
+
+**Where** — `src/portfolio/lamill_toml.py:write` / `to_dict`; callers `project_deploy.py:187` + `:719`, `hosting.py:1695` (the four v27.B write paths).
+
+**Severity** — `major` (silent data loss of operator-authored content) but **latent**: only fires when one of those commands runs on a content-bearing site. v27.G/H todo verbs sidestep it entirely by using the surgical upsert helper (`lamill_toml_edit.py`) instead of `write()`.
+
+**Fix** — migrate the four legacy paths to the v27.G upsert helper so they edit in place. Tracked as **v27.J** (bug-driven; graduate from this entry when prioritized). Per ADR-0018, all CLI `lamill.toml` writes should be upserts, never rewrites.
+
+
 ### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
 
 **Motivation**

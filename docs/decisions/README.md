@@ -30,6 +30,7 @@ trade-offs were, and what the consequences are.
 | 0015 | `new deploy` pipeline must remain idempotent; `--watch` is opt-in | Accepted | —         |
 | 0016 | GSC verification method ↔ property type are coupled; default to DNS_TXT + Domain | Accepted | —         |
 | 0017 | Additive-optional `lamill.toml` tables stay on schema = `lamill-toml-v1` | Accepted | —         |
+| 0018 | CLI `lamill.toml` mutations are surgical upserts, not full-file rewrites | Accepted | —         |
 
 ## When to write an ADR
 
