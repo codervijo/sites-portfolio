@@ -1373,13 +1373,15 @@ deferred per the reactive-over-proactive posture.
 
 `lamill.toml` carries two human-authored blocks that look similar at a glance but do different jobs. Keeping them separate keeps the file honest.
 
-**`[content]` is declarative configuration.** It describes what this site *is*, content-wise: who it's for, what it ranks for, what tone it speaks in, what law or pain it addresses. It is stable — fields rarely change after a site is conceived. It is authored by the human and consumed by rankmill as the source of truth for content generation. Tools read `[content]`; tools do not write to `[content]`. The one exception is `[content.progress]`, which rankmill writes to track what it has already generated.
+**`[content]` is declarative configuration.** It describes what this site *is*, content-wise: who it's for, what it ranks for, what tone it speaks in, what law or pain it addresses. It is stable — fields rarely change after a site is conceived. It is authored by the human and consumed by rankmill as the source of truth for content generation and audits. lamill and rankmill both read `[content]`; only the human writes to it.
 
 **`[todo]` is imperative work state.** It tracks what needs to happen next on this site — pending tasks, blockers, deadlines. It is volatile, edited constantly, and reflects the site's current operational status rather than its identity. It has no fixed schema.
 
 The test: if a field still makes sense a year from now without edits, it belongs in `[content]`. If it would be stale by next week, it belongs in `[todo]`.
 
-The boundary matters because the two blocks have different lifecycles. `[content]` wants to be edited rarely and carefully, because its values seed every piece of content rankmill produces — a wrong `icp` propagates into every draft. `[todo]` wants to be edited freely. Mixing them invites churn on fields that should be stable, and stagnation on fields that should move.
+The boundary matters because the two blocks have different lifecycles. `[content]` wants to be edited rarely and carefully, because its values seed every piece of content rankmill produces and every audit check rankmill runs — a wrong `icp` propagates into every draft and every report. `[todo]` wants to be edited freely. Mixing them invites churn on fields that should be stable, and stagnation on fields that should move.
+
+rankmill's own working state — what's been generated, what's been audited, when — lives in `sites/<domain>/content-draft/` (drafts), `sites/<domain>/rankmill-output/` (analysis), and `rankmill-data/` at the workspace root (fleet-wide caches and snapshots). It does not live in lamill.toml.
 
 ## 8. Open questions
 
