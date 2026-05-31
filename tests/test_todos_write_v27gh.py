@@ -180,6 +180,26 @@ def test_render_shows_file_order_index(tmp_path: Path):
     assert "[1]" in out and "[2]" in out  # both indices rendered
 
 
+def test_render_does_not_eat_brackets_in_task(tmp_path: Path):
+    """Regression (scopeguard.xyz, 2026-05-30): a task containing literal
+    `[content]` / `[[todo]]` must render intact — Rich would otherwise
+    parse the brackets as markup and swallow them."""
+    from rich.console import Console
+    import io
+    from portfolio import todos as todos_mod
+
+    body = _BASE + (
+        '\n[[todo]]\nstatus = "open"\npriority = "high"\n'
+        'task = "Fill in [content] block + check [[todo]]"\n'
+    )
+    d = _site(tmp_path, "x", body)
+    pt = todos_mod.build_project_todos(d, domain="x")
+    buf = io.StringIO()
+    todos_mod.render_project_todos(pt, Console(file=buf, width=200, no_color=True))
+    out = buf.getvalue()
+    assert "[content]" in out and "[[todo]]" in out
+
+
 # ---- ensure_* skeletons (v27.I) -------------------------------------
 
 

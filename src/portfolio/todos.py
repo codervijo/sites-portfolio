@@ -19,6 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rich.markup import escape
+
 from . import lamill_toml
 from .lamill_toml import TodoItem
 
@@ -123,13 +125,15 @@ def render_project_todos(pt: ProjectTodos, console) -> None:
                 console.print(
                     f"  [{style}]{_priority_label(item.priority)}[/]"
                 )
-            console.print(f"    [dim]\\[{num_by_id[id(item)]}][/] • {item.task}")
+            console.print(
+                f"    [dim]\\[{num_by_id[id(item)]}][/] • {escape(item.task)}"
+            )
 
     if pt.done_items:
         console.print(f"\n[dim]Done ({len(pt.done_items)})[/]")
         for item in pt.done_items:
             console.print(
-                f"  [dim]\\[{num_by_id[id(item)]}] ✓ {item.task}[/]"
+                f"  [dim]\\[{num_by_id[id(item)]}] ✓ {escape(item.task)}[/]"
             )
 
 
@@ -210,10 +214,10 @@ def render_fleet_todos(
                 console.print(
                     f"\n[{style}]{_priority_label(row.item.priority)}[/]"
                 )
-            console.print(f"  [bold]{row.domain}[/]  {row.item.task}")
+            console.print(f"  [bold]{row.domain}[/]  {escape(row.item.task)}")
     else:
         for row in rows:
             mark = "✓" if row.item.status == "done" else "•"
-            console.print(f"  {mark} [bold]{row.domain}[/]  {row.item.task}")
+            console.print(f"  {mark} [bold]{row.domain}[/]  {escape(row.item.task)}")
 
     console.print(f"\n[dim]{len(rows)} item(s)[/]")

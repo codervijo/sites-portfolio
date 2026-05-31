@@ -6,6 +6,7 @@ from datetime import date
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .check import (
@@ -8642,14 +8643,14 @@ def project_todos(
             task = add + (edit.due_hint(due) if due is not None else "")
             item = edit.add_todo(repo, task=task, priority=priority)
             console.print(
-                f"[green]✓ added[/] ({priority or 'unprioritized'}) {item.task}"
+                f"[green]✓ added[/] ({priority or 'unprioritized'}) {escape(item.task)}"
             )
         elif done is not None:
             item = edit.complete_todo(repo, done)
-            console.print(f"[green]✓ done[/] \\[{done}] {item.task}")
+            console.print(f"[green]✓ done[/] \\[{done}] {escape(item.task)}")
         elif reopen is not None:
             item = edit.reopen_todo(repo, reopen)
-            console.print(f"[green]✓ reopened[/] \\[{reopen}] {item.task}")
+            console.print(f"[green]✓ reopened[/] \\[{reopen}] {escape(item.task)}")
     except edit.TodoEditError as e:
         console.print(f"[red]✗ {res.matched}: {e}[/]")
         raise typer.Exit(1)
