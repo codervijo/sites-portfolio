@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-05-28T07:48:55.096549+00:00",
+  "generated_at": "2026-05-31T06:41:51.948523+00:00",
   "domains": [
     {
       "name": "agesdk.dev",
@@ -250,6 +250,25 @@
       "domain_created": "2026-04-09"
     },
     {
+      "name": "dailyring.xyz",
+      "registrar": "porkbun",
+      "tld": ".xyz",
+      "expires": "2027-05-29",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-05-29",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true,
+      "launched": null,
+      "domain_created": null
+    },
+    {
       "name": "disclosur.dev",
       "registrar": "porkbun",
       "tld": ".dev",
@@ -286,6 +305,25 @@
       "transfer_locked": true,
       "launched": null,
       "domain_created": "2026-05-08"
+    },
+    {
+      "name": "drdebug.dev",
+      "registrar": "porkbun",
+      "tld": ".dev",
+      "expires": "2027-05-28",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-05-28",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true,
+      "launched": null,
+      "domain_created": null
     },
     {
       "name": "dropaudit.co",
@@ -858,6 +896,25 @@
       "domain_created": null
     },
     {
+      "name": "scopeguard.xyz",
+      "registrar": "porkbun",
+      "tld": ".xyz",
+      "expires": "2027-05-31",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-05-31",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true,
+      "launched": null,
+      "domain_created": null
+    },
+    {
       "name": "smartlyworld.com",
       "registrar": "godaddy",
       "tld": ".COM",
@@ -975,9 +1032,9 @@
       "name": "thoralox.com",
       "registrar": "godaddy",
       "tld": ".COM",
-      "expires": "2026-02-20",
+      "expires": "2027-05-30",
       "auto_renew": "On",
-      "status": "Deleted - Redeemable",
+      "status": "Active",
       "category": "Next session",
       "created": "2019-02-20",
       "renewal_price": null,
@@ -985,7 +1042,7 @@
       "listing_status": "Not Listed",
       "nameservers": "ns29.domaincontrol.com ns30.domaincontrol.com",
       "forwarding_url": "",
-      "privacy": true,
+      "privacy": false,
       "transfer_locked": true,
       "launched": null,
       "domain_created": null

@@ -66,6 +66,21 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-05-30 — `fleet focus` shows confusing negative-days for lapsed / stale-data domains (thoralox repro)
+
+**Repro** — `thoralox.com` was renewed at GoDaddy (new expiry 2027-05-30) but `lamill fleet focus` showed `⚠️ Expiring in -99 days → renew at registrar before lapse`.
+
+**Root cause (two layers)**
+1. **Data staleness.** GoDaddy has no API (ADR — see architecture §6 "Provider API coverage"), so `data/domains/godaddy.csv` (a manual export, last refreshed 2026-04-24) and the materialized `data/portfolio.json` held the *pre-renewal* expiry `2026-02-20`. `lamill fleet sync --refresh` only refreshes Porkbun, so GoDaddy inventory silently goes stale until a manual re-export. (thoralox patched by hand 2026-05-30; the broader staleness remains for other GoDaddy domains.)
+2. **Confusing display.** `focus.py:~200` fires the ⚠️ for any `days <= 30` with no lower floor, so a *past* expiry renders as `Expiring in -99 days → renew before lapse` — reads like a future expiry and hides that the data is stale/lapsed.
+
+**Proposed fix (code, deferred — log only per operator)** — for `days < 0`, change the message to e.g. `expired N days ago (per <registrar> inventory, exp <date>) — verify renewal / re-export inventory`. Optionally surface the inventory-export staleness (e.g. `godaddy.csv` mtime) so GoDaddy drift is visible without a per-domain surprise.
+
+**Where** — `src/portfolio/focus.py` (~line 200, expiring signal); `data/domains/godaddy.csv` (manual export); `src/portfolio/data.py` `_load_godaddy`.
+
+**Severity** — `minor`. The display is cosmetic/confusing, not wrong logic; the data half is inherent to GoDaddy-no-API and is mitigated per-domain by hand-patch or full re-export. No code change made yet (operator: log only).
+
+
 ### 2026-05-30 — legacy `lamill.toml` write paths full-rewrite and drop `[content]` + comments
 
 **Repro**
