@@ -200,6 +200,79 @@ def _set_status(repo_path: Path, index: int, new_status: str) -> TodoItem:
     return updated
 
 
+def _single_table_span(text: str, name: str) -> tuple[int, int] | None:
+    """Char span `[start, end)` of a single top-level table `[name]` in
+    `text` (header line through the line before the next top-level
+    table/array-of-tables header, or EOF), or `None` if absent.
+
+    Only valid for *flat* tables (no nested `[name.sub]` sub-tables) —
+    `[deploy]` and `[hosting]` qualify. Leading comments above the table
+    are NOT included in the span, so they're preserved across a replace.
+    """
+    lines = text.splitlines(keepends=True)
+    header = next(
+        (i for i, ln in enumerate(lines) if ln.strip() == f"[{name}]"), None
+    )
+    if header is None:
+        return None
+    end_line = len(lines)
+    for k in range(header + 1, len(lines)):
+        s = lines[k].lstrip()
+        if s.startswith("[") and not s.startswith("[["):
+            end_line = k
+            break
+        if lines[k].startswith("[["):
+            end_line = k
+            break
+    start = sum(len(ln) for ln in lines[:header])
+    end = sum(len(ln) for ln in lines[:end_line])
+    return start, end
+
+
+def set_table(repo_path: Path, name: str, body: dict | None) -> None:
+    """Surgically upsert (or remove) a single top-level table `[name]`,
+    leaving the rest of the file — comments, `[content]`, `[[todo]]`,
+    `[stack]`, table ordering — byte-identical (ADR-0018).
+
+    `body=None` removes the table. A new table is inserted just above the
+    first of `[stack]` / `[[todo]]` / `[content]` (so tool-managed config
+    stays above operator content), else appended at EOF. Requires the
+    file to exist; flat tables only.
+    """
+    target = repo_path / LAMILL_TOML_FILENAME
+    text = target.read_text()
+    span = _single_table_span(text, name)
+
+    if body is None:
+        if span is None:
+            return
+        start, end = span
+        new_text = (text[:start].rstrip("\n") + "\n\n" + text[end:].lstrip("\n")
+                    if text[:start].strip() and text[end:].strip()
+                    else text[:start] + text[end:])
+    else:
+        import tomli_w
+        region = tomli_w.dumps({name: body}).rstrip("\n")
+        if span is not None:
+            start, end = span
+            sep = "\n\n" if end < len(text) else "\n"
+            new_text = text[:start] + region + sep + text[end:]
+        else:
+            lines = text.splitlines(keepends=True)
+            anchor = next(
+                (i for i, ln in enumerate(lines)
+                 if ln.strip() in ("[stack]", "[[todo]]", "[content]")),
+                None,
+            )
+            if anchor is not None:
+                pos = sum(len(ln) for ln in lines[:anchor])
+                new_text = text[:pos] + region + "\n\n" + text[pos:]
+            else:
+                new_text = text.rstrip("\n") + "\n\n" + region + "\n"
+
+    lamill_toml._atomic_write(target, new_text)
+
+
 def complete_todo(repo_path: Path, index: int) -> TodoItem:
     """Mark the 1-based file-order todo `index` done (strips priority)."""
     return _set_status(repo_path, index, "done")

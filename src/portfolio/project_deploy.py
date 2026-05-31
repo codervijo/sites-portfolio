@@ -184,8 +184,22 @@ def set_deploy(
         backend=backend,
         notes=notes,
     )
-    write(repo_dir, payload)
-    target = repo_dir / "lamill.toml"
+    target = repo_dir / LAMILL_TOML_FILENAME
+    if target.exists():
+        # v27.J — UPDATE an existing file via surgical upsert (ADR-0018):
+        # touch only the tables this command owns ([deploy], [hosting]),
+        # leaving [stack] / [[todo]] / [content] / [backend] / [notes] and
+        # all comments byte-identical. (A full `write()` here would drop
+        # the operator-authored [content] block + comments.)
+        from . import lamill_toml_edit as _edit
+        body = to_dict(payload)
+        _edit.set_table(repo_dir, "deploy", body["deploy"])
+        # hosting present → upsert it; absent (e.g. switching to a
+        # platform that doesn't need it) → remove any stale [hosting].
+        _edit.set_table(repo_dir, "hosting", body.get("hosting"))
+    else:
+        # New file — full write is correct (nothing to preserve).
+        write(repo_dir, payload)
     cons.print(f"[green]Wrote[/] {target}")
     cons.print(
         f"[dim]platform={platform} · branch={resolved_branch} · "

@@ -1224,7 +1224,7 @@ candidate refactor if a third LLM provider lands.
 | Module | Phase | Purpose |
 |---|---|---|
 | `lamill_toml.py` | v10.A | `LamillToml` dataclasses + `load`/`write`/`infer_from_existing_configs`; `todo_region_text` (canonical `[[todo]]` emitter, shared with the editor). NB: `write()` is a full rewrite (drops unknown tables) — for new files only (ADR-0018) |
-| `lamill_toml_edit.py` | v27.G | Surgical `lamill.toml` upserts (ADR-0018) — `add_todo`/`complete_todo`/`reopen_todo` regenerate only the `[[todo]]` region, leaving `[content]`/comments/ordering byte-identical; `due_hint` (text-only dates); `ensure_header_comment`/`ensure_content_block` skeletons for `new bootstrap` |
+| `lamill_toml_edit.py` | v27.G/J | Surgical `lamill.toml` upserts (ADR-0018) — `add_todo`/`complete_todo`/`reopen_todo` regenerate only the `[[todo]]` region; `set_table` (v27.J) replaces/inserts/removes one flat top-level table (`[deploy]`/`[hosting]`, used by `set_deploy`); all leave `[content]`/comments/ordering byte-identical. Plus `due_hint` (text-only dates) + `ensure_header_comment`/`ensure_content_block` skeletons for `new bootstrap` |
 | `hosting.py` | v11.A | `HostingRow` + `walk_vercel`/`walk_cf_pages`/`run_hosting` orchestrator |
 | `hosting_cache.py` | v11.A | Snapshot save/load mirroring `seo_cache.py` |
 | `reconciliation.py` | v12.E (or co-located in `research_v2.py`) | Phase 4c pure-logic reconciliation |

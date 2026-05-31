@@ -319,9 +319,13 @@ verbs go through `lamill_toml_edit.py`, which regenerates only the
 comments, table ordering — byte-identical. Do NOT mutate an existing
 `lamill.toml` via `lamill_toml.write()` (a full rewrite that drops
 `[content]` + comments); `write()` is for brand-new files only
-(`new bootstrap`). The four legacy rewrite paths (`settings deploy set`,
-deploy pipeline ×2, `hosting`) still violate this — tracked in
-`docs/bugs.md` as **v27.J**.
+(`new bootstrap`). To upsert a tool-managed table on an existing file,
+use `lamill_toml_edit.set_table(repo, name, body|None)` (replace / insert
+/ remove one flat top-level table, byte-preserving the rest) — as
+`settings deploy set` (`set_deploy`) now does for `[deploy]` / `[hosting]`
+(v27.J). The other historical "rewrite" paths (the v10.C deploy-decl
+migration + `hosting` apply-declarations) only ever write *new* files
+(skip-if-exists), so they correctly stay on `write()`.
 
 **Why this is load-bearing:** todos are operator-authored content, and
 so is the `[content]` block that now sits in every file. A rewrite-based

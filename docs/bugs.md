@@ -97,24 +97,6 @@ when applicable. Don't delete.
 **Severity** — `minor`. The display is cosmetic/confusing, not wrong logic; the data half is inherent to GoDaddy-no-API and is mitigated per-domain by hand-patch or full re-export. No code change made yet (operator: log only).
 
 
-### 2026-05-30 — legacy `lamill.toml` write paths full-rewrite and drop `[content]` + comments
-
-**Repro**
-1. A site has a hand-authored `[content]` block in its `lamill.toml` (every site does as of the 2026-05-30 fleet migration).
-2. Run any command that writes the file via `lamill_toml.write()` — e.g. `settings deploy set`, the `new deploy` pipeline, or `hosting`'s lamill.toml writeback.
-3. The whole file is re-serialized from the parsed `LamillToml` struct.
-
-**Expected** — the write touches only the field(s) it changes; `[content]`, comments, and table ordering are preserved (upsert, not rewrite).
-
-**Actual** — `write()` does `to_dict → tomli_w.dumps → whole-file write`. `to_dict` only emits the tables it knows (`schema/deploy/stack/hosting/backend/analytics/notes/todo`), so `[content]` (and any unknown table) is **dropped**, and all inline comments + ordering are lost. Proven 2026-05-30: `load → to_dict` round-trip on `drdebug.dev` returns a doc with no `[content]`.
-
-**Where** — `src/portfolio/lamill_toml.py:write` / `to_dict`; callers `project_deploy.py:187` + `:719`, `hosting.py:1695` (the four v27.B write paths).
-
-**Severity** — `major` (silent data loss of operator-authored content) but **latent**: only fires when one of those commands runs on a content-bearing site. v27.G/H todo verbs sidestep it entirely by using the surgical upsert helper (`lamill_toml_edit.py`) instead of `write()`.
-
-**Fix** — migrate the four legacy paths to the v27.G upsert helper so they edit in place. Tracked as **v27.J** (bug-driven; graduate from this entry when prioritized). Per ADR-0018, all CLI `lamill.toml` writes should be upserts, never rewrites.
-
-
 ### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
 
 **Motivation**
@@ -959,6 +941,18 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-05-30 — legacy `lamill.toml` write paths full-rewrite and drop `[content]` + comments
+
+**Repro** — Run a CLI command that writes `lamill.toml` via `lamill_toml.write()` on a site that has a hand-authored `[content]` block (every site does as of the 2026-05-30 fleet migration). `write()` re-serializes the whole file from the parsed `LamillToml` struct; `to_dict` only emits tables it knows, so `[content]` (and any unknown table) is **dropped** along with all inline comments + ordering.
+
+**Investigation (v27.J, 2026-05-31)** — audited the four suspected write paths:
+- `set_deploy` (`settings deploy set`, `project_deploy.py:187`) — **real clobber risk.** "Create-or-update": runs on existing files and rebuilt the payload from `deploy/hosting/backend/notes`, so it dropped `[stack]`, `[[todo]]`, AND `[content]`.
+- v10.C deploy-declaration migration (`_execute_write`, `project_deploy.py:719`) — **not a risk:** caller skips when `lamill.toml` already exists (new-file-only).
+- `hosting` apply-declarations (`hosting.py:1695`) — **not a risk:** explicit `skipped_already` when the file exists (new-file-only).
+
+**Fixed in** — v27.J (2026-05-31). Added a generic surgical `lamill_toml_edit.set_table(repo, name, body|None)` upsert (replace/insert/remove one flat top-level table, byte-preserving the rest). `set_deploy` now upserts only `[deploy]` / `[hosting]` on an existing file (full `write()` reserved for new files); the other two paths keep `write()` since they only ever create new files. 5 tests; suite green. Per ADR-0018, all CLI `lamill.toml` mutations are now upserts.
+
 
 ### 2026-05-29 — `fleet focus` ignores `[fleet] dark_sites`; csinorcal.church + virtually.co.in surface despite operator-declared exclusion
 
