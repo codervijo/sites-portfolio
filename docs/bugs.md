@@ -66,7 +66,23 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-05-30 — `fleet focus` shows confusing negative-days for lapsed / stale-data domains (thoralox repro)
+### 2026-05-31 — `new deploy` builds the apex CNAME from `{slug}.pages.dev`, but CF can assign a suffixed project subdomain → permanent `1014` (scopeguard.xyz)
+
+**Repro** — `lamill new deploy scopeguard.xyz` (cf-pages). Pipeline reached `zone=active build=success` but the live probe returned `403` with body `error code: 1014` ("CNAME Cross-User Banned"), and `--watch` timed out after 30 min still at `live=403`. The Pages custom domain sat at `status=pending` forever.
+
+**Root cause (confirmed via the CF dashboard + API)** — `cli.py:7100` sets the apex CNAME target as `target_content = f"{slug}.pages.dev"` (here `scopeguard.pages.dev`). But Cloudflare assigned this project the subdomain **`scopeguard-abu.pages.dev`** (it appends a random suffix when the bare `<slug>.pages.dev` name is already taken globally). So the apex CNAME pointed at a `pages.dev` host that **isn't this project** → CF edge returns `1014`, and the custom-domain verification never completes (it's validating against a wrong target). Not a timing/propagation issue — it would never have resolved.
+
+**Fix applied to scopeguard (2026-05-31, manual)** — read the project's real subdomain (`GET /accounts/{acct}/pages/projects/{proj}` → `result.subdomain` = `scopeguard-abu.pages.dev`), PATCH the apex CNAME content to it, then remove + re-add the custom domain to re-verify against the corrected record. Domain went `pending → active` in ~100s; live is now `HTTP 200`. (Cloudflare infra only — no repo data changed.)
+
+**The lamill defect + fix** — step 6.5 must NOT assume `{slug}.pages.dev`. The Pages project object returned by `create_pages_project_with_git` / `get_pages_project` carries the authoritative `subdomain` field — use **that** as the CNAME target. This is the real fix and prevents the bug for any future site whose slug collides on `pages.dev`.
+
+**Secondary (aggravating) gap** — `new deploy` is idempotent (ADR-0015): step 6 (attach domain) is GET-then-skip and step 6.5 (apex DNS) is create-if-absent, so re-running on the broken state changes nothing and re-stalls at `live=403`. Worth a deploy-resilience follow-up: detect `1014` / `pending`-too-long during the watch and surface a distinct `✗ pending-verification` state with the remediation, plus a `--repair` re-verify path, instead of a generic `watch_timeout`.
+
+**Where** — `src/portfolio/cli.py:7100` (`target_content = f"{slug}.pages.dev"`, in `_deploy_cf_unified` step 6.5); the correct value is on the Pages project object (`subdomain`) from `src/portfolio/cloudflare.py` `create_pages_project_with_git` / `get_pages_project`.
+
+**Severity** — `major`. Any cf-pages deploy whose slug is already taken on `pages.dev` lands permanently broken (`1014`) with no self-recovery. The CNAME-target fix is small and high-value; the resilience improvements are a separate tier.
+
+**Severity** — `major` (a fresh deploy can land in a broken, un-self-healing state) but **situational** (apex cf-pages custom-domain verification path). Tracked for a future deploy-resilience tier.
 
 **Repro** — `thoralox.com` was renewed at GoDaddy (new expiry 2027-05-30) but `lamill fleet focus` showed `⚠️ Expiring in -99 days → renew at registrar before lapse`.
 

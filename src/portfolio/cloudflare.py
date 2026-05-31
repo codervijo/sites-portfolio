@@ -784,6 +784,11 @@ class PagesProject:
     source_repo: str | None          # repo name
     production_branch: str
     latest_deployment_id: str | None
+    # CF's assigned *.pages.dev hostname for this project. NOT always
+    # `<name>.pages.dev` — CF appends a random suffix when the bare name
+    # collides globally (e.g. `scopeguard-abu.pages.dev`). The apex
+    # custom-domain CNAME MUST target this, not an assumed `<slug>.pages.dev`.
+    subdomain: str | None = None
     created: bool = False
 
 
@@ -1223,6 +1228,7 @@ def _project_info_from_json(payload: dict, *, created: bool) -> PagesProject:
         latest_deployment_id=(
             latest.get("id") if isinstance(latest, dict) else None
         ),
+        subdomain=payload.get("subdomain") or None,
         created=created,
     )
 

@@ -153,6 +153,44 @@ def test_get_pages_project_exists():
     assert p.production_branch == "main"
 
 
+def test_get_pages_project_captures_suffixed_subdomain():
+    """Regression (scopeguard.xyz, 2026-05-31): CF can assign a project a
+    *.pages.dev hostname that ISN'T `<name>.pages.dev` (random suffix on
+    name collision). The apex CNAME must target this real `subdomain`, so
+    the parser must surface it. Pointing the CNAME at `<slug>.pages.dev`
+    instead caused a permanent CF 1014."""
+    def handler(req):
+        return httpx.Response(200, json={
+            "success": True,
+            "result": {
+                "name": "scopeguard",
+                "domains": ["scopeguard.xyz"],
+                "production_branch": "main",
+                "subdomain": "scopeguard-abu.pages.dev",
+                "source": {"type": "github",
+                           "config": {"owner": "codervijo", "repo_name": "scopeguard"}},
+            },
+        })
+
+    p = get_pages_project("scopeguard", account_id="acct", client=_client_for(handler))
+    assert p is not None
+    assert p.subdomain == "scopeguard-abu.pages.dev"
+    # the slug guess would have been wrong:
+    assert p.subdomain != f"{p.name}.pages.dev"
+
+
+def test_get_pages_project_subdomain_absent_is_none():
+    def handler(req):
+        return httpx.Response(200, json={
+            "success": True,
+            "result": {"name": "x", "domains": [], "production_branch": "main",
+                       "source": {"type": "github", "config": {}}},
+        })
+
+    p = get_pages_project("x", account_id="acct", client=_client_for(handler))
+    assert p is not None and p.subdomain is None
+
+
 def test_get_pages_project_404():
     def handler(req):
         return httpx.Response(404, text="not found")

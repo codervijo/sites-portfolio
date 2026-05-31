@@ -7093,11 +7093,20 @@ def _deploy_cf_unified(
     # skip create if a matching CNAME already points to the right target.
     # Workers Services use a different DNS shape; this step is Pages-only.
     if not skip_pages and not dry_run and cf_surface == "pages":
+        # The apex CNAME must target the project's ACTUAL *.pages.dev
+        # hostname. CF appends a random suffix when the bare name collides
+        # globally (e.g. `scopeguard-abu.pages.dev`), so `{slug}.pages.dev`
+        # is wrong in that case → permanent CF 1014 "CNAME Cross-User
+        # Banned" + a custom domain stuck on `pending` (bugs.md 2026-05-31).
+        # `project.subdomain` is the authoritative value from the CF API;
+        # fall back to the slug guess only if it's somehow absent.
+        target_content = (
+            getattr(project, "subdomain", None) or f"{slug}.pages.dev"
+        )
         console.print(
             f"\n[bold]6.5 DNS record for custom domain[/] "
-            f"[dim]({domain} → {slug}.pages.dev)[/]"
+            f"[dim]({domain} → {target_content})[/]"
         )
-        target_content = f"{slug}.pages.dev"
         try:
             existing_records = cloudflare.list_dns_records(zone.zone_id)
         except cloudflare.CloudflareAPIError as e:
