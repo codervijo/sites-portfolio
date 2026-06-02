@@ -3387,9 +3387,15 @@ def _renewal_cliff_marker(price: float | None, renewal: float | None) -> str:
 def _cell_str(state, show_renewal: bool = False) -> str:
     """Format one grid cell: ✓ $N [↑Nx] / ✗ live|park / ? / $N!"""
     if state.over_max:
-        # Available but priced out; surface so user sees the option exists.
+        # Available but priced out; surface so the user sees the option exists
+        # (v28.D: premium topical TLDs are shown + manually pickable, never the
+        # highlighted recommendation). Append renewal when it differs from reg
+        # so the keep-forever cost of a premium pick is visible at a glance.
         if state.available is True and state.price is not None:
-            return f"[dim]${state.price:.0f}![/]"
+            extra = ""
+            if state.renewal is not None and abs(state.renewal - state.price) >= 1:
+                extra = f" r${state.renewal:.0f}"
+            return f"[dim]${state.price:.0f}!{extra}[/]"
         if state.available is False:
             return "[red]✗[/]"
         return "[yellow]?[/]"

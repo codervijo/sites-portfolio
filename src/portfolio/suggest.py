@@ -1192,11 +1192,21 @@ def filter_pickable_rows(rows: list[GridRow]) -> list[GridRow]:
     is taken or every available TLD is over the price cap are eliminated — the
     user has no action on them.
 
-    `?` cells (RDAP/DoH gaps) and `over_max` cells don't count as pickable.
+    `?` cells (RDAP/DoH gaps) don't count as pickable. Over-`--max-price`
+    cells normally don't either — EXCEPT an available *topical* TLD (v28.D),
+    which stays a real (premium) choice, so a name available only at a
+    premium topical TLD (e.g. a `.fm`-only voice brand) isn't dropped.
     """
+    def _pickable(tld: str, cell: CellState) -> bool:
+        if cell.available is not True:
+            return False
+        if not cell.over_max:
+            return True
+        return tld in TOPICAL_TLDS  # over-cap but topical → still pickable
+
     out: list[GridRow] = []
     for r in rows:
-        if any(cell.available is True and not cell.over_max for cell in r.cells.values()):
+        if any(_pickable(tld, cell) for tld, cell in r.cells.items()):
             out.append(r)
     return out
 
@@ -1367,6 +1377,10 @@ def _decide_pick(
     def is_pickable(state: CellState) -> bool:
         return state.available is True and not state.over_max
 
+    # v28.D — topical columns merged in for this run (theme-relevance order
+    # preserved via visible_columns). Used by the topical lanes below.
+    topical_cols = [t for t in visible_columns if t in TOPICAL_TLDS]
+
     # Premium ladder
     premium = [".com", ".app", ".dev"]
     for tld in premium:
@@ -1377,6 +1391,15 @@ def _decide_pick(
                 why = "premium open + .com defendable"
             elif tld == ".com":
                 why = ".com available"
+            return tld, label, why
+
+    # Topical lane (v28.D): a topic-matched TLD available *under cap* beats the
+    # generic cheap lane — `.family` for a family service > a generic `.xyz`.
+    for tld in topical_cols:
+        st = cells.get(tld)
+        if st and is_pickable(st):
+            why = "topical fit" + (" + .com defendable" if com_avail else "")
+            label = f"{tld} +bundle" if com_avail else tld
             return tld, label, why
 
     # Cheap ladder
@@ -1395,6 +1418,16 @@ def _decide_pick(
         st = cells.get(tld)
         if st and st.available is None and not st.over_max:
             return tld, f"{tld} (verify)", "RDAP gap — verify at registrar"
+
+    # Premium topical (v28.D, operator decision 2026-06-01): an over-`--max-
+    # price` topical TLD is SHOWN + manually pickable but never the highlighted
+    # auto-recommendation (operator picks it only in rare cases). So when it's
+    # the only thing available, surface it as a note — not a Pick.
+    if any(
+        cells.get(t) and cells[t].available is True and cells[t].over_max
+        for t in topical_cols
+    ):
+        return None, "—", "premium topical available — pick manually"
 
     return None, "skip", "no available picks under price cap"
 
