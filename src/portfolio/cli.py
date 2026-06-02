@@ -3099,6 +3099,7 @@ def _domain_suggest_validation(
         cache_payload=cache_payload,
         cache_save_fn=None if no_cache else _save_cache,
         log_fn=_log,
+        merge_topical=not tlds,  # v28.C: topic-aware TLDs only on the default ladder
     )
 
     # v3.D 2026-05-08: filter rows to those with at least one pickable cell
@@ -3200,6 +3201,7 @@ def _domain_suggest_validation(
                 cache_payload=None,
                 cache_save_fn=_save_cache,
                 log_fn=_log,
+                merge_topical=not tlds,  # v28.C
             )
             rows = filter_pickable_rows(rows)
             if not rows:

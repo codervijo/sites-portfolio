@@ -571,7 +571,13 @@ Worked example - for topic "an Uber for dog walking", good terms:
   leash, paw, walk, fetch, kennel, sniff, treat, bark, route, drop, pickup
 Bad terms (do not produce these): pet, service, app, mobile, schedule, smart
 
-Return ONLY the terms, one per line, no numbering, no commentary.
+Return the terms first, one per line, no numbering, no commentary.
+
+Then — and only if it genuinely fits — classify the topic into up to 3
+themes from this exact list, on a SINGLE final line prefixed `THEMES:`
+(omit the line entirely if none fit; never invent themes outside the list):
+  family, memories, voice, audio, video, photos, faith, music
+Example final line for a family-photo-archive idea: `THEMES: family, photos`
 """
 
 
@@ -603,18 +609,94 @@ def _extract_vocab_terms(text: str) -> list[str]:
     return out
 
 
-def extract_vocab(topic: str, api_key: str) -> list[str]:
-    """v3.D: one-shot vocabulary-extraction LLM call. Returns 12-15 practitioner
-    terms (no guarantee on count; caller may cache and re-use). Raises on HTTP
-    failure so callers can fall back to no-anchors brainstorm.
-    """
+def _extract_themes(text: str) -> list[str]:
+    """v28.C: parse the `THEMES: a, b` trailer from vocab-call output. Keeps
+    only keys that exist in `THEME_MAP` (the curated allow-set — guardrail
+    against the model inventing a theme), de-duped, order preserved."""
+    for raw in text.splitlines():
+        m = re.match(r"(?i)^\s*themes?\s*[:\-]\s*(.+)$", raw.strip())
+        if not m:
+            continue
+        out: list[str] = []
+        for tok in re.split(r"[,/]|\band\b", m.group(1)):
+            key = tok.strip().strip("`'\"().").lower()
+            if key in THEME_MAP and key not in out:
+                out.append(key)
+        return out
+    return []
+
+
+# v28.C heuristic fallback — topic keyword → theme, used when the LLM call is
+# unavailable (offline / API error) or on a cached run (no fresh call).
+_THEME_SYNONYMS: dict[str, str] = {
+    "family": "family", "families": "family", "parent": "family",
+    "parents": "family", "grandparent": "family", "grandparents": "family",
+    "kids": "family", "relatives": "family", "household": "family",
+    "memory": "memories", "memories": "memories", "archive": "memories",
+    "keepsake": "memories", "legacy": "memories", "heirloom": "memories",
+    "voice": "voice", "voices": "voice", "audio": "audio", "podcast": "audio",
+    "recording": "voice", "recordings": "voice",
+    "video": "video", "videos": "video", "film": "video", "footage": "video",
+    "photo": "photos", "photos": "photos", "picture": "photos",
+    "pictures": "photos", "gallery": "photos",
+    "church": "faith", "faith": "faith", "worship": "faith", "prayer": "faith",
+    "music": "music", "band": "music", "song": "music", "songs": "music",
+}
+
+
+def _themes_from_keywords(topic: str) -> list[str]:
+    """Heuristic theme detection: scan the topic for known keywords. Order
+    follows first appearance in the topic text."""
+    low = topic.lower()
+    hits: list[tuple[int, str]] = []
+    for kw, theme in _THEME_SYNONYMS.items():
+        idx = low.find(kw)
+        if idx >= 0 and re.search(rf"\b{re.escape(kw)}\b", low):
+            hits.append((idx, theme))
+    out: list[str] = []
+    for _, theme in sorted(hits):
+        if theme not in out:
+            out.append(theme)
+    return out
+
+
+def extract_vocab_and_themes(topic: str, api_key: str) -> tuple[list[str], list[str]]:
+    """v28.C: one LLM call → (practitioner vocab terms, fitting themes).
+
+    Folds the topic→theme selection into the existing v3.D vocab call (no
+    second API call). `themes` are constrained to `THEME_MAP` keys. Raises on
+    HTTP failure so callers can fall back (no anchors + heuristic themes)."""
     prompt = _vocab_prompt(topic)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     body = {"model": OPENAI_MODEL, "input": prompt}
     r = requests.post(OPENAI_RESPONSES_URL, headers=headers, json=body, timeout=OPENAI_TIMEOUT)
     r.raise_for_status()
     text = _parse_openai_text(r.json())
-    return _extract_vocab_terms(text)
+    return _extract_vocab_terms(text), _extract_themes(text)
+
+
+def extract_vocab(topic: str, api_key: str) -> list[str]:
+    """v3.D: practitioner vocab terms for `topic` (back-compat wrapper around
+    `extract_vocab_and_themes`, which v28.C added the theme channel to)."""
+    return extract_vocab_and_themes(topic, api_key)[0]
+
+
+def merge_topical_columns(
+    columns: list[str], themes: list[str], *, max_extra: int = 4
+) -> list[str]:
+    """v28.C: append up to `max_extra` topical TLDs for `themes` to `columns`
+    **in place** (idempotent — skips TLDs already present), and return the list
+    of TLDs added (for logging). Mutating the caller's column list keeps the
+    grid render + pick-validation in sync with the topical additions without
+    changing `run_validation_pipeline`'s return shape."""
+    added: list[str] = []
+    for tld in topical_tlds_for(themes):
+        if len(added) >= max_extra:
+            break
+        if tld not in columns:
+            columns.append(tld)
+            added.append(tld)
+    return added
 
 
 def _parse_openai_text(payload: dict) -> str:
@@ -1401,6 +1483,7 @@ def run_validation_pipeline(
     cache_save_fn=None,
     n_per_strategy: int = DEFAULT_CANDIDATES_PER_STRATEGY,
     log_fn=None,
+    merge_topical: bool = False,
 ) -> tuple[list[GridRow], list[str]]:
     """v3.D one-pass orchestration.
 
@@ -1418,19 +1501,31 @@ def run_validation_pipeline(
         if log_fn is not None:
             log_fn(msg)
 
-    # 1. Vocab.
+    # 1. Vocab (+ v28.C topic themes, folded into the same call).
     vocab_terms: list[str] = []
+    themes: list[str] = []
     if cache_payload and cache_payload.get("vocab_terms"):
         vocab_terms = list(cache_payload["vocab_terms"])
+        # Cached run: no fresh LLM call, so derive themes heuristically.
+        themes = _themes_from_keywords(topic)
         log(f"vocab: cached ({len(vocab_terms)} terms)")
     else:
         try:
             log("vocab: extracting via OpenAI gpt-5-mini...")
-            vocab_terms = extract_vocab(topic, api_key)
+            vocab_terms, themes = extract_vocab_and_themes(topic, api_key)
             log(f"vocab: {len(vocab_terms)} terms — {', '.join(vocab_terms)}")
         except Exception as e:
             log(f"vocab: extraction failed ({e}); proceeding without anchors")
             vocab_terms = []
+            themes = _themes_from_keywords(topic)  # heuristic fallback
+
+    # v28.C — merge topic-fitting topical TLDs into the run's columns (only
+    # when the operator didn't pin --tlds). Mutates `columns` in place so the
+    # grid + pick-validation see them.
+    if merge_topical and themes:
+        added = merge_topical_columns(columns, themes)
+        if added:
+            log(f"topical: +{' +'.join(added)}  (themes: {', '.join(themes)})")
 
     # 2. Brainstorm per strategy.
     candidates_by_strategy: dict[str, list[Candidate]] = {}
