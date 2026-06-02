@@ -160,6 +160,26 @@ def lookup_price(domain: str, pricing: dict[str, dict] | None = None) -> float |
     return _money_from_str(entry.get("registration"))
 
 
+def lookup_renewal(domain: str, pricing: dict[str, dict] | None = None) -> float | None:
+    """Look up the *renewal* price for a domain — the true keep-forever cost,
+    which on many topical TLDs (`.family`, `.life`, `.fm`) far exceeds the
+    first-year registration. Mirrors `lookup_price`; v28 surfaces this so the
+    grid doesn't undersell a reg-cheap / renew-expensive TLD."""
+    if pricing is None:
+        pricing = load_porkbun_pricing()
+    if not pricing or "." not in domain:
+        return None
+    tld = domain.rsplit(".", 1)[-1].lower()
+    if "." in domain.split(".", 1)[1]:  # multi-part TLD like co.in
+        rest = domain.split(".", 1)[1].lower()
+        if rest in pricing:
+            tld = rest
+    entry = pricing.get(tld)
+    if not isinstance(entry, dict):
+        return None
+    return _money_from_str(entry.get("renewal"))
+
+
 # ---------- RDAP availability (with retry) ----------
 
 

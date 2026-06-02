@@ -118,6 +118,46 @@ TLD_TIER = {
     ".in": 4,
 }
 
+# v28.B — topical ("vibe") TLDs surfaced when a run's *topic* fits a theme.
+# THEME_MAP maps a theme key → the TLDs that fit it; TOPICAL_TLDS is the flat
+# curated allow-set the v28.C LLM selector may pick from (guardrail: the model
+# can only choose vouched, Porkbun-priced TLDs — never a hallucinated registry).
+# Prices noted are Porkbun reg / renew as of 2026-06-01; several are reg-cheap /
+# renew-expensive, which is why v28 surfaces renewal cost (the true keep cost).
+THEME_MAP: dict[str, tuple[str, ...]] = {
+    "family":   (".family", ".gift", ".photos", ".life"),  # family & memories
+    "memories": (".photos", ".life", ".video", ".gift"),
+    "voice":    (".fm",),                                   # .fm reg/renew $88
+    "audio":    (".fm",),
+    "video":    (".video", ".cam"),                         # .video renew $29
+    "photos":   (".photos",),                               # reg $8 / renew $24
+    "faith":    (".church",),                               # reg $7 / renew $47
+    "music":    (".band", ".fm"),
+}
+
+# Flat allow-set (deduped) the topic→TLD selector is constrained to.
+TOPICAL_TLDS: frozenset[str] = frozenset(
+    t for tlds in THEME_MAP.values() for t in tlds
+)
+
+# Default tier weight for a topical TLD when it isn't already in TLD_TIER.
+# Mid-pack on its own, but a topical *match* gets a recommendation bump in
+# v28.D's pick logic — the fit, not the raw tier, is what earns the pick.
+TOPICAL_TLD_TIER_DEFAULT = 5
+
+
+def topical_tlds_for(themes: list[str]) -> tuple[str, ...]:
+    """Resolve theme keys → an ordered, de-duplicated tuple of topical TLDs
+    drawn only from `THEME_MAP` (unknown themes are ignored). Order follows
+    first-appearance across the given themes so the most-relevant theme's
+    TLDs lead the merged columns. v28.C feeds this the LLM-selected themes."""
+    out: list[str] = []
+    for theme in themes:
+        for tld in THEME_MAP.get(theme.strip().lower(), ()):  # unknown → ()
+            if tld not in out:
+                out.append(tld)
+    return tuple(out)
+
 # v3.D defense bonuses. Applied in score_name when com_status is provided.
 SCORE_BONUS_COM_AVAILABLE = 5     # .com is registerable → slice defendable
 SCORE_PENALTY_COM_LIVE = -20      # .com is a live competing site → brand poisoned

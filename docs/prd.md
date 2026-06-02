@@ -1371,6 +1371,77 @@ occasional one-off edits, and a dedicated `--stack` flag is easy to add
 later if the operator hits friction. The todo verbs themselves stay
 deferred per the reactive-over-proactive posture.
 
+### v28 — topic-aware TLD expansion in `new domain` *(new 2026-06-01 after a family-archive topic surfaced that the generic `.com/.app/.xyz` ladder misses the topically-perfect TLDs — `.family`, `.fm`, `.gift`, `.photos`; v28.A/B shipped 2026-06-01 — decisions locked + `THEME_MAP`/`TOPICAL_TLDS`/`topical_tlds_for` + `lookup_renewal`, 10 tests)*
+
+`new domain`'s TLD ladder is generic (credible primaries + cheap-validation
+lane). For topic-fitting projects it should also surface the *topically*
+right TLDs — `.family` for a family service, `.fm` for voice/audio, `.video`,
+`.gift`, `.photos`, `.church`, … — and let a topically-ideal-but-premium TLD
+be a visible choice rather than a silently-skipped over-cap cell.
+
+The plumbing is already there: Porkbun `/pricing/get` prices every TLD they
+sell, RDAP gaps fall back to the existing `verify-at-registrar` cell state,
+and v3.D already carries `ScoredOption.renewal` / `CellState.renewal` /
+`--show-renewal` / `--max-price` + `over_max` ("shown but unselectable").
+v28 is two new ideas on top: (1) **topic-aware auto-selection** of which
+topical TLDs to merge into a given run's ladder, and (2) **premium / topical
+fit** — over-cap topical TLDs stay visible (flagged, with renewal cost) and
+can be *recommended*, not filtered out.
+
+**Decisions locked (v28.A, operator 2026-06-01):** (a) **topic-aware
+auto-select**, not a static widen — only the topical TLDs matching THIS
+run's topic are merged in (keeps the grid bounded; a devtool doesn't get
+`.family`). (b) **LLM-assisted matching** — the brainstorm step already
+calls OpenAI with the topic, so it also picks the fitting TLDs from a
+**curated allow-set** (guardrail against hallucinated/junk TLDs); no second
+API call. (c) **Premium-not-hidden** — an over-`--max-price` topical TLD
+renders flagged `premium · topical fit` with its renewal price and is
+*pickable*, instead of being skipped. (d) **Renewal surfaced** for topical
+picks (these are reg-cheap / renew-expensive: `.family` $5.66→$31.41,
+`.life` $2→$29, `.fm` $88 flat). (e) Manual `--tlds` override stays the
+power-user escape hatch.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v28.A | ✅ | **Kickoff / decisions lock.** Approach (topic-aware auto-select), matching mechanism (LLM-assisted from a curated allow-set), premium-not-hidden + renewal-surfacing rules, topical-fit scoring posture — all locked above. Curated topical-TLD set + theme map defined in v28.B. No code. |
+| v28.B | ✅ | **Topical-TLD set + theme map + renewal lookup.** `THEME_MAP` (theme → TLDs) + flat `TOPICAL_TLDS` curated allow-set + `topical_tlds_for(themes)` resolver in `suggest.py` — family/memories (`.family .gift .photos .life`), voice/audio (`.fm`), video (`.video .cam`), photos (`.photos`), faith (`.church`), music (`.band .fm`); all confirmed Porkbun-priced. `availability.lookup_renewal` parallels `lookup_price` (renewal = the true keep cost). Renewal already populated per-cell (v3.D), so making it *visible* in the grid rides on v28.D's display. 10 tests. |
+| v28.C | ☐ | **Topic-aware selection.** In the brainstorm/`new domain` flow, have the existing OpenAI call return 3–5 fitting TLDs from `TOPICAL_TLDS` for the run's topic; merge them into that run's columns (bounded). Heuristic keyword fallback when the API is unavailable. `--tlds` override unchanged. |
+| v28.D | ☐ | **Premium display + topical-fit recommendation.** Over-cap topical TLDs show flagged `premium · topical fit` (not skipped) — adjust `_decide_pick` (currently excludes `over_max`) so a topical match is pickable with `why = "topical fit"`; weight topical fit in `TLD_TIER` / the Pick logic so `.family` can out-rank a generic `.xyz` for a family service. Grid renders the new state **+ makes renewal visible** for topical / over-cap cells (data already on `CellState.renewal`; promotes it out from behind `--show-renewal`). |
+| v28.E | ☐ | **(Reactive) Tune the theme map** as more project topics surface; promote/demote topical TLDs by track record. |
+
+#### Design notes
+
+**Why topic-aware, not a static widen (v28.A).** Adding `.family` /
+`.church` / `.fm` to the universal ladder shows them for *every* topic — a
+devtool brainstorm doesn't want a `.family` column. Topic-aware selection
+keeps the grid bounded and the columns relevant; it also lets the
+recommendation favor a topical match only when the topic actually fits.
+
+**Why LLM-assisted from a curated allow-set (v28.A).** Free-text topics
+("weekly WhatsApp service… private family archive…") map to themes more
+robustly via the LLM than via keyword heuristics, and the brainstorm step
+*already* calls OpenAI with the topic — so it's near-zero extra cost. The
+**curated allow-set** is the guardrail: the model may only pick from TLDs we
+price-check and vouch for, so it can't surface a hallucinated or absurdly
+expensive registry. Heuristic keyword match is the offline fallback.
+
+**Why premium-not-hidden + renewal surfaced (v28.A).** The topically-perfect
+TLD is often the expensive one (`.fm` $88, `.family` renews $31). Silently
+filtering it by `--max-price` hides the *best* option; instead it renders
+flagged `premium · topical fit` so it's a deliberate operator choice. And
+because these TLDs are reg-cheap / renew-expensive, the grid must show
+**renewal** (the real keep-forever cost), not just first-year registration —
+the data is already on `CellState.renewal` (v3.D), v28 just makes it visible
+for these picks.
+
+**Why this reuses v3.D scaffolding (v28.B/D).** `ScoredOption.renewal`,
+`CellState.renewal`, `--show-renewal`, and `--max-price` + `over_max` already
+exist. v28 doesn't add a pricing path — it adds the curated set, the
+topic→TLD selection, and the premium-pickable + topical-fit-scoring
+behavior on top of the existing grid.
+
 ## The [content] and [todo] blocks: what each is for
 
 `lamill.toml` carries two human-authored blocks that look similar at a glance but do different jobs. Keeping them separate keeps the file honest.
