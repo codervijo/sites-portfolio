@@ -1442,7 +1442,7 @@ exist. v28 doesn't add a pricing path — it adds the curated set, the
 topic→TLD selection, and the premium-pickable + topical-fit-scoring
 behavior on top of the existing grid.
 
-### v29 — seed `lamill.toml [content]` from the bootstrap interview *(new 2026-06-03 after the operator noticed `new bootstrap` collects ICP but writes it only to `AI_AGENTS.md`, leaving `lamill.toml [content]` an empty skeleton with a nag-todo; v29.A shipped 2026-06-03 — decisions locked (ICP-reuse-verbatim, all-fields-optional, single-paste collection); the ICP-coupling decision sits below the ADR bar → recorded as a `shipping-history.md` note when v29 lands, not an ADR; v29.B shipped 2026-06-03 — `content_block(values)` seed renderer + `ensure_content_block(values=)`, `tomli_w`-escaped ICP/list fields, empty render byte-identical to `CONTENT_SKELETON`, 12 tests)*
+### v29 — seed `lamill.toml [content]` from the bootstrap interview *(new 2026-06-03 after the operator noticed `new bootstrap` collects ICP but writes it only to `AI_AGENTS.md`, leaving `lamill.toml [content]` an empty skeleton with a nag-todo; v29.A shipped 2026-06-03 — decisions locked (ICP-reuse-verbatim, all-fields-optional, single-paste collection); the ICP-coupling decision sits below the ADR bar → recorded as a `shipping-history.md` note when v29 lands, not an ADR; v29.B shipped 2026-06-03 — `content_block(values)` seed renderer + `ensure_content_block(values=)`, `tomli_w`-escaped ICP/list fields, empty render byte-identical to `CONTENT_SKELETON`, 12 tests; **scope widened 2026-06-03** — a real-data check on 4 fresh sites (dearreels/meetwhen/scopeguard/threadradar) showed the authored `AI_AGENTS.md` docs supply nearly every `[content]` field, not just `icp`, so decision (a) widens from "reuse icp" to "derive `[content]` from the authored docs"; this fires the v29.A ADR-upgrade trigger, so v29 now carries an ADR, not a shipping-history note; v29.C shipped 2026-06-04 — `content_derive.derive_content` (icp verbatim + 7 fields via one OpenAI call, schema-coerced, best-effort/never-raises) + ADR-0019, 12 mocked-LLM tests)*
 
 `new bootstrap` already collects ICP (and 4 other prose sections) and writes
 them to `AI_AGENTS.md`, but `lamill.toml [content]` is appended as a hardcoded
@@ -1450,37 +1450,58 @@ all-empty `CONTENT_SKELETON` (`lamill_toml_edit.py:297`) with a "Fill in
 [content]" nag-todo. ICP is authored once, stored twice, the second copy left
 blank. The interview and the `[content]` block were built at different times —
 the block arrived in the v27.I / 2026-05-30 migration — and were never unified.
-v29 closes the seam: collect the `[content]` fields during the interview and
-seed the block, so a fully-answered bootstrap ships todo-free.
+v29 closes the seam: derive the `[content]` fields from the docs the operator
+already authors at bootstrap, so a fully-answered bootstrap ships todo-free with
+no extra questions.
 
-**Decisions locked (operator, 2026-06-03):** (a) **ICP reuse, verbatim** — `[content].icp`
-is the `AI_AGENTS.md ## ICP` answer copied as-is (a paragraph); single source,
-no double-ask, the field's "one sentence" intent is relaxed and the skeleton
-comment updates to say so. (b) **All `[content]` fields optional** — every field
-is skippable; a blank keeps the skeleton default line and re-seeds the "Fill in
-[content]" todo *for the blank fields only*, honoring the `[content]` "empty is
-better than wrong" rule and the `lamill.toml` additive-optional invariant.
-(c) **One paste, not 7 new prompts** — the structured fields ride the existing
-LLM paste template + `bootstrap_paste` parser; interactive per-section fallback
-mirrors today's flow.
+**Decisions locked (operator, 2026-06-03; (a) widened same day):** (a) **Derive
+`[content]` from the authored `AI_AGENTS.md` docs** — `icp` is the `## ICP`
+answer copied verbatim (single source, no double-ask); the other fields
+(`site_type`, `primary_keyword`, `secondary_keywords`, `urgency_trigger`,
+`penalty`, `tone`, `law`) are derived from the operator's authored sections
+(esp. `## Content strategy`, which already spells out keyword targets and tone)
+via one structured LLM extraction step. *Original (a) was "reuse only icp"; the
+4-site real-data check showed the docs supply almost every field.* (b) **All
+`[content]` fields optional** — derivation may leave a field blank, and no API
+key / a failed or empty extraction leaves all fields blank; a blank keeps the
+skeleton default line and re-seeds the "Fill in [content]" todo *for the blank
+fields only*, honoring the `[content]` "empty is better than wrong" rule and the
+`lamill.toml` additive-optional invariant. (c) **No new interview questions** —
+the bootstrap interview is unchanged; `[content]` is populated by a post-
+interview derivation step over the already-collected sections. Operators still
+override by editing the file.
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v29.A | ✅ | **Kickoff / decisions lock.** (a) ICP-reuse-verbatim, (b) all-fields-optional + todo-reseeds-only-blanks, (c) paste-template collection — locked above. ICP-coupling → `shipping-history.md` note when v29 lands (below the ADR bar; **upgrades to an ADR only if more `[content]` fields get sourced from `AI_AGENTS.md`** — that's a provenance posture, this is one field). No code. |
+| v29.A | ✅ | **Kickoff / decisions lock.** Decisions locked above; the ICP-coupling carried an ADR-upgrade trigger ("upgrades to an ADR only if more `[content]` fields get sourced from `AI_AGENTS.md`"). **That trigger fired** when (a) widened the same day — v29 now sources 7 fields from the docs, a provenance posture → v29 carries an ADR (written in v29.C/D's shipping unit), not a shipping-history note. No code. |
 | v29.B | ✅ | **Values-aware seed renderer.** `content_block(values)` in `lamill_toml_edit.py` fills provided fields, preserves the guidance comments (dropped per seeded field), leaves unset fields at `= ""` / `[]`. `ensure_content_block(repo, values=None)` gains the arg (append-if-absent; never merges into an existing block). ICP paragraph + `secondary_keywords` list escape via `tomli_w`. All-empty output is byte-identical to `CONTENT_SKELETON` (asserted). 12 tests (empty / partial / full / escaping / unknown-keys / idempotent-no-merge); v27 content tests + full suite green. |
-| v29.C | ☐ | **Collect the 8 fields.** Extend the paste template + `bootstrap_paste` parser + `canonical_sections` so the structured fields arrive in the same single paste; `icp` pulled from `operator_inputs["ICP"]` (not re-asked); interactive fallback, every field Enter-to-skip. Tests: parse, ICP-reuse, all-skip. |
-| v29.D | ☐ | **Wire into bootstrap + todo.** Pass collected values to `ensure_content_block` (`bootstrap.py:2139`); seed the "Fill in [content]" todo only when ≥1 field is still blank, naming which. `--non-interactive` smoke + test that a fully-answered bootstrap ships todo-free. |
-| v29.E | ☐ | **(Reactive)** Tune which fields are worth prompting as real bootstraps surface friction; promote/demote per track record. |
+| v29.C | ✅ | **Derive `[content]` from authored sections.** New `content_derive` module: `derive_content(sections, api_key=)` copies `icp` verbatim, derives the other 7 via one structured OpenAI `/v1/responses` call (reuses `suggest.py`'s model/endpoint/parser), coerces the JSON to the field schema (`secondary_keywords`→list, unknown keys dropped, empties dropped). Best-effort: no key / HTTP error / bad JSON → "return what we have" (≥ verbatim icp), never raises. **ADR-0019** (doc-derivation provenance) shipped + indexed. 12 tests with a mocked LLM (icp-verbatim, full/partial derive, failure→icp-only, fenced-JSON, comma-string coercion, unknown-keys, empty-brief-skips-LLM, renderer round-trip). |
+| v29.D | ☐ | **Wire into bootstrap + todo.** After the interview collects sections, run `content_derive` and pass the values to `ensure_content_block` (`bootstrap.py:2139`); seed the "Fill in [content]" todo only for fields left blank, naming which. `--non-interactive` / no-API path leaves the block empty + the full todo. `new bootstrap` smoke + test that a derived bootstrap ships todo-free. |
+| v29.E | ☐ | **(Reactive) Backfill existing sites.** A `derive`/backfill path that runs `content_derive` over an existing site's `AI_AGENTS.md` and seeds its empty `[content]` block — the 4 sites (dearreels/meetwhen/scopeguard/threadradar) that surfaced this gap are the first customers. Deferred until the bootstrap path proves the derivation quality. |
 
 #### Design notes
 
-**Why reuse the ICP paragraph (v29.A).** The operator already authors a rich,
-specific ICP at bootstrap. Re-asking for a one-liner is double work for the same
-fact; copying verbatim makes `AI_AGENTS.md ## ICP` the single source and the TOML
-a faithful mirror. Cost: `[content].icp` holds prose rather than a one-liner —
-acceptable, rankmill reads it whole.
+**Why derive from the authored docs, not ask (v29, widened 2026-06-03).** A
+real-data check on 4 fresh sites showed the operator's `## Content strategy` and
+`## ICP` sections already contain almost every `[content]` field — dearreels'
+Content strategy literally lists *"questions to ask my mother," "long distance
+grandparenting"*; meetwhen's lists *"best time to meet between [city] and
+[city]"*; scopeguard's spells out the OAuth-scope / SOC2 cluster and an explicit
+*"speak like a security peer"* tone. So the fields don't need to be *asked* — they
+can be *derived* from prose the operator already wrote. `icp` is copied verbatim
+(it's a direct paraphrase target, not an inference); the other 7 come from one
+LLM extraction over the sections. This makes `AI_AGENTS.md` the single authored
+source and `[content]` a derived projection — zero new interview burden.
+
+**Why an ADR now (v29.A trigger fired).** v29.A recorded the ICP-coupling as
+below the ADR bar *with* an explicit upgrade trigger: "if more `[content]` fields
+get sourced from `AI_AGENTS.md`." Widening (a) to derive 7 fields is exactly
+that — `[content]` becomes a derived projection of the authored docs, a
+provenance posture future readers will ask "why" about (why is `[content]`
+LLM-derived, not authored directly? what's the source of truth on conflict?).
+The ADR ships in v29.C's unit.
 
 **Invariants honored.** Seeding goes through the surgical `lamill_toml_edit`
 append (ADR-0018 upsert-not-rewrite), never a `write()` that would clobber
@@ -1493,8 +1514,8 @@ apostrophes, and newlines → emit it as a safe TOML multi-line string;
 `secondary_keywords` emits as an array. That's the bulk of v29.B's test surface.
 
 **Docs same-commit.** prd.md phase rows, `architecture.md` (bootstrap mechanism +
-the content-seed renderer). A short ADR for the ICP-coupling decision is a v29.A
-call (ADR vs. `shipping-history.md` note).
+the content-seed renderer + the `content_derive` step), and the new ADR for the
+doc-derivation provenance posture (ships with v29.C).
 
 ## The [content] and [todo] blocks: what each is for
 

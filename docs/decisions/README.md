@@ -31,6 +31,7 @@ trade-offs were, and what the consequences are.
 | 0016 | GSC verification method ↔ property type are coupled; default to DNS_TXT + Domain | Accepted | —         |
 | 0017 | Additive-optional `lamill.toml` tables stay on schema = `lamill-toml-v1` | Accepted | —         |
 | 0018 | CLI `lamill.toml` mutations are surgical upserts, not full-file rewrites | Accepted | —         |
+| 0019 | `lamill.toml [content]` is derived from the authored `AI_AGENTS.md`, not asked separately | Accepted | —         |
 
 ## When to write an ADR
 
