@@ -1442,7 +1442,7 @@ exist. v28 doesn't add a pricing path — it adds the curated set, the
 topic→TLD selection, and the premium-pickable + topical-fit-scoring
 behavior on top of the existing grid.
 
-### v29 — seed `lamill.toml [content]` from the bootstrap interview *(new 2026-06-03 after the operator noticed `new bootstrap` collects ICP but writes it only to `AI_AGENTS.md`, leaving `lamill.toml [content]` an empty skeleton with a nag-todo)*
+### v29 — seed `lamill.toml [content]` from the bootstrap interview *(new 2026-06-03 after the operator noticed `new bootstrap` collects ICP but writes it only to `AI_AGENTS.md`, leaving `lamill.toml [content]` an empty skeleton with a nag-todo; v29.A shipped 2026-06-03 — decisions locked (ICP-reuse-verbatim, all-fields-optional, single-paste collection); the ICP-coupling decision sits below the ADR bar → recorded as a `shipping-history.md` note when v29 lands, not an ADR)*
 
 `new bootstrap` already collects ICP (and 4 other prose sections) and writes
 them to `AI_AGENTS.md`, but `lamill.toml [content]` is appended as a hardcoded
@@ -1468,7 +1468,7 @@ mirrors today's flow.
 
 | # | Status | Feature |
 |---|---|---|
-| v29.A | ☐ | **Kickoff / decisions lock.** (a) ICP-reuse-verbatim, (b) all-fields-optional + todo-reseeds-only-blanks, (c) paste-template collection — locked above. Decide ADR-vs-shipping-history for the ICP coupling. No code. |
+| v29.A | ✅ | **Kickoff / decisions lock.** (a) ICP-reuse-verbatim, (b) all-fields-optional + todo-reseeds-only-blanks, (c) paste-template collection — locked above. ICP-coupling → `shipping-history.md` note when v29 lands (below the ADR bar; **upgrades to an ADR only if more `[content]` fields get sourced from `AI_AGENTS.md`** — that's a provenance posture, this is one field). No code. |
 | v29.B | ☐ | **Values-aware seed renderer.** `content_block(values)` in `lamill_toml_edit.py` fills provided fields, preserves the guidance comments, leaves unset fields at `= ""`. `ensure_content_block(repo, values=None)` gains the arg. Handles the multi-line ICP paragraph (safe TOML string) + `secondary_keywords` list. **All-empty output stays byte-identical to today** (CHECK_059 + existing tests green). Unit tests: empty / partial / full / escaping. |
 | v29.C | ☐ | **Collect the 8 fields.** Extend the paste template + `bootstrap_paste` parser + `canonical_sections` so the structured fields arrive in the same single paste; `icp` pulled from `operator_inputs["ICP"]` (not re-asked); interactive fallback, every field Enter-to-skip. Tests: parse, ICP-reuse, all-skip. |
 | v29.D | ☐ | **Wire into bootstrap + todo.** Pass collected values to `ensure_content_block` (`bootstrap.py:2139`); seed the "Fill in [content]" todo only when ≥1 field is still blank, naming which. `--non-interactive` smoke + test that a fully-answered bootstrap ships todo-free. |
