@@ -1442,6 +1442,60 @@ exist. v28 doesn't add a pricing path — it adds the curated set, the
 topic→TLD selection, and the premium-pickable + topical-fit-scoring
 behavior on top of the existing grid.
 
+### v29 — seed `lamill.toml [content]` from the bootstrap interview *(new 2026-06-03 after the operator noticed `new bootstrap` collects ICP but writes it only to `AI_AGENTS.md`, leaving `lamill.toml [content]` an empty skeleton with a nag-todo)*
+
+`new bootstrap` already collects ICP (and 4 other prose sections) and writes
+them to `AI_AGENTS.md`, but `lamill.toml [content]` is appended as a hardcoded
+all-empty `CONTENT_SKELETON` (`lamill_toml_edit.py:297`) with a "Fill in
+[content]" nag-todo. ICP is authored once, stored twice, the second copy left
+blank. The interview and the `[content]` block were built at different times —
+the block arrived in the v27.I / 2026-05-30 migration — and were never unified.
+v29 closes the seam: collect the `[content]` fields during the interview and
+seed the block, so a fully-answered bootstrap ships todo-free.
+
+**Decisions locked (operator, 2026-06-03):** (a) **ICP reuse, verbatim** — `[content].icp`
+is the `AI_AGENTS.md ## ICP` answer copied as-is (a paragraph); single source,
+no double-ask, the field's "one sentence" intent is relaxed and the skeleton
+comment updates to say so. (b) **All `[content]` fields optional** — every field
+is skippable; a blank keeps the skeleton default line and re-seeds the "Fill in
+[content]" todo *for the blank fields only*, honoring the `[content]` "empty is
+better than wrong" rule and the `lamill.toml` additive-optional invariant.
+(c) **One paste, not 7 new prompts** — the structured fields ride the existing
+LLM paste template + `bootstrap_paste` parser; interactive per-section fallback
+mirrors today's flow.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v29.A | ☐ | **Kickoff / decisions lock.** (a) ICP-reuse-verbatim, (b) all-fields-optional + todo-reseeds-only-blanks, (c) paste-template collection — locked above. Decide ADR-vs-shipping-history for the ICP coupling. No code. |
+| v29.B | ☐ | **Values-aware seed renderer.** `content_block(values)` in `lamill_toml_edit.py` fills provided fields, preserves the guidance comments, leaves unset fields at `= ""`. `ensure_content_block(repo, values=None)` gains the arg. Handles the multi-line ICP paragraph (safe TOML string) + `secondary_keywords` list. **All-empty output stays byte-identical to today** (CHECK_059 + existing tests green). Unit tests: empty / partial / full / escaping. |
+| v29.C | ☐ | **Collect the 8 fields.** Extend the paste template + `bootstrap_paste` parser + `canonical_sections` so the structured fields arrive in the same single paste; `icp` pulled from `operator_inputs["ICP"]` (not re-asked); interactive fallback, every field Enter-to-skip. Tests: parse, ICP-reuse, all-skip. |
+| v29.D | ☐ | **Wire into bootstrap + todo.** Pass collected values to `ensure_content_block` (`bootstrap.py:2139`); seed the "Fill in [content]" todo only when ≥1 field is still blank, naming which. `--non-interactive` smoke + test that a fully-answered bootstrap ships todo-free. |
+| v29.E | ☐ | **(Reactive)** Tune which fields are worth prompting as real bootstraps surface friction; promote/demote per track record. |
+
+#### Design notes
+
+**Why reuse the ICP paragraph (v29.A).** The operator already authors a rich,
+specific ICP at bootstrap. Re-asking for a one-liner is double work for the same
+fact; copying verbatim makes `AI_AGENTS.md ## ICP` the single source and the TOML
+a faithful mirror. Cost: `[content].icp` holds prose rather than a one-liner —
+acceptable, rankmill reads it whole.
+
+**Invariants honored.** Seeding goes through the surgical `lamill_toml_edit`
+append (ADR-0018 upsert-not-rewrite), never a `write()` that would clobber
+`[content]`/comments. The block stays additive-optional — absent or empty is
+still valid everywhere, and the all-empty render must stay byte-identical to
+today so CHECK_059 and the existing round-trip tests stay green.
+
+**Main implementation subtlety (v29.B).** The ICP paragraph carries quotes,
+apostrophes, and newlines → emit it as a safe TOML multi-line string;
+`secondary_keywords` emits as an array. That's the bulk of v29.B's test surface.
+
+**Docs same-commit.** prd.md phase rows, `architecture.md` (bootstrap mechanism +
+the content-seed renderer). A short ADR for the ICP-coupling decision is a v29.A
+call (ADR vs. `shipping-history.md` note).
+
 ## The [content] and [todo] blocks: what each is for
 
 `lamill.toml` carries two human-authored blocks that look similar at a glance but do different jobs. Keeping them separate keeps the file honest.
