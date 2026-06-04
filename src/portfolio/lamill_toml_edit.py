@@ -33,6 +33,8 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
+import tomli_w
+
 from . import lamill_toml
 from .lamill_toml import LAMILL_TOML_FILENAME, ParseError, TodoItem
 
@@ -308,6 +310,68 @@ tone = ""                 # e.g. "direct, technical, no fluff" or "warm, plainsp
 law = ""                  # statute or regulation if applicable, else empty
 '''
 
+# v29.B — the `[content]` field spec, single source of truth for both the
+# empty skeleton and value-seeded renders. Each row: (field name, empty-
+# default literal, guidance comment). The comments + column alignment
+# below reproduce CONTENT_SKELETON byte-for-byte when no values are given
+# (asserted in tests); a seeded field drops its guidance comment because
+# the value itself documents the field.
+_CONTENT_INTRO = (
+    "[content]\n"
+    "# Declarative content identity for this site.\n"
+    "# Authored by the human; consumed by rankmill to generate drafts and run audits.\n"
+    "# Leave fields empty until you have a deliberate answer. Empty is better than wrong.\n"
+)
+
+_CONTENT_FIELDS: list[tuple[str, str, str]] = [
+    ("site_type", '""', 'e.g. "legal-compliance", "tool", "directory", "blog", "b2c"'),
+    ("primary_keyword", '""', "the one phrase this site should rank for"),
+    ("secondary_keywords", "[]", "3-8 supporting phrases"),
+    ("icp", '""', "ideal customer profile — one sentence, specific role + context"),
+    ("urgency_trigger", '""', "what makes the reader act now (deadline, penalty, pain)"),
+    ("penalty", '""', "cost of inaction, in their terms (dollars, risk, time)"),
+    ("tone", '""', 'e.g. "direct, technical, no fluff" or "warm, plainspoken"'),
+    ("law", '""', "statute or regulation if applicable, else empty"),
+]
+
+# `name = default` is left-padded to this width, then `   # comment`.
+# 23 = len("secondary_keywords = []"), the widest empty field line.
+_CONTENT_COMMENT_COL = 23
+
+
+def _emit_toml_value(value: object) -> str:
+    """Render a Python scalar/list as its TOML right-hand side via
+    `tomli_w`, so quoting, escaping (quotes / apostrophes / newlines in a
+    pasted ICP paragraph), and list formatting are all correct and
+    round-trip. `tomli_w.dumps({"_": v})` yields `_ = <repr>\\n`; strip
+    the `_ = ` prefix and trailing newline to get just the value."""
+    return tomli_w.dumps({"_": value}).strip()[len("_ = "):]
+
+
+def content_block(values: dict | None = None) -> str:
+    """Render the `[content]` block, seeding any provided field values.
+
+    `values` maps a `[content]` field name → value (a string, or a
+    list[str] for `secondary_keywords`). A field that is absent, None,
+    or empty (`""` / `[]`) renders as its empty default *with* the
+    guidance comment and column alignment — so `content_block()` with no
+    values is byte-for-byte `CONTENT_SKELETON`. A seeded field renders
+    `name = <toml value>` with no inline comment.
+
+    Unknown keys in `values` are ignored — only the canonical fields are
+    emitted, in their canonical order.
+    """
+    values = values or {}
+    lines: list[str] = []
+    for name, empty_default, comment in _CONTENT_FIELDS:
+        v = values.get(name)
+        if v in (None, "", []):
+            lhs = f"{name} = {empty_default}"
+            lines.append(f"{lhs:<{_CONTENT_COMMENT_COL}}   # {comment}")
+        else:
+            lines.append(f"{name} = {_emit_toml_value(v)}")
+    return _CONTENT_INTRO + "\n".join(lines) + "\n"
+
 
 def ensure_header_comment(repo_path: Path) -> bool:
     """Prepend the canonical header pointer if the file has no top
@@ -321,13 +385,18 @@ def ensure_header_comment(repo_path: Path) -> bool:
     return True
 
 
-def ensure_content_block(repo_path: Path) -> bool:
-    """Append the empty `[content]` skeleton if absent. Idempotent —
-    returns True only when it added the block. Surgical append, so any
-    existing `[[todo]]` / other tables are left untouched."""
+def ensure_content_block(repo_path: Path, values: dict | None = None) -> bool:
+    """Append the `[content]` block if absent, seeding any provided field
+    `values` (v29.B). Idempotent — returns True only when it added the
+    block; a file that already has `[content]` is left untouched (values
+    are NOT merged into an existing block). Surgical append, so any
+    existing `[[todo]]` / other tables are byte-preserved.
+
+    With no `values`, the appended block is the empty `CONTENT_SKELETON`,
+    matching pre-v29.B behavior."""
     p = repo_path / LAMILL_TOML_FILENAME
     text = p.read_text()
     if any(ln.strip() == "[content]" for ln in text.splitlines()):
         return False
-    lamill_toml._atomic_write(p, text.rstrip("\n") + "\n\n" + CONTENT_SKELETON)
+    lamill_toml._atomic_write(p, text.rstrip("\n") + "\n\n" + content_block(values))
     return True
