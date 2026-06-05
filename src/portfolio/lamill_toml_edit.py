@@ -30,6 +30,7 @@ v27.B behavior. Comments and tables *outside* the region are preserved.
 from __future__ import annotations
 
 import re
+import tomllib
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -400,3 +401,92 @@ def ensure_content_block(repo_path: Path, values: dict | None = None) -> bool:
         return False
     lamill_toml._atomic_write(p, text.rstrip("\n") + "\n\n" + content_block(values))
     return True
+
+
+def content_field_values(repo_path: Path) -> dict:
+    """Return the current `[content]` table's field values, parsed from
+    the file; `{}` when the file or the block is absent. Used by the
+    blank-gate so a backfill never overwrites populated content."""
+    target = repo_path / LAMILL_TOML_FILENAME
+    if not target.is_file():
+        return {}
+    text = target.read_text()
+    span = _single_table_span(text, "content")
+    if span is None:
+        return {}
+    try:
+        return tomllib.loads(text[span[0]:span[1]]).get("content", {})
+    except tomllib.TOMLDecodeError:
+        return {}
+
+
+def content_is_blank(values: dict) -> bool:
+    """True when every `[content]` field value is empty (the skeleton
+    state); an absent table (`{}`) counts as blank."""
+    return all(not v for v in values.values())
+
+
+def set_content_block(repo_path: Path, values: dict | None) -> bool:
+    """Seed the `[content]` block from `values` — replacing an existing
+    *all-blank* block in place (byte-preserving the rest of the file,
+    ADR-0018) or appending one when the block is absent (v29.E).
+
+    Gated: a block with ANY populated field is left untouched (returns
+    False) so authored or partially-seeded content is never clobbered.
+    Returns True only when real seeded values were written; False when
+    there is nothing to seed (no non-empty values) or the existing block
+    is already populated.
+    """
+    values = values or {}
+    if content_block(values) == content_block(None):
+        return False  # no real seeds → would just rewrite the skeleton
+
+    target = repo_path / LAMILL_TOML_FILENAME
+    text = target.read_text()
+    span = _single_table_span(text, "content")
+    if span is None:
+        return ensure_content_block(repo_path, values)  # absent → append seeded
+
+    if not content_is_blank(content_field_values(repo_path)):
+        return False  # populated → never clobber
+
+    start, end = span
+    block = content_block(values).rstrip("\n")
+    sep = "\n\n" if end < len(text) else "\n"
+    lamill_toml._atomic_write(target, text[:start] + block + sep + text[end:])
+    return True
+
+
+# v29.F — fields whose blankness gates the "Fill in [content]" starter
+# todo. Derived from the canonical `_CONTENT_FIELDS` (single source of
+# truth, reused by bootstrap), `law` excluded: the skeleton frames it as
+# conditional, so a blank `law` is a normal end state, not unfinished.
+CONTENT_TODO_FIELDS: tuple[str, ...] = tuple(
+    name for name, _, _ in _CONTENT_FIELDS if name != "law"
+)
+
+
+def content_todo_blanks(values: dict | None) -> list[str]:
+    """The `CONTENT_TODO_FIELDS` left blank in `values`. `None`/empty →
+    all of them (matches pre-derivation behavior where the fill-in todo
+    always fired)."""
+    if not values:
+        return list(CONTENT_TODO_FIELDS)
+    return [f for f in CONTENT_TODO_FIELDS if not values.get(f)]
+
+
+def complete_content_todo(repo_path: Path) -> bool:
+    """Mark the open "Fill in [content]" starter todo done, if present —
+    the seed and that nag are two halves of the same gate, so closing the
+    block should close the todo. Matches on the task prefix (covers both
+    the pre-v29.D wording and the v29.D `Fill in [content] block:` form).
+    Returns True when one was completed; surgical (`[[todo]]` region only,
+    leaves the just-written `[content]` untouched)."""
+    doc = lamill_toml.load(repo_path)
+    if doc is None:
+        return False
+    for i, t in enumerate(doc.todos, start=1):
+        if t.status == "open" and t.task.strip().lower().startswith("fill in [content]"):
+            complete_todo(repo_path, i)
+            return True
+    return False

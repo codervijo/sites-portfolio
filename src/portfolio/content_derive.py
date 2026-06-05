@@ -112,6 +112,69 @@ def derive_content(
     return values
 
 
+# ---- AI_AGENTS.md → sections (v29.E, for backfill) ------------------
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+_ITALIC_HINT_RE = re.compile(r"^\*.+\*$")
+
+
+def parse_ai_agents_sections(text: str) -> dict[str, str]:
+    """Parse the brief `## ` sections out of `AI_AGENTS.md` into the
+    `{heading: body}` dict `derive_content` consumes — the inverse of
+    bootstrap's renderer.
+
+    Only the brief headings (`_BRIEF_SECTIONS`) are returned. A body is
+    everything between its `## Heading` and the next heading of *any*
+    level, so a trailing `### Post-deploy checklist` under Content
+    strategy is excluded. The template's italic guidance line and the
+    `(to be filled in)` placeholder are stripped; empty sections are
+    dropped.
+    """
+    bodies: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in text.splitlines():
+        m = _HEADING_RE.match(line)
+        if m:
+            # H2 starts a brief body; any other heading level ends it.
+            current = m.group(2).strip() if len(m.group(1)) == 2 else None
+            if current is not None:
+                bodies.setdefault(current, [])
+        elif current is not None:
+            bodies[current].append(line)
+
+    out: dict[str, str] = {}
+    for heading in _BRIEF_SECTIONS:
+        body = _clean_section_body("\n".join(bodies.get(heading, [])))
+        if body:
+            out[heading] = body
+    return out
+
+
+def sections_from_repo(repo_path) -> dict[str, str]:
+    """Read `<repo>/AI_AGENTS.md` and parse its brief sections; `{}` when
+    the file is absent."""
+    from pathlib import Path
+
+    p = Path(repo_path) / "AI_AGENTS.md"
+    if not p.is_file():
+        return {}
+    return parse_ai_agents_sections(p.read_text(encoding="utf-8"))
+
+
+def _clean_section_body(raw: str) -> str:
+    """Drop the template's leading italic guidance line and the
+    `(to be filled in)` placeholder from a section body, returning the
+    operator's prose (or `""` when the section is just the placeholder)."""
+    lines = raw.splitlines()
+    i = 0
+    while i < len(lines) and not lines[i].strip():
+        i += 1
+    if i < len(lines) and _ITALIC_HINT_RE.match(lines[i].strip()):
+        i += 1
+    body = "\n".join(lines[i:]).strip()
+    return "" if body == "(to be filled in)" else body
+
+
 # ---- internals ------------------------------------------------------
 
 

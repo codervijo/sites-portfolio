@@ -1693,13 +1693,10 @@ def _clone_to_genai(project_dir: Path, git_url: str) -> None:
 
 
 # v29.D — [content] fields whose blankness gates the "Fill in [content]"
-# starter todo. `law` is excluded: the skeleton frames it as conditional
-# ("if applicable, else empty"), so a blank `law` is a normal end state,
-# not an unfinished one. The order matches the canonical field order.
-_CONTENT_TODO_FIELDS: tuple[str, ...] = (
-    "site_type", "primary_keyword", "secondary_keywords", "icp",
-    "urgency_trigger", "penalty", "tone",
-)
+# starter todo. The canonical list lives in `lamill_toml_edit`
+# (`CONTENT_TODO_FIELDS`, derived from `_CONTENT_FIELDS`, `law` excluded)
+# and is reused by the v29.F backfill fixer — single source of truth.
+from .lamill_toml_edit import CONTENT_TODO_FIELDS as _CONTENT_TODO_FIELDS
 
 
 def _content_blanks(content_values: dict | None) -> list[str]:
