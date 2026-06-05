@@ -79,6 +79,7 @@ each one is in its lifecycle. portfolio is the single place to:
 | Wide registrar API auto-sync | dropped — manual CSV exports cover it |
 | ~~Live Porkbun pricing API~~ | reinstated 2026-05-02 — buying-side price is a critical decision criterion (≠ owned-domain valuation, which stays out of scope) |
 | Multi-tenancy / permissions / public surface | single user; CLI-only |
+| Google Indexing API key-rotation (multi-service-account) | dropped 2026-06-05 (v30) — the API is documented as `JobPosting`/`BroadcastEvent`-only; key-rotation exists solely to circumvent the 200/day per-project quota for an unsanctioned use. No fleet site qualifies. Opt-in escape hatch behind `[index] google_indexing = true` only; resurface if Google opens it for general URLs. IndexNow (sanctioned, free) is the indexing channel portfolio builds — see v30 + `docs/indexing-module-plan.md`. |
 
 ## 3. Problem statement
 
@@ -1517,6 +1518,98 @@ v29.B's test surface.
 **Docs same-commit.** prd.md phase rows, `architecture.md` (bootstrap mechanism +
 the content-seed renderer + the `content_derive` step), and the new ADR for the
 doc-derivation provenance posture (ships with v29.C).
+
+### v30 — post-publish indexing as a check + fix *(new 2026-06-05 after evaluating IndexerHub (indexerhub.com); full investigation + plan in `docs/indexing-module-plan.md`. Operator constraint locked 2026-06-05: **no new CLI** — deliver the capability as CHECK-catalog checks + their `fix_tier_1` fixers + one `new deploy` hook, so `fleet fix` becomes the fleetwide backfill autopilot. Skip the Google Indexing API key-rotation arms race (added to § 2 Non-goals).)*
+
+The fleet ships sites but has **zero search-engine ping on publish**: the existing
+`gsc_admin.submit_sitemap` notifies Google only, and nothing notifies the IndexNow
+network (Bing/Yandex/Naver/Seznam/Yep). New URLs wait for organic crawl. v30 adds
+**IndexNow notification** (free, sanctioned, one POST reaches all participating
+engines — Google does not participate) and **index-regression monitoring**, both
+expressed through the existing conformance machinery so older sites backfill via
+`fleet fix` rather than a new command. Index *status* already exists (CHECK_147
+url-indexed over the GSC URL Inspection API); v30 reuses it, not reinvents it.
+
+**Decisions locked (operator, 2026-06-05):** (a) **No new command surface** — the
+capability is two new checks with `fix_tier_1` fixers + a `new deploy` Step 10
+hook + a `new bootstrap` provisioning call; `project check`/`fleet check` and
+`project fix`/`fleet fix` are the only entry points. (b) **The IndexNow ping lives
+inside a fixer** — a remote side effect with a re-probe, following the established
+`CHECK_057` (Cloudflare zone setting) and `CHECK_150` (Vercel redirect) fixer
+precedent, so no new write-surface ADR is needed for the *mechanism*; an ADR
+(ADR-0020) records the *posture* ("indexing notification belongs in the
+conformance/fix loop"). (c) **Backfill is two-pass** — the `public/<key>.txt` key
+file must be live before a ping can verify, so `indexnow-key-present` provisions
+the file (pass 1: `fleet fix` → commit → deploy), then `indexnow-submitted` pings
+once the key is live (pass 2: `fleet fix`); the submit check is `warn`-severity so
+it never nags a site whose key isn't live yet. (d) **`[index]` is additive-
+optional** — a new optional `lamill.toml` table (`indexnow_key`,
+`indexnow_enabled`); absent/`enabled = false` makes every consumer pass-or-skip,
+per the additive-optional invariant. (e) **Google Indexing API is skipped** — its
+only purpose is circumventing a documented 200/day quota for a use Google
+restricts to `JobPosting`/`BroadcastEvent`; no fleet site qualifies. Kept as a
+documented non-goal, opt-in behind `[index] google_indexing = true` only if (a)
+Google opens it for general URLs or (b) the operator ships a JobPosting/livestream
+site.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v30.A | ☐ | **Kickoff / decisions lock + `[index]` table + `indexnow-key-present` check & fix.** Decisions above locked; **ADR-0020** (indexing-in-the-fix-loop posture) written + indexed. Additive-optional `[index]` table added to `lamill_toml.py` (`indexnow_key`, `indexnow_enabled`; loader defaults absent → disabled, CHECK_059 stays green). Key-provisioning helper (key-gen + `public/<key>.txt` via `file_writer`-style write + `[index]` upsert via `lamill_toml_edit.set_table`). New CHECK `indexnow-key-present` (deploy category, web-project-gated, `pass`/skip when `indexnow_enabled = false`) + its `fix_tier_1` (local-FS write). After this, `fleet fix --apply` backfills key files fleetwide. No new auth, no new CLI. |
+| v30.B | ☐ | **Sitemap-diff + IndexNow POST client.** `indexnow.py`: httpx-direct POST to `https://api.indexnow.org/indexnow` (`{host,key,keyLocation,urlList}`, ≤10k URLs), transient-vs-permanent error split (429 → backoff, 4xx → permanent), `httpx.MockTransport` tests. Sitemap fetch + `_sitemap-seen.json` diff (`new_or_changed = current − last_seen`) + append-only `_ledger.json` writer under `data/index/<domain>/` (atomic tmpfile-replace, `fetched_at`, mirrors `gsc_detail_cache`). Reusable ping helper; no check yet. |
+| v30.C | ☐ | **`indexnow-submitted` check & fix (the autopilot).** New CHECK `indexnow-submitted` (deploy, `warn`): sitemap-diff vs ledger → fail-soft when new URLs are unsubmitted. Its `fix_tier_1` wraps the v30.B helper: pre-flight GET `https://<domain>/<key>.txt == key` (not-live → `manual` deferral, not error), ping new/changed URLs, append ledger, re-probe; ledger-gated so a re-run pings nothing (`nothing-to-do`). `fleet fix --apply` now pings new URLs fleetwide — the second backfill pass. |
+| v30.D | ☐ | **`new deploy` Step 10 hook + `new bootstrap` provisioning.** `_deploy_*` calls the v30.B ping helper after GSC Step 9 (soft-fail, idempotent, honors the ADR-0015 invariant); `new bootstrap` calls the v30.A provisioning helper so new sites are born with a live key file and ping on publish. No new command. |
+| v30.E | ☐ | **`index-regression` check + indexed-vs-pending rollup.** New CHECK `index-regression` (deploy, `fail`, no fixer — deindexing isn't auto-fixable): snapshot-diff over URL Inspection flags a previously-indexed URL flipping to `NOT_INDEXED` / `pageFetchState=NOT_FOUND`. Indexed-vs-pending rollup columns on `fleet check`/dashboard fed by CHECK_147's existing `data/gsc/<domain>/` snapshots. |
+
+#### Design notes
+
+**Why a check + fix, not a command (operator, 2026-06-05).** The capability is
+conformance-shaped: "this site should notify search engines about its live URLs,"
+exactly the gap/remediate model the CHECK catalog + `fix_tier_1` already express.
+Routing it through `fleet fix` gives fleetwide backfill for free (no per-site
+command invocation) and inherits dry-run-by-default + `--apply` + idempotent
+re-runs. This is the reactive, reuse-first path — see `for-future-projects.md`
+§ "reactive > proactive" and the additive-optional invariant.
+
+**Why the ping fits in a fixer (no new write-surface ADR).** `CHECK_057`'s fixer
+calls `cloudflare.set_zone_setting` and `CHECK_150`'s calls Vercel's domain API,
+both as remote side effects with a verification re-probe. An IndexNow POST is the
+same shape, so ADR-0003's local-FS surfaces and ADR-0011's remote-host writes
+already coexist with "fixers may call external APIs." ADR-0020 records only the
+*posture* (indexing belongs in the fix loop), not a new mechanism.
+
+**Reuse, don't duplicate.** GSC URL Inspection is already wired
+(`gsc_recrawl.inspect_one_url`, consumed by CHECK_147) and the held `webmasters`
+scope covers it; sitemap submission to Google already exists
+(`gsc_admin.submit_sitemap`). v30 adds only the IndexNow channel + the
+regression diff. The `data/index/<domain>/` store mirrors `gsc_detail_cache`
+(per-domain per-date JSON, atomic writes, `fetched_at`).
+
+**IndexNow facts that shape the design.** Google does **not** participate
+(tested 2021, declined) — IndexNow reaches Bing/Yandex/Naver/Seznam/Yep, and one
+POST is shared to all of them. The `<key>.txt` file at the domain root is
+self-authenticating (no Bing Webmaster account needed); CF Pages serves it from
+`public/` with no config. A ping gets the URL *crawled* fast, not *indexed* —
+engines still decide indexing, so `indexnow-submitted` asserts "submitted," not
+"indexed" (that's CHECK_147's job). No documented daily quota; `429` on
+over-submission → backoff.
+
+**Invariants honored.** `[index]` is additive-optional (loader defaults absent →
+disabled; CHECK_059 + the additive-optional invariant stay green). The key-file
+write and `[index]` upsert go through the surgical `lamill_toml_edit` path
+(ADR-0018), never a `write()` that would clobber `[content]`/comments. The deploy
+hook stays quick + idempotent (ADR-0015). URL Inspection respects the
+2,000/day-per-property quota (cache-first, like CHECK_147 today).
+
+**Non-goal added.** The Google Indexing API key-rotation arms race goes to § 2
+Non-goals — circumventing a documented quota for an unsanctioned
+(JobPosting/BroadcastEvent-only) use. Opt-in escape hatch only; never default-on.
+
+**Docs same-commit.** prd.md phase rows, `architecture.md` (the `indexnow` module
++ the `data/index/` store + the two new checks + the deploy Step 10 hook), the new
+checks' catalog entries, and ADR-0020 (ships with v30.A). The full investigation
+lives in `docs/indexing-module-plan.md`.
 
 ## The [content] and [todo] blocks: what each is for
 
