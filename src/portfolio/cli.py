@@ -9868,6 +9868,7 @@ def fleet_sync(
     """
     if refresh:
         _do_porkbun_refresh()
+        _do_godaddy_refresh()
 
     info_cleanup(refresh_rdap=refresh_rdap)
 
@@ -9901,6 +9902,34 @@ def _do_porkbun_refresh() -> None:
         console.print(f"[red]Porkbun refresh failed:[/] {e}")
         return
     console.print(f"[green]✓[/] wrote {count} rows to porkbun.csv")
+
+
+def _do_godaddy_refresh() -> None:
+    """v31.B — fetch GoDaddy domains via the Management API + merge-refresh
+    data/domains/godaddy.csv (expiry/status/auto-renew/NS), preserving the
+    manual export's other columns. Soft-fail: warn + keep the existing CSV
+    when keys are absent or the API errors (mirrors `_do_porkbun_refresh`)."""
+    from . import godaddy
+    from .apikeys import get_key
+    from .data import DOMAINS_DIR
+
+    api_key = get_key("GODADDY_API_KEY") or ""
+    secret = get_key("GODADDY_API_SECRET") or ""
+    if not api_key or not secret:
+        console.print(
+            "[yellow]⚠  --refresh: GoDaddy skipped[/] — GODADDY_API_KEY / "
+            "GODADDY_API_SECRET not set in portfolio.env. "
+            "[dim](Add them via `lamill settings apikeys set`.)[/]"
+        )
+        return
+    csv_path = DOMAINS_DIR / "godaddy.csv"
+    console.print("[cyan]GoDaddy /v1/domains →[/] " + str(csv_path) + " ...")
+    try:
+        count = godaddy.refresh_godaddy_csv(api_key, secret, csv_path)
+    except godaddy.GoDaddyError as e:
+        console.print(f"[red]GoDaddy refresh failed:[/] {e}")
+        return
+    console.print(f"[green]✓[/] wrote {count} rows to godaddy.csv")
 
 
 def _watch_domains_loop(*, refresh_rdap: bool, interval: float) -> None:
