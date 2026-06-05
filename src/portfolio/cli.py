@@ -7320,8 +7320,11 @@ def _deploy_cf_unified(
             dry_run=dry_run, skip_gsc=skip_gsc,
         )
 
+    # --- Step 10: IndexNow ping (v30.D) — soft-fail, ledger-gated ---------
+    _deploy_step10_indexnow(domain=domain, project_dir=project_dir, dry_run=dry_run)
+
     console.print(
-        f"\n[green]Deploy complete.[/] [dim]All 9 steps ran. "
+        f"\n[green]Deploy complete.[/] [dim]All 10 steps ran. "
         f"https://{domain}/ should resolve once DNS + SSL settle "
         f"(5-30 min from NS update).[/]"
     )
@@ -7350,6 +7353,38 @@ def _deploy_cf_unified(
         # message above; nothing additional to add here.
         pass
     console.print("")
+
+
+def _deploy_step10_indexnow(*, domain: str, project_dir, dry_run: bool) -> None:
+    """v30.D — ping IndexNow for new sitemap URLs after deploy. Soft-fail and
+    idempotent (ledger-gated); silent when IndexNow isn't provisioned. Pings
+    Bing/Yandex/Naver/Seznam/Yep (Google doesn't participate)."""
+    from . import indexnow, lamill_toml
+    doc = lamill_toml.load(project_dir)
+    if (doc is None or doc.index is None or not doc.index.indexnow_enabled
+            or not doc.index.indexnow_key):
+        return
+    console.print(f"\n[bold]10. IndexNow ping[/] [dim]({domain})[/]")
+    if dry_run:
+        console.print("  [yellow]↷[/] dry-run — would ping new sitemap URLs")
+        return
+    key = doc.index.indexnow_key
+    try:
+        if not indexnow.key_is_live(domain, key):
+            console.print(
+                f"  [yellow]↷[/] key not live at https://{domain}/{key}.txt — "
+                f"skip (re-run once live)"
+            )
+            return
+        pending = indexnow.new_urls(domain, indexnow.fetch_sitemap_urls(domain))
+        if not pending:
+            console.print("  [green]✓[/] ledger current — nothing new to ping")
+            return
+        n = indexnow.submit_urls(domain, key, pending)
+        indexnow.append_ledger(domain, pending)
+        console.print(f"  [green]✓[/] pinged {n} new URL(s) to IndexNow (Bing/Yandex/…)")
+    except Exception as e:  # soft-fail — never block the deploy on indexing
+        console.print(f"  [yellow]↷[/] IndexNow ping soft-failed ({type(e).__name__}: {e})")
 
 
 def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> None:

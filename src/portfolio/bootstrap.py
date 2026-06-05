@@ -2185,6 +2185,15 @@ def _bootstrap_inner(
         _lt_edit.ensure_header_comment(project_dir)
         result.files_written.append("lamill.toml")
 
+        # v30.D — provision IndexNow so the new site ships with a key file
+        # (public/<key>.txt) on its first deploy + an [index] table. Best-
+        # effort: a miss is caught later by CHECK_153 indexnow-key-present.
+        try:
+            from . import indexnow
+            indexnow.provision(project_dir)
+        except Exception:
+            pass
+
     initialized, sha = _git_init_and_commit(
         project_dir,
         f"scaffold {domain} via portfolio new bootstrap ({result.path}, stack={stack})",
