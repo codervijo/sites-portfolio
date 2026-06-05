@@ -1443,7 +1443,7 @@ exist. v28 doesn't add a pricing path — it adds the curated set, the
 topic→TLD selection, and the premium-pickable + topical-fit-scoring
 behavior on top of the existing grid.
 
-### v29 — seed `lamill.toml [content]` from the bootstrap interview *(new 2026-06-03 after the operator noticed `new bootstrap` collects ICP but writes it only to `AI_AGENTS.md`, leaving `lamill.toml [content]` an empty skeleton with a nag-todo; v29.A shipped 2026-06-03 — decisions locked (ICP-reuse-verbatim, all-fields-optional, single-paste collection); the ICP-coupling decision sits below the ADR bar → recorded as a `shipping-history.md` note when v29 lands, not an ADR; v29.B shipped 2026-06-03 — `content_block(values)` seed renderer + `ensure_content_block(values=)`, `tomli_w`-escaped ICP/list fields, empty render byte-identical to `CONTENT_SKELETON`, 12 tests; **scope widened 2026-06-03** — a real-data check on 4 fresh sites (dearreels/meetwhen/scopeguard/threadradar) showed the authored `AI_AGENTS.md` docs supply nearly every `[content]` field, not just `icp`, so decision (a) widens from "reuse icp" to "derive `[content]` from the authored docs"; this fires the v29.A ADR-upgrade trigger, so v29 now carries an ADR, not a shipping-history note; v29.C shipped 2026-06-04 — `content_derive.derive_content` (icp verbatim + 7 fields via one OpenAI call, schema-coerced, best-effort/never-raises) + ADR-0019, 12 mocked-LLM tests; v29.D shipped 2026-06-05 — wired into `_bootstrap_inner` (derive → seed block + gate the fill-in todo on blank fields, `law` excluded) + `BootstrapResult.content_seeded` + CLI summary line, 9 tests)*
+### v29 — seed `lamill.toml [content]` from the bootstrap interview *(new 2026-06-03 after the operator noticed `new bootstrap` collects ICP but writes it only to `AI_AGENTS.md`, leaving `lamill.toml [content]` an empty skeleton with a nag-todo; v29.A shipped 2026-06-03 — decisions locked (ICP-reuse-verbatim, all-fields-optional, single-paste collection); the ICP-coupling decision sits below the ADR bar → recorded as a `shipping-history.md` note when v29 lands, not an ADR; v29.B shipped 2026-06-03 — `content_block(values)` seed renderer + `ensure_content_block(values=)`, `tomli_w`-escaped ICP/list fields, empty render byte-identical to `CONTENT_SKELETON`, 12 tests; **scope widened 2026-06-03** — a real-data check on 4 fresh sites (dearreels/meetwhen/scopeguard/threadradar) showed the authored `AI_AGENTS.md` docs supply nearly every `[content]` field, not just `icp`, so decision (a) widens from "reuse icp" to "derive `[content]` from the authored docs"; this fires the v29.A ADR-upgrade trigger, so v29 now carries an ADR, not a shipping-history note; v29.C shipped 2026-06-04 — `content_derive.derive_content` (icp verbatim + 7 fields via one OpenAI call, schema-coerced, best-effort/never-raises) + ADR-0019, 12 mocked-LLM tests; v29.D shipped 2026-06-05 — wired into `_bootstrap_inner` (derive → seed block + gate the fill-in todo on blank fields, `law` excluded) + `BootstrapResult.content_seeded` + CLI summary line, 9 tests; v29.E reactivated + reshaped 2026-06-05 — operator chose the backfill be delivered as a CHECK + `fix_tier_1` (not a new CLI verb), consistent with v30; split into v29.E (offline parser + gated `set_content_block` replace) + v29.F (the `content-derivable` check/fix + first real-LLM validation over the 4 sites))*
 
 `new bootstrap` already collects ICP (and 4 other prose sections) and writes
 them to `AI_AGENTS.md`, but `lamill.toml [content]` is appended as a hardcoded
@@ -1480,7 +1480,8 @@ override by editing the file.
 | v29.B | ✅ | **Values-aware seed renderer.** `content_block(values)` in `lamill_toml_edit.py` fills provided fields, preserves the guidance comments (dropped per seeded field), leaves unset fields at `= ""` / `[]`. `ensure_content_block(repo, values=None)` gains the arg (append-if-absent; never merges into an existing block). ICP paragraph + `secondary_keywords` list escape via `tomli_w`. All-empty output is byte-identical to `CONTENT_SKELETON` (asserted). 12 tests (empty / partial / full / escaping / unknown-keys / idempotent-no-merge); v27 content tests + full suite green. |
 | v29.C | ✅ | **Derive `[content]` from authored sections.** New `content_derive` module: `derive_content(sections, api_key=)` copies `icp` verbatim, derives the other 7 via one structured OpenAI `/v1/responses` call (reuses `suggest.py`'s model/endpoint/parser), coerces the JSON to the field schema (`secondary_keywords`→list, unknown keys dropped, empties dropped). Best-effort: no key / HTTP error / bad JSON → "return what we have" (≥ verbatim icp), never raises. **ADR-0019** (doc-derivation provenance) shipped + indexed. 12 tests with a mocked LLM (icp-verbatim, full/partial derive, failure→icp-only, fenced-JSON, comma-string coercion, unknown-keys, empty-brief-skips-LLM, renderer round-trip). |
 | v29.D | ✅ | **Wire into bootstrap + todo.** `_bootstrap_inner` runs `content_derive.derive_content(operator_inputs, api_key=get_key("OPENAI_API_KEY"))` and feeds the values to both `bootstrap_starter_todos` and `ensure_content_block`. The "Fill in [content]" todo is gated on `_content_blanks` (the 7 fields minus `law`); a fully-derived block ships todo-free, a partial one names the blanks, no-key lists all. `BootstrapResult.content_seeded` + a CLI summary line (✓ seeded N fields / ↷ left empty). 9 tests (gating + 2 end-to-end with mocked LLM: derived-todo-free, no-key-icp-only); fixed the `_render_bootstrap_summary` stub. Full suite green. |
-| v29.E | ☐ | **(Reactive) Backfill existing sites.** A `derive`/backfill path that runs `content_derive` over an existing site's `AI_AGENTS.md` and seeds its empty `[content]` block — the 4 sites (dearreels/meetwhen/scopeguard/threadradar) that surfaced this gap are the first customers. Deferred until the bootstrap path proves the derivation quality. |
+| v29.E | ☐ | **Backfill primitives (offline).** Two reusable, non-LLM pieces the backfill needs: (1) an `AI_AGENTS.md` → sections-dict parser (`## Summary`/`## Audience`/`## ICP`/`## Goals`/`## Content strategy` → the `operator_inputs`-shaped dict `derive_content` expects) — bootstrap only renders *to* the file today, never *from* it; (2) a surgical `set_content_block(repo, values)` in `lamill_toml_edit.py` that REPLACES an existing `[content]` region byte-preservingly (the rest of the file untouched, ADR-0018), gated to only overwrite when the current block is **all-blank skeleton** (never clobbers an authored/partially-seeded block). Uses the `content_block(values)` renderer so guidance comments are preserved. Fully unit-testable offline. |
+| v29.F | ☐ | **`content-derivable` check + fix + live validation.** New CHECK `content-derivable` (deploy/scaffold, `warn`): fires only when `[content]` is all-blank **and** the parsed `AI_AGENTS.md` supplies derivable material (non-empty `## Content strategy`/`## ICP`) — silent otherwise, honoring "empty is better than wrong"; goes `pass` once any field is seeded. Its `fix_tier_1`: parse sections → `content_derive.derive_content(api_key=get_key("OPENAI_API_KEY"))` → `set_content_block` (the v29.E gated replace); dry-run previews the would-seed values, `--apply` writes; no-key → `manual` deferral. `fleet fix` backfills fleetwide. **First real-LLM run**: preview over the 4 sites (dearreels/meetwhen/scopeguard/threadradar), operator eyeballs derivation quality, then apply — closing the v29 validation gap (all prior v29 tests mock the LLM). |
 
 #### Design notes
 
@@ -1515,9 +1516,36 @@ apostrophes, and newlines → emit it as a safe TOML string (via `tomli_w`, whic
 escapes them inline); `secondary_keywords` emits as an array. That's the bulk of
 v29.B's test surface.
 
+**Why backfill is a check + fix, not a CLI verb (operator, 2026-06-05).** When
+v29.E was picked up, the operator chose the v30 shape: a standing CHECK
+(`content-derivable`) + its `fix_tier_1`, so `fleet fix` backfills the fleet with
+no new command surface and dry-run-by-default validation. The known tension —
+`[content]`'s "empty is better than wrong" posture vs. a check that nudges on
+empty — is resolved by firing the warn *only* when the authored `AI_AGENTS.md`
+actually supplies derivable material (non-empty `## Content strategy`/`## ICP`);
+a thin brief stays silent, and any seeded field flips the check to `pass`. So the
+nudge appears exactly where derivation would succeed, nowhere else.
+
+**The two offline primitives (v29.E) and the gated replace.** Backfill can't reuse
+`ensure_content_block` (append-if-absent — the 4 legacy sites already carry an
+empty block), so v29.E adds `set_content_block(repo, values)`: a surgical replace
+of the existing `[content]` region (byte-preserving the rest, ADR-0018) **gated to
+overwrite only an all-blank skeleton** — it refuses to touch a block with any
+populated field, so an operator-authored or partially-seeded `[content]` is never
+clobbered. The `AI_AGENTS.md`-section parser is the inverse of bootstrap's
+renderer (file → `operator_inputs`-shaped dict). Both are LLM-free and fully
+unit-tested before the live run.
+
+**Closing the validation gap (v29.F).** Every v29 test mocks the OpenAI call, so
+real derivation quality is unproven. v29.F's first apply is a preview over the 4
+empty-`[content]` sites (rich docs: dearreels' "questions to ask my mother",
+scopeguard's OAuth-scope/SOC2 cluster) → operator eyeballs → apply. That run is
+both the backfill and the validation.
+
 **Docs same-commit.** prd.md phase rows, `architecture.md` (bootstrap mechanism +
-the content-seed renderer + the `content_derive` step), and the new ADR for the
-doc-derivation provenance posture (ships with v29.C).
+the content-seed renderer + the `content_derive` step + the v29.E parser/replace +
+the v29.F check/fix), and the new ADR for the doc-derivation provenance posture
+(ships with v29.C).
 
 ### v30 — post-publish indexing as a check + fix *(new 2026-06-05 after evaluating IndexerHub (indexerhub.com); full investigation + plan in `docs/indexing-module-plan.md`. Operator constraint locked 2026-06-05: **no new CLI** — deliver the capability as CHECK-catalog checks + their `fix_tier_1` fixers + one `new deploy` hook, so `fleet fix` becomes the fleetwide backfill autopilot. Skip the Google Indexing API key-rotation arms race (added to § 2 Non-goals).)*
 
@@ -1688,6 +1716,79 @@ URL-forwarding preflight, Step 6.5 subdomain source, Step 8/watch redirect
 classification, the `--clear-forwarding` / `--repair` flags), ADR-0021 (ships with
 v31.A), and the `docs/bugs.md` Fixed-in lines (2026-06-05 ×2 + 2026-05-31) as each
 phase lands.
+
+### v32 — agent-authored site features (one-shot `claude -p` in the site dir) *(new 2026-06-05 — operator wants to invoke Claude headless from inside a `sites/<domain>/` subdir via lamill and implement a feature (example: dark/light theme toggle) end-to-end in one shot. Reuses the existing Tier-2 fixer engine (`run_claude(prompt, cwd=project_dir)`), not a new mechanism. Decisions locked 2026-06-05: in-place uncommitted landing + a build + `project check` + visual-probe verification gate. A dedicated verb — the rarest-of-rare exception to the prefer-check/fix rule, because a feature-add is open-ended, not conformance-shaped. Introduces a third project-dir write surface → ADR-0022.)*
+
+lamill already drives Claude headless inside a site dir — the Tier-2 `ai_fixer`
+spawns `claude -p` in `cwd=project_dir` to fix a known check, then re-runs that
+check to verify (`fix_helpers.py:ai_fixer_factory`/`run_claude`). v32 points that
+same engine at an **open-ended** request ("add a dark/light theme toggle") instead
+of a known gap. The hard part isn't invoking Claude — it's *verifying* an
+open-ended change with no `CHECK_NNN` oracle: v32's gate is build + conformance +
+a rendered-output probe, and the run stops at a reviewable uncommitted diff.
+
+**Decisions locked (operator, 2026-06-05):** (a) **In-place, uncommitted** —
+Claude edits the working tree directly; lamill leaves changes uncommitted for the
+operator to review/commit (no branch by default; never auto-commits, honoring the
+global rule). (b) **Verify = build + `project check` + visual probe** — `make
+buildsh` (Docker, per the build-in-Docker convention — never host `pnpm`) must
+succeed, `lamill project check` must stay green (no conformance regression), and a
+rendered-output probe must confirm the requested feature is visibly present. (c)
+**Dedicated verb, not a check/fix** — open-ended feature work has no gap to detect
+or green to assert, so it earns its own surface (the called-out exception in
+[[feedback_prefer_check_fix_delivery]]). (d) **Reuses `run_claude`** — restricted
+tools, budget cap, timeout, cost/duration capture inherited from the Tier-2 path.
+(e) **Third write surface → ADR-0022** — beyond bootstrap (create) and remediation
+(fix known gaps); an open-ended agent-authored change is a new category whose
+safety comes from the verify gate + the uncommitted-review stop, not from a
+conformance oracle.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v32.A | ☐ | **Kickoff / decisions lock + ADR-0022.** Decisions above locked; **ADR-0022** (third write surface — agent-authored, verify-gated, uncommitted-review feature implementation) written + indexed. Resolve the command name (`project feature <domain> "<request>"` proposed) and the one open design question (visual-probe mechanism — see design notes). No code. |
+| v32.B | ☐ | **Core one-shot runner.** `lamill project feature <domain> "<request>"`: resolve `sites/<domain>/`, assemble context (AI_AGENTS.md + `[stack]` + site conventions + the build command, via the existing `fix_helpers` context builders), `run_claude(prompt, cwd=site_dir)` in-place, and report cost/duration + the changed-file set (`git status`). Verification deferred to C/D — the MVP is "Claude ran in the dir; here's the uncommitted diff." |
+| v32.C | ☐ | **Build + conformance gate.** After the run: `make buildsh` (Docker) then `lamill project check`; surface build errors + any `project check` regression (diff vs a pre-run snapshot). On failure, report clearly and leave the uncommitted changes for the operator (no auto-revert — the operator owns the working tree). |
+| v32.D | ☐ | **Visual probe + Claude-as-judge.** Serve the built output, capture a screenshot of the relevant view (headless browser), and a Claude assessment pass judges whether the requested feature renders (`PASS`/`FAIL` + the screenshot artifact + a one-line rationale). This closes the open-ended verification gap that build + check can't (a feature can build green yet be absent/wrong). |
+| v32.E | ☐ | **(Reactive) Iterate-on-failure + `fleet feature`.** On a verify-fail, optionally re-invoke Claude with the failure context (bounded retries) before giving up; `fleet feature "<request>"` applies the same request across selected sites (plural-symmetric with `project feature`). Deferred until single-site one-shot proves out. |
+
+#### Design notes
+
+**Why a dedicated verb (the check/fix exception).** Per
+[[feedback_prefer_check_fix_delivery]], capabilities default to check+fix. A
+feature-add is the explicit exception: there's no condition to detect (the feature
+is absent by design until asked for) and no fixed green to assert (every request
+differs). So it's a deliberate verb, and the verify gate (below) substitutes for
+the conformance oracle a fixer would have.
+
+**The verification chain — each link catches a distinct failure mode.** `make
+buildsh` catches "Claude broke the build." `lamill project check` catches "Claude
+regressed conformance" (lockfile, scaffold, stack drift). The **visual probe**
+catches the failure unique to open-ended generation: "it builds and conforms, but
+the feature isn't actually there / is wrong." None of the three is redundant.
+
+**The one open design question (resolve in v32.A): the visual-probe mechanism.**
+A rendered-output check implies a headless browser (e.g. Playwright) to serve +
+screenshot, which would be **the heaviest dependency in the tool** — it needs an
+explicit justification or a lighter substitute (e.g. asserting on the served
+HTML/DOM without a full browser, accepting weaker "visual" confidence). The
+build+check gate ships without it (v32.C); v32.D is where the dep decision lands.
+
+**In-place + uncommitted + never-auto-commit.** The run mutates the working tree
+and stops; the operator reviews `git diff` and commits. No branch/worktree
+ceremony (operator's call — simplest). The "one shot" is one-shot *to a reviewable
+state*, not to `main`.
+
+**Safety + scope.** `run_claude` already restricts tools, caps budget, and times
+out; the run is scoped to the site dir `cwd`. This is a real purpose-expansion for
+lamill (from "lifecycle + conformance" toward "agent-orchestrated site
+development"), which is exactly why it carries an ADR (ADR-0022) rather than
+landing quietly.
+
+**Docs same-commit.** prd.md phase rows, `architecture.md` (the feature runner +
+the build/check/visual-probe verify chain + the visual-probe mechanism once
+chosen), and ADR-0022 (ships with v32.A).
 
 ## The [content] and [todo] blocks: what each is for
 
