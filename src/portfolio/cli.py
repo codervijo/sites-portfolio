@@ -4634,6 +4634,21 @@ def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:
                 f"[dim]{result.ga4_status[len('failed:'):]}[/]"
             )
 
+    # v29.D — surface [content] derivation outcome (ADR-0019). Derived
+    # from the operator's authored AI_AGENTS sections; best-effort.
+    if result.content_seeded:
+        console.print(
+            f"\n[green]✓[/] [content] seeded from your AI_AGENTS docs · "
+            f"{len(result.content_seeded)} field(s): "
+            f"[cyan]{', '.join(result.content_seeded)}[/] "
+            f"[dim](review + fill any gaps via the starter todo)[/]"
+        )
+    else:
+        console.print(
+            "\n[yellow]↷[/] [content] left empty "
+            "[dim](no OPENAI_API_KEY or no AI_AGENTS brief) — fill it in via the starter todo[/]"
+        )
+
     if result.git_initialized:
         sha = result.initial_commit_sha[:7] if result.initial_commit_sha else "?"
         console.print(f"\n[green]✓[/] git initialized; initial commit [dim]{sha}[/]")

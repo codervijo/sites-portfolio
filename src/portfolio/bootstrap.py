@@ -58,6 +58,10 @@ class BootstrapResult:
     # renders both fields after bootstrap completes.
     ga4_status: str = ""           # "" | "created" | "skipped:<reason>" | "failed:<error>"
     ga4_measurement_id: str | None = None   # populated iff status == "created"
+    # v29.D — which [content] fields were derived+seeded from the
+    # authored AI_AGENTS sections (ADR-0019). Empty list = none seeded
+    # (no API key / no brief / derivation failure); CLI renders a summary.
+    content_seeded: list[str] = field(default_factory=list)
 
 
 class BootstrapError(Exception):
@@ -1688,7 +1692,26 @@ def _clone_to_genai(project_dir: Path, git_url: str) -> None:
 # ---------- main ----------
 
 
-def bootstrap_starter_todos(today=None):
+# v29.D — [content] fields whose blankness gates the "Fill in [content]"
+# starter todo. `law` is excluded: the skeleton frames it as conditional
+# ("if applicable, else empty"), so a blank `law` is a normal end state,
+# not an unfinished one. The order matches the canonical field order.
+_CONTENT_TODO_FIELDS: tuple[str, ...] = (
+    "site_type", "primary_keyword", "secondary_keywords", "icp",
+    "urgency_trigger", "penalty", "tone",
+)
+
+
+def _content_blanks(content_values: dict | None) -> list[str]:
+    """The `_CONTENT_TODO_FIELDS` left blank by derivation. `None` (no
+    derivation attempted) → all of them, preserving pre-v29.D behavior
+    where the fill-in todo always fired."""
+    if not content_values:
+        return list(_CONTENT_TODO_FIELDS)
+    return [f for f in _CONTENT_TODO_FIELDS if not content_values.get(f)]
+
+
+def bootstrap_starter_todos(today=None, content_values=None):
     """v27.I — the starter-set todos `new bootstrap` seeds into a new
     site's `[[todo]]` table.
 
@@ -1697,12 +1720,22 @@ def bootstrap_starter_todos(today=None):
     surface in `fleet focus` (high-only) the day the site is bootstrapped;
     the `[content]` fill-in is `high` so focus nudges it until done.
     `today` is injectable for deterministic tests.
+
+    v29.D — `content_values` is the derived `[content]` dict (ADR-0019).
+    The "Fill in [content]" todo is seeded only for the fields left blank,
+    naming them; a fully-derived block ships todo-free. With
+    `content_values=None` (no derivation) the todo lists every field, as
+    before.
     """
     from .lamill_toml import TodoItem
     from .lamill_toml_edit import due_hint
-    return [
-        TodoItem(status="open", priority="high",
-                 task="Fill in [content] block (site_type, primary_keyword, icp, …)"),
+    todos = []
+    blanks = _content_blanks(content_values)
+    if blanks:
+        todos.append(TodoItem(
+            status="open", priority="high",
+            task="Fill in [content] block: " + ", ".join(blanks)))
+    todos += [
         TodoItem(status="open", priority="medium",
                  task="Check SEO: GSC indexation + coverage" + due_hint("+14d", today=today)),
         TodoItem(status="open", priority="medium",
@@ -1710,6 +1743,7 @@ def bootstrap_starter_todos(today=None):
         TodoItem(status="open", priority="low",
                  task="Confirm GSC verification + sitemap submitted (re-run deploy if it timed out)"),
     ]
+    return todos
 
 
 def detect_stack_from_pkg(project_dir: Path) -> str:
@@ -2117,6 +2151,18 @@ def _bootstrap_inner(
             else None
         )
 
+        # v29.D — derive [content] from the authored AI_AGENTS sections
+        # (ADR-0019): icp copied verbatim, the other fields via one
+        # best-effort LLM call. Never raises — no key / no brief / failure
+        # yields {} (or just icp), leaving fields blank for the operator.
+        from . import content_derive
+        from .apikeys import get_key
+        content_values = content_derive.derive_content(
+            operator_inputs or {},
+            api_key=get_key("OPENAI_API_KEY"),
+        )
+        result.content_seeded = sorted(content_values)
+
         _write_lamill_toml(
             project_dir,
             LamillToml(
@@ -2129,14 +2175,16 @@ def _bootstrap_inner(
                     AnalyticsBlock(ga4_id=measurement_id)
                     if measurement_id else None
                 ),
-                # v27.I — seed the approved starter-set todos.
-                todos=bootstrap_starter_todos(),
+                # v27.I — seed the approved starter-set todos; v29.D — the
+                # "fill in [content]" todo is gated on the derived block's
+                # blank fields.
+                todos=bootstrap_starter_todos(content_values=content_values),
             ),
         )
-        # v27.I — match the fleet file shape: header pointer + empty
-        # [content] skeleton (surgical, idempotent; the "fill in
-        # [content]" starter todo references this block).
-        _lt_edit.ensure_content_block(project_dir)
+        # v27.I — match the fleet file shape: header pointer + [content]
+        # block (surgical, idempotent). v29.D — seed it with the derived
+        # values; a blank/partial block re-seeds the "fill in" starter todo.
+        _lt_edit.ensure_content_block(project_dir, content_values)
         _lt_edit.ensure_header_comment(project_dir)
         result.files_written.append("lamill.toml")
 

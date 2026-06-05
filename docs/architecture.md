@@ -1180,6 +1180,7 @@ candidate refactor if a third LLM provider lands.
 | `check.py` | Site classification (live-site / forwarder / parked / archived) | `classify_domain` |
 | `data.py` | Multi-registrar CSV adapters + `portfolio.json` IO | `load_inventory`, `rebuild_portfolio_json` |
 | `bootstrap.py` | `new bootstrap <domain>` write surface | `bootstrap_domain` |
+| `bootstrap.py` (v29.D) | After collecting the AI_AGENTS sections, calls `content_derive.derive_content(operator_inputs, api_key=)` and seeds `lamill.toml [content]` from the result (ADR-0019). The "Fill in [content]" starter todo is gated on `_content_blanks` (the 7 content fields minus optional `law`); a fully-derived block ships todo-free. `BootstrapResult.content_seeded` carries the seeded field names for the CLI summary. | `_bootstrap_inner`, `bootstrap_starter_todos` |
 | `deploy.py` | `new deploy` (GitHub repo + CF Pages project) | `deploy_domain` |
 | `suggest.py` | `new domain <topic>` Power 1 brainstorm | `suggest_domains` |
 | `decide.py` | Validation-mode shortlist + decide | `mark_shortlist`, `decide_from_shortlist` |

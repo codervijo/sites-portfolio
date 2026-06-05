@@ -39,6 +39,7 @@ def _stub_result(tmp_path: Path) -> SimpleNamespace:
         next_steps=[],
         ga4_status="",        # v18.D — renderer reads this; "" suppresses the line
         ga4_measurement_id=None,
+        content_seeded=[],     # v29.D — renderer reads this; [] → "left empty" line
     )
 
 
