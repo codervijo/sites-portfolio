@@ -66,6 +66,27 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-05 — `new deploy` submits `/sitemap.xml` to GSC, but `@astrojs/sitemap` emits `/sitemap-index.xml` → fleet-wide GSC "sitemap parse errors" (drdebug.dev, mdburst.com)
+
+**Repro** — `lamill fleet focus` shows `drdebug.dev` + `mdburst.com` as `🔴 GSC: sitemap parse errors (1)`.
+
+**Diagnosis (confirmed via curl)** — `https://drdebug.dev/sitemap.xml` returns `HTTP 200` but **`content-type: text/html`**: the Astro SPA's catch-all (`not_found_handling: single-page-application`) serves `index.html` for the unmatched `/sitemap.xml` route, so GSC fetches HTML and can't parse it as XML. The **real** sitemap is at `https://drdebug.dev/sitemap-index.xml` (`200`, `application/xml`, valid — that's what `@astrojs/sitemap` emits), and `robots.txt` already points there: `Sitemap: https://drdebug.dev/sitemap-index.xml`. But deploy Step 9 hardcodes `f"https://{domain}/sitemap.xml"` and submits that.
+
+**Expected** — deploy submits the site's *actual* sitemap URL (the one in `robots.txt`), so GSC gets valid XML.
+
+**Actual** — `/sitemap.xml` is assumed. `@astrojs/sitemap` (used across the Astro fleet) emits `sitemap-index.xml` + `sitemap-0.xml`, never `sitemap.xml`, so **every Astro-sitemap site gets a GSC parse error** and its sitemap is effectively unsubmitted.
+
+**Root cause** — sitemap URL is assumed, not derived. The canonical pointer is the live `robots.txt` `Sitemap:` line (which `@astrojs/sitemap` auto-populates).
+
+**Where** — `src/portfolio/cli.py` `_deploy_step9_gsc` (~7855–7894, builds `/sitemap.xml`); `gsc_admin.submit_sitemap(domain, sitemap_url)` takes the URL (fine — caller picks the wrong one); `project_seo_diagnostics` sitemap fetch.
+
+**Severity** — `major`. Fleet-wide false GSC errors; the actual sitemap never gets submitted for Astro-sitemap sites.
+
+**Mitigation (2026-06-05)** — resubmitted the correct `…/sitemap-index.xml` for `drdebug.dev` + `mdburst.com` via `gsc_admin.submit_sitemap`. The broken `/sitemap.xml` entries remain in GSC (no `delete_sitemap` verb yet) until removed manually or by the fix.
+
+**Fix** — **v32.G** (drafted): deploy Step 9 + the GSC sitemap diagnostics read the live `robots.txt` `Sitemap:` line as the submit URL (fallback `/sitemap.xml`); optional `delete_sitemap` to clear the stale entry. Related: 2026-05-25 `project sitemap resubmit` feature request (same robots.txt-feedpath idea).
+
+
 ### 2026-06-05 — hand-edits to the generated `data/portfolio.json` (mark-for-deletion, autorenew-off) are silently reverted by the next `fleet sync` refresh (iotnews.today, nosapta.com)
 
 **Repro** — `a08eb1b` marked `iotnews.today` `auto_renew On→Off` + `category "Next session"→"To be deleted immediately"` by editing `data/portfolio.json`. A 2026-06-05 refresh (`cleanup()`, `generated_at` → `2026-06-05T10:04`) regenerated the file and **reverted both fields** back to `On` / `"Next session"`; the revert is uncommitted in the tree. `nosapta.com`'s intended deletion edit was lost the same way (now shows `My brand` / `On`).
@@ -80,7 +101,7 @@ when applicable. Don't delete.
 
 **Severity** — `major`. Curated state is silently lost on every refresh; has now bitten twice (thoralox, then iotnews/nosapta). Low blast radius per-incident but erodes trust in the inventory.
 
-**Fix** — **v33** (drafted): a curated **overrides layer** (`data/overrides.json`, applied *last* in `cleanup()`) so `category`/`auto_renew` pins survive refreshes, seeded with `iotnews.today` + `nosapta.com`; plus the health view demoting `🔴` → an expected "to be deleted" state for those domains (mirrors the `dark_sites` exclusion). See `docs/prd.md § v33`. Related: 2026-05-19 thoralox.com entry.
+**Fix** — **v34** (drafted): a curated **overrides layer** (`data/overrides.json`, applied *last* in `cleanup()`) so `category`/`auto_renew` pins survive refreshes, seeded with `iotnews.today` + `nosapta.com`; plus the health view demoting `🔴` → an expected "to be deleted" state for those domains (mirrors the `dark_sites` exclusion). See `docs/prd.md § v34`. Related: 2026-05-19 thoralox.com entry.
 
 
 ### 2026-06-05 — `new deploy` Step 4 trusts Porkbun's `getNs` API over real delegation → reports NS cutover done while the domain is still on Porkbun NS (mdburst.com)

@@ -1639,7 +1639,7 @@ Non-goals — circumventing a documented quota for an unsanctioned
 checks' catalog entries, and ADR-0020 (ships with v30.A). The full investigation
 lives in `docs/indexing-module-plan.md`.
 
-### v31 — deploy-verification honesty & resilience *(new 2026-06-05 after `lamill new deploy mdburst.com --watch` reported `✓ fully live` while the apex was still a Porkbun URL-forward (302 → l.ink) on Porkbun NS — a false-green deploy. Bundles three clustered deploy false-positives into one tier: the live-probe/watch redirect-following bug + the NS-delegation-vs-registrar-API gap (incl. Porkbun URL Forwarding) + the 2026-05-31 scopeguard.xyz `1014`/pending-verification gap (this tier absorbs that bug). See `docs/bugs.md` 2026-06-05 ×2 + 2026-05-31.)*
+### v32 — deploy-verification honesty & resilience *(new 2026-06-05 after `lamill new deploy mdburst.com --watch` reported `✓ fully live` while the apex was still a Porkbun URL-forward (302 → l.ink) on Porkbun NS — a false-green deploy. Bundles three clustered deploy false-positives into one tier: the live-probe/watch redirect-following bug + the NS-delegation-vs-registrar-API gap (incl. Porkbun URL Forwarding) + the 2026-05-31 scopeguard.xyz `1014`/pending-verification gap (this tier absorbs that bug). See `docs/bugs.md` 2026-06-05 ×2 + 2026-05-31.)*
 
 `new deploy` can report success while the domain isn't actually serving the
 deployed site. Three independent gaps let a deploy go green on a non-deployed
@@ -1648,7 +1648,7 @@ and counts the `200` as live; (2) Step 4 trusts the registrar's stored NS value
 (`getNs`) instead of the real delegation (`dig NS`), so a domain pinned to
 Porkbun NS by **URL Forwarding** reads as "already cut over"; (3) the watch loop
 treats any `3xx` as live and has no distinct state for CF custom-domain
-`pending`/`1014`. v31 makes deploy verification *honest*: it reports the state it
+`pending`/`1014`. v32 makes deploy verification *honest*: it reports the state it
 can actually confirm, names the real blocker, and never paints a parked/forwarded
 apex as live.
 
@@ -1670,12 +1670,13 @@ changes honor the ADR-0015 quick-idempotent invariant (report state, don't block
 
 | # | Status | Feature |
 |---|---|---|
-| v31.A | ☐ | **Kickoff / decisions lock + ADR-0021.** Decisions above locked; **ADR-0021** ("deploy verification honesty" — a live apex must serve the site; registrar-API state ≠ delegation; never false-green) written + indexed. No code. |
-| v31.B | ☐ | **Off-domain-redirect = not-live (Bug 2).** `_deploy_step8_live_probe` + `_deploy_watch_loop` (`cli.py`) stop counting a followed/`3xx` redirect as live: compare the final host's eTLD+1 to the domain (reuse `check.py:_classify` + `final_url`), emit `↷ forwarded to <host>`; drop `startswith("3")` from `live_ok`; add `l.ink` to `check.py:PARKED_HOST_SUFFIXES`. Tests: `302→l.ink` not-live, `301 apex→www` + `http→https` stay live. |
-| v31.C | ☐ | **NS delegation honesty (Bug 1, Layer A).** Step 4 verifies real delegation via `diagnose._dig(domain, "NS")` and reports `requested` (registrar API) vs `delegated` (dig) as distinct states; replaces the API-only `✓ already match` with `↷ NS set, awaiting delegation` when dig disagrees. Propagation-aware (won't false-fail a just-set domain). Tests with a stubbed `_dig`. |
-| v31.D | ☐ | **Porkbun URL Forwarding detect + opt-in clear (Bug 1, Layer B — root cause).** New reader in `porkbun_dns.py` (`domain/getUrlForwarding/<domain>`); Step 4 preflight surfaces active forwarding as the cutover blocker (`↷ URL Forwarding active → pins Porkbun NS; remove at <url> or pass --clear-forwarding`). `--clear-forwarding` calls `deleteUrlForward` (confirm-gated, idempotent). Tests via `httpx.MockTransport`. |
-| v31.E | ☐ | **Apex CNAME target from project `subdomain` (absorbs scopeguard root fix).** Step 6.5 stops assuming `{slug}.pages.dev`; uses the authoritative `subdomain` from the CF Pages project object (`cloudflare.get_pages_project`), preventing the permanent `1014` when the slug collides on `pages.dev`. Tests for suffixed-subdomain projects. |
-| v31.F | ☐ | **`pending`/`1014` resilience + `--repair` (absorbs scopeguard resilience).** Watch loop distinguishes CF custom-domain `pending-verification` / `1014` from a generic timeout, surfaces a distinct `✗ pending-verification` state + remediation, and adds a `--repair` path (re-PATCH apex CNAME to the real subdomain, remove+re-add the custom domain to re-verify). Tests. |
+| v32.A | ☐ | **Kickoff / decisions lock + ADR-0022.** Decisions above locked; **ADR-0022** ("deploy verification honesty" — a live apex must serve the site; registrar-API state ≠ delegation; never false-green) written + indexed. No code. |
+| v32.B | ☐ | **Off-domain-redirect = not-live (Bug 2).** `_deploy_step8_live_probe` + `_deploy_watch_loop` (`cli.py`) stop counting a followed/`3xx` redirect as live: compare the final host's eTLD+1 to the domain (reuse `check.py:_classify` + `final_url`), emit `↷ forwarded to <host>`; drop `startswith("3")` from `live_ok`; add `l.ink` to `check.py:PARKED_HOST_SUFFIXES`. Tests: `302→l.ink` not-live, `301 apex→www` + `http→https` stay live. |
+| v32.C | ☐ | **NS delegation honesty (Bug 1, Layer A).** Step 4 verifies real delegation via `diagnose._dig(domain, "NS")` and reports `requested` (registrar API) vs `delegated` (dig) as distinct states; replaces the API-only `✓ already match` with `↷ NS set, awaiting delegation` when dig disagrees. Propagation-aware (won't false-fail a just-set domain). Tests with a stubbed `_dig`. |
+| v32.D | ☐ | **Porkbun URL Forwarding detect + opt-in clear (Bug 1, Layer B — root cause).** New reader in `porkbun_dns.py` (`domain/getUrlForwarding/<domain>`); Step 4 preflight surfaces active forwarding as the cutover blocker (`↷ URL Forwarding active → pins Porkbun NS; remove at <url> or pass --clear-forwarding`). `--clear-forwarding` calls `deleteUrlForward` (confirm-gated, idempotent). Tests via `httpx.MockTransport`. |
+| v32.E | ☐ | **Apex CNAME target from project `subdomain` (absorbs scopeguard root fix).** Step 6.5 stops assuming `{slug}.pages.dev`; uses the authoritative `subdomain` from the CF Pages project object (`cloudflare.get_pages_project`), preventing the permanent `1014` when the slug collides on `pages.dev`. Tests for suffixed-subdomain projects. |
+| v32.F | ☐ | **`pending`/`1014` resilience + `--repair` (absorbs scopeguard resilience).** Watch loop distinguishes CF custom-domain `pending-verification` / `1014` from a generic timeout, surfaces a distinct `✗ pending-verification` state + remediation, and adds a `--repair` path (re-PATCH apex CNAME to the real subdomain, remove+re-add the custom domain to re-verify). Tests. |
+| v32.G | ☐ | **Sitemap URL from `robots.txt` (Bug — `@astrojs/sitemap` mismatch).** Deploy Step 9 (`_deploy_step9_gsc`) + the GSC sitemap diagnostics stop hardcoding `/sitemap.xml`: fetch the live `robots.txt`, parse its `Sitemap:` line as the submit URL (fallback `/sitemap.xml` only when absent). Fixes the fleet-wide GSC "sitemap parse errors" for Astro sites — `@astrojs/sitemap` emits `/sitemap-index.xml`, and the SPA catch-all serves HTML for the non-existent `/sitemap.xml`, which GSC can't parse. Optionally add `gsc_admin.delete_sitemap` to clear the stale `/sitemap.xml` entry. Tests via `httpx.MockTransport` (robots.txt with / without a `Sitemap:` line). See `docs/bugs.md` 2026-06-05. |
 
 #### Design notes
 
@@ -1684,22 +1685,22 @@ false-positives surfaced from two real runs (mdburst.com, scopeguard.xyz) and
 share one theme — *the pipeline claims more than it verified*. Layer B (Porkbun
 URL Forwarding read/clear) is a net-new registrar capability, which is
 feature-shaped per the version-numbering default. Bundling keeps the honesty
-posture (ADR-0021) and its phases coherent rather than scattering related fixes.
+posture (ADR-0022) and its phases coherent rather than scattering related fixes.
 
 **Reuse, don't reinvent.** `check.py:_classify()` (96–119) already classifies a
 fetch as `forwarder`/`parked`/`for-sale` by comparing the final URL host's eTLD+1
-to the domain, with `PARKED_HOST_SUFFIXES` — v31.B reuses it instead of new
+to the domain, with `PARKED_HOST_SUFFIXES` — v32.B reuses it instead of new
 redirect logic (just add `l.ink`). `diagnose._dig()` (152–163) already shells
-`dig +short` — v31.C reuses it for the NS delegation check. The CF Pages project
-object already carries `subdomain` — v31.E reads it instead of guessing.
+`dig +short` — v32.C reuses it for the NS delegation check. The CF Pages project
+object already carries `subdomain` — v32.E reads it instead of guessing.
 
-**The subtle correctness point in v31.B.** The fix must NOT break legitimate
+**The subtle correctness point in v32.B.** The fix must NOT break legitimate
 redirects: apex→www and http→https are *same-site* (same eTLD+1) and stay live.
 Only a redirect whose final host is a *different registrable domain* (or a known
 parking suffix) is not-live. The eTLD+1 comparison is exactly what `_classify`
 already does, which is why reuse beats a hand-rolled check.
 
-**Propagation-awareness in v31.C.** `dig NS` immediately after a cutover will lag
+**Propagation-awareness in v32.C.** `dig NS` immediately after a cutover will lag
 (registry/resolver propagation), so the check reports `requested vs delegated`
 rather than failing — matching the ADR-0015 quick-idempotent posture (surface
 state, let re-runs converge). A fresh deploy on a forwarded domain reads
@@ -1713,18 +1714,18 @@ deploy Steps 4–9). No new always-on blocking waits (`--watch` stays the only o
 
 **Docs same-commit.** prd.md phase rows, `architecture.md` (Step 4 NS-honesty +
 URL-forwarding preflight, Step 6.5 subdomain source, Step 8/watch redirect
-classification, the `--clear-forwarding` / `--repair` flags), ADR-0021 (ships with
-v31.A), and the `docs/bugs.md` Fixed-in lines (2026-06-05 ×2 + 2026-05-31) as each
+classification, the `--clear-forwarding` / `--repair` flags), ADR-0022 (ships with
+v32.A), and the `docs/bugs.md` Fixed-in lines (2026-06-05 ×2 + 2026-05-31) as each
 phase lands.
 
-### v32 — agent-authored site features (one-shot `claude -p` in the site dir) *(new 2026-06-05 — operator wants to invoke Claude headless from inside a `sites/<domain>/` subdir via lamill and implement a feature (example: dark/light theme toggle) end-to-end in one shot. Reuses the existing Tier-2 fixer engine (`run_claude(prompt, cwd=project_dir)`), not a new mechanism. Decisions locked 2026-06-05: in-place uncommitted landing + a build + `project check` + visual-probe verification gate. A dedicated verb — the rarest-of-rare exception to the prefer-check/fix rule, because a feature-add is open-ended, not conformance-shaped. Introduces a third project-dir write surface → ADR-0022.)*
+### v33 — agent-authored site features (one-shot `claude -p` in the site dir) *(new 2026-06-05 — operator wants to invoke Claude headless from inside a `sites/<domain>/` subdir via lamill and implement a feature (example: dark/light theme toggle) end-to-end in one shot. Reuses the existing Tier-2 fixer engine (`run_claude(prompt, cwd=project_dir)`), not a new mechanism. Decisions locked 2026-06-05: in-place uncommitted landing + a build + `project check` + visual-probe verification gate. A dedicated verb — the rarest-of-rare exception to the prefer-check/fix rule, because a feature-add is open-ended, not conformance-shaped. Introduces a third project-dir write surface → ADR-0023.)*
 
 lamill already drives Claude headless inside a site dir — the Tier-2 `ai_fixer`
 spawns `claude -p` in `cwd=project_dir` to fix a known check, then re-runs that
-check to verify (`fix_helpers.py:ai_fixer_factory`/`run_claude`). v32 points that
+check to verify (`fix_helpers.py:ai_fixer_factory`/`run_claude`). v33 points that
 same engine at an **open-ended** request ("add a dark/light theme toggle") instead
 of a known gap. The hard part isn't invoking Claude — it's *verifying* an
-open-ended change with no `CHECK_NNN` oracle: v32's gate is build + conformance +
+open-ended change with no `CHECK_NNN` oracle: v33's gate is build + conformance +
 a rendered-output probe, and the run stops at a reviewable uncommitted diff.
 
 **Decisions locked (operator, 2026-06-05):** (a) **In-place, uncommitted** —
@@ -1738,7 +1739,7 @@ rendered-output probe must confirm the requested feature is visibly present. (c)
 or green to assert, so it earns its own surface (the called-out exception in
 [[feedback_prefer_check_fix_delivery]]). (d) **Reuses `run_claude`** — restricted
 tools, budget cap, timeout, cost/duration capture inherited from the Tier-2 path.
-(e) **Third write surface → ADR-0022** — beyond bootstrap (create) and remediation
+(e) **Third write surface → ADR-0023** — beyond bootstrap (create) and remediation
 (fix known gaps); an open-ended agent-authored change is a new category whose
 safety comes from the verify gate + the uncommitted-review stop, not from a
 conformance oracle.
@@ -1747,11 +1748,11 @@ conformance oracle.
 
 | # | Status | Feature |
 |---|---|---|
-| v32.A | ☐ | **Kickoff / decisions lock + ADR-0022.** Decisions above locked; **ADR-0022** (third write surface — agent-authored, verify-gated, uncommitted-review feature implementation) written + indexed. Resolve the command name (`project feature <domain> "<request>"` proposed) and the one open design question (visual-probe mechanism — see design notes). No code. |
-| v32.B | ☐ | **Core one-shot runner.** `lamill project feature <domain> "<request>"`: resolve `sites/<domain>/`, assemble context (AI_AGENTS.md + `[stack]` + site conventions + the build command, via the existing `fix_helpers` context builders), `run_claude(prompt, cwd=site_dir)` in-place, and report cost/duration + the changed-file set (`git status`). Verification deferred to C/D — the MVP is "Claude ran in the dir; here's the uncommitted diff." |
-| v32.C | ☐ | **Build + conformance gate.** After the run: `make buildsh` (Docker) then `lamill project check`; surface build errors + any `project check` regression (diff vs a pre-run snapshot). On failure, report clearly and leave the uncommitted changes for the operator (no auto-revert — the operator owns the working tree). |
-| v32.D | ☐ | **Visual probe + Claude-as-judge.** Serve the built output, capture a screenshot of the relevant view (headless browser), and a Claude assessment pass judges whether the requested feature renders (`PASS`/`FAIL` + the screenshot artifact + a one-line rationale). This closes the open-ended verification gap that build + check can't (a feature can build green yet be absent/wrong). |
-| v32.E | ☐ | **(Reactive) Iterate-on-failure + `fleet feature`.** On a verify-fail, optionally re-invoke Claude with the failure context (bounded retries) before giving up; `fleet feature "<request>"` applies the same request across selected sites (plural-symmetric with `project feature`). Deferred until single-site one-shot proves out. |
+| v33.A | ☐ | **Kickoff / decisions lock + ADR-0023.** Decisions above locked; **ADR-0023** (third write surface — agent-authored, verify-gated, uncommitted-review feature implementation) written + indexed. Resolve the command name (`project feature <domain> "<request>"` proposed) and the one open design question (visual-probe mechanism — see design notes). No code. |
+| v33.B | ☐ | **Core one-shot runner.** `lamill project feature <domain> "<request>"`: resolve `sites/<domain>/`, assemble context (AI_AGENTS.md + `[stack]` + site conventions + the build command, via the existing `fix_helpers` context builders), `run_claude(prompt, cwd=site_dir)` in-place, and report cost/duration + the changed-file set (`git status`). Verification deferred to C/D — the MVP is "Claude ran in the dir; here's the uncommitted diff." |
+| v33.C | ☐ | **Build + conformance gate.** After the run: `make buildsh` (Docker) then `lamill project check`; surface build errors + any `project check` regression (diff vs a pre-run snapshot). On failure, report clearly and leave the uncommitted changes for the operator (no auto-revert — the operator owns the working tree). |
+| v33.D | ☐ | **Visual probe + Claude-as-judge.** Serve the built output, capture a screenshot of the relevant view (headless browser), and a Claude assessment pass judges whether the requested feature renders (`PASS`/`FAIL` + the screenshot artifact + a one-line rationale). This closes the open-ended verification gap that build + check can't (a feature can build green yet be absent/wrong). |
+| v33.E | ☐ | **(Reactive) Iterate-on-failure + `fleet feature`.** On a verify-fail, optionally re-invoke Claude with the failure context (bounded retries) before giving up; `fleet feature "<request>"` applies the same request across selected sites (plural-symmetric with `project feature`). Deferred until single-site one-shot proves out. |
 
 #### Design notes
 
@@ -1768,12 +1769,12 @@ regressed conformance" (lockfile, scaffold, stack drift). The **visual probe**
 catches the failure unique to open-ended generation: "it builds and conforms, but
 the feature isn't actually there / is wrong." None of the three is redundant.
 
-**The one open design question (resolve in v32.A): the visual-probe mechanism.**
+**The one open design question (resolve in v33.A): the visual-probe mechanism.**
 A rendered-output check implies a headless browser (e.g. Playwright) to serve +
 screenshot, which would be **the heaviest dependency in the tool** — it needs an
 explicit justification or a lighter substitute (e.g. asserting on the served
 HTML/DOM without a full browser, accepting weaker "visual" confidence). The
-build+check gate ships without it (v32.C); v32.D is where the dep decision lands.
+build+check gate ships without it (v33.C); v33.D is where the dep decision lands.
 
 **In-place + uncommitted + never-auto-commit.** The run mutates the working tree
 and stops; the operator reviews `git diff` and commits. No branch/worktree
@@ -1783,20 +1784,20 @@ state*, not to `main`.
 **Safety + scope.** `run_claude` already restricts tools, caps budget, and times
 out; the run is scoped to the site dir `cwd`. This is a real purpose-expansion for
 lamill (from "lifecycle + conformance" toward "agent-orchestrated site
-development"), which is exactly why it carries an ADR (ADR-0022) rather than
+development"), which is exactly why it carries an ADR (ADR-0023) rather than
 landing quietly.
 
 **Docs same-commit.** prd.md phase rows, `architecture.md` (the feature runner +
 the build/check/visual-probe verify chain + the visual-probe mechanism once
-chosen), and ADR-0022 (ships with v32.A).
+chosen), and ADR-0023 (ships with v33.A).
 
-### v33 — curated overrides layer for the generated inventory *(new 2026-06-05 after a hand-edit marking `iotnews.today` for deletion (autorenew-off + category "To be deleted") was silently reverted by the next `fleet sync` refresh — `data/portfolio.json` is a generated file, so curated edits don't survive regeneration. Same root-cause class as the 2026-05-19 thoralox.com bug (GoDaddy-no-API → stale manual CSV → reverted edits). See `docs/bugs.md` 2026-06-05.)*
+### v34 — curated overrides layer for the generated inventory *(new 2026-06-05 after a hand-edit marking `iotnews.today` for deletion (autorenew-off + category "To be deleted") was silently reverted by the next `fleet sync` refresh — `data/portfolio.json` is a generated file, so curated edits don't survive regeneration. Same root-cause class as the 2026-05-19 thoralox.com bug (GoDaddy-no-API → stale manual CSV → reverted edits). See `docs/bugs.md` 2026-06-05.)*
 
 `data/portfolio.json` is materialized by `data.py:cleanup()` from the registrar
 CSVs + classification, so any field the operator curates by hand (a deletion mark,
 an autorenew-off the GoDaddy CSV hasn't caught up to) is overwritten on the next
 refresh. There's no layer that carries operator intent the registrar source can't.
-v33 adds a small **curated overrides layer** that `cleanup()` applies *last*, so
+v34 adds a small **curated overrides layer** that `cleanup()` applies *last*, so
 pinned fields survive every refresh — and teaches the health view that a
 "to-be-deleted" domain going dark is expected, not a `🔴` regression.
 
@@ -1816,9 +1817,9 @@ visible, not silent.
 
 | # | Status | Feature |
 |---|---|---|
-| v33.A | ☐ | **Kickoff / decisions lock + ADR-0023.** Decisions above locked; **ADR-0023** (curated overrides win over registrar-derived data — the inventory's source-of-truth precedence) written + indexed. Lock the `data/overrides.json` shape + the `category`/`auto_renew` allowlist. No code. |
-| v33.B | ☐ | **Overrides layer in `cleanup()`.** Load `data/overrides.json` and apply it as the final step of `cleanup()` (after `_apply_classification`), pinning allowlisted fields so a refresh can't revert them; log each applied override. Seed the file with `iotnews.today` + `nosapta.com` (`category = "To be deleted immediately"`, `auto_renew = "Off"`). Re-materialize `portfolio.json` once so the marks stick. Tests: a refresh over a seeded override preserves the pinned fields. |
-| v33.C | ☐ | **Health view honors "To be deleted".** `fleet focus`/`live` recognize the `"To be deleted immediately"` category and render an expected `↷ to be deleted (lapses <date>)` state instead of the `🔴 dead`/`error` alarm — so iotnews.today/nosapta.com stop resurfacing as problems. Mirrors the `dark_sites` suppression. Tests. |
+| v34.A | ☐ | **Kickoff / decisions lock + ADR-0024.** Decisions above locked; **ADR-0024** (curated overrides win over registrar-derived data — the inventory's source-of-truth precedence) written + indexed. Lock the `data/overrides.json` shape + the `category`/`auto_renew` allowlist. No code. |
+| v34.B | ☐ | **Overrides layer in `cleanup()`.** Load `data/overrides.json` and apply it as the final step of `cleanup()` (after `_apply_classification`), pinning allowlisted fields so a refresh can't revert them; log each applied override. Seed the file with `iotnews.today` + `nosapta.com` (`category = "To be deleted immediately"`, `auto_renew = "Off"`). Re-materialize `portfolio.json` once so the marks stick. Tests: a refresh over a seeded override preserves the pinned fields. |
+| v34.C | ☐ | **Health view honors "To be deleted".** `fleet focus`/`live` recognize the `"To be deleted immediately"` category and render an expected `↷ to be deleted (lapses <date>)` state instead of the `🔴 dead`/`error` alarm — so iotnews.today/nosapta.com stop resurfacing as problems. Mirrors the `dark_sites` suppression. Tests. |
 
 #### Design notes
 
@@ -1827,29 +1828,85 @@ Re-exporting `godaddy.csv` would fix `auto_renew` once, but `category` ("to be
 deleted") has no home in any registrar export, and GoDaddy-no-API means the CSV is
 chronically stale anyway. A curated layer that the generator *respects* is the only
 durable home for intent the registrar source can't carry — and it generalizes
-beyond deletion to any future hand-curation. ADR-0023 records the precedence
+beyond deletion to any future hand-curation. ADR-0024 records the precedence
 (curated overrides win) so the source-of-truth order is explicit.
 
 **Why the allowlist is tiny.** Overrides silently win over derived data, which is
 powerful and dangerous — a stale override could mask a real registrar change. So
-v33.B pins only `category` + `auto_renew`, the two fields that actually got
+v34.B pins only `category` + `auto_renew`, the two fields that actually got
 reverted; widening is a deliberate later decision, not an open door.
 
 **Why the health-view change is in scope.** The overrides layer makes the deletion
 mark durable, but a genuinely-dead domain still probes `🔴` — correct, yet noise
-for an intentional death. v33.C is what actually stops iotnews/nosapta resurfacing
+for an intentional death. v34.C is what actually stops iotnews/nosapta resurfacing
 as "problems," reusing the `dark_sites` pattern (a category the health view treats
 as expected-not-alarming).
 
 **Relationship to thoralox.** The 2026-05-19 thoralox.com bug is the same
-root-cause class (GoDaddy-no-API → stale CSV → reverted curated edits); v33's
+root-cause class (GoDaddy-no-API → stale CSV → reverted curated edits); v34's
 overrides layer is also the durable home for the thoralox-style expiry/curation
 drift, so that bug's display-fix can ride on this if/when picked up.
 
 **Docs same-commit.** prd.md phase rows, `architecture.md` (the `cleanup()`
 overrides step + `data/overrides.json` schema + the health-view "to be deleted"
-state), ADR-0023 (ships with v33.A), and the `docs/bugs.md` Fixed-in line
-(2026-06-05) when v33.B/C land.
+state), ADR-0024 (ships with v34.A), and the `docs/bugs.md` Fixed-in line
+(2026-06-05) when v34.B/C land.
+
+### v31 — GoDaddy registrar API (retire the manual-CSV treadmill) *(new 2026-06-05 — the "GoDaddy has no API" premise behind every GoDaddy-staleness bug turned out to be **wrong**. GoDaddy's Management + DNS APIs are available to accounts with 1+ domains (the threshold dropped from 10 to 1; only the *Availability* search API needs 50+); the operator's **44 GoDaddy domains** (of 68 fleet) qualify outright. The prior "Not API-driven" was a deferral, not an absence. Operator flagged this as likely next-up — it has bitten repeatedly (thoralox 2026-05-19, the iotnews/nosapta revert 2026-06-05 / v34, the lamill.us + lamillrentals.com refresh friction).)*
+
+GoDaddy is 44 of 68 fleet domains, and the only way to update their expiry / status /
+NS today is a hand re-exported `data/domains/godaddy.csv` — so the inventory silently
+goes stale between exports (the recurring friction above). Integrating the GoDaddy
+Management API makes those 44 domains auto-refresh alongside Porkbun, the same way
+`fleet sync --refresh` already pulls the live Porkbun list. This retires the
+staleness class at its root rather than patching each symptom.
+
+**Decisions locked (operator, 2026-06-05):** (a) **httpx-direct client** (`godaddy.py`)
+matching `gh_repo.py` / `cloudflare.py`, `sso-key KEY:SECRET` auth header, production
+`api.godaddy.com`, `httpx.MockTransport` tests. (b) **Management API only** (list +
+domain details + nameservers) — **not** the Availability/search API, so the 50-domain
+Availability gate is irrelevant and buying-side stays Porkbun (the existing default).
+(c) **Materialize to `data/domains/godaddy.csv`** in the same shape it has today, so the
+downstream `cleanup()` + classification pipeline is unchanged — the CSV just stops being
+hand-exported. `fleet sync --refresh` pulls GoDaddy beside Porkbun. (d) New keys
+`GODADDY_API_KEY` + `GODADDY_API_SECRET` in `KNOWN_KEYS` + an `apikeys` connectivity
+probe. (e) **ADR-0021** supersedes the "GoDaddy not API-driven" deferral.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v31.A | ☐ | **Kickoff / decisions lock + ADR-0021 + `godaddy.py` client.** Decisions above locked; **ADR-0021** (GoDaddy Management API adopted; supersedes the manual-CSV deferral) written + indexed. `godaddy.py`: `list_domains()` (GET `/v1/domains`, paginated) + `get_domain(domain)` (GET `/v1/domains/{domain}` → expires/status/nameServers/renewAuto), httpx-direct + `sso-key` auth, `MockTransport` tests. `GODADDY_API_KEY`/`GODADDY_API_SECRET` added to `apikeys.KNOWN_KEYS` + the `settings apikeys list` connectivity tick. No refresh wiring yet. |
+| v31.B | ☐ | **`fleet sync --refresh` pulls GoDaddy → `godaddy.csv`.** Mirror the Porkbun refresh path (`_do_porkbun_refresh`): a `_do_godaddy_refresh()` writes `data/domains/godaddy.csv` from the live API (expiry/status/auto_renew/NS), so `lamill fleet sync --refresh` auto-refreshes all 44 GoDaddy domains. Manual re-export becomes the fallback, not the norm — directly retires the thoralox / iotnews-nosapta / lamill.us friction. Soft-fail if keys absent (warn, keep existing CSV), like the Porkbun path. Tests. |
+| v31.C | ☐ | **GoDaddy registrar-NS automation in `new deploy` Step 4.** Set nameservers via the Management API (PUT `/v1/domains/{domain}` nameServers) so the GoDaddy NS cutover stops being a manual "set NS in the panel" step — symmetric with the Porkbun NS path. Probe-before-write + idempotent (ADR-0015 invariant). Optionally a GoDaddy URL-forwarding read (same shape as v32.D's Porkbun forwarding). Tests. |
+| v31.D | ☐ | **(Reactive) Doc + cadence cleanup.** Correct `architecture.md § Provider API coverage` (GoDaddy → API-driven), drop the "GoDaddy has no API" comments in `data.py` etc., and fold GoDaddy into the same auto-refresh cadence/messaging as Porkbun. |
+
+#### Design notes
+
+**Why now (the premise was wrong).** Every GoDaddy-staleness bug was justified by "GoDaddy
+has no API." It does — Management + DNS at the 1-domain threshold — and 44 fleet domains
+qualify. High leverage: one integration retires a whole class of recurring friction across
+65% of the fleet, instead of the per-symptom patches we've been writing.
+
+**Management-only scoping.** We need *list + details + NS*, all in the Management API (1+
+domains). We deliberately don't touch the Availability/search API (50-domain gate) because
+buying stays on Porkbun — so the gate never applies. `sso-key` auth; the qualifying-account
+quota (20k calls/mo) dwarfs ~44 detail calls per refresh.
+
+**CSV-materialization keeps it low-risk.** GoDaddy data still lands in `data/domains/godaddy.csv`
+in today's shape, so `cleanup()`, classification, `_apply_classification`, and every consumer
+are unchanged — v31 only swaps *how the CSV is produced* (API vs hand-export). Same pattern as
+the v15.F Porkbun refresh.
+
+**Relationship to v34 (complementary, not redundant).** v31.B makes GoDaddy *expiry / status /
+auto_renew* auto-refresh, which removes most of what v34's overrides layer was patching for
+GoDaddy. But v34 still owns curated intent the registrar API can't carry — e.g. category =
+"To be deleted immediately" — so the two compose: API for registrar-truth fields, overrides for
+operator-curation fields (applied last in `cleanup()`).
+
+**Docs same-commit.** prd.md phase rows, `architecture.md` (`godaddy.py` + the GoDaddy refresh
+path + the Provider-API-coverage correction + the Step-4 NS automation), and ADR-0021 (ships
+with v31.A).
 
 ## The [content] and [todo] blocks: what each is for
 
