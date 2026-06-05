@@ -168,6 +168,16 @@ class StackBlock:
     build_tool: str | None = None
 
 
+# v30.A — IndexNow notification config (additive optional). `indexnow_key`
+# is the per-site key also served at `public/<key>.txt`; `indexnow_enabled`
+# defaults true (a site opts out by setting it false). Absent table → None
+# (IndexNow not provisioned yet). See ADR-0020 + docs/indexing-module-plan.md.
+@dataclass
+class IndexBlock:
+    indexnow_key: str | None = None
+    indexnow_enabled: bool = True
+
+
 @dataclass
 class LamillToml:
     deploy: DeployBlock
@@ -176,10 +186,11 @@ class LamillToml:
     backend: BackendBlock | None = None
     analytics: AnalyticsBlock | None = None
     notes: str | None = None
-    # v27.B — additive optional tables. Empty / None when absent so
+    # v27.B / v30.A — additive optional tables. Empty / None when absent so
     # files that don't carry them round-trip cleanly (see ADR-0017 + the
     # additive-optional invariant in docs/CLAUDE.md).
     stack: StackBlock | None = None
+    index: IndexBlock | None = None
     todos: list[TodoItem] = field(default_factory=list)
 
 
@@ -278,6 +289,20 @@ def _parse_doc(doc: dict, *, source: Path) -> LamillToml:
         else None
     )
 
+    # v30.A — `[index]` IndexNow config; optional, absent → None per the
+    # additive-optional invariant.
+    index_raw = doc.get("index")
+    if index_raw is not None and not isinstance(index_raw, dict):
+        raise ParseError(
+            f"{source}: [index] must be a table, "
+            f"got {type(index_raw).__name__}"
+        )
+    index = (
+        _parse_index(index_raw, source=source)
+        if index_raw is not None
+        else None
+    )
+
     # v27.B — `[[todo]]` array-of-tables; absent → empty list. Each item
     # validated strictly (bad enums, missing `task`, or `priority` on a
     # `done` item → ParseError).
@@ -300,6 +325,7 @@ def _parse_doc(doc: dict, *, source: Path) -> LamillToml:
         analytics=analytics,
         notes=notes,
         stack=stack,
+        index=index,
         todos=todos,
     )
 
@@ -438,6 +464,20 @@ def _parse_stack(raw: dict, *, source: Path) -> StackBlock:
         )
 
     return StackBlock(framework=framework, build_tool=build_tool)
+
+
+def _parse_index(raw: dict, *, source: Path) -> IndexBlock:
+    key = raw.get("indexnow_key")
+    if key is not None and not isinstance(key, str):
+        raise ParseError(
+            f"{source}: [index].indexnow_key must be a string when set"
+        )
+    enabled = raw.get("indexnow_enabled", True)
+    if not isinstance(enabled, bool):
+        raise ParseError(
+            f"{source}: [index].indexnow_enabled must be a boolean"
+        )
+    return IndexBlock(indexnow_key=key or None, indexnow_enabled=enabled)
 
 
 def _parse_todo(raw: object, *, source: Path, index: int) -> TodoItem:

@@ -32,6 +32,7 @@ trade-offs were, and what the consequences are.
 | 0017 | Additive-optional `lamill.toml` tables stay on schema = `lamill-toml-v1` | Accepted | —         |
 | 0018 | CLI `lamill.toml` mutations are surgical upserts, not full-file rewrites | Accepted | —         |
 | 0019 | `lamill.toml [content]` is derived from the authored `AI_AGENTS.md`, not asked separately | Accepted | —         |
+| 0020 | Post-publish indexing notification lives in the conformance/fix loop (checks + fixers, not a CLI verb) | Accepted | —         |
 
 ## When to write an ADR
 
