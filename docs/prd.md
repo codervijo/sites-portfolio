@@ -1790,6 +1790,67 @@ landing quietly.
 the build/check/visual-probe verify chain + the visual-probe mechanism once
 chosen), and ADR-0022 (ships with v32.A).
 
+### v33 — curated overrides layer for the generated inventory *(new 2026-06-05 after a hand-edit marking `iotnews.today` for deletion (autorenew-off + category "To be deleted") was silently reverted by the next `fleet sync` refresh — `data/portfolio.json` is a generated file, so curated edits don't survive regeneration. Same root-cause class as the 2026-05-19 thoralox.com bug (GoDaddy-no-API → stale manual CSV → reverted edits). See `docs/bugs.md` 2026-06-05.)*
+
+`data/portfolio.json` is materialized by `data.py:cleanup()` from the registrar
+CSVs + classification, so any field the operator curates by hand (a deletion mark,
+an autorenew-off the GoDaddy CSV hasn't caught up to) is overwritten on the next
+refresh. There's no layer that carries operator intent the registrar source can't.
+v33 adds a small **curated overrides layer** that `cleanup()` applies *last*, so
+pinned fields survive every refresh — and teaches the health view that a
+"to-be-deleted" domain going dark is expected, not a `🔴` regression.
+
+**Decisions locked (operator, 2026-06-05):** (a) **A curated overrides file wins
+over registrar-derived data** — `data/overrides.json` (hand-authored, committed),
+a `{domain: {field: value}}` map applied as the final step of `cleanup()`, after
+classification; an override is the source of truth for the fields it names. (b)
+**Minimal overridable-field allowlist** — `category` + `auto_renew` (the two that
+got reverted); widen only when a real case appears. (c) **The health view honors
+"To be deleted"** — `fleet focus`/`live` demote the `🔴` dead/error alarm to an
+expected "↷ to be deleted (lapses <date>)" line for those domains, mirroring the
+existing `dark_sites` exclusion — intentional deaths aren't problems. (d) Overrides
+are logged on apply (`✓ override applied: <domain>.<field>`), so the curation is
+visible, not silent.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v33.A | ☐ | **Kickoff / decisions lock + ADR-0023.** Decisions above locked; **ADR-0023** (curated overrides win over registrar-derived data — the inventory's source-of-truth precedence) written + indexed. Lock the `data/overrides.json` shape + the `category`/`auto_renew` allowlist. No code. |
+| v33.B | ☐ | **Overrides layer in `cleanup()`.** Load `data/overrides.json` and apply it as the final step of `cleanup()` (after `_apply_classification`), pinning allowlisted fields so a refresh can't revert them; log each applied override. Seed the file with `iotnews.today` + `nosapta.com` (`category = "To be deleted immediately"`, `auto_renew = "Off"`). Re-materialize `portfolio.json` once so the marks stick. Tests: a refresh over a seeded override preserves the pinned fields. |
+| v33.C | ☐ | **Health view honors "To be deleted".** `fleet focus`/`live` recognize the `"To be deleted immediately"` category and render an expected `↷ to be deleted (lapses <date>)` state instead of the `🔴 dead`/`error` alarm — so iotnews.today/nosapta.com stop resurfacing as problems. Mirrors the `dark_sites` suppression. Tests. |
+
+#### Design notes
+
+**Why an overrides layer, not "just re-export the CSV" (operator, 2026-06-05).**
+Re-exporting `godaddy.csv` would fix `auto_renew` once, but `category` ("to be
+deleted") has no home in any registrar export, and GoDaddy-no-API means the CSV is
+chronically stale anyway. A curated layer that the generator *respects* is the only
+durable home for intent the registrar source can't carry — and it generalizes
+beyond deletion to any future hand-curation. ADR-0023 records the precedence
+(curated overrides win) so the source-of-truth order is explicit.
+
+**Why the allowlist is tiny.** Overrides silently win over derived data, which is
+powerful and dangerous — a stale override could mask a real registrar change. So
+v33.B pins only `category` + `auto_renew`, the two fields that actually got
+reverted; widening is a deliberate later decision, not an open door.
+
+**Why the health-view change is in scope.** The overrides layer makes the deletion
+mark durable, but a genuinely-dead domain still probes `🔴` — correct, yet noise
+for an intentional death. v33.C is what actually stops iotnews/nosapta resurfacing
+as "problems," reusing the `dark_sites` pattern (a category the health view treats
+as expected-not-alarming).
+
+**Relationship to thoralox.** The 2026-05-19 thoralox.com bug is the same
+root-cause class (GoDaddy-no-API → stale CSV → reverted curated edits); v33's
+overrides layer is also the durable home for the thoralox-style expiry/curation
+drift, so that bug's display-fix can ride on this if/when picked up.
+
+**Docs same-commit.** prd.md phase rows, `architecture.md` (the `cleanup()`
+overrides step + `data/overrides.json` schema + the health-view "to be deleted"
+state), ADR-0023 (ships with v33.A), and the `docs/bugs.md` Fixed-in line
+(2026-06-05) when v33.B/C land.
+
 ## The [content] and [todo] blocks: what each is for
 
 `lamill.toml` carries two human-authored blocks that look similar at a glance but do different jobs. Keeping them separate keeps the file honest.

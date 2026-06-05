@@ -66,6 +66,23 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-05 — hand-edits to the generated `data/portfolio.json` (mark-for-deletion, autorenew-off) are silently reverted by the next `fleet sync` refresh (iotnews.today, nosapta.com)
+
+**Repro** — `a08eb1b` marked `iotnews.today` `auto_renew On→Off` + `category "Next session"→"To be deleted immediately"` by editing `data/portfolio.json`. A 2026-06-05 refresh (`cleanup()`, `generated_at` → `2026-06-05T10:04`) regenerated the file and **reverted both fields** back to `On` / `"Next session"`; the revert is uncommitted in the tree. `nosapta.com`'s intended deletion edit was lost the same way (now shows `My brand` / `On`).
+
+**Expected** — a domain the operator has marked for deletion (autorenew turned off at the registrar, category "to be deleted") stays that way across refreshes, and stops raising a `🔴` health alarm (intentional death ≠ regression).
+
+**Actual** — `data/portfolio.json` is a **generated** file (`data.py:cleanup()` rebuilds it from registrar CSVs + classification), so direct edits are overwritten. `data/domains/godaddy.csv` still lists both domains `auto_renew "On"` — it's a **manual export not re-pulled** since the operator turned autorenew off at GoDaddy (GoDaddy has no API). `category` is re-derived from the curated classification source, which has no "To be deleted". So the refresh reverts curated edits, and `fleet focus`/`live` keep flagging the (now genuinely dead) domains `🔴`.
+
+**Root cause** — deletion/curation intent was written to the generated OUTPUT with no source layer to carry it. **Same class as the 2026-05-19 thoralox.com bug** (GoDaddy-no-API → stale manual CSV → generated `portfolio.json` reverts curated edits). Compounding: the health view has no notion of "intentionally dying," so it alarms on these regardless of category.
+
+**Where** — `src/portfolio/data.py` `cleanup()` / `_apply_classification` (category) + the `data/domains/godaddy.csv` manual-export path (auto_renew); `src/portfolio/focus.py` + `fleet live` (`🔴` regardless of "to be deleted").
+
+**Severity** — `major`. Curated state is silently lost on every refresh; has now bitten twice (thoralox, then iotnews/nosapta). Low blast radius per-incident but erodes trust in the inventory.
+
+**Fix** — **v33** (drafted): a curated **overrides layer** (`data/overrides.json`, applied *last* in `cleanup()`) so `category`/`auto_renew` pins survive refreshes, seeded with `iotnews.today` + `nosapta.com`; plus the health view demoting `🔴` → an expected "to be deleted" state for those domains (mirrors the `dark_sites` exclusion). See `docs/prd.md § v33`. Related: 2026-05-19 thoralox.com entry.
+
+
 ### 2026-06-05 — `new deploy` Step 4 trusts Porkbun's `getNs` API over real delegation → reports NS cutover done while the domain is still on Porkbun NS (mdburst.com)
 
 **Repro** — `lamill new deploy mdburst.com --watch --yes` (cf-pages). Step 4 printed:
