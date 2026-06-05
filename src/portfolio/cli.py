@@ -6440,8 +6440,8 @@ def _deploy_cf_unified(
       3. Git push: ensure origin remote + push main if local ahead
       3.5. Zone DNS:Edit pre-flight probe (v25.B)
       4. CF zone: resolve or create; surface NS records
-      5. Registrar NS: Porkbun auto-push if mismatch (other registrars
-         warn with target NS list)
+      5. Registrar NS: Porkbun + GoDaddy auto-push if mismatch (other
+         registrars warn with target NS list)
       5.5. Purge conflicting parking DNS records (v15.R, workers only)
       6. CF Pages/Workers project + custom domain attach (idempotent
          via GET-then-POST + 400/8000018 "already added" handling)
@@ -6542,6 +6542,14 @@ def _deploy_cf_unified(
             "  [yellow]↷[/] Porkbun creds missing — NS updates will be "
             "warn-only (operator updates NS manually at registrar)"
         )
+
+    # v31.C — GoDaddy creds (Step 4 auto-pushes NS to GoDaddy too, when the
+    # domain's registrar is GoDaddy). Detected silently here; presence /
+    # absence is surfaced in Step 4 only for GoDaddy-registered domains, so
+    # Porkbun deploys see no extra output.
+    gd_key = (apikeys.get_key("GODADDY_API_KEY") or "").strip()
+    gd_secret = (apikeys.get_key("GODADDY_API_SECRET") or "").strip()
+    godaddy_creds = bool(gd_key and gd_secret)
 
     # Resolve owner (token path or gh CLI).
     if not gh_owner:
@@ -6753,10 +6761,66 @@ def _deploy_cf_unified(
         )
     elif not target_ns:
         console.print("  [yellow]↷[/] no target NS yet (zone create deferred); skipping")
+    elif registrar.lower() == "godaddy":
+        # v31.C — GoDaddy NS auto-push, symmetric with the Porkbun path:
+        # GET-then-compare (idempotent), confirm, PUT via the Management API.
+        if not godaddy_creds:
+            console.print(
+                f"  [yellow]↷[/] GoDaddy creds missing — manual NS update.\n"
+                f"  [dim]Set GODADDY_API_KEY / GODADDY_API_SECRET, or set NS "
+                f"at GoDaddy to: {', '.join(target_ns)}[/]"
+            )
+        else:
+            from .godaddy import (
+                GoDaddyError, get_nameservers, set_nameservers,
+            )
+            try:
+                current_ns = get_nameservers(
+                    domain, api_key=gd_key, secret=gd_secret,
+                )
+            except GoDaddyError as e:
+                console.print(
+                    f"  [red]✗[/] could not read current GoDaddy NS: {e}"
+                )
+                raise typer.Exit(6)
+            if ns_matches(current_ns, target_ns):
+                console.print(
+                    f"  [green]✓[/] GoDaddy NS already match Cloudflare "
+                    f"[dim]({', '.join(current_ns)})[/]"
+                )
+            else:
+                console.print(
+                    f"  [dim]GoDaddy current: "
+                    f"{', '.join(current_ns) or '<none>'}[/]\n"
+                    f"  [dim]Cloudflare target: {', '.join(target_ns)}[/]"
+                )
+                confirm = True
+                if not yes:
+                    confirm = typer.confirm(
+                        f"  Update NS at GoDaddy for {domain}?", default=True,
+                    )
+                if not confirm:
+                    console.print(
+                        f"  [yellow]↷[/] NS update declined — pipeline will "
+                        f"continue, but the custom domain won't resolve until "
+                        f"NS points at Cloudflare."
+                    )
+                else:
+                    try:
+                        set_nameservers(
+                            domain, api_key=gd_key, secret=gd_secret,
+                            ns_list=target_ns,
+                        )
+                    except GoDaddyError as e:
+                        console.print(
+                            f"  [red]✗[/] GoDaddy NS update failed: {e}"
+                        )
+                        raise typer.Exit(7)
+                    console.print("  [green]✓[/] NS updated at GoDaddy")
     elif registrar.lower() != "porkbun":
         console.print(
             f"  [yellow]↷[/] domain registrar is [cyan]{registrar}[/] — "
-            f"`lamill new deploy` only auto-pushes NS to Porkbun.\n"
+            f"`lamill new deploy` only auto-pushes NS to Porkbun + GoDaddy.\n"
             f"  [dim]Manual step: set NS at {registrar} to: "
             f"{', '.join(target_ns)}[/]"
         )

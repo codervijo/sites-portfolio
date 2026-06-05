@@ -99,6 +99,41 @@ def get_domain(domain: str, *, api_key: str, secret: str,
             c.close()
 
 
+# ---- nameservers: get / set (v31.C — `new deploy` Step 4) ------------
+
+
+def get_nameservers(domain: str, *, api_key: str, secret: str,
+                    client: httpx.Client | None = None) -> list[str]:
+    """Current nameservers for `domain` (sorted, lowercased; empty if none).
+    Reuses `get_domain`. Raises `GoDaddyError` on failure."""
+    ns = get_domain(domain, api_key=api_key, secret=secret,
+                    client=client).get("nameServers") or []
+    if not isinstance(ns, list):
+        raise GoDaddyError(
+            f"get nameservers {domain}: nameServers is not a list "
+            f"({type(ns).__name__})"
+        )
+    return sorted({str(n).strip().lower() for n in ns if n})
+
+
+def set_nameservers(domain: str, *, api_key: str, secret: str,
+                    ns_list: list[str],
+                    client: httpx.Client | None = None) -> None:
+    """Set nameservers for `domain` via PUT /v1/domains/{domain}. Does NOT
+    pre-check — callers GET-then-compare to skip no-op updates (the ADR-0015
+    idempotency invariant). Refuses an empty list. Raises `GoDaddyError` on
+    failure. GoDaddy returns 200 with an empty body on success."""
+    if not ns_list:
+        raise GoDaddyError(f"refusing to set NS to empty list for {domain}")
+    c, own = _client(api_key, secret, client)
+    try:
+        r = c.put(f"/v1/domains/{domain}", json={"nameServers": list(ns_list)})
+        _raise_for(r, f"set nameservers {domain}")
+    finally:
+        if own:
+            c.close()
+
+
 # ---- inventory refresh → data/domains/godaddy.csv (v31.B) ------------
 
 # Header used only when no godaddy.csv exists yet (a fresh write). A merge
