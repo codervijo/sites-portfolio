@@ -1611,6 +1611,84 @@ Non-goals — circumventing a documented quota for an unsanctioned
 checks' catalog entries, and ADR-0020 (ships with v30.A). The full investigation
 lives in `docs/indexing-module-plan.md`.
 
+### v31 — deploy-verification honesty & resilience *(new 2026-06-05 after `lamill new deploy mdburst.com --watch` reported `✓ fully live` while the apex was still a Porkbun URL-forward (302 → l.ink) on Porkbun NS — a false-green deploy. Bundles three clustered deploy false-positives into one tier: the live-probe/watch redirect-following bug + the NS-delegation-vs-registrar-API gap (incl. Porkbun URL Forwarding) + the 2026-05-31 scopeguard.xyz `1014`/pending-verification gap (this tier absorbs that bug). See `docs/bugs.md` 2026-06-05 ×2 + 2026-05-31.)*
+
+`new deploy` can report success while the domain isn't actually serving the
+deployed site. Three independent gaps let a deploy go green on a non-deployed
+apex: (1) the live probe follows an off-domain 302 to a parking/forwarder host
+and counts the `200` as live; (2) Step 4 trusts the registrar's stored NS value
+(`getNs`) instead of the real delegation (`dig NS`), so a domain pinned to
+Porkbun NS by **URL Forwarding** reads as "already cut over"; (3) the watch loop
+treats any `3xx` as live and has no distinct state for CF custom-domain
+`pending`/`1014`. v31 makes deploy verification *honest*: it reports the state it
+can actually confirm, names the real blocker, and never paints a parked/forwarded
+apex as live.
+
+**Decisions locked (operator, 2026-06-05):** (a) **A live apex must serve the
+site itself** — a 3xx whose final host's eTLD+1 differs from the domain (esp.
+known parking/forwarder hosts like `l.ink`) is **not live**; report `↷ forwarded
+to <host>`. Same-site redirects (apex→www, http→https) stay live. (b) **Registrar
+API ≠ delegation** — "NS set at the registrar" (`getNs`) and "NS actually
+delegated" (`dig NS`) are distinct states; Step 4 reports them separately and
+never prints `✓ match` off the API alone. (c) **URL Forwarding is detected, and
+cleared only on opt-in** — lamill reads Porkbun URL Forwarding and surfaces it as
+the cutover blocker; a `--clear-forwarding` flag performs the (confirm-gated,
+idempotent) registrar write, never silently. (d) **`pending`/`1014` is a named
+state** — the watch loop distinguishes CF custom-domain pending-verification from
+a generic timeout, with the remediation + a `--repair` re-verify path. (e) All
+changes honor the ADR-0015 quick-idempotent invariant (report state, don't block).
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v31.A | ☐ | **Kickoff / decisions lock + ADR-0021.** Decisions above locked; **ADR-0021** ("deploy verification honesty" — a live apex must serve the site; registrar-API state ≠ delegation; never false-green) written + indexed. No code. |
+| v31.B | ☐ | **Off-domain-redirect = not-live (Bug 2).** `_deploy_step8_live_probe` + `_deploy_watch_loop` (`cli.py`) stop counting a followed/`3xx` redirect as live: compare the final host's eTLD+1 to the domain (reuse `check.py:_classify` + `final_url`), emit `↷ forwarded to <host>`; drop `startswith("3")` from `live_ok`; add `l.ink` to `check.py:PARKED_HOST_SUFFIXES`. Tests: `302→l.ink` not-live, `301 apex→www` + `http→https` stay live. |
+| v31.C | ☐ | **NS delegation honesty (Bug 1, Layer A).** Step 4 verifies real delegation via `diagnose._dig(domain, "NS")` and reports `requested` (registrar API) vs `delegated` (dig) as distinct states; replaces the API-only `✓ already match` with `↷ NS set, awaiting delegation` when dig disagrees. Propagation-aware (won't false-fail a just-set domain). Tests with a stubbed `_dig`. |
+| v31.D | ☐ | **Porkbun URL Forwarding detect + opt-in clear (Bug 1, Layer B — root cause).** New reader in `porkbun_dns.py` (`domain/getUrlForwarding/<domain>`); Step 4 preflight surfaces active forwarding as the cutover blocker (`↷ URL Forwarding active → pins Porkbun NS; remove at <url> or pass --clear-forwarding`). `--clear-forwarding` calls `deleteUrlForward` (confirm-gated, idempotent). Tests via `httpx.MockTransport`. |
+| v31.E | ☐ | **Apex CNAME target from project `subdomain` (absorbs scopeguard root fix).** Step 6.5 stops assuming `{slug}.pages.dev`; uses the authoritative `subdomain` from the CF Pages project object (`cloudflare.get_pages_project`), preventing the permanent `1014` when the slug collides on `pages.dev`. Tests for suffixed-subdomain projects. |
+| v31.F | ☐ | **`pending`/`1014` resilience + `--repair` (absorbs scopeguard resilience).** Watch loop distinguishes CF custom-domain `pending-verification` / `1014` from a generic timeout, surfaces a distinct `✗ pending-verification` state + remediation, and adds a `--repair` path (re-PATCH apex CNAME to the real subdomain, remove+re-add the custom domain to re-verify). Tests. |
+
+#### Design notes
+
+**Why a tier, not one-off bugfixes (operator, 2026-06-05).** Three deploy
+false-positives surfaced from two real runs (mdburst.com, scopeguard.xyz) and
+share one theme — *the pipeline claims more than it verified*. Layer B (Porkbun
+URL Forwarding read/clear) is a net-new registrar capability, which is
+feature-shaped per the version-numbering default. Bundling keeps the honesty
+posture (ADR-0021) and its phases coherent rather than scattering related fixes.
+
+**Reuse, don't reinvent.** `check.py:_classify()` (96–119) already classifies a
+fetch as `forwarder`/`parked`/`for-sale` by comparing the final URL host's eTLD+1
+to the domain, with `PARKED_HOST_SUFFIXES` — v31.B reuses it instead of new
+redirect logic (just add `l.ink`). `diagnose._dig()` (152–163) already shells
+`dig +short` — v31.C reuses it for the NS delegation check. The CF Pages project
+object already carries `subdomain` — v31.E reads it instead of guessing.
+
+**The subtle correctness point in v31.B.** The fix must NOT break legitimate
+redirects: apex→www and http→https are *same-site* (same eTLD+1) and stay live.
+Only a redirect whose final host is a *different registrable domain* (or a known
+parking suffix) is not-live. The eTLD+1 comparison is exactly what `_classify`
+already does, which is why reuse beats a hand-rolled check.
+
+**Propagation-awareness in v31.C.** `dig NS` immediately after a cutover will lag
+(registry/resolver propagation), so the check reports `requested vs delegated`
+rather than failing — matching the ADR-0015 quick-idempotent posture (surface
+state, let re-runs converge). A fresh deploy on a forwarded domain reads
+`requested=cloudflare, delegated=porkbun + URL Forwarding active` → the operator
+sees the real blocker, not a false green or a false failure.
+
+**Invariants honored.** Every step stays idempotent and non-blocking (ADR-0015);
+`--clear-forwarding` and `--repair` are explicit opt-in registrar/CF writes,
+confirm-gated, following the remote-side-effect precedent (CHECK_057/150 fixers,
+deploy Steps 4–9). No new always-on blocking waits (`--watch` stays the only one).
+
+**Docs same-commit.** prd.md phase rows, `architecture.md` (Step 4 NS-honesty +
+URL-forwarding preflight, Step 6.5 subdomain source, Step 8/watch redirect
+classification, the `--clear-forwarding` / `--repair` flags), ADR-0021 (ships with
+v31.A), and the `docs/bugs.md` Fixed-in lines (2026-06-05 ×2 + 2026-05-31) as each
+phase lands.
+
 ## The [content] and [todo] blocks: what each is for
 
 `lamill.toml` carries two human-authored blocks that look similar at a glance but do different jobs. Keeping them separate keeps the file honest.

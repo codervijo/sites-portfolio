@@ -66,6 +66,67 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-05 — `new deploy` Step 4 trusts Porkbun's `getNs` API over real delegation → reports NS cutover done while the domain is still on Porkbun NS (mdburst.com)
+
+**Repro** — `lamill new deploy mdburst.com --watch --yes` (cf-pages). Step 4 printed:
+```
+4. Registrar NS (point mdburst.com at Cloudflare)
+  ✓ Porkbun NS already match Cloudflare (dom.ns.cloudflare.com, kristina.ns.cloudflare.com)
+```
+but the domain's authoritative delegation is still Porkbun:
+```
+$ dig +short mdburst.com NS
+curitiba.ns.porkbun.com.
+fortaleza.ns.porkbun.com.
+maceio.ns.porkbun.com.
+salvador.ns.porkbun.com.
+$ dig +short mdburst.com A
+52.33.207.7
+44.230.85.241          # AWS — Porkbun forwarding infra, not Cloudflare
+```
+
+**Expected** — Step 4 verifies the *actual* delegation (`dig NS`) and, if the domain isn't really on Cloudflare NS, performs (or clearly reports it can't perform) the cutover — not a green "already match" based solely on the registrar API's stored value.
+
+**Actual** — Step 4 reads NS via Porkbun `getNs` and set-compares to the CF target (`ns_matches`). The API returned the CF NS (someone/something set them in Porkbun's record), so the check passed and skipped the cutover — while the real registry delegation stayed on Porkbun. The deploy "completed" but `mdburst.com` never moved to CF.
+
+**Root cause (confirmed)** — `mdburst.com` has **Porkbun URL Forwarding enabled** (apex serves `HTTP 302 → https://mdburst-com.l.ink/`, `l.ink` = Porkbun's forwarder). Porkbun URL Forwarding pins the domain to Porkbun nameservers regardless of the stored NS value, so the registrar API and the real delegation disagree. lamill never reads or clears URL Forwarding (`porkbun_list.py:143` — *"URL FORWARDS — separate API endpoint; not in scope here"*), so it can't see why the cutover silently no-ops.
+
+**Where** — `src/portfolio/cli.py` Step 4 block (~6747–6812), decision at ~6781 (`ns_matches(current_ns, target_ns)` → "already match"); `src/portfolio/porkbun_dns.py` `get_porkbun_ns()` (55–105, `POST /domain/getNs/<domain>`) + `ns_matches()` (160–165) — neither does an authoritative resolver check. Reusable: `src/portfolio/diagnose.py` `_dig()` (152–163) already does `dig +short` lookups (used by `probe_dns()`).
+
+**Severity** — `major`. A cf-pages deploy can report success + "fully live" while the domain still serves the registrar parking forward; no self-recovery, and the green output actively misleads. Hits any domain with Porkbun URL Forwarding still set.
+
+**Notes** — paired with the live-probe bug below (same deploy run): the false NS "match" is what *let* the run proceed, and the redirect-following probe is what *confirmed* a false "live." Fix scope in chat 2026-06-05. Manual recovery for mdburst: disable URL Forwarding at `https://porkbun.com/account/domain/mdburst.com`, set NS to `dom.ns.cloudflare.com` / `kristina.ns.cloudflare.com`, re-run deploy.
+
+
+### 2026-06-05 — `new deploy` live probe + `--watch` follow an off-domain 302 to a parking host and report it as `200 OK · fully live` (mdburst.com)
+
+**Repro** — same run (`lamill new deploy mdburst.com --watch --yes`). The watch loop and Step 8 printed:
+```
+  [00:00] zone=active     build=success        live=200
+✓ mdburst.com fully live (zone active · build success · HTTP 200 · 0s)
+8. Live probe (https://mdburst.com/)
+  ✓ 200 OK (3921 bytes)
+```
+but the apex actually returns a cross-domain redirect to Porkbun's forwarder:
+```
+$ curl -sS -I https://mdburst.com/
+HTTP/2 302
+server: openresty
+location: https://mdburst-com.l.ink/
+content-length: 142
+```
+
+**Expected** — A 3xx to a *different registrable domain* (and especially a known parking/forwarder host like `l.ink`) is **not live**. The probe should report `↷ forwarded to <host>` (or `✗ parked`) and the watch loop should not count it toward "fully live."
+
+**Actual** — `_deploy_step8_live_probe()` (`cli.py:7355–7387`) does `httpx.get(..., follow_redirects=True)` and never inspects `r.url`, so it follows `302 → l.ink`, lands on the 3921-byte parking page, and prints `✓ 200`. The watch loop (`_deploy_watch_loop()`, `cli.py:7412–7548`) HEADs with `follow_redirects=True` and at ~7512 sets `live_ok = live_status.startswith("2") or live_status.startswith("3")` — so even an *un-followed* 3xx counts as live.
+
+**Where** — `src/portfolio/cli.py` `_deploy_step8_live_probe()` (7355–7387, `follow_redirects=True`, ignores final URL) and `_deploy_watch_loop()` (live block ~7486–7496; "fully live" determination ~7510–7520, `startswith("3")`). Reusable: `src/portfolio/check.py` `_classify()` (96–119) already detects forwarders/parking by comparing eTLD+1 of the final URL host vs the domain, with `PARKED_HOST_SUFFIXES` (18–24) — **`l.ink` is not in that list yet**; `_fetch()` captures `final_url = str(resp.url)` (134).
+
+**Severity** — `major`. Turns a non-deployed/parked apex into a green "fully live" — the core false-positive the operator hit. Decoupled from Bug 1 (NS): even with NS correct, any apex that 3xx-redirects off-domain would mis-report.
+
+**Notes** — fix could reuse `check.py`'s classifier rather than reinventing: probe with `follow_redirects=False` (or inspect `resp.url` after following), and if the final host's eTLD+1 ≠ the domain's, treat as not-live with a `↷ forwarded to <host>` line; add `l.ink` to `PARKED_HOST_SUFFIXES`. Watch loop must drop `startswith("3")` from `live_ok`.
+
+
 ### 2026-05-31 — `new deploy` builds the apex CNAME from `{slug}.pages.dev`, but CF can assign a suffixed project subdomain → permanent `1014` (scopeguard.xyz)
 
 **Repro** — `lamill new deploy scopeguard.xyz` (cf-pages). Pipeline reached `zone=active build=success` but the live probe returned `403` with body `error code: 1014` ("CNAME Cross-User Banned"), and `--watch` timed out after 30 min still at `live=403`. The Pages custom domain sat at `status=pending` forever.
