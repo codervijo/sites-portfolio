@@ -66,6 +66,11 @@ KNOWN_KEYS: tuple[str, ...] = (
                        # usually one account; set once via `lamill settings
                        # apikeys set GA4_ACCOUNT_ID <id>`. Bootstrap soft-skips
                        # GA4 property creation when unset.
+    # v31.A — GoDaddy Management API (sso-key pair). Available at the
+    # 1-domain threshold (only the Availability/search API needs 50+);
+    # powers `fleet sync --refresh` for the 44 GoDaddy fleet domains.
+    "GODADDY_API_KEY",
+    "GODADDY_API_SECRET",
 )
 
 
@@ -229,6 +234,26 @@ def _probe_porkbun(api_key: str, secret: str) -> ProbeResult:
         except (ValueError, KeyError):
             pass
         return ProbeResult("invalid", "unexpected response shape")
+    return ProbeResult("invalid", f"http {r.status_code}")
+
+
+def _probe_godaddy(api_key: str, secret: str) -> ProbeResult:
+    """GoDaddy — GET /v1/domains?limit=1 validates the sso-key pair."""
+    if not api_key or not secret:
+        return ProbeResult("missing", "")
+    try:
+        r = httpx.get(
+            "https://api.godaddy.com/v1/domains?limit=1",
+            headers={"Authorization": f"sso-key {api_key}:{secret}",
+                     "Accept": "application/json"},
+            timeout=8.0,
+        )
+    except httpx.HTTPError as e:
+        return ProbeResult("invalid", f"{type(e).__name__}")
+    if r.status_code == 200:
+        return ProbeResult("valid", "200 OK")
+    if r.status_code in (401, 403):
+        return ProbeResult("invalid", f"{r.status_code} unauthorized")
     return ProbeResult("invalid", f"http {r.status_code}")
 
 
@@ -466,6 +491,13 @@ def probe_all() -> dict[str, ProbeResult]:
         )
     else:
         out["GA4_ACCOUNT_ID"] = ProbeResult("missing", "")
+
+    # v31.A — GoDaddy (sso-key pair; both halves share one probe outcome).
+    gd_key = get_key("GODADDY_API_KEY") or ""
+    gd_secret = get_key("GODADDY_API_SECRET") or ""
+    gd_result = _probe_godaddy(gd_key, gd_secret)
+    out["GODADDY_API_KEY"] = gd_result if gd_key else ProbeResult("missing", "")
+    out["GODADDY_API_SECRET"] = gd_result if gd_secret else ProbeResult("missing", "")
 
     return out
 
