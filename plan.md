@@ -62,8 +62,9 @@ WINMACBOOKAIR.COM
 yesuinnu.com
 
 ## Plan for the Portfolio As of April, 2026
-### To be deleted immediately (24 domains)
+### To be deleted immediately (25 domains)
 
+NAVODAYANSONLINE.COM
 iotnews.today
 NOSAPTA.COM
 newiniot.com
@@ -104,12 +105,11 @@ kwizicle.com
 veezp.com
 VIJOCHERIAN.COM
 
-### Next session (14 domains)
+### Next session (13 domains)
 
 AIRSUCKS.COM
 dunam.co
 iotbastion.com
-NAVODAYANSONLINE.COM
 virtually.co.in
 whizgraphs.com
 yesuinnu.com
