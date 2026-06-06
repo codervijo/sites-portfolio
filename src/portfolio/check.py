@@ -21,6 +21,7 @@ PARKED_HOST_SUFFIXES = (
     "sedoparking.com",
     "park.io",
     "domaincontrol.com",
+    "l.ink",  # Porkbun URL Forwarding lands here (v32.B — mdburst false-green)
 )
 FOR_SALE_HOST_SUFFIXES = (
     "afternic.com",

@@ -6786,8 +6786,9 @@ def _deploy_cf_unified(
             if ns_matches(current_ns, target_ns):
                 console.print(
                     f"  [green]✓[/] GoDaddy NS already match Cloudflare "
-                    f"[dim]({', '.join(current_ns)})[/]"
+                    f"[dim](registrar API: {', '.join(current_ns)})[/]"
                 )
+                _print_ns_delegation(domain, target_ns)
             else:
                 console.print(
                     f"  [dim]GoDaddy current: "
@@ -6817,6 +6818,7 @@ def _deploy_cf_unified(
                         )
                         raise typer.Exit(7)
                     console.print("  [green]✓[/] NS updated at GoDaddy")
+                    _print_ns_delegation(domain, target_ns)
     elif registrar.lower() != "porkbun":
         console.print(
             f"  [yellow]↷[/] domain registrar is [cyan]{registrar}[/] — "
@@ -6843,8 +6845,9 @@ def _deploy_cf_unified(
         if ns_matches(current_ns, target_ns):
             console.print(
                 f"  [green]✓[/] Porkbun NS already match Cloudflare "
-                f"[dim]({', '.join(current_ns)})[/]"
+                f"[dim](registrar API: {', '.join(current_ns)})[/]"
             )
+            _print_ns_delegation(domain, target_ns)
         else:
             console.print(
                 f"  [dim]Porkbun current: {', '.join(current_ns) or '<none>'}[/]\n"
@@ -6874,6 +6877,7 @@ def _deploy_cf_unified(
                     console.print(f"  [red]✗[/] Porkbun NS update failed: {e}")
                     raise typer.Exit(7)
                 console.print("  [green]✓[/] NS updated at Porkbun")
+                _print_ns_delegation(domain, target_ns)
 
     # --- Step 5: CF project (Pages OR Workers) ------------------------------
     # v15.P — auto-detect surface. CF unified Workers + Pages in 2025 but
@@ -7451,6 +7455,85 @@ def _deploy_step10_indexnow(*, domain: str, project_dir, dry_run: bool) -> None:
         console.print(f"  [yellow]↷[/] IndexNow ping soft-failed ({type(e).__name__}: {e})")
 
 
+def _probe_apex_live(domain: str, *, head: bool = False,
+                     timeout: float = 5.0) -> tuple[bool, str, str | None]:
+    """ADR-0022 rule (a) — does `https://<domain>/` serve *this* site itself?
+
+    Follows redirects, then classifies the final response with
+    `check._classify` (the same eTLD+1-vs-final-host classifier `fleet live`
+    uses). Returns `(is_live, token, detail)`:
+
+      - `is_live` — True *only* when the apex serves this domain (classification
+        `live-site`). A `3xx` that lands on a parking / forwarder host (a
+        *different* registrable domain, or a known parked suffix like `l.ink`)
+        is **not live** — even though it returns `200`. Same-site redirects
+        (apex→www, http→https) stay live.
+      - `token` — short status token for the state line (`"200"`, `"forwarder"`,
+        `"parked"`, `"for-sale"`, `"DNS"`, `"err"`, or a non-2xx status code).
+      - `detail` — final host (for forwarder/parked/for-sale) or the error type,
+        else None.
+
+    `head=True` uses a HEAD request (watch loop's cheap repeated probe); the
+    GET path also passes the body so `_classify` can catch JS parking redirects.
+    """
+    import httpx
+    from .check import _classify
+    try:
+        fn = httpx.head if head else httpx.get
+        r = fn(f"https://{domain}/", timeout=timeout, follow_redirects=True)
+        final_url = str(r.url)
+        body = None if head else (r.text[:1000] if r.text else None)
+        classification, _reason = _classify(
+            domain, final_url, r.status_code, None, body)
+        if classification == "live-site":
+            return True, str(r.status_code), None
+        if classification in ("forwarder", "parked", "for-sale"):
+            return False, classification, httpx.URL(final_url).host or None
+        return False, str(r.status_code), None
+    except httpx.ConnectError:
+        return False, "DNS", None
+    except httpx.HTTPError as e:
+        return False, "err", type(e).__name__
+
+
+def _ns_delegation(domain: str, target_ns: list[str]) -> tuple[list[str], bool]:
+    """v32.C — the *real* delegation via `dig NS`, distinct from the registrar
+    API's stored value. A registrar can report "NS set to Cloudflare" while the
+    parent zone is still delegated elsewhere (propagation lag, or Porkbun URL
+    Forwarding pinning Porkbun NS). Returns `(delegated, matches_target)` where
+    `delegated` is the dig answer (lowercased, trailing dot stripped). An empty
+    answer ⇒ delegation not yet visible (propagating) ⇒ `matches=False`, so
+    callers report "awaiting delegation", never a hard failure (ADR-0015)."""
+    from .diagnose import _dig
+    from .porkbun_dns import ns_matches
+    delegated = [d.rstrip(".").lower() for d in _dig(domain, "NS") if d.strip()]
+    return delegated, bool(delegated) and ns_matches(delegated, target_ns)
+
+
+def _print_ns_delegation(domain: str, target_ns: list[str]) -> None:
+    """v32.C — report registrar-API state vs real `dig NS` delegation as
+    distinct lines, so a `✓ match` off the API alone is never mistaken for a
+    completed cutover (ADR-0022 rule b)."""
+    delegated, matched = _ns_delegation(domain, target_ns)
+    if matched:
+        console.print(
+            f"  [green]✓[/] delegation confirmed "
+            f"[dim](dig NS → {', '.join(delegated)})[/]"
+        )
+    elif not delegated:
+        console.print(
+            "  [yellow]↷[/] delegation not yet visible (dig NS returned "
+            "nothing) — propagating; re-check in 5-30 min"
+        )
+    else:
+        console.print(
+            "  [yellow]↷[/] NS set at registrar, awaiting delegation "
+            "[dim](registry/resolver propagation)[/]\n"
+            f"  [dim]requested (registrar): {', '.join(target_ns)}[/]\n"
+            f"  [dim]delegated (dig NS):    {', '.join(delegated)}[/]"
+        )
+
+
 def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> None:
     """v15.I — single HTTP HEAD probe of `https://<domain>/`. Soft-warns
     on non-2xx or connection error (expected on fresh deploys where DNS
@@ -7461,28 +7544,28 @@ def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> None:
     if dry_run:
         console.print("  [dim]would: GET https://<domain>/[/]")
         return
-    try:
-        import httpx
-        r = httpx.get(
-            f"https://{domain}/",
-            timeout=5.0, follow_redirects=True,
-        )
-        if 200 <= r.status_code < 400:
-            console.print(
-                f"  [green]✓[/] {r.status_code} {r.reason_phrase} "
-                f"[dim]({len(r.text)} bytes)[/]"
-            )
-        else:
-            console.print(
-                f"  [yellow]↷[/] {r.status_code} {r.reason_phrase} — "
-                "may indicate NS propagation in flight or SSL not yet "
-                "provisioned. Re-probe in 5-30 min."
-            )
-    except httpx.HTTPError as e:
+    # v32.B — "live" means the apex serves THIS site, not just any 200.
+    # A 3xx that lands on a parking/forwarder host (e.g. Porkbun URL
+    # Forwarding → l.ink) is NOT live, even though the chain ends 200.
+    is_live, token, detail = _probe_apex_live(domain, head=False)
+    if is_live:
+        console.print(f"  [green]✓[/] {token} — serving {domain}")
+    elif token in ("forwarder", "parked", "for-sale"):
         console.print(
-            f"  [yellow]↷[/] live probe failed: {type(e).__name__}: {e} — "
-            "expected within ~30min of NS update (DNS propagation + "
-            "edge SSL provisioning)."
+            f"  [yellow]↷[/] not live — {token} → "
+            f"[cyan]{detail or '?'}[/]. The apex still redirects off-domain "
+            f"(NS may not have cut over, or URL Forwarding is active). "
+            f"Re-probe in 5-30 min; see Step 4 for the delegation state."
+        )
+    elif token == "DNS":
+        console.print(
+            "  [yellow]↷[/] no DNS answer yet — expected within ~30min of "
+            "NS update (propagation + edge SSL provisioning). Re-probe later."
+        )
+    else:
+        console.print(
+            f"  [yellow]↷[/] {token} — may indicate NS propagation in flight "
+            "or SSL not yet provisioned. Re-probe in 5-30 min."
         )
 
 
@@ -7582,17 +7665,13 @@ def _deploy_watch_loop(
                 except cloudflare.CloudflareAPIError:
                     build_status = "?"
 
-            # Live HEAD probe.
-            try:
-                resp = _httpx.head(
-                    f"https://{domain}/",
-                    timeout=5.0, follow_redirects=True,
-                )
-                live_status = str(resp.status_code)
-            except _httpx.ConnectError:
-                live_status = "DNS"
-            except _httpx.HTTPError:
-                live_status = "?"
+            # Live HEAD probe — v32.B: classify, don't trust the status code.
+            # A forwarded/parked apex returns 200 but isn't serving the site,
+            # so `live_ok` requires classification == live-site, not 2xx/3xx.
+            apex_live, live_token, live_detail = _probe_apex_live(
+                domain, head=True)
+            live_status = (
+                f"{live_token}→{live_detail}" if live_detail else live_token)
 
             # Render state line only when something changed (avoid
             # spamming identical rows when nothing's moving).
@@ -7608,7 +7687,7 @@ def _deploy_watch_loop(
 
             zone_ok = zone_status == "active"
             build_ok = build_status in ("success", "n/a")
-            live_ok = live_status.startswith("2") or live_status.startswith("3")
+            live_ok = apex_live  # v32.B — same-site 200 only (ADR-0022 rule a)
 
             if zone_ok and build_ok and live_ok:
                 console.print(

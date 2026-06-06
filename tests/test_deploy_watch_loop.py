@@ -40,6 +40,7 @@ def test_watch_returns_live_when_all_three_green(monkeypatch):
 
     class _OK:
         status_code = 200
+        url = "https://example.com/"
     monkeypatch.setattr("httpx.head", lambda url, **kw: _OK())
 
     sleeps: list[int] = []
@@ -82,7 +83,9 @@ def test_watch_transitions_pending_to_active_then_live(monkeypatch):
 
     live_codes = iter([404, 200])
     class _Resp:
-        def __init__(self, code): self.status_code = code
+        def __init__(self, code):
+            self.status_code = code
+            self.url = "https://example.com/"
     monkeypatch.setattr(
         "httpx.head",
         lambda url, **kw: _Resp(next(live_codes)),
@@ -117,6 +120,7 @@ def test_watch_returns_build_failed_fast(monkeypatch):
 
     class _Conn:
         status_code = 404
+        url = "https://example.com/"
     monkeypatch.setattr("httpx.head", lambda url, **kw: _Conn())
 
     sleeps: list[int] = []
@@ -182,6 +186,7 @@ def test_watch_workers_surface_treats_build_as_na(monkeypatch):
 
     class _OK:
         status_code = 200
+        url = "https://example.com/"
     monkeypatch.setattr("httpx.head", lambda url, **kw: _OK())
 
     result = _deploy_watch_loop(
@@ -204,6 +209,7 @@ def test_watch_keyboard_interrupt_returns_cancelled(monkeypatch):
 
     class _Resp:
         status_code = 404
+        url = "https://example.com/"
     monkeypatch.setattr("httpx.head", lambda url, **kw: _Resp())
 
     def _sleep_raises(s):
