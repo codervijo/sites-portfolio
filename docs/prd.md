@@ -1986,6 +1986,12 @@ holes. Output is a prioritized debt register (→ `architecture.md § Tracked
 refactors`), not a single mega-refactor. May reuse the adversarial-audit
 posture from v12. **Not fleshed — phases/scope/ADR TBD.**
 
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v35.A | ☐ | **Kickoff / decisions lock.** Scope the debt audit before any work: smell-inventory targets (long functions, the `cli.py` monolith, duplication, lazy-import gaps, dead code, error-handling drift, coverage holes), the prioritization rubric, and the output shape (a prioritized debt register → `architecture.md § Tracked refactors`, **not** a mega-refactor). Decide whether to reuse the v12 adversarial-audit posture. ADR TBD. |
+
 ### v36 — `new domain`: auction + expired/dropping-domain discovery *(DRAFT — captured 2026-06-06, not yet fleshed)*
 
 Operator idea (2026-06-06): extend `new domain` (today: brainstorm → price/
@@ -1997,6 +2003,12 @@ lists, expireddomains.net-style feeds), how to rank by topical fit + price +
 age/authority, how it folds into the existing shortlist UI. **Not fleshed —
 sources/CLI surface/scoring/ADR TBD.**
 
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v36.A | ☐ | **Kickoff / decisions lock.** Pick the acquisition-discovery sources (GoDaddy Auctions API / Porkbun / drop-list feeds), the ranking model (topical fit + price + age/authority), and how discovery folds into the existing `new domain` shortlist UI vs a separate surface. Sources/CLI surface/scoring/ADR TBD. |
+
 ### v37 — domain owner-details (WHOIS / RDAP) lookup *(DRAFT — captured 2026-06-06, not yet fleshed)*
 
 Operator idea (2026-06-06): look up **owner / registrant details** for
@@ -2007,6 +2019,12 @@ fallback. Open questions: privacy-redaction handling, where it surfaces
 (`new domain` decision-aid vs a standalone read verb), caching, pairing with
 v36's auction/expired discovery. Relates to the deferred decision-aids idea.
 **Not fleshed — protocol/CLI surface/caching/ADR TBD.**
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v37.A | ☐ | **Kickoff / decisions lock.** Decide protocol posture (RDAP-first, WHOIS fallback), privacy-redaction handling, where it surfaces (the `new domain` decision-aid vs a standalone read verb), caching, and pairing with v36's auction/expired discovery. Protocol/CLI surface/caching/ADR TBD. |
 
 ### v38 — `project seo` sitemap-warning analyzer (turn the opaque GSC count into detail) *(DRAFT — captured 2026-06-06, not yet fleshed)*
 
@@ -2025,6 +2043,12 @@ Belongs in portfolio (enhances existing `project seo` GSC diagnostics, not
 the separate SEO pipeline). Live proof 2026-06-06: ran the analysis on
 hybridautopart's 51 sitemap URLs — all 200, same host, none noindex, robots
 clean → the 3 warnings are stale. **Not fleshed — module/render/CLI TBD.**
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v38.A | ☐ | **Kickoff / decisions lock.** Lock the sitemap-warning analyzer shape: the GSC sitemap-warning catalog to reproduce mechanically (robots-blocked / non-200 / noindex / host-protocol mismatch / XML-date-namespace validity / empty-oversized), the analyzer module home (enhances existing `project seo` GSC diagnostics, not the separate SEO pipeline), the `project seo` detail render vs the "likely stale" verdict + GSC UI deep-link, and `fleet focus` keeping the count headline. Module/render/CLI TBD. |
 
 ### v39 — revisit / retire `plan.md` as the intent layer *(DRAFT — captured 2026-06-06, not yet fleshed)*
 
@@ -2054,6 +2078,12 @@ retire `plan.md`. Must preserve: `cleanup()` category derivation, focus
 `IGNORE_CATEGORIES` suppression, fuzzy resolution, dashboards. Pairs with the
 `auto_renew=off` → focus-mute fix (intent partly inferable from facts now).
 **Not fleshed — target store/schema/migration/ADR TBD; load-bearing → ADR.**
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v39.A | ☐ | **Kickoff / decisions lock.** Choose the durable intent store (overrides store vs per-site `lamill.toml` `category`/`intent` field, reconciled with live registrar facts), the schema, and the migration off hand-edited `plan.md` — preserving `cleanup()` category derivation, focus `IGNORE_CATEGORIES` suppression, fuzzy resolution, and dashboards. Load-bearing → **ADR required**. |
 
 ## 8. Open questions
 
