@@ -1764,9 +1764,9 @@ gate + uncommitted-review stop, not a conformance oracle.
 |---|---|---|
 | v33.A | ✅ | **Kickoff / decisions lock + ADR-0023.** Design locked (a–j above); **ADR-0023** (sandboxed + supervised + verify-gated agent run as the third local-FS write surface) written + indexed. Command resolved (`project delegate`); visual-probe resolved (Playwright-in-container — cheap because containerized); execution model resolved (containerized, host `~/.claude` mounted, only site dir RW); supervision resolved (two-axis liveness+progress). No code. |
 | v33.B | ✅ | **Containerized, supervised runner.** `lamill project delegate <domain> "<request>"`: refuse-on-dirty (clear cause + safe-recovery); resolve `sites/<domain>/`; bring up a fresh disposable container (builder stack image), bind-mount **only** the site dir RW + host `~/.claude`; assemble context (AI_AGENTS.md + `[stack]` + conventions via `fix_helpers`); `docker exec` Claude with the instructions; the **two-axis supervisor** (stream-liveness + progress watchdog) + wall-clock + budget bounds run host-side, streaming `✓ ✗ ↷` markers; every exit clean-kills the container and leaves the uncommitted diff (`git status`/`git diff`) with cost/duration. Verify deferred to C/D. **Live-validated 2026-06-06** end-to-end (clean throwaway site): file created, honest `✓`. Two fixes during validation: (1) claude runs as the **host user** with `HOME=/cc` + **both** `~/.claude` and `~/.claude.json` mounted (root can't use `--dangerously-skip-permissions`, and the `.json` holds auth); (2) **honesty** — stream-EOF is not success; the terminal `result` event's `is_error`/absence decides `done` vs `error` (fixes the false-green). |
-| v33.C | ☐ | **Build + conformance gate (in-container).** After the run: `make buildsh` (Docker) then `lamill project check`; surface build errors + any `project check` regression (diff vs a pre-run snapshot). On failure, report clearly and leave the uncommitted changes for the operator (no auto-revert — the operator owns the working tree). |
-| v33.D | ☐ | **Visual probe + Claude-as-judge (Playwright-in-container).** Serve the built output, capture a screenshot of the relevant view via the existing `Dockerfile.playwright` image, and a Claude assessment pass judges whether the requested change renders (`PASS`/`FAIL` + screenshot artifact + one-line rationale). Closes the gap build + check can't (a feature can build green yet be absent/wrong). |
-| v33.E | ☐ | **(Reactive) Supervision tuning + bounded iterate-on-failure.** Tune the progress-window length / thresholds + richer thrash detection from real runs; on a verify-fail, optionally re-invoke Claude with the failure context (bounded retries) before giving up. Deferred until the single-site one-shot proves out. (`fleet delegate` is out of scope for now per operator.) |
+| v33.C | ✅ | **Build + conformance gate (in-container).** After a clean run that changed files (container kept alive): in-container build via the site's own script (`corepack pnpm/yarn` or npm, run as the host user so output is host-owned — never host `pnpm`) + host-side `lamill project check` compared to a pre-run baseline. A build break or a pass→fail check regression ⇒ `verify-fail`; changes left uncommitted (no auto-revert). `DockerVerifier` + `backend.exec` + `run_project_checks`. **Live-validated 2026-06-06** (agent change → build OK → check no-regression → uncommitted diff). |
+| v33.D | ✅ | **Visual probe + Claude-as-judge (Playwright-in-container).** Best-effort: screenshot the built `dist/` + a Claude judge (`PASS`/`FAIL`). **Operator contract (2026-06-06): the visual probe never hard-fails — any failure (no browser, serve error, judge inconclusive) → `unavailable` → the run reports `needs-review` and STOPS for the operator to eyeball + confirm; no auto-progress / no auto-iterate.** `--no-visual` skips it. Build+check path validated live; the live browser path degrades to `needs-review` by design until the operator exercises it. |
+| v33.E | ☐ | **(Reactive) Supervision tuning + bounded iterate-on-failure.** Tune the progress-window length / thresholds + richer thrash detection from real runs; on a verify-fail, optionally re-invoke Claude with the failure context (bounded retries) — **gated on operator confirmation per the v33.D contract**. Deferred until the single-site one-shot proves out. (`fleet delegate` out of scope for now per operator.) |
 
 #### Design notes
 
@@ -2007,6 +2007,53 @@ fallback. Open questions: privacy-redaction handling, where it surfaces
 (`new domain` decision-aid vs a standalone read verb), caching, pairing with
 v36's auction/expired discovery. Relates to the deferred decision-aids idea.
 **Not fleshed — protocol/CLI surface/caching/ADR TBD.**
+
+### v38 — `project seo` sitemap-warning analyzer (turn the opaque GSC count into detail) *(DRAFT — captured 2026-06-06, not yet fleshed)*
+
+Operator friction (2026-06-06, hybridautopart.com): `fleet focus` /
+`project seo` surface "GSC: sitemap warnings (3)" as a bare **count** the
+operator can't see or act on — because **the GSC API returns warning counts
+only, never the warning text** (detail is UI-only). Idea: when GSC reports
+`warnings > 0`, lamill **independently inspects the sitemap(s)** and
+reproduces the likely issues against GSC's known sitemap-warning catalog —
+each mechanically checkable: URLs blocked by robots.txt, non-200 / redirect
+URLs, noindex URLs (meta + `x-robots-tag`), host/protocol mismatch vs the
+property, XML/date/namespace validity, empty/oversized. `project seo` shows
+the **detail** (or a "no reproducible issues → likely stale (fetched Nd ago)"
+verdict + the GSC UI deep-link); `fleet focus` keeps the count headline.
+Belongs in portfolio (enhances existing `project seo` GSC diagnostics, not
+the separate SEO pipeline). Live proof 2026-06-06: ran the analysis on
+hybridautopart's 51 sitemap URLs — all 200, same host, none noindex, robots
+clean → the 3 warnings are stale. **Not fleshed — module/render/CLI TBD.**
+
+### v39 — revisit / retire `plan.md` as the intent layer *(DRAFT — captured 2026-06-06, not yet fleshed)*
+
+Operator (2026-06-06): "I used `plan.md` to get started and think it has
+outlived its usefulness." Reasoning established same day:
+
+- `plan.md` historically mixed **registrar facts** (expiry, autorenew, NS)
+  with **operator intent** (the `### <category>` sections: `My brand` /
+  `SEO under way` / `Under build` / `Next session` / `To be deleted
+  immediately`). v31's GoDaddy API + Porkbun made the **facts** live, so
+  that half of `plan.md` is now redundant + a drift risk.
+- The **irreducible** remainder is the **intent/category layer**: it can't
+  be derived (no signal infers "My brand" vs "Next session"), and it can't
+  live in `portfolio.json` (generated — `cleanup()` re-derives `category`
+  *from* `plan.md` each run; hand-edits to the JSON get reverted, the v34
+  bug). So intent needs a durable source; today that's `plan.md`.
+- Cracks: (a) no category means "letting it lapse at expiry" — `auto_renew=off`
+  encodes that intent at the registrar but `plan.md`/focus don't read it
+  (the navodayansonline friction); (b) hand-maintaining markdown sections +
+  decorative `(N domains)` counts at ~68 domains is friction and they drift.
+
+Direction (operator leans **retire**): migrate the intent/category layer off
+hand-edited markdown to a **structured, durable per-domain home** (candidate:
+a `category`/`intent` field with a non-generated source — e.g. an overrides
+store, or per-site `lamill.toml`, reconciled with live registrar facts), then
+retire `plan.md`. Must preserve: `cleanup()` category derivation, focus
+`IGNORE_CATEGORIES` suppression, fuzzy resolution, dashboards. Pairs with the
+`auto_renew=off` → focus-mute fix (intent partly inferable from facts now).
+**Not fleshed — target store/schema/migration/ADR TBD; load-bearing → ADR.**
 
 ## 8. Open questions
 

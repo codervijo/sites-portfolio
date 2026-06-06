@@ -9156,6 +9156,12 @@ def project_delegate(
         1200, "--timeout", help="Wall-clock cap in seconds."),
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Skip the write-surface confirmation."),
+    no_verify: bool = typer.Option(
+        False, "--no-verify",
+        help="Skip the post-run verify gate (build + project check + visual)."),
+    no_visual: bool = typer.Option(
+        False, "--no-visual",
+        help="Run build + check, but skip the Playwright visual probe."),
 ) -> None:
     """Delegate an open-ended change to Claude, in a sandboxed container.
 
@@ -9165,10 +9171,17 @@ def project_delegate(
     run is bounded (wall-clock + budget) and supervised — it's killed if it
     stalls (no activity) or spins (active but no net progress). Refuses on a
     dirty tree so the resulting diff is unambiguous.
+
+    After a clean run it verifies the change: build + `project check`
+    (regressions ⇒ verify-fail) and a best-effort visual probe. If the
+    visual probe can't confirm, the run reports `needs-review` and leaves
+    it for you to eyeball — it does not auto-proceed.
     """
     import shutil
 
-    from .delegate import Bounds, DockerBackend, run_delegate
+    from .delegate import (Bounds, DelegateRefused, DockerBackend,
+                           DockerVerifier, resolve_site_dir, run_project_checks,
+                           run_delegate)
 
     domain = domain.lower()
     if shutil.which("docker") is None:
@@ -9187,14 +9200,46 @@ def project_delegate(
             console.print("↷ aborted.")
             raise typer.Exit(0)
 
+    # Build the verify gate: snapshot conformance BEFORE the agent runs (on
+    # the clean tree) so we can flag only *new* failures.
+    verifier = None
+    if not no_verify:
+        try:
+            site_dir = resolve_site_dir(domain)
+            baseline = run_project_checks(site_dir)
+            verifier = DockerVerifier(request, check_baseline=baseline,
+                                      do_visual=not no_visual)
+        except DelegateRefused:
+            pass  # run_delegate will resolve + refuse with the full message
+
     bounds = Bounds(wall_clock_s=timeout, budget_usd=budget)
     backend = DockerBackend(domain, budget_usd=budget)
     console.print(f"▸ delegate · [cyan]{domain}[/] — running in sandbox…")
     result = run_delegate(domain, request, backend=backend, bounds=bounds,
-                          force=force)
+                          force=force, verifier=verifier)
     _render_delegate_result(result, domain)
     if result.status not in ("done",):
         raise typer.Exit(1 if result.status in ("error", "refused") else 0)
+
+
+def _render_delegate_verify(v) -> None:
+    """Render the verify-gate detail block (build / check / visual)."""
+    if v is None:
+        return
+    if v.build_ok is True:
+        console.print("  ✓ build OK")
+    elif v.build_ok is False:
+        console.print(f"  ✗ build failed: [dim]{v.build_detail[:160]}[/]")
+    if v.check_ok is True:
+        console.print("  ✓ project check — no regression")
+    elif v.check_ok is False:
+        console.print(f"  ✗ conformance regressed: {', '.join(v.check_new_failures)}")
+    if v.visual == "pass":
+        console.print(f"  ✓ visual probe — {v.visual_detail[:120]}")
+    elif v.visual in ("fail", "unavailable"):
+        console.print(f"  ↷ visual probe {v.visual} — {v.visual_detail[:120]}")
+        if v.screenshot:
+            console.print(f"     screenshot: [dim]{v.screenshot}[/]")
 
 
 def _render_delegate_result(result, domain: str) -> None:
@@ -9203,15 +9248,18 @@ def _render_delegate_result(result, domain: str) -> None:
     if result.status == "refused":
         console.print(result.message)
         return
+    meta = f"{result.duration_s:.0f}s · ${result.cost_usd:.2f}"
     if result.status == "done":
-        console.print(
-            f"  ✓ agent finished · {result.duration_s:.0f}s · "
-            f"${result.cost_usd:.2f}")
+        console.print(f"  ✓ agent finished · {meta}")
     elif result.status == "error":
         console.print(f"  ✗ {result.reason}")
+    elif result.status == "verify-fail":
+        console.print(f"  ✗ change rejected by verify gate — {result.reason} ({meta})")
+    elif result.status == "needs-review":
+        console.print(f"  ⚠ needs your review — {result.reason} ({meta})")
     else:  # idle / spinning / timeout / budget — supervisor/backstop kills
-        console.print(f"  ↷ stopped — {result.reason} "
-                      f"({result.duration_s:.0f}s · ${result.cost_usd:.2f})")
+        console.print(f"  ↷ stopped — {result.reason} ({meta})")
+    _render_delegate_verify(result.verify)
     files = result.changed_files
     if files:
         shown = "\n".join(f"    {f}" for f in files[:20])

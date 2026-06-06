@@ -72,7 +72,13 @@ diff.** Single-site only; no `fleet delegate` for now. Concretely:
   visual probe + Claude-as-judge (catches the failure unique to open-ended
   generation — "builds green yet the feature is absent / wrong"), emitting a
   `PASS`/`FAIL` + a screenshot artifact. None of the three links is
-  redundant.
+  redundant. **Build + check are hard gates** (failure ⇒ `verify-fail`).
+  **The visual probe is a soft gate** (operator contract, 2026-06-06): it
+  never hard-fails — any failure (no browser, serve error, judge
+  inconclusive) degrades to `unavailable`, the run reports **`needs-review`**,
+  and it **stops for the operator to eyeball + confirm** rather than
+  auto-proceeding or auto-iterating. This keeps the heavy/flaky browser step
+  from ever blocking or discarding good work.
 
 - **(e) Never auto-commit, never auto-revert.** The run mutates the working
   tree and stops; the operator reviews `git diff` and commits. Honors the

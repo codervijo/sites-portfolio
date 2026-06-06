@@ -360,3 +360,142 @@ def test_parse_result_is_error_flag():
     assert ev.kind == "result" and ev.is_error is True
     ev2 = parse_stream_line('{"type":"result","total_cost_usd":0.1}')
     assert ev2.is_error is False
+
+
+# ---------- verify gate (v33.C/D) ----------
+
+from portfolio.delegate import (   # noqa: E402
+    DockerVerifier,
+    VerifyResult,
+    _detect_build,
+    run_delegate as _rd,
+)
+
+
+def _backend_that_changes(site: Path):
+    """A FakeBackend whose stream creates a file (→ changed_files) and emits
+    a clean result event (→ status done), so the verify gate engages."""
+    be = FakeBackend([])
+
+    def stream(self, prompt):
+        (site / "feature.txt").write_text("x\n")
+        yield '{"type":"result","is_error":false,"total_cost_usd":0.05}'
+    be.stream = stream.__get__(be, FakeBackend)
+    return be
+
+
+def test_verify_build_fail_is_verify_fail(site):
+    be = _backend_that_changes(site)
+    v = lambda sd, b: VerifyResult(build_ok=False, build_detail="tsc error")
+    res = run_delegate("example.com", "x", backend=be, verifier=v,
+                       clock=_clock([0, 1, 2, 3]), sites_root=site.parent)
+    assert res.status == "verify-fail"
+    assert "build failed" in res.reason
+
+
+def test_verify_check_regression_is_verify_fail(site):
+    be = _backend_that_changes(site)
+    v = lambda sd, b: VerifyResult(build_ok=True, check_ok=False,
+                                   check_new_failures=["CHECK_012"])
+    res = run_delegate("example.com", "x", backend=be, verifier=v,
+                       clock=_clock([0, 1, 2, 3]), sites_root=site.parent)
+    assert res.status == "verify-fail"
+    assert "CHECK_012" in res.reason
+
+
+def test_verify_visual_unavailable_is_needs_review(site):
+    be = _backend_that_changes(site)
+    v = lambda sd, b: VerifyResult(build_ok=True, check_ok=True,
+                                   visual="unavailable",
+                                   visual_detail="no browser")
+    res = run_delegate("example.com", "x", backend=be, verifier=v,
+                       clock=_clock([0, 1, 2, 3]), sites_root=site.parent)
+    assert res.status == "needs-review"
+
+
+def test_verify_all_pass_is_done(site):
+    be = _backend_that_changes(site)
+    v = lambda sd, b: VerifyResult(build_ok=True, check_ok=True, visual="pass")
+    res = run_delegate("example.com", "x", backend=be, verifier=v,
+                       clock=_clock([0, 1, 2, 3]), sites_root=site.parent)
+    assert res.status == "done"
+    assert res.verify.visual == "pass"
+
+
+def test_verify_skipped_when_no_changes(site):
+    """No file changes ⇒ verifier never runs (nothing to verify)."""
+    called = []
+    be = FakeBackend(['{"type":"result","is_error":false,"total_cost_usd":0.01}'])
+    v = lambda sd, b: called.append(1) or VerifyResult()
+    res = run_delegate("example.com", "x", backend=be, verifier=v,
+                       clock=_clock([0, 1, 2]), sites_root=site.parent)
+    assert res.status == "done" and not called
+
+
+# ---------- DockerVerifier internals (fake exec backend) ----------
+
+
+class ExecBackend:
+    def __init__(self, handler):
+        self.handler = handler
+        self.calls = []
+
+    def start(self, sd): pass
+    def stream(self, p): yield ""
+    def kill(self): pass
+
+    def exec(self, cmd, *, timeout=600):
+        self.calls.append(cmd)
+        return self.handler(cmd)
+
+
+def test_detect_build_picks_pnpm(site):
+    (site / "package.json").write_text('{"scripts":{"build":"astro build"}}')
+    (site / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
+    cmd, pm = _detect_build(site)
+    assert pm == "pnpm" and "corepack pnpm run build" in cmd
+
+
+def test_detect_build_no_build_script(site):
+    (site / "package.json").write_text('{"scripts":{"dev":"astro dev"}}')
+    cmd, reason = _detect_build(site)
+    assert cmd is None and "no build script" in reason
+
+
+def test_docker_verifier_build_failure_short_circuits(site):
+    (site / "package.json").write_text('{"scripts":{"build":"x"}}')
+    (site / "pnpm-lock.yaml").write_text("x\n")
+    checked = []
+    dv = DockerVerifier("add x", check_baseline={},
+                        check_runner=lambda sd: checked.append(1) or {})
+    vr = dv(site, ExecBackend(lambda c: (1, "build blew up")))
+    assert vr.build_ok is False
+    assert not checked            # check not run after a build failure
+
+
+def test_docker_verifier_flags_new_check_failure(site):
+    (site / "package.json").write_text('{"scripts":{"build":"x"}}')
+    (site / "pnpm-lock.yaml").write_text("x\n")
+    dv = DockerVerifier(
+        "add x",
+        check_baseline={"CHECK_001": "pass", "CHECK_002": "pass"},
+        check_runner=lambda sd: {"CHECK_001": "pass", "CHECK_002": "fail"},
+        do_visual=False,
+    )
+    vr = dv(site, ExecBackend(lambda c: (0, "ok")))
+    assert vr.build_ok is True
+    assert vr.check_ok is False and vr.check_new_failures == ["CHECK_002"]
+
+
+def test_docker_verifier_visual_unavailable_when_no_screenshot(site):
+    (site / "package.json").write_text('{"scripts":{"build":"x"}}')
+    (site / "pnpm-lock.yaml").write_text("x\n")
+
+    def handler(cmd):
+        if "test -f" in cmd:       # screenshot existence probe → missing
+            return (0, "MISS")
+        return (0, "")             # build + probe commands "succeed"
+    dv = DockerVerifier("add x", check_baseline={},
+                        check_runner=lambda sd: {})
+    vr = dv(site, ExecBackend(handler))
+    assert vr.visual == "unavailable"

@@ -1530,12 +1530,17 @@ surface** (joins § 2.1's two when v33.B ships).
 - **Precondition.** Refuse on a dirty working tree (clear cause +
   commit/stash recovery; `--force` demoted), so the post-run diff is
   unambiguous.
-- **Verify gate (v33.C/D).** `make buildsh` → `lamill project check` →
-  Playwright-in-container visual probe + Claude-as-judge (`PASS`/`FAIL`
-  + screenshot artifact). Each link catches a distinct failure
-  (broke-build / regressed-conformance / builds-green-but-absent). The
-  probe is cheap because the run is already containerized
-  (`Dockerfile.playwright` exists).
+- **Verify gate (v33.C/D — `DockerVerifier`).** After a clean run that
+  changed files (container kept alive): in-container **build** via the
+  site's own script (corepack pnpm/yarn or npm, as the host user) +
+  host-side **`project check`** compared to a pre-run baseline (only
+  pass→fail regressions count). A build break or check regression ⇒
+  `verify-fail`. Then a **best-effort visual probe** (Playwright screenshot
+  + Claude judge): per the operator contract it NEVER hard-fails — any
+  failure → `unavailable` → the run reports **`needs-review`** and stops for
+  the operator to eyeball + confirm (no auto-progress/iterate). `--no-verify`
+  / `--no-visual` opt out. Each link catches a distinct failure
+  (broke-build / regressed-conformance / builds-green-but-absent).
 - **Output.** Streamed `✓ ✗ ↷` markers; ends at a reviewable `git diff`
   + screenshot. Never auto-commits, never auto-reverts. No `fleet
   delegate` for now.

@@ -41,13 +41,16 @@ from .project import SITES_ROOT
 # supervisor/backstop kills, each clean-killing the container and leaving
 # whatever uncommitted diff exists for operator review.
 DelegateStatus = Literal[
-    "done",       # agent finished on its own within bounds
-    "idle",       # no stream activity for `idle_s` — liveness axis
-    "spinning",   # active but no net progress for the window — progress axis
-    "timeout",    # wall-clock cap hit
-    "budget",     # budget cap hit
-    "refused",    # preflight refused (dirty tree, missing site, …) — no run
-    "error",      # container/exec failure
+    "done",         # agent finished + verify gate clean (or no verify)
+    "idle",         # no stream activity for `idle_s` — liveness axis
+    "spinning",     # active but no net progress for the window — progress axis
+    "timeout",      # wall-clock cap hit
+    "budget",       # budget cap hit
+    "refused",      # preflight refused (dirty tree, missing site, …) — no run
+    "error",        # container/exec failure
+    "verify-fail",  # agent ran, but build or `project check` regressed (v33.C)
+    "needs-review", # changes look good but visual auto-probe couldn't confirm
+                    # (v33.D) — left for the operator to eyeball + confirm
 ]
 
 # Supervisor kill reasons (the subset of DelegateStatus the supervisor can
@@ -83,15 +86,34 @@ class StreamEvent:
 
 
 @dataclass
+class VerifyResult:
+    """Outcome of the post-run verify gate (v33.C build + `project check`;
+    v33.D visual probe). `None` on a field means that link didn't run.
+
+    `visual` degrades gracefully per the operator contract: `pass` only
+    when the probe positively confirmed the change renders; `fail` /
+    `unavailable` both mean "human, please look" (the run reports
+    `needs-review` and does NOT auto-progress)."""
+    build_ok: bool | None = None
+    build_detail: str = ""
+    check_ok: bool | None = None
+    check_new_failures: list[str] = field(default_factory=list)
+    visual: Literal["pass", "fail", "unavailable", "skipped"] = "skipped"
+    visual_detail: str = ""
+    screenshot: str | None = None
+
+
+@dataclass
 class DelegateResult:
-    """Outcome of one delegate run (the runner fills this; verify phases
-    v33.C/D extend it)."""
+    """Outcome of one delegate run (the runner fills this; the verify gate
+    v33.C/D populates `verify`)."""
     status: DelegateStatus
     reason: str
     cost_usd: float = 0.0
     duration_s: float = 0.0
     changed_files: list[str] = field(default_factory=list)
     message: str = ""
+    verify: VerifyResult | None = None
 
 
 class DelegateRefused(Exception):
@@ -361,6 +383,19 @@ class DelegateBackend(Protocol):
         """Tear the sandbox down. Must be idempotent — `run_delegate` may
         call it on the break path AND in `finally`."""
 
+    def exec(self, shell_cmd: str, *, timeout: int = 600) -> tuple[int, str]:
+        """Run a shell command inside the live sandbox as the host user;
+        return (returncode, combined-output). Used by the verify gate to
+        build / screenshot in-container."""
+
+
+class Verifier(Protocol):
+    """The verify-gate seam (v33.C/D). Called once, after a clean agent run
+    that changed files, while the container is still alive."""
+
+    def __call__(self, site_dir: Path,
+                 backend: DelegateBackend) -> VerifyResult: ...
+
 
 def working_tree_diff_size(site_dir: Path) -> int:
     """Cumulative working-tree churn: summed added+deleted lines across
@@ -390,7 +425,9 @@ def changed_files(site_dir: Path) -> list[str]:
     for ln in out.splitlines():
         if not ln.strip():
             continue
-        path = ln[3:]
+        # Porcelain: 2-char status, then the path. Strip the status field
+        # robustly (don't assume exactly one separating space).
+        path = ln[2:].strip()
         if " -> " in path:          # rename: "old -> new" — keep the new name
             path = path.split(" -> ", 1)[1]
         names.append(path)
@@ -401,6 +438,7 @@ def run_delegate(domain: str, request: str, *,
                  backend: DelegateBackend,
                  bounds: Bounds | None = None,
                  force: bool = False,
+                 verifier: "Verifier | None" = None,
                  clock: Clock = time.monotonic,
                  diff_sampler: DiffSampler = working_tree_diff_size,
                  sites_root: Path | None = None) -> DelegateResult:
@@ -422,6 +460,7 @@ def run_delegate(domain: str, request: str, *,
     sup = Supervisor(bounds, start=start)
     status: DelegateStatus = "done"
     reason = "agent finished within bounds"
+    verify: VerifyResult | None = None
 
     saw_result = False
     result_is_error = False
@@ -438,6 +477,40 @@ def run_delegate(domain: str, request: str, *,
             if kill is not None:
                 status, reason = kill, _KILL_REASONS[kill]
                 break
+
+        # Honesty: stream-EOF is NOT success. Trust the terminal `result`
+        # event — no result (agent never ran; sandbox/auth failure) or an
+        # errored result must not report `done`. (A supervisor kill already
+        # owns the status; only re-judge the natural-end path.)
+        if status == "done":
+            if not saw_result:
+                status, reason = ("error",
+                                  "agent produced no result — it likely never "
+                                  "ran (sandbox/auth failure). Nothing changed.")
+            elif result_is_error:
+                status, reason = "error", "agent reported an error result"
+
+        # Verify gate (v33.C/D) — only on a clean `done` that actually
+        # changed something, while the container is still alive.
+        if status == "done" and verifier is not None and changed_files(site_dir):
+            verify = verifier(site_dir, backend)
+            if verify.build_ok is False:
+                status, reason = ("verify-fail",
+                                  "build failed after the change: "
+                                  + verify.build_detail[:200])
+            elif verify.check_ok is False:
+                status, reason = ("verify-fail",
+                                  "conformance regressed: "
+                                  + ", ".join(verify.check_new_failures))
+            elif verify.visual in ("fail", "unavailable"):
+                # Operator contract (v33.D): a failed/unavailable visual
+                # probe is NOT a hard fail — leave it for the operator to
+                # eyeball, and do not auto-progress (no iterate) until they
+                # confirm complete.
+                status, reason = ("needs-review",
+                                  f"visual auto-probe could not confirm "
+                                  f"({verify.visual}: {verify.visual_detail[:160]})"
+                                  f" — review the change manually before continuing")
     except Exception as e:  # backend / exec failure — never leak a traceback
         status, reason = "error", f"sandbox error: {e}"
     finally:
@@ -446,25 +519,13 @@ def run_delegate(domain: str, request: str, *,
         except Exception:
             pass
 
-    # Honesty: stream-EOF is NOT success. Trust the terminal `result`
-    # event — a run that produced no result (the agent never really ran;
-    # auth/exec failure inside the sandbox) or an errored result must not
-    # report `done`. (Only re-judge the natural-end path; a supervisor kill
-    # already owns the status.)
-    if status == "done":
-        if not saw_result:
-            status, reason = ("error",
-                              "agent produced no result — it likely never ran "
-                              "(sandbox/auth failure). Nothing was changed.")
-        elif result_is_error:
-            status, reason = "error", "agent reported an error result"
-
     return DelegateResult(
         status=status,
         reason=reason,
         cost_usd=sup.cost_usd,
         duration_s=clock() - start,
         changed_files=changed_files(site_dir),
+        verify=verify,
     )
 
 
@@ -574,9 +635,156 @@ class DockerBackend:
                 yield ""           # heartbeat — let the supervisor tick
         self._proc.wait()
 
+    def exec(self, shell_cmd: str, *, timeout: int = 600) -> tuple[int, str]:
+        # Same identity as the agent run: host user + HOME at the mounted
+        # claude config, so output written to /work is host-owned (no
+        # root-owned node_modules left in the operator's site dir).
+        r = self._run(
+            ["exec", "--user", f"{self._uid}:{self._gid}",
+             "-e", f"HOME={self._HOME}", self.container, "sh", "-lc", shell_cmd],
+            timeout=timeout,
+        )
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
+
     def kill(self) -> None:
         if self._proc and self._proc.poll() is None:
             self._proc.kill()
         if self._started:
             self._run(["rm", "-f", self.container])
             self._started = False
+
+
+# ---------- the verify gate (v33.C build + check; v33.D visual) ----------
+
+
+def run_project_checks(site_dir: Path) -> dict[str, str]:
+    """Host-side: run the conformance catalog for one site dir and return
+    `{check_id: status}` (pass/warn/fail). Used to take a before/after
+    baseline so the verify gate flags only *new* failures. Lazy import keeps
+    `delegate` decoupled from the check registry until actually used."""
+    try:
+        from .checks import list_checks, run_checks
+        from .checks.config import load_config
+    except ImportError as e:  # pragma: no cover - defensive
+        raise RuntimeError(f"check registry unavailable ({e})") from e
+    cfg = load_config()
+    ids = [s.id for s in list_checks()]
+    results = run_checks(str(site_dir), ids=ids, skip_checks=cfg.skip_checks)
+    return {cid: r.status for cid, r in results.items()}
+
+
+def _detect_build(site_dir: Path) -> tuple[str | None, str]:
+    """Return (build_shell_cmd, package_manager) or (None, reason) when there
+    is nothing to build. Package manager from lockfile; build via the
+    project's own `build` script. pnpm/yarn come from corepack (with a
+    writable COREPACK_HOME); npm is built in."""
+    import json
+    pkg_path = site_dir / "package.json"
+    if not pkg_path.is_file():
+        return None, "no package.json"
+    try:
+        pkg = json.loads(pkg_path.read_text())
+    except (OSError, ValueError):
+        return None, "unreadable package.json"
+    if "build" not in (pkg.get("scripts") or {}):
+        return None, "no build script"
+    if (site_dir / "pnpm-lock.yaml").is_file():
+        install, build, pm = "corepack pnpm install", "corepack pnpm run build", "pnpm"
+    elif (site_dir / "yarn.lock").is_file():
+        install, build, pm = "corepack yarn install", "corepack yarn run build", "yarn"
+    else:
+        install, build, pm = "npm install", "npm run build", "npm"
+    env = "export COREPACK_HOME=/tmp/cc-corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0;"
+    return f"{env} {install} && {build}", pm
+
+
+class DockerVerifier:
+    """Verify gate (v33.C/D), run after a clean agent change while the
+    container is alive:
+
+      * **build** (v33.C) — the site's own build, in-container, as the host
+        user (`make`-equivalent for the stack; never host `pnpm`). A break
+        here ⇒ `verify-fail`.
+      * **conformance** (v33.C) — host-side `project check`; a check that
+        flips pass→fail vs the pre-run baseline ⇒ `verify-fail`.
+      * **visual** (v33.D) — best-effort Playwright screenshot + Claude
+        judge. Per the operator contract, this NEVER hard-fails the run:
+        any failure (no browser, serve error, judge inconclusive) →
+        `unavailable` → the run reports `needs-review` and waits for the
+        operator's manual eyeball + confirmation (no auto-iterate)."""
+
+    def __init__(self, request: str, *, check_baseline: dict[str, str],
+                 check_runner: Callable[[Path], dict[str, str]] = run_project_checks,
+                 do_visual: bool = True):
+        self.request = request
+        self.check_baseline = check_baseline
+        self.check_runner = check_runner
+        self.do_visual = do_visual
+
+    def __call__(self, site_dir: Path, backend: DelegateBackend) -> VerifyResult:
+        vr = VerifyResult()
+        # 1) build
+        cmd, _info = _detect_build(site_dir)
+        if cmd is None:
+            vr.build_ok, vr.build_detail = None, f"build skipped ({_info})"
+        else:
+            rc, out = backend.exec(cmd, timeout=900)
+            vr.build_ok = rc == 0
+            vr.build_detail = "build OK" if rc == 0 else out[-400:]
+            if not vr.build_ok:
+                return vr
+        # 2) conformance regression (host-side)
+        try:
+            after = self.check_runner(site_dir)
+            new_fail = sorted(
+                cid for cid, st in after.items()
+                if st == "fail" and self.check_baseline.get(cid) != "fail"
+            )
+            vr.check_ok, vr.check_new_failures = (not new_fail), new_fail
+            if not vr.check_ok:
+                return vr
+        except Exception as e:  # never let the gate itself crash the run
+            vr.check_ok = None
+            vr.check_new_failures = []
+            vr.build_detail += f" (check skipped: {e})"
+        # 3) visual probe — best-effort, degrades to `unavailable`
+        if self.do_visual:
+            vr.visual, vr.visual_detail, vr.screenshot = self._visual(backend)
+        return vr
+
+    def _visual(self, backend: DelegateBackend) -> tuple[str, str, str | None]:
+        """Best-effort: screenshot the built output and let Claude judge it.
+        Returns (visual, detail, screenshot_path). ANY failure → 'unavailable'
+        so the run becomes `needs-review` for a human check (never a hard
+        fail). Live browser-install path is heavy and validated by the
+        operator on first real use."""
+        shot = "/work/.delegate-visual.png"
+        probe = (
+            "export COREPACK_HOME=/tmp/cc-corepack "
+            "COREPACK_ENABLE_DOWNLOAD_PROMPT=0; "
+            "test -d dist || { echo NO_DIST; exit 3; }; "
+            "npx --yes playwright install chromium >/dev/null 2>&1 || true; "
+            "npx --yes http-server dist -p 8765 >/tmp/srv.log 2>&1 & "
+            "sleep 2; "
+            "npx --yes playwright screenshot --wait-for-timeout=1500 "
+            f"http://localhost:8765/ {shot} 2>&1"
+        )
+        rc, out = backend.exec(probe, timeout=600)
+        _, chk = backend.exec(f"test -f {shot} && echo OK || echo MISS")
+        if "OK" not in chk:
+            return "unavailable", f"could not capture a screenshot: {out[-200:]}", None
+        # Claude-as-judge on the screenshot.
+        judge = (
+            f"export HOME=/cc; claude -p "
+            f"\"Look at the screenshot at {shot}. Does the page satisfy this "
+            f"request: '{self.request}'? Reply with exactly PASS or FAIL then "
+            f"a one-line reason.\" --output-format text "
+            f"--allowedTools 'Read' --dangerously-skip-permissions 2>&1"
+        )
+        jrc, jout = backend.exec(judge, timeout=300)
+        verdict = jout.strip().upper()
+        if jrc == 0 and verdict.startswith("PASS"):
+            return "pass", jout.strip()[:200], shot
+        if jrc == 0 and verdict.startswith("FAIL"):
+            return "fail", jout.strip()[:200], shot
+        return "unavailable", f"judge inconclusive: {jout.strip()[:200]}", shot
