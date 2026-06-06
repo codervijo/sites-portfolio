@@ -1511,14 +1511,16 @@ implement it semi-autonomously — **sandboxed, supervised, verify-gated,
 stopping at an uncommitted diff.** This is the **third local-FS write
 surface** (joins § 2.1's two when v33.B ships).
 
-- **Execution (v33.B).** Claude runs *inside* the `dev_container.sh`
-  container (default `mb1`) via `docker exec`, started with the
-  instructions. **Only `sites/<domain>/` is bind-mounted RW**; host
-  `~/.claude` is bind-mounted for auth (rankmill/threadradar pattern —
-  no API-key management); the builder is copied in (existing `buildsh`),
-  not writable. Reuses `fix_helpers.run_claude`'s restricted-tools /
-  budget / timeout / cost-capture (ADR-0006), now via a containerized
-  invocation rather than a host spawn.
+- **Execution (v33.B).** Claude runs *inside* a fresh, disposable per-run
+  container (`lamill-delegate-<domain>`, from the builder stack image;
+  direct `docker run`/`exec`, not the shared `mb1`) via `docker exec`,
+  started with the instructions. **Only `sites/<domain>/` is bind-mounted
+  RW**; host `~/.claude` is bind-mounted for auth (rankmill/threadradar
+  pattern — no API-key management). Mirrors `fix_helpers.run_claude`'s
+  restricted-tools / budget / timeout / cost-capture (ADR-0006), now via a
+  containerized invocation rather than a host spawn. Lives in
+  `src/portfolio/delegate.py` (`DockerBackend` + `run_delegate`); CLI verb
+  `project delegate` in `cli.py`.
 - **Supervision (v33.B core; tuning v33.E).** Host-side two-axis
   watchdog: **liveness** (output stream flowing) + **progress** (net
   diff growth + `tool_use` fingerprint novelty over a rolling window).

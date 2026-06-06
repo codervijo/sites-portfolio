@@ -1718,7 +1718,7 @@ classification, the `--clear-forwarding` / `--repair` flags), ADR-0022 (ships wi
 v32.A), and the `docs/bugs.md` Fixed-in lines (2026-06-05 ×2 + 2026-05-31) as each
 phase lands.
 
-### v33 — agent-authored site changes (`lamill project delegate <domain> "<request>"`) *(new 2026-06-05; design locked + v33.A planning 2026-06-06. Operator wants to hand a `sites/<domain>/` a slightly-complicated, multi-step instruction and have Claude implement it semi-autonomously. Reshaped 2026-06-06 from the original "one-shot host `claude -p`" into a **sandboxed, supervised, containerized** run: Claude executes **inside the `dev_container.sh` container** via `docker exec` (only `sites/<domain>/` bind-mounted RW; host `~/.claude` mounted for auth — the rankmill/threadradar no-key pattern), governed by a **two-axis supervisor** (liveness = output stream flowing; progress = net diff + action novelty — catches "tokens but stuck") plus wall-clock + budget backstops; refuses on a dirty tree; verify = `make buildsh` + `project check` + Playwright-in-container visual probe; ends at an **uncommitted reviewable diff** (never auto-commits/reverts). A dedicated verb — the called-out exception to prefer-check/fix, because open-ended work has no gap to detect or green to assert. Third local-FS write surface → **ADR-0023 (Accepted 2026-06-06)**. **No `fleet delegate` for now** (operator deferred 2026-06-06).)*
+### v33 — agent-authored site changes (`lamill project delegate <domain> "<request>"`) *(new 2026-06-05; design locked + v33.A planning 2026-06-06. Operator wants to hand a `sites/<domain>/` a slightly-complicated, multi-step instruction and have Claude implement it semi-autonomously. Reshaped 2026-06-06 from the original "one-shot host `claude -p`" into a **sandboxed, supervised, containerized** run: Claude executes **inside a fresh, disposable per-run container** (`lamill-delegate-<domain>`, built from the builder stack image; not the shared `mb1`, since the run kills its container on exit) via `docker exec` (only `sites/<domain>/` bind-mounted RW; host `~/.claude` mounted for auth — the rankmill/threadradar no-key pattern), governed by a **two-axis supervisor** (liveness = output stream flowing; progress = net diff + action novelty — catches "tokens but stuck") plus wall-clock + budget backstops; refuses on a dirty tree; verify = `make buildsh` + `project check` + Playwright-in-container visual probe; ends at an **uncommitted reviewable diff** (never auto-commits/reverts). A dedicated verb — the called-out exception to prefer-check/fix, because open-ended work has no gap to detect or green to assert. Third local-FS write surface → **ADR-0023 (Accepted 2026-06-06)**. **No `fleet delegate` for now** (operator deferred 2026-06-06).)*
 
 lamill already drives Claude headless inside a site dir — the Tier-2 `ai_fixer`
 spawns `claude -p` in `cwd=project_dir` to fix a known check, then re-runs that
@@ -1731,12 +1731,12 @@ a rendered-output probe, and the run stops at a reviewable uncommitted diff.
 **Decisions locked (operator, 2026-06-05 → reshaped + finalized 2026-06-06):**
 (a) **Command = `project delegate <domain> "<request>"`** — singular action verb,
 consistent with `project fix` / `translate` / `diagnose`. Single-site; no `fleet
-delegate` for now. (b) **Containerized execution** — Claude runs *inside* the
-existing `dev_container.sh` / `make buildsh` container (default `mb1`) via `docker
-exec`, started with the instructions; **only `sites/<domain>/` is bind-mounted RW**
-(not the `sites/` parent, not sibling sites, not the `portfolio` repo); the builder
-is *copied* in (existing `buildsh`), not writable. Blast radius = exactly one site
-dir. (c) **Auth = host `~/.claude` bind-mounted in** — the rankmill/threadradar
+delegate` for now. (b) **Containerized execution** — Claude runs *inside* a **fresh,
+disposable per-run container** (`lamill-delegate-<domain>`, from the builder stack
+image; direct `docker run`/`exec`, not the shared `mb1` — the run kills its
+container on every exit) via `docker exec`, started with the instructions; **only
+`sites/<domain>/` is bind-mounted RW** (not the `sites/` parent, not sibling sites,
+not the `portfolio` repo). Blast radius = exactly one site dir. (c) **Auth = host `~/.claude` bind-mounted in** — the rankmill/threadradar
 pattern; no API-key management, nothing added to `settings apikeys`. (d) **Bounded
 + supervised on two axes** — a host-side supervisor enforces **liveness** (output
 stream flowing) *and* **progress** (net diff growth + tool-action novelty over a
@@ -1762,8 +1762,8 @@ gate + uncommitted-review stop, not a conformance oracle.
 
 | # | Status | Feature |
 |---|---|---|
-| v33.A | 🚧 | **Kickoff / decisions lock + ADR-0023.** Design locked (a–j above); **ADR-0023** (sandboxed + supervised + verify-gated agent run as the third local-FS write surface) written + indexed. Command resolved (`project delegate`); visual-probe resolved (Playwright-in-container — cheap because containerized); execution model resolved (containerized, host `~/.claude` mounted, only site dir RW); supervision resolved (two-axis liveness+progress). No code. |
-| v33.B | ☐ | **Containerized, supervised runner.** `lamill project delegate <domain> "<request>"`: refuse-on-dirty (clear cause + safe-recovery); resolve `sites/<domain>/`; start/enter the `dev_container.sh` container, bind-mount **only** the site dir RW + host `~/.claude`; assemble context (AI_AGENTS.md + `[stack]` + conventions via `fix_helpers`); `docker exec` Claude with the instructions; the **two-axis supervisor** (stream-liveness + progress watchdog) + wall-clock + budget bounds run host-side, streaming `✓ ✗ ↷` markers; every exit clean-kills the container and leaves the uncommitted diff (`git status`/`git diff`) with cost/duration. Verify deferred to C/D. |
+| v33.A | ✅ | **Kickoff / decisions lock + ADR-0023.** Design locked (a–j above); **ADR-0023** (sandboxed + supervised + verify-gated agent run as the third local-FS write surface) written + indexed. Command resolved (`project delegate`); visual-probe resolved (Playwright-in-container — cheap because containerized); execution model resolved (containerized, host `~/.claude` mounted, only site dir RW); supervision resolved (two-axis liveness+progress). No code. |
+| v33.B | 🚧 | **Containerized, supervised runner.** `lamill project delegate <domain> "<request>"`: refuse-on-dirty (clear cause + safe-recovery); resolve `sites/<domain>/`; bring up a fresh disposable container (builder stack image), bind-mount **only** the site dir RW + host `~/.claude`; assemble context (AI_AGENTS.md + `[stack]` + conventions via `fix_helpers`); `docker exec` Claude with the instructions; the **two-axis supervisor** (stream-liveness + progress watchdog) + wall-clock + budget bounds run host-side, streaming `✓ ✗ ↷` markers; every exit clean-kills the container and leaves the uncommitted diff (`git status`/`git diff`) with cost/duration. Verify deferred to C/D. |
 | v33.C | ☐ | **Build + conformance gate (in-container).** After the run: `make buildsh` (Docker) then `lamill project check`; surface build errors + any `project check` regression (diff vs a pre-run snapshot). On failure, report clearly and leave the uncommitted changes for the operator (no auto-revert — the operator owns the working tree). |
 | v33.D | ☐ | **Visual probe + Claude-as-judge (Playwright-in-container).** Serve the built output, capture a screenshot of the relevant view via the existing `Dockerfile.playwright` image, and a Claude assessment pass judges whether the requested change renders (`PASS`/`FAIL` + screenshot artifact + one-line rationale). Closes the gap build + check can't (a feature can build green yet be absent/wrong). |
 | v33.E | ☐ | **(Reactive) Supervision tuning + bounded iterate-on-failure.** Tune the progress-window length / thresholds + richer thrash detection from real runs; on a verify-fail, optionally re-invoke Claude with the failure context (bounded retries) before giving up. Deferred until the single-site one-shot proves out. (`fleet delegate` is out of scope for now per operator.) |
@@ -1777,9 +1777,10 @@ feature is absent by design until asked for) and no fixed green to assert (every
 request differs). So it's a deliberate verb, and the verify gate substitutes for
 the conformance oracle a fixer would have.
 
-**The sandbox — blast radius is one site dir.** The run executes *inside* the
-existing `dev_container.sh` container (not a new mechanism — the same layer
-`make buildsh` already uses), with **only `sites/<domain>/` bind-mounted RW**.
+**The sandbox — blast radius is one site dir.** The run executes *inside* a
+fresh, disposable per-run container (built from the builder's stack image, torn
+down on every exit — not the shared `mb1`, whose lifecycle the operator owns),
+with **only `sites/<domain>/` bind-mounted RW**.
 Nothing else from the host is writable: not the `sites/` parent, not sibling
 sites, not the `portfolio` repo; the builder is copied in, not mounted. An
 open-ended autonomous agent gets exactly one directory to change, in an otherwise
@@ -1973,6 +1974,39 @@ The test: if a field still makes sense a year from now without edits, it belongs
 The boundary matters because the two blocks have different lifecycles. `[content]` wants to be edited rarely and carefully, because its values seed every piece of content rankmill produces and every audit check rankmill runs — a wrong `icp` propagates into every draft and every report. `[todo]` wants to be edited freely. Mixing them invites churn on fields that should be stable, and stagnation on fields that should move.
 
 rankmill's own working state — what's been generated, what's been audited, when — lives in `sites/<domain>/content-draft/` (drafts), `sites/<domain>/rankmill-output/` (analysis), and `rankmill-data/` at the workspace root (fleet-wide caches and snapshots). It does not live in lamill.toml.
+
+### v35 — code-smell + tech-debt audit pass *(DRAFT — captured 2026-06-06, not yet fleshed)*
+
+Operator idea (2026-06-06): a deliberate audit pass over the `portfolio` /
+`lamill` codebase to surface code smells + accumulated tech debt — distinct
+from feature work. Likely shape (TBD at flesh-out): inventory of long
+functions / the `cli.py` monolith (already a tracked refactor), duplication,
+lazy-import gaps, dead code, inconsistent error handling, test coverage
+holes. Output is a prioritized debt register (→ `architecture.md § Tracked
+refactors`), not a single mega-refactor. May reuse the adversarial-audit
+posture from v12. **Not fleshed — phases/scope/ADR TBD.**
+
+### v36 — `new domain`: auction + expired/dropping-domain discovery *(DRAFT — captured 2026-06-06, not yet fleshed)*
+
+Operator idea (2026-06-06): extend `new domain` (today: brainstorm → price/
+availability → shortlist → register) with an **acquisition-discovery** source
+that surfaces relevant **auction / expired / dropping** domains for a topic or
+keyword — beyond just "is this exact string available to register." Open
+questions for flesh-out: which sources (GoDaddy Auctions API, Porkbun, drop
+lists, expireddomains.net-style feeds), how to rank by topical fit + price +
+age/authority, how it folds into the existing shortlist UI. **Not fleshed —
+sources/CLI surface/scoring/ADR TBD.**
+
+### v37 — domain owner-details (WHOIS / RDAP) lookup *(DRAFT — captured 2026-06-06, not yet fleshed)*
+
+Operator idea (2026-06-06): look up **owner / registrant details** for
+arbitrary domains (registrant where public, registrar, creation/expiry dates,
+status) — e.g. for acquisition targets, competitors, or shortlisted
+candidates. Likely RDAP-first (structured, rate-friendlier) with WHOIS
+fallback. Open questions: privacy-redaction handling, where it surfaces
+(`new domain` decision-aid vs a standalone read verb), caching, pairing with
+v36's auction/expired discovery. Relates to the deferred decision-aids idea.
+**Not fleshed — protocol/CLI surface/caching/ADR TBD.**
 
 ## 8. Open questions
 

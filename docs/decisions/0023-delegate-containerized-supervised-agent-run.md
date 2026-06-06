@@ -35,14 +35,21 @@ sandboxed Docker container, host-side-supervised on two axes, behind a
 build + check + visual verify gate, and stops at an uncommitted reviewable
 diff.** Single-site only; no `fleet delegate` for now. Concretely:
 
-- **(a) Sandboxed execution — blast radius is one site dir.** Reuse the
-  existing `dev_container.sh` / `make buildsh` container (default `mb1`);
-  Claude runs *inside* it via `docker exec`, started with the instructions.
-  **Only `sites/<domain>/` is bind-mounted RW** — not the `sites/` parent,
-  not sibling sites, not the `portfolio` repo. Host `~/.claude` is
-  bind-mounted in for auth (the rankmill/threadradar pattern — no API-key
-  management). The builder is *copied* in (existing `buildsh` behavior), not
-  a writable surface.
+- **(a) Sandboxed execution — blast radius is one site dir.** Each run uses
+  a **fresh, disposable container** (`lamill-delegate-<domain>`) built from
+  the builder's stack image, created and torn down per run via direct `docker
+  run`/`exec` — *not* the shared interactive `mb1`, because a delegate run
+  kills its container on every exit and that must never touch the operator's
+  dev session. Claude runs *inside* via `docker exec`, started with the
+  instructions. **Only `sites/<domain>/` is bind-mounted RW** — not the
+  `sites/` parent, not sibling sites, not the `portfolio` repo. Host
+  `~/.claude` is bind-mounted in for auth (the rankmill/threadradar pattern —
+  no API-key management).
+  *(Refined 2026-06-06 during v33.B implementation: the original "reuse
+  `dev_container.sh` / `mb1`" wording fought the clean-kill-on-every-exit
+  requirement and that script's single-bind-mount limit. A dedicated
+  disposable container — reusing the builder stack image, not the script — is
+  the fit. The build step (v33.C) still uses `make buildsh` per ADR-0009.)*
 
 - **(b) Bounded + supervised on two axes.** A host-side supervisor enforces
   **liveness** (Claude's output stream is flowing) *and* **progress** (net
@@ -102,9 +109,10 @@ diff.** Single-site only; no `fleet delegate` for now. Concretely:
 - **A real purpose-expansion.** lamill moves from "lifecycle + conformance"
   toward "agent-orchestrated site development." That expansion — not any
   single mechanism — is why this carries an ADR rather than landing quietly.
-- **Reuses, not reinvents.** Container = `dev_container.sh`; build = `make
-  buildsh` (ADR-0009, per the build-in-Docker convention — never host
-  `pnpm`); restricted-tools / budget / timeout / cost-capture =
+- **Reuses, not reinvents.** Container image = the builder's stack image (run
+  as a disposable per-run container via direct `docker run`/`exec`); build =
+  `make buildsh` (ADR-0009, per the build-in-Docker convention — never host
+  `pnpm`); restricted-tools / budget / timeout / cost-capture mirror
   `run_claude` (ADR-0006). Only the supervisor and the containerized
   invocation are new.
 

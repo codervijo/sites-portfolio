@@ -36,6 +36,15 @@ class CloudflareAPIError(RuntimeError):
     array in the message so debugging doesn't require log-spelunking."""
 
 
+class CloudflareTransientError(CloudflareAPIError):
+    """A network-level failure (read/connect timeout, transport error)
+    talking to the CF API — as opposed to a CF *response* error. Transient
+    and retryable: the deploy pipeline reports it as `↷` + re-run (ADR-0015
+    idempotency), not as a permanent failure or a raw traceback. Subclasses
+    `CloudflareAPIError` so existing `except CloudflareAPIError` handlers
+    still catch it; handlers that want to distinguish catch this first."""
+
+
 def _read_token() -> str:
     """v15.O hotfix — env-first token lookup.
 
@@ -990,10 +999,22 @@ def create_pages_project_with_git(
         },
     }
     try:
+        # Pages project creation can legitimately take >15s (CF provisions
+        # the project + queues the first build), so give this POST a longer
+        # ceiling than the default client timeout. A network timeout here is
+        # transient — surface it as such, never as a raw traceback.
         resp = c.post(
             f"/accounts/{account_id}/pages/projects",
             json=body,
+            timeout=60.0,
         )
+    except (httpx.TimeoutException, httpx.TransportError) as e:
+        raise CloudflareTransientError(
+            f"CF API timed out creating Pages project '{name}' "
+            f"({type(e).__name__}). This is transient — the project may even "
+            f"have been created. Re-run `lamill new deploy {gh_repo} --yes` "
+            f"(idempotent; Step 5 detects an existing project/service)."
+        ) from e
     finally:
         if own_client:
             c.close()

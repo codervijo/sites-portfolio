@@ -273,3 +273,24 @@ def test_token_status_when_token_saved(monkeypatch, tmp_path):
     assert s["token_mode"] == "0o600"
     assert s["zones_cached"] == 2
     assert s["parent_mode"] == "0o700"
+
+
+def test_create_pages_project_read_timeout_is_transient():
+    """v32-followup bug: a network ReadTimeout on the Pages-project create
+    POST must surface as CloudflareTransientError (caught + reported ↷),
+    not escape as a raw httpx exception that crashes the deploy."""
+    def handler(req):
+        raise httpx.ReadTimeout("read timed out", request=req)
+    client = _mock_client(handler)
+    with pytest.raises(cloudflare.CloudflareTransientError):
+        cloudflare.create_pages_project_with_git(
+            "slug", account_id="acct", gh_owner="o", gh_repo="r",
+            client=client,
+        )
+
+
+def test_transient_error_is_a_cloudflare_api_error():
+    """Subclassing means existing `except CloudflareAPIError` handlers still
+    catch the transient variant."""
+    assert issubclass(cloudflare.CloudflareTransientError,
+                      cloudflare.CloudflareAPIError)

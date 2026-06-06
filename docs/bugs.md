@@ -66,6 +66,24 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-06 — `project delegate` reports `✓ agent finished` on a no-op/failed in-container run (false-green)
+
+- **Repro** — `uv run portfolio project delegate dearreels.com "create DELEGATE_SMOKE.md …" --yes --force --budget 0.50` (live smoke test, v33.B).
+- **Expected** — either the file is created (✓), or the run is reported as failed/no-op (`✗`/`↷`).
+- **Actual** — `✓ agent finished · 33s · $0.00`; `DELEGATE_SMOKE.md` was NOT created (changed-files list = only dearreels' pre-existing dirty files). `$0.00` + zero new changes ⇒ claude never ran a real turn inside the container (suspect in-container auth/exec issue with the mounted `~/.claude`), but the orchestrator treats stream-EOF as success unconditionally.
+- **Where (guess)** — `src/portfolio/delegate.py` `run_delegate` (the `else: status="done"` natural-end path) + `DockerBackend.stream`/`start` (claude install/auth in-container). Honesty gap mirrors ADR-0022.
+- **Severity** — `major` (false-green defeats the verify posture; surfaced before v33.B is committed).
+- **Notes** — Fix in v33.B before commit: parse the terminal `result` event (`is_error`/subtype/`total_cost_usd`), and treat `$0.00` + zero net new changes as `✗`/`↷`, not `done`. Also confirm the in-container claude actually authenticates against the mounted `~/.claude` (root vs non-root home path) and that `--output-format stream-json --verbose` emits the expected events. The sandbox lifecycle itself (container up, mount, supervisor, clean-kill, diff render) worked.
+
+### 2026-06-06 — pre-existing test failure: `test_check_143_deploy_drift::test_fail_when_declared_vercel_but_actual_is_wordpress`
+
+- **Repro** — `uv run pytest tests/checks/test_check_143_deploy_drift.py::test_fail_when_declared_vercel_but_actual_is_wordpress`.
+- **Expected** — assertion passes (severity `fail`).
+- **Actual** — `AssertionError: - fail / + warn` at line 179 — the check returns `warn` where the test expects `fail`.
+- **Where (guess)** — `checks/.../check_143` severity logic vs the test's expectation; drift between the check and its test. Unrelated to v33 (delegate isn't referenced by any check); fails on a clean tree.
+- **Severity** — `minor` (one stale test; rest of suite green at 3188 passed).
+- **Notes** — Surfaced while running the full suite during v33.B. Decide whether the check's `warn`-for-this-case is correct (→ update the test) or the test is (→ fix the check).
+
 ### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
 
 **Motivation**
@@ -910,6 +928,16 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-06-06 — `new deploy` crashes with a raw `httpx.ReadTimeout` traceback when CF Pages-project create times out
+
+- **Repro** — `lamill new deploy retouchlint.com --yes --watch`; Step 5 (`create_pages_project_with_git`) POST to `/accounts/{id}/pages/projects` hit a read timeout.
+- **Expected** — a network timeout on a CF call is transient → report `↷` + re-run (ADR-0015), not a crash.
+- **Actual** — `ReadTimeout: The read operation timed out` escaped as a full traceback (the caller only caught `CloudflareAPIError`), killing the deploy mid-pipeline.
+- **Where** — `cloudflare.py:create_pages_project_with_git` (the `c.post`) + `cli.py:_deploy_cf_unified` Step 5 handler.
+- **Severity** — `major` (deploy-pipeline crash; violates ADR-0022 honesty / ADR-0015 resilience).
+- **Notes** — Fix: new `CloudflareTransientError(CloudflareAPIError)`; the create-POST catches `httpx.TimeoutException`/`TransportError` → raises it, with a longer 60s POST timeout (Pages create legitimately exceeds the 15s default); Step 5 catches the transient variant first and reports `↷` + re-run guidance (no misleading "GitHub App not connected" block). 2 regression tests.
+- **Validated** — operator re-ran `new deploy retouchlint.com --yes --watch` 2026-06-06: all 10 steps completed (Step 5 created the Pages project, build success, HTTP 200).
 
 ### 2026-06-05 — hand-edits to the generated `data/portfolio.json` (mark-for-deletion, autorenew-off) are silently reverted by the next `fleet sync` refresh (iotnews.today, nosapta.com)
 

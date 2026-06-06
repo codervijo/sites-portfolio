@@ -6967,6 +6967,13 @@ def _deploy_cf_unified(
                         f"[dim](source={project.source_owner}/"
                         f"{project.source_repo}@{project.production_branch})[/]"
                     )
+        except cloudflare.CloudflareTransientError as e:
+            # Network timeout/transport error talking to CF (not a CF
+            # response error). Transient + retryable per ADR-0015 — report
+            # ↷ and stop cleanly; re-running converges. No raw traceback,
+            # and no misleading "GitHub App not connected" manual block.
+            console.print(f"  [yellow]↷[/] CF project create did not confirm: {e}")
+            raise typer.Exit(8)
         except cloudflare.CloudflareAPIError as e:
             console.print(f"  [red]✗[/] CF project step failed: {e}")
             # v15.R — exact dashboard URLs for the manual "Connect to
@@ -9127,6 +9134,93 @@ def project_diagnose(
     from .diagnose import diagnose, render
     d = diagnose(domain)
     render(d, console)
+
+
+# v33.B — `project delegate`. Hands a site a multi-step instruction and
+# lets Claude implement it semi-autonomously inside a fresh, disposable
+# container (only the site dir mounted RW + host ~/.claude), supervised on
+# two axes (liveness + progress), stopping at an uncommitted reviewable
+# diff. Third local-FS write surface (ADR-0023). Verify gate = v33.C/D.
+@project_app.command("delegate")
+def project_delegate(
+    domain: str = typer.Argument(..., help="Site to work on (e.g. drdebug.dev)"),
+    request: str = typer.Argument(..., help="What to implement (quote it)"),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Run even if the working tree is dirty (diff will be muddied — "
+             "not recommended).",
+    ),
+    budget: float = typer.Option(
+        3.0, "--budget", help="Cost cap in USD for the agent run."),
+    timeout: int = typer.Option(
+        1200, "--timeout", help="Wall-clock cap in seconds."),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip the write-surface confirmation."),
+) -> None:
+    """Delegate an open-ended change to Claude, in a sandboxed container.
+
+    Claude runs INSIDE a disposable container with only `sites/<domain>/`
+    mounted read-write; it edits the working tree in place and lamill leaves
+    the changes UNCOMMITTED for you to review (`git diff`) and commit. The
+    run is bounded (wall-clock + budget) and supervised — it's killed if it
+    stalls (no activity) or spins (active but no net progress). Refuses on a
+    dirty tree so the resulting diff is unambiguous.
+    """
+    import shutil
+
+    from .delegate import Bounds, DockerBackend, run_delegate
+
+    domain = domain.lower()
+    if shutil.which("docker") is None:
+        console.print("[red]✗ docker not found on PATH.[/] delegate runs the "
+                      "agent inside a container; install/start Docker first.")
+        raise typer.Exit(1)
+
+    # Write-surface confirmation gate (per architecture.md § write-surface
+    # gates): delegate mutates the working tree.
+    if not yes:
+        console.print(
+            f"[bold]delegate[/] will let Claude edit "
+            f"[cyan]sites/{domain}/[/] in a sandbox and leave the changes "
+            f"uncommitted for your review.")
+        if not typer.confirm("Proceed?", default=True):
+            console.print("↷ aborted.")
+            raise typer.Exit(0)
+
+    bounds = Bounds(wall_clock_s=timeout, budget_usd=budget)
+    backend = DockerBackend(domain, budget_usd=budget)
+    console.print(f"▸ delegate · [cyan]{domain}[/] — running in sandbox…")
+    result = run_delegate(domain, request, backend=backend, bounds=bounds,
+                          force=force)
+    _render_delegate_result(result, domain)
+    if result.status not in ("done",):
+        raise typer.Exit(1 if result.status in ("error", "refused") else 0)
+
+
+def _render_delegate_result(result, domain: str) -> None:
+    """Marker-coded summary of a delegate run; always ends pointing at the
+    uncommitted diff for review."""
+    if result.status == "refused":
+        console.print(result.message)
+        return
+    if result.status == "done":
+        console.print(
+            f"  ✓ agent finished · {result.duration_s:.0f}s · "
+            f"${result.cost_usd:.2f}")
+    elif result.status == "error":
+        console.print(f"  ✗ {result.reason}")
+    else:  # idle / spinning / timeout / budget — supervisor/backstop kills
+        console.print(f"  ↷ stopped — {result.reason} "
+                      f"({result.duration_s:.0f}s · ${result.cost_usd:.2f})")
+    files = result.changed_files
+    if files:
+        shown = "\n".join(f"    {f}" for f in files[:20])
+        more = f"\n    … and {len(files) - 20} more" if len(files) > 20 else ""
+        console.print(f"  changes left UNCOMMITTED for review:\n{shown}{more}")
+        console.print(f"  review:  [dim]git -C sites/{domain} diff[/]   "
+                      f"commit yourself when satisfied (lamill never commits).")
+    else:
+        console.print("  (no file changes)")
 
 
 # v15.B — per-project hosting verb. Restores symmetry with
