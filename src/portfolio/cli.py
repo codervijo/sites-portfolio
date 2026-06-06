@@ -7207,15 +7207,24 @@ def _deploy_cf_unified(
         # globally (e.g. `scopeguard-abu.pages.dev`), so `{slug}.pages.dev`
         # is wrong in that case → permanent CF 1014 "CNAME Cross-User
         # Banned" + a custom domain stuck on `pending` (bugs.md 2026-05-31).
-        # `project.subdomain` is the authoritative value from the CF API;
-        # fall back to the slug guess only if it's somehow absent.
-        target_content = (
-            getattr(project, "subdomain", None) or f"{slug}.pages.dev"
-        )
+        # v32.E — resolve the project's ACTUAL subdomain (re-fetching if the
+        # just-created object doesn't carry it yet); never silently guess.
+        target_content, authoritative = _resolve_pages_subdomain(
+            project, slug, cf_account)
         console.print(
             f"\n[bold]6.5 DNS record for custom domain[/] "
             f"[dim]({domain} → {target_content})[/]"
         )
+        if not authoritative:
+            console.print(
+                f"  [yellow]↷[/] couldn't read the project's authoritative "
+                f"[cyan]*.pages.dev[/] subdomain — using the slug guess "
+                f"[cyan]{target_content}[/]. If CF assigned a suffixed "
+                f"subdomain (e.g. [cyan]{slug}-xyz.pages.dev[/]) this CNAME "
+                f"will [bold]1014[/]; re-run once the project finishes "
+                f"provisioning, or set the apex CNAME to the real subdomain "
+                f"shown in the CF dashboard."
+            )
         try:
             existing_records = cloudflare.list_dns_records(zone.zone_id)
         except cloudflare.CloudflareAPIError as e:
@@ -7550,6 +7559,34 @@ def _print_ns_delegation(domain: str, target_ns: list[str]) -> None:
             f"  [dim]requested (registrar): {', '.join(target_ns)}[/]\n"
             f"  [dim]delegated (dig NS):    {', '.join(delegated)}[/]"
         )
+
+
+def _resolve_pages_subdomain(project, slug: str,
+                             cf_account: str) -> tuple[str, bool]:
+    """v32.E — the authoritative `*.pages.dev` hostname for the apex CNAME.
+
+    CF appends a random suffix when `<slug>.pages.dev` collides globally
+    (`scopeguard-abu.pages.dev`), and the **create** response's `subdomain`
+    is often empty until CF finishes assigning the hostname — so trusting the
+    just-created project object (or guessing `<slug>.pages.dev`) is what
+    produced the permanent `1014` (bugs.md 2026-05-31). We prefer
+    `project.subdomain`, else **re-fetch** the project to read the current
+    value, and only fall back to the slug guess as a last resort.
+
+    Returns `(target, authoritative)`. `authoritative=False` means we couldn't
+    read the real subdomain and are guessing — the caller warns, because a
+    wrong target is a permanent `1014`, not a propagation delay."""
+    from . import cloudflare
+    sub = getattr(project, "subdomain", None)
+    if sub:
+        return sub, True
+    try:
+        fresh = cloudflare.get_pages_project(slug, account_id=cf_account)
+    except cloudflare.CloudflareAPIError:
+        fresh = None
+    if fresh is not None and fresh.subdomain:
+        return fresh.subdomain, True
+    return f"{slug}.pages.dev", False
 
 
 def _porkbun_forwarding_preflight(
