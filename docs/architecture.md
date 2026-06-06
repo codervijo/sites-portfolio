@@ -1502,6 +1502,44 @@ v12.B-G wedges:
 
 Total v12.B-G: ~13-18h.
 
+### v33 — agent-authored site changes (`project delegate`)
+
+Design locked + ADR-0023 accepted 2026-06-06 (v33.A); implementation
+is v33.B onward. `lamill project delegate <domain> "<request>"` hands a
+site a slightly-complicated, multi-step instruction and lets Claude
+implement it semi-autonomously — **sandboxed, supervised, verify-gated,
+stopping at an uncommitted diff.** This is the **third local-FS write
+surface** (joins § 2.1's two when v33.B ships).
+
+- **Execution (v33.B).** Claude runs *inside* the `dev_container.sh`
+  container (default `mb1`) via `docker exec`, started with the
+  instructions. **Only `sites/<domain>/` is bind-mounted RW**; host
+  `~/.claude` is bind-mounted for auth (rankmill/threadradar pattern —
+  no API-key management); the builder is copied in (existing `buildsh`),
+  not writable. Reuses `fix_helpers.run_claude`'s restricted-tools /
+  budget / timeout / cost-capture (ADR-0006), now via a containerized
+  invocation rather than a host spawn.
+- **Supervision (v33.B core; tuning v33.E).** Host-side two-axis
+  watchdog: **liveness** (output stream flowing) + **progress** (net
+  diff growth + `tool_use` fingerprint novelty over a rolling window).
+  Token flow ≠ progress — stream active + ~0 net change / repeating
+  fingerprints = *spinning* → killed. Wall-clock + budget caps are the
+  dumb backstops. Every exit path clean-kills the container.
+- **Precondition.** Refuse on a dirty working tree (clear cause +
+  commit/stash recovery; `--force` demoted), so the post-run diff is
+  unambiguous.
+- **Verify gate (v33.C/D).** `make buildsh` → `lamill project check` →
+  Playwright-in-container visual probe + Claude-as-judge (`PASS`/`FAIL`
+  + screenshot artifact). Each link catches a distinct failure
+  (broke-build / regressed-conformance / builds-green-but-absent). The
+  probe is cheap because the run is already containerized
+  (`Dockerfile.playwright` exists).
+- **Output.** Streamed `✓ ✗ ↷` markers; ends at a reviewable `git diff`
+  + screenshot. Never auto-commits, never auto-reverts. No `fleet
+  delegate` for now.
+
+See ADR-0023 + `docs/prd.md § v33` for the full rationale.
+
 ## 10. Implementation risks
 
 Technical risks surfaced during phase design. Each moves to

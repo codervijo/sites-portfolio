@@ -1718,7 +1718,7 @@ classification, the `--clear-forwarding` / `--repair` flags), ADR-0022 (ships wi
 v32.A), and the `docs/bugs.md` Fixed-in lines (2026-06-05 ×2 + 2026-05-31) as each
 phase lands.
 
-### v33 — agent-authored site features (one-shot `claude -p` in the site dir) *(new 2026-06-05 — operator wants to invoke Claude headless from inside a `sites/<domain>/` subdir via lamill and implement a feature (example: dark/light theme toggle) end-to-end in one shot. Reuses the existing Tier-2 fixer engine (`run_claude(prompt, cwd=project_dir)`), not a new mechanism. Decisions locked 2026-06-05: in-place uncommitted landing + a build + `project check` + visual-probe verification gate. A dedicated verb — the rarest-of-rare exception to the prefer-check/fix rule, because a feature-add is open-ended, not conformance-shaped. Introduces a third project-dir write surface → ADR-0023.)*
+### v33 — agent-authored site changes (`lamill project delegate <domain> "<request>"`) *(new 2026-06-05; design locked + v33.A planning 2026-06-06. Operator wants to hand a `sites/<domain>/` a slightly-complicated, multi-step instruction and have Claude implement it semi-autonomously. Reshaped 2026-06-06 from the original "one-shot host `claude -p`" into a **sandboxed, supervised, containerized** run: Claude executes **inside the `dev_container.sh` container** via `docker exec` (only `sites/<domain>/` bind-mounted RW; host `~/.claude` mounted for auth — the rankmill/threadradar no-key pattern), governed by a **two-axis supervisor** (liveness = output stream flowing; progress = net diff + action novelty — catches "tokens but stuck") plus wall-clock + budget backstops; refuses on a dirty tree; verify = `make buildsh` + `project check` + Playwright-in-container visual probe; ends at an **uncommitted reviewable diff** (never auto-commits/reverts). A dedicated verb — the called-out exception to prefer-check/fix, because open-ended work has no gap to detect or green to assert. Third local-FS write surface → **ADR-0023 (Accepted 2026-06-06)**. **No `fleet delegate` for now** (operator deferred 2026-06-06).)*
 
 lamill already drives Claude headless inside a site dir — the Tier-2 `ai_fixer`
 spawns `claude -p` in `cwd=project_dir` to fix a known check, then re-runs that
@@ -1728,40 +1728,80 @@ of a known gap. The hard part isn't invoking Claude — it's *verifying* an
 open-ended change with no `CHECK_NNN` oracle: v33's gate is build + conformance +
 a rendered-output probe, and the run stops at a reviewable uncommitted diff.
 
-**Decisions locked (operator, 2026-06-05):** (a) **In-place, uncommitted** —
-Claude edits the working tree directly; lamill leaves changes uncommitted for the
-operator to review/commit (no branch by default; never auto-commits, honoring the
-global rule). (b) **Verify = build + `project check` + visual probe** — `make
-buildsh` (Docker, per the build-in-Docker convention — never host `pnpm`) must
-succeed, `lamill project check` must stay green (no conformance regression), and a
-rendered-output probe must confirm the requested feature is visibly present. (c)
-**Dedicated verb, not a check/fix** — open-ended feature work has no gap to detect
-or green to assert, so it earns its own surface (the called-out exception in
-[[feedback_prefer_check_fix_delivery]]). (d) **Reuses `run_claude`** — restricted
-tools, budget cap, timeout, cost/duration capture inherited from the Tier-2 path.
-(e) **Third write surface → ADR-0023** — beyond bootstrap (create) and remediation
-(fix known gaps); an open-ended agent-authored change is a new category whose
-safety comes from the verify gate + the uncommitted-review stop, not from a
-conformance oracle.
+**Decisions locked (operator, 2026-06-05 → reshaped + finalized 2026-06-06):**
+(a) **Command = `project delegate <domain> "<request>"`** — singular action verb,
+consistent with `project fix` / `translate` / `diagnose`. Single-site; no `fleet
+delegate` for now. (b) **Containerized execution** — Claude runs *inside* the
+existing `dev_container.sh` / `make buildsh` container (default `mb1`) via `docker
+exec`, started with the instructions; **only `sites/<domain>/` is bind-mounted RW**
+(not the `sites/` parent, not sibling sites, not the `portfolio` repo); the builder
+is *copied* in (existing `buildsh`), not writable. Blast radius = exactly one site
+dir. (c) **Auth = host `~/.claude` bind-mounted in** — the rankmill/threadradar
+pattern; no API-key management, nothing added to `settings apikeys`. (d) **Bounded
++ supervised on two axes** — a host-side supervisor enforces **liveness** (output
+stream flowing) *and* **progress** (net diff growth + tool-action novelty over a
+rolling window). Token flow alone is not progress: stream active + ~0 net change /
+repeating actions = *spinning* → killed. Hard backstops: wall-clock cap + budget
+cap (inherited from `run_claude`). Every exit path (`done`/`idle`/`spinning`/
+`timeout`/`budget`) clean-kills the container. (e) **Refuse on a dirty tree** —
+clear cause + safe-recovery message (commit or stash); `--force` demoted to a
+parenthetical. (f) **Verify = `make buildsh` + `project check` + Playwright-in-
+container visual probe + Claude-as-judge** — each link catches a distinct failure;
+the probe is cheap now because the run is already containerized (`Dockerfile.
+playwright` exists). (g) **In-place, uncommitted; never auto-commit/auto-revert** —
+the run stops at a reviewable `git diff`; the operator reviews and commits.
+(h) **Dedicated verb, not a check/fix** — the called-out exception in
+[[feedback_prefer_check_fix_delivery]]; the verify gate substitutes for the
+conformance oracle a fixer would have. (i) **Reuses `run_claude`** — restricted
+tools, budget cap, timeout, cost/duration capture from the Tier-2 path (ADR-0006).
+(j) **Third local-FS write surface → ADR-0023** — beyond bootstrap (create) and
+remediation (fix known gaps); safety comes from the sandbox + supervisor + verify
+gate + uncommitted-review stop, not a conformance oracle.
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v33.A | ☐ | **Kickoff / decisions lock + ADR-0023.** Decisions above locked; **ADR-0023** (third write surface — agent-authored, verify-gated, uncommitted-review feature implementation) written + indexed. Resolve the command name (`project feature <domain> "<request>"` proposed) and the one open design question (visual-probe mechanism — see design notes). No code. |
-| v33.B | ☐ | **Core one-shot runner.** `lamill project feature <domain> "<request>"`: resolve `sites/<domain>/`, assemble context (AI_AGENTS.md + `[stack]` + site conventions + the build command, via the existing `fix_helpers` context builders), `run_claude(prompt, cwd=site_dir)` in-place, and report cost/duration + the changed-file set (`git status`). Verification deferred to C/D — the MVP is "Claude ran in the dir; here's the uncommitted diff." |
-| v33.C | ☐ | **Build + conformance gate.** After the run: `make buildsh` (Docker) then `lamill project check`; surface build errors + any `project check` regression (diff vs a pre-run snapshot). On failure, report clearly and leave the uncommitted changes for the operator (no auto-revert — the operator owns the working tree). |
-| v33.D | ☐ | **Visual probe + Claude-as-judge.** Serve the built output, capture a screenshot of the relevant view (headless browser), and a Claude assessment pass judges whether the requested feature renders (`PASS`/`FAIL` + the screenshot artifact + a one-line rationale). This closes the open-ended verification gap that build + check can't (a feature can build green yet be absent/wrong). |
-| v33.E | ☐ | **(Reactive) Iterate-on-failure + `fleet feature`.** On a verify-fail, optionally re-invoke Claude with the failure context (bounded retries) before giving up; `fleet feature "<request>"` applies the same request across selected sites (plural-symmetric with `project feature`). Deferred until single-site one-shot proves out. |
+| v33.A | 🚧 | **Kickoff / decisions lock + ADR-0023.** Design locked (a–j above); **ADR-0023** (sandboxed + supervised + verify-gated agent run as the third local-FS write surface) written + indexed. Command resolved (`project delegate`); visual-probe resolved (Playwright-in-container — cheap because containerized); execution model resolved (containerized, host `~/.claude` mounted, only site dir RW); supervision resolved (two-axis liveness+progress). No code. |
+| v33.B | ☐ | **Containerized, supervised runner.** `lamill project delegate <domain> "<request>"`: refuse-on-dirty (clear cause + safe-recovery); resolve `sites/<domain>/`; start/enter the `dev_container.sh` container, bind-mount **only** the site dir RW + host `~/.claude`; assemble context (AI_AGENTS.md + `[stack]` + conventions via `fix_helpers`); `docker exec` Claude with the instructions; the **two-axis supervisor** (stream-liveness + progress watchdog) + wall-clock + budget bounds run host-side, streaming `✓ ✗ ↷` markers; every exit clean-kills the container and leaves the uncommitted diff (`git status`/`git diff`) with cost/duration. Verify deferred to C/D. |
+| v33.C | ☐ | **Build + conformance gate (in-container).** After the run: `make buildsh` (Docker) then `lamill project check`; surface build errors + any `project check` regression (diff vs a pre-run snapshot). On failure, report clearly and leave the uncommitted changes for the operator (no auto-revert — the operator owns the working tree). |
+| v33.D | ☐ | **Visual probe + Claude-as-judge (Playwright-in-container).** Serve the built output, capture a screenshot of the relevant view via the existing `Dockerfile.playwright` image, and a Claude assessment pass judges whether the requested change renders (`PASS`/`FAIL` + screenshot artifact + one-line rationale). Closes the gap build + check can't (a feature can build green yet be absent/wrong). |
+| v33.E | ☐ | **(Reactive) Supervision tuning + bounded iterate-on-failure.** Tune the progress-window length / thresholds + richer thrash detection from real runs; on a verify-fail, optionally re-invoke Claude with the failure context (bounded retries) before giving up. Deferred until the single-site one-shot proves out. (`fleet delegate` is out of scope for now per operator.) |
 
 #### Design notes
 
 **Why a dedicated verb (the check/fix exception).** Per
-[[feedback_prefer_check_fix_delivery]], capabilities default to check+fix. A
-feature-add is the explicit exception: there's no condition to detect (the feature
-is absent by design until asked for) and no fixed green to assert (every request
-differs). So it's a deliberate verb, and the verify gate (below) substitutes for
+[[feedback_prefer_check_fix_delivery]], capabilities default to check+fix. An
+open-ended change is the explicit exception: there's no condition to detect (the
+feature is absent by design until asked for) and no fixed green to assert (every
+request differs). So it's a deliberate verb, and the verify gate substitutes for
 the conformance oracle a fixer would have.
+
+**The sandbox — blast radius is one site dir.** The run executes *inside* the
+existing `dev_container.sh` container (not a new mechanism — the same layer
+`make buildsh` already uses), with **only `sites/<domain>/` bind-mounted RW**.
+Nothing else from the host is writable: not the `sites/` parent, not sibling
+sites, not the `portfolio` repo; the builder is copied in, not mounted. An
+open-ended autonomous agent gets exactly one directory to change, in an otherwise
+disposable container — this is the real isolation story for the third write
+surface, far stronger than "host-loose with restricted tools."
+
+**Auth — host `~/.claude` mounted, no key management.** Reuses the
+rankmill/threadradar Claude-in-Docker pattern: bind-mount the host's `~/.claude`
+so the in-container `claude` is already authenticated. Nothing is added to
+`settings apikeys`; there is no `ANTHROPIC_API_KEY` to manage.
+
+**Supervision is two-axis — and `progress` is the load-bearing one.** Token flow
+proves the run is *alive*, not that it's *getting anywhere* — the operator has
+observed Claude burning tokens while stuck. So liveness (stream flowing) is
+necessary but not sufficient. The supervisor also tracks **progress** over a
+rolling window: net diff growth + tool-action novelty (fingerprint each
+`tool_use` as `(tool, file, command)`; a window full of repeating fingerprints, or
+edit→revert churn that nets to ~zero, is *spinning*). High token volume + low net
+change + low novelty, sustained → killed. Wall-clock and budget caps sit
+underneath as dumb backstops. Because the progress watchdog is what actually
+catches the observed failure, it ships in the **core runner (v33.B)**, not as a
+later nicety; only the window-length/threshold *tuning* defers to v33.E.
 
 **The verification chain — each link catches a distinct failure mode.** `make
 buildsh` catches "Claude broke the build." `lamill project check` catches "Claude
@@ -1769,27 +1809,37 @@ regressed conformance" (lockfile, scaffold, stack drift). The **visual probe**
 catches the failure unique to open-ended generation: "it builds and conforms, but
 the feature isn't actually there / is wrong." None of the three is redundant.
 
-**The one open design question (resolve in v33.A): the visual-probe mechanism.**
-A rendered-output check implies a headless browser (e.g. Playwright) to serve +
-screenshot, which would be **the heaviest dependency in the tool** — it needs an
-explicit justification or a lighter substitute (e.g. asserting on the served
-HTML/DOM without a full browser, accepting weaker "visual" confidence). The
-build+check gate ships without it (v33.C); v33.D is where the dep decision lands.
+**Visual-probe mechanism (resolved in v33.A): Playwright-in-container.** The
+original concern was that a headless browser would be the heaviest dependency in
+the tool. That objection dissolves once the run is containerized: the browser
+lives in the existing `Dockerfile.playwright` image, not the host Python package.
+So v33.D ships the full rendered-output probe (serve + screenshot + Claude-as-
+judge), not the lighter HTML/DOM-assertion fallback that was the alternative.
 
-**In-place + uncommitted + never-auto-commit.** The run mutates the working tree
-and stops; the operator reviews `git diff` and commits. No branch/worktree
-ceremony (operator's call — simplest). The "one shot" is one-shot *to a reviewable
-state*, not to `main`.
+**Refuse on a dirty tree.** `delegate` reports its result as a `git diff`;
+pre-existing changes would blend with the agent's and a bad run couldn't be
+cleanly discarded. So it refuses on a dirty tree, naming the cause and the dirty
+files and offering two safe recoveries (commit / stash) with copy-paste commands;
+`--force` runs anyway but is demoted to a parenthetical ("the diff will be
+muddied — not recommended").
 
-**Safety + scope.** `run_claude` already restricts tools, caps budget, and times
-out; the run is scoped to the site dir `cwd`. This is a real purpose-expansion for
-lamill (from "lifecycle + conformance" toward "agent-orchestrated site
-development"), which is exactly why it carries an ADR (ADR-0023) rather than
-landing quietly.
+**In-place + uncommitted + never-auto-commit/revert.** The run mutates the working
+tree and stops; the operator reviews `git diff` and commits. No branch/worktree
+ceremony. The "one shot" is one-shot *to a reviewable state*, not to `main`. No
+mid-run steering in v33 — fire-and-forget → review diff → re-delegate with refined
+instructions if wrong; interactivity becomes its own tier only if that loop
+creates real friction.
 
-**Docs same-commit.** prd.md phase rows, `architecture.md` (the feature runner +
-the build/check/visual-probe verify chain + the visual-probe mechanism once
-chosen), and ADR-0023 (ships with v33.A).
+**Safety + scope = a real purpose-expansion.** This moves lamill from "lifecycle +
+conformance" toward "agent-orchestrated site development," which is exactly why it
+carries an ADR (ADR-0023) rather than landing quietly. Safety is layered: sandbox
+(one mounted dir) + supervisor (liveness + progress + wall-clock + budget) +
+dirty-tree refusal + verify gate + uncommitted-review stop.
+
+**Docs same-commit.** prd.md phase rows + design notes, ADR-0023 (ships with
+v33.A), and — when v33.B lands the surface — `architecture.md § 2.1` (the third
+local-FS write surface) + `docs/CLAUDE.md § Two local-FS write surfaces` (flips to
+three). Until then both note the third surface as accepted-but-planned.
 
 ### v34 — *(reserved — curated overrides layer, **DROPPED 2026-06-06** after a pre-build audit showed the durability problem is already solved by shipped work + an existing source. The triggering bug was a hand-edit to `iotnews.today` (autorenew-off + category "To be deleted") being reverted by `fleet sync`. But: (1) **`auto_renew` is now API-truth via v31** — `fleet sync --refresh` pulls GoDaddy `auto_renew`, live-validated showing iotnews/nosapta = `Off`; no overrides layer needed. (2) **`category` already has a durable home in `plan.md`** — `data.py:cleanup()` re-derives category from `plan.md`'s `### `-sections every run, so moving a domain to `### To be deleted immediately` there survives every refresh. The real defect was `plan.md`'s **false "deprecated — editing has no effect" banner**, which sent the operator to edit the generated `portfolio.json` instead; banner corrected + iotnews/nosapta moved to the deletion section (2026-06-06). A dedicated `data/overrides.json` (v34.A/B) would only duplicate durability v31 + `plan.md` already provide for the two allowlisted fields. The residual `🔴` health-view alarm on intentionally-dying domains (what v34.C addressed) is accepted as **cosmetic** — revisit only if it becomes daily-use friction; the `dark_sites`-style suppression pattern is the template if so. Original trigger: `docs/bugs.md` 2026-06-05 → now Fixed.)*
 
