@@ -6303,6 +6303,15 @@ def new_deploy(
             "Confirm-gated unless --yes; idempotent (no-op when none)."
         ),
     ),
+    repair: bool = typer.Option(
+        False, "--repair",
+        help=(
+            "v32.F — recover a custom domain stuck in pending-verification / "
+            "CF 1014: re-point the apex CNAME at the project's real "
+            "*.pages.dev subdomain, then remove + re-add the custom domain so "
+            "CF re-verifies. Confirm-gated unless --yes. cf-pages only."
+        ),
+    ),
 ) -> None:
     """Deploy a sites/<domain>/ project. Dispatches by lamill.toml platform.
 
@@ -6359,6 +6368,7 @@ def new_deploy(
             skip_gsc=skip_gsc,
             watch=watch,
             clear_forwarding=clear_forwarding,
+            repair=repair,
         )
         return
 
@@ -6412,6 +6422,7 @@ def _deploy_cf_unified(
     skip_gsc: bool = False,
     watch: bool = False,
     clear_forwarding: bool = False,
+    repair: bool = False,
 ) -> None:
     """v15.I — git-integrated CF deploy pipeline.
 
@@ -7282,6 +7293,20 @@ def _deploy_cf_unified(
                         f"handles future routing)[/]"
                     )
 
+    # --- Step 6.6: Repair stuck custom domain (v32.F, --repair only) --------
+    if repair and not dry_run:
+        if cf_surface == "pages":
+            _deploy_repair_custom_domain(
+                domain=domain, slug=slug, zone=zone,
+                cf_account=cf_account, yes=yes,
+            )
+        else:
+            console.print(
+                f"\n[bold]6.6 Repair custom domain[/] [dim]({domain})[/]\n"
+                f"  [yellow]↷[/] --repair is cf-pages only "
+                f"(surface={cf_surface}); skipping."
+            )
+
     # --- Step 7: Build poll --------------------------------------------------
     # v15.P — only polls the Pages API. For Workers Services, build
     # status lives on a different endpoint (Workers Builds API,
@@ -7589,6 +7614,76 @@ def _resolve_pages_subdomain(project, slug: str,
     return f"{slug}.pages.dev", False
 
 
+def _deploy_repair_custom_domain(
+    *, domain: str, slug: str, zone, cf_account: str, yes: bool,
+) -> None:
+    """v32.F — recover a Pages custom domain stuck in pending-verification /
+    CF `1014`. Re-points the apex CNAME at the project's authoritative
+    `*.pages.dev` subdomain, then removes + re-adds the custom domain so CF
+    re-verifies against the corrected record. Confirm-gated unless `yes`;
+    each CF call soft-reports failure (this is a recovery path, not the
+    happy-path pipeline)."""
+    from . import cloudflare
+    console.print(f"\n[bold]6.6 Repair custom domain[/] [dim]({domain})[/]")
+    project = cloudflare.get_pages_project(slug, account_id=cf_account)
+    if project is None:
+        console.print(
+            f"  [red]✗[/] no Pages project [cyan]{slug}[/] to repair — "
+            f"create it first (re-run without --repair)."
+        )
+        return
+    target, authoritative = _resolve_pages_subdomain(project, slug, cf_account)
+    if not authoritative:
+        console.print(
+            f"  [yellow]↷[/] can't read the real [cyan]*.pages.dev[/] "
+            f"subdomain yet — aborting repair (a guessed target would just "
+            f"1014 again). Re-run once the project finishes provisioning."
+        )
+        return
+    if not yes and not typer.confirm(
+        f"  Re-point apex CNAME → {target} and re-add the custom domain "
+        f"for {domain}?", default=True,
+    ):
+        console.print("  [yellow]↷[/] repair declined.")
+        return
+
+    # 1. Apex CNAME → real subdomain (delete any wrong CNAME, create correct).
+    try:
+        records = cloudflare.list_dns_records(zone.zone_id)
+    except cloudflare.CloudflareAPIError as e:
+        console.print(f"  [red]✗[/] dns list failed: {e}")
+        return
+    apex_cnames = [r for r in records if r.name == domain and r.type == "CNAME"]
+    if any(r.content.rstrip(".") == target.rstrip(".") for r in apex_cnames):
+        console.print(f"  [green]✓[/] apex CNAME already → {target}")
+    else:
+        try:
+            for r in apex_cnames:
+                cloudflare.delete_dns_record(zone.zone_id, r.record_id)
+            cloudflare.create_dns_record(
+                zone.zone_id, type="CNAME", name=domain,
+                content=target, proxied=True,
+            )
+        except cloudflare.CloudflareAPIError as e:
+            console.print(f"  [red]✗[/] apex CNAME re-point failed: {e}")
+            return
+        console.print(f"  [green]✓[/] apex CNAME re-pointed → {target}")
+
+    # 2. Remove + re-add the custom domain to force re-verification.
+    try:
+        removed = cloudflare.delete_pages_custom_domain(
+            slug, domain, account_id=cf_account)
+        cloudflare.attach_pages_custom_domain(
+            slug, domain, account_id=cf_account)
+    except cloudflare.CloudflareAPIError as e:
+        console.print(f"  [red]✗[/] custom-domain re-add failed: {e}")
+        return
+    console.print(
+        f"  [green]✓[/] custom domain {'re-added' if removed else 'added'} → "
+        f"CF re-verifying against {target} (allow a few min; --watch to track)"
+    )
+
+
 def _porkbun_forwarding_preflight(
     domain: str, *, api_key: str, secret: str, clear: bool, yes: bool,
 ) -> None:
@@ -7721,6 +7816,9 @@ def _deploy_watch_loop(
       - "live"      — all three green
       - "timeout"   — budget exhausted, soft-skip with hint
       - "build_failed"  — CF build returned `failure`; fail fast
+      - "pending_verification" — v32.F: zone+build green but the custom
+        domain never verified (often the 1014 wrong-CNAME case); names the
+        state + points at `--repair` instead of a generic timeout
       - "cancelled" — operator pressed Ctrl-C
 
     `sleep` and `monotonic` are injectable for tests.
@@ -7818,6 +7916,30 @@ def _deploy_watch_loop(
                 return "build_failed"
 
             if _mono() >= deadline:
+                # v32.F — when zone+build are green but the apex still isn't
+                # serving the site, the custom domain is likely stuck in
+                # pending-verification (often the 1014 wrong-CNAME case), not
+                # merely propagating. Probe the domain status once to name it.
+                if cf_surface == "pages" and zone_ok and build_ok and not live_ok:
+                    try:
+                        dom_status = cloudflare.get_pages_domain_status(
+                            slug, domain, account_id=cf_account)
+                    except cloudflare.CloudflareAPIError:
+                        dom_status = None
+                    if dom_status and dom_status != "active":
+                        console.print(
+                            f"\n[bold red]✗ {domain} custom domain stuck: "
+                            f"{dom_status}[/] [dim](zone active · build success "
+                            f"· live={live_status})[/]\n"
+                            f"  CF never finished verifying the custom domain — "
+                            f"usually the apex CNAME points at the wrong "
+                            f"[cyan]*.pages.dev[/] host (CF error [bold]1014[/]).\n"
+                            f"  [dim]Recover: [cyan]lamill new deploy {domain} "
+                            f"--repair --yes[/] (re-points the apex CNAME at the "
+                            f"real subdomain + re-adds the custom domain to "
+                            f"re-verify).[/]"
+                        )
+                        return "pending_verification"
                 console.print(
                     f"\n[yellow]↷[/] Watch timeout after "
                     f"{timeout_s // 60} min. Still resolving: "

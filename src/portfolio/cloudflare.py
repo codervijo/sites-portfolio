@@ -1083,6 +1083,73 @@ def attach_pages_custom_domain(
     return True
 
 
+def get_pages_domain_status(
+    project_name: str, hostname: str, *,
+    account_id: str,
+    client: httpx.Client | None = None,
+) -> str | None:
+    """v32.F — the verification/activation status of a Pages custom domain.
+
+    `GET /accounts/{id}/pages/projects/{project}/domains/{hostname}` →
+    `result.status` (e.g. `"active"` | `"pending"` | `"initializing"` |
+    `"blocked"`). Returns `None` when the domain isn't attached (404). Lets the
+    watch loop tell a stuck `pending-verification` (often the `1014`
+    wrong-CNAME case) apart from a generic propagation timeout. Raises
+    `CloudflareAPIError` on other non-2xx."""
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.get(
+            f"/accounts/{account_id}/pages/projects/{project_name}"
+            f"/domains/{hostname}"
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code == 404:
+        return None
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET /pages/projects/{project_name}/domains/{hostname} → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"get_pages_domain_status success=false: {body.get('errors')}"
+        )
+    return (body.get("result") or {}).get("status")
+
+
+def delete_pages_custom_domain(
+    project_name: str, hostname: str, *,
+    account_id: str,
+    client: httpx.Client | None = None,
+) -> bool:
+    """v32.F — detach a Pages custom domain so a subsequent re-add re-verifies
+    against a corrected DNS record (the `--repair` path). `DELETE
+    .../domains/{hostname}`. Returns True when deleted, False if it wasn't
+    attached (404 — already absent, idempotent). Raises on other non-2xx."""
+    own_client = client is None
+    c = _client(client=client)
+    try:
+        resp = c.delete(
+            f"/accounts/{account_id}/pages/projects/{project_name}"
+            f"/domains/{hostname}"
+        )
+    finally:
+        if own_client:
+            c.close()
+    if resp.status_code == 404:
+        return False
+    if resp.status_code not in (200, 204):
+        raise CloudflareAPIError(
+            f"DELETE /pages/projects/{project_name}/domains/{hostname} → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    return True
+
+
 def trigger_pages_deployment(
     project_name: str, *,
     account_id: str,
