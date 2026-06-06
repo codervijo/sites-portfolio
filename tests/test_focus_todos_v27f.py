@@ -249,3 +249,16 @@ task = "real task"
         if task is not None:
             gathered[site.name.lower()] = task
     assert gathered == {"good.com": "real task"}
+
+
+def test_auto_renew_off_mutes_all_focus_signals():
+    """A domain with auto_renew=off (operator letting it lapse) is muted
+    from focus entirely — even a hard expiring-soon signal. Registrar truth
+    suppresses without a plan.md edit."""
+    base = dict(live_snapshot=None, seo_snapshot=None,
+                domains_with_expiry=[("dying.com", 10)])
+    shown = build_focus_list(**base)
+    assert any(i.domain == "dying.com" for i in shown)
+    # case-insensitive set membership
+    muted = build_focus_list(**base, auto_renew_off={"DYING.COM"})
+    assert not any(i.domain == "dying.com" for i in muted)

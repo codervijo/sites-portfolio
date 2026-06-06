@@ -150,6 +150,13 @@ def focus(
     # Build domain → category map so focus can skip "To be deleted immediately"
     # rows. Lowercase keys for case-insensitive matching.
     domain_categories = {d.name.lower(): (d.category or "") for d in all_domains}
+    # Registrar-truth mute: auto_renew=off ⇒ operator is letting it lapse ⇒
+    # suppress all focus nags (no plan.md edit + resync needed). v31 made
+    # auto_renew live from the GoDaddy API.
+    auto_renew_off = {
+        d.name.lower() for d in all_domains
+        if (d.auto_renew or "").strip().lower() == "off"
+    }
 
     # Build domain → site-age map for the freshness-window suppression.
     # Reuses the dashboard's helper: prefers Domain.launched (manual via
@@ -222,6 +229,7 @@ def focus(
         seo_snapshot=seo_data,
         domains_with_expiry=domains_expiry,
         domain_categories=domain_categories,
+        auto_renew_off=auto_renew_off,
         domain_site_age_days=domain_site_age,
         domain_check_failures=domain_check_failures,
         domain_high_todos=domain_high_todos,

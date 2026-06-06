@@ -66,6 +66,7 @@ def build_focus_list(
     seo_snapshot: dict | None,
     domains_with_expiry: list[tuple[str, int]],
     domain_categories: dict[str, str] | None = None,
+    auto_renew_off: set[str] | None = None,
     domain_site_age_days: dict[str, int | None] | None = None,
     domain_check_failures: dict[str, dict] | None = None,
     domain_high_todos: dict[str, str] | None = None,
@@ -108,6 +109,7 @@ def build_focus_list(
     domain_check_failures = domain_check_failures or {}
     domain_high_todos = domain_high_todos or {}
     domain_categories = domain_categories or {}
+    auto_renew_off = {d.lower() for d in (auto_renew_off or set())}
     domain_site_age_days = domain_site_age_days or {}
     items: dict[str, FocusItem] = {}
     suppressed_young: set[str] = set()
@@ -121,8 +123,15 @@ def build_focus_list(
         return age < young_threshold_days
 
     def _is_ignored(d: str) -> bool:
+        # Muted from focus when either: the operator filed it under an
+        # ignore-category (e.g. "to be deleted immediately"), OR the
+        # registrar says auto_renew=off — a domain set to lapse is one the
+        # operator has already decided to let go, so every focus nag
+        # (build/retire/sell, renew-before-lapse, SEO) is noise. Registrar
+        # truth (auto_renew, via v31's GoDaddy API) suppresses without
+        # needing a plan.md edit + resync.
         cat = domain_categories.get(d.lower(), "").lower()
-        return cat in IGNORE_CATEGORIES
+        return cat in IGNORE_CATEGORIES or d.lower() in auto_renew_off
 
     def _get(d: str) -> FocusItem:
         if d not in items:
