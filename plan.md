@@ -1,13 +1,17 @@
 # Portfolio Plan
 
-> **DEPRECATED as of v1.D (2026-05-01).** Categories now live in
-> `data/portfolio.json` and are loaded directly from each domain's
-> `category` field. This file is kept for historical reference only;
-> editing it has no effect. To change a domain's category, edit
-> `data/portfolio.json` (or run `portfolio cleanup` after updating
-> the registrar exports).
+> **This file is the durable category source — edit it here, not in
+> `data/portfolio.json`.** `data.py:cleanup()` re-derives every
+> (non-Porkbun/Namecheap) domain's `category` from the `### `-headed lists
+> below on every run, then materializes `data/portfolio.json`. So a hand-edit
+> to `data/portfolio.json` is **overwritten on the next `fleet sync`** —
+> change a domain's category by moving it between the sections below, then run
+> `lamill fleet sync` to re-materialize. (Porkbun/Namecheap domains are
+> force-set to "Under build" and ignore this file; see `_apply_classification`.)
 >
-> This file will be deleted in a future cleanup commit.
+> *Historical note:* this was labelled "deprecated, editing has no effect" —
+> that was wrong (the 2026-06-05 iotnews/nosapta revert traced to it) and is
+> corrected here.
 
 ## Portfolio as of April 24
 
@@ -58,8 +62,10 @@ WINMACBOOKAIR.COM
 yesuinnu.com
 
 ## Plan for the Portfolio As of April, 2026
-### To be deleted immediately (22 domains)
+### To be deleted immediately (24 domains)
 
+iotnews.today
+NOSAPTA.COM
 newiniot.com
 swiftly.co.in
 WINMACBOOK.COM
@@ -90,21 +96,19 @@ streamsgalaxy.com
 hybridautopart.com
 maslist.com
 
-### My brand (7 domains)
+### My brand (6 domains)
 lamill.io
 lamill.us
 lamillrentals.com
 kwizicle.com
 veezp.com
 VIJOCHERIAN.COM
-NOSAPTA.COM
 
-### Next session (15 domains)
+### Next session (14 domains)
 
 AIRSUCKS.COM
 dunam.co
 iotbastion.com
-iotnews.today
 NAVODAYANSONLINE.COM
 virtually.co.in
 whizgraphs.com

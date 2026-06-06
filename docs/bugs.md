@@ -66,23 +66,6 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-06-05 — hand-edits to the generated `data/portfolio.json` (mark-for-deletion, autorenew-off) are silently reverted by the next `fleet sync` refresh (iotnews.today, nosapta.com)
-
-**Repro** — `a08eb1b` marked `iotnews.today` `auto_renew On→Off` + `category "Next session"→"To be deleted immediately"` by editing `data/portfolio.json`. A 2026-06-05 refresh (`cleanup()`, `generated_at` → `2026-06-05T10:04`) regenerated the file and **reverted both fields** back to `On` / `"Next session"`; the revert is uncommitted in the tree. `nosapta.com`'s intended deletion edit was lost the same way (now shows `My brand` / `On`).
-
-**Expected** — a domain the operator has marked for deletion (autorenew turned off at the registrar, category "to be deleted") stays that way across refreshes, and stops raising a `🔴` health alarm (intentional death ≠ regression).
-
-**Actual** — `data/portfolio.json` is a **generated** file (`data.py:cleanup()` rebuilds it from registrar CSVs + classification), so direct edits are overwritten. `data/domains/godaddy.csv` still lists both domains `auto_renew "On"` — it's a **manual export not re-pulled** since the operator turned autorenew off at GoDaddy (GoDaddy has no API). `category` is re-derived from the curated classification source, which has no "To be deleted". So the refresh reverts curated edits, and `fleet focus`/`live` keep flagging the (now genuinely dead) domains `🔴`.
-
-**Root cause** — deletion/curation intent was written to the generated OUTPUT with no source layer to carry it. **Same class as the 2026-05-19 thoralox.com bug** (GoDaddy-no-API → stale manual CSV → generated `portfolio.json` reverts curated edits). Compounding: the health view has no notion of "intentionally dying," so it alarms on these regardless of category.
-
-**Where** — `src/portfolio/data.py` `cleanup()` / `_apply_classification` (category) + the `data/domains/godaddy.csv` manual-export path (auto_renew); `src/portfolio/focus.py` + `fleet live` (`🔴` regardless of "to be deleted").
-
-**Severity** — `major`. Curated state is silently lost on every refresh; has now bitten twice (thoralox, then iotnews/nosapta). Low blast radius per-incident but erodes trust in the inventory.
-
-**Fix** — **v34** (drafted): a curated **overrides layer** (`data/overrides.json`, applied *last* in `cleanup()`) so `category`/`auto_renew` pins survive refreshes, seeded with `iotnews.today` + `nosapta.com`; plus the health view demoting `🔴` → an expected "to be deleted" state for those domains (mirrors the `dark_sites` exclusion). See `docs/prd.md § v34`. Related: 2026-05-19 thoralox.com entry.
-
-
 ### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
 
 **Motivation**
@@ -927,6 +910,22 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-06-05 — hand-edits to the generated `data/portfolio.json` (mark-for-deletion, autorenew-off) are silently reverted by the next `fleet sync` refresh (iotnews.today, nosapta.com)
+
+**Repro** — `a08eb1b` marked `iotnews.today` `auto_renew On→Off` + `category "Next session"→"To be deleted immediately"` by editing `data/portfolio.json`. A 2026-06-05 refresh (`cleanup()`, `generated_at` → `2026-06-05T10:04`) regenerated the file and **reverted both fields** back to `On` / `"Next session"`; the revert is uncommitted in the tree. `nosapta.com`'s intended deletion edit was lost the same way (now shows `My brand` / `On`).
+
+**Expected** — a domain the operator has marked for deletion (autorenew turned off at the registrar, category "to be deleted") stays that way across refreshes, and stops raising a `🔴` health alarm (intentional death ≠ regression).
+
+**Actual** — `data/portfolio.json` is a **generated** file (`data.py:cleanup()` rebuilds it from registrar CSVs + classification), so direct edits are overwritten. `data/domains/godaddy.csv` still lists both domains `auto_renew "On"` — it's a **manual export not re-pulled** since the operator turned autorenew off at GoDaddy (GoDaddy has no API). `category` is re-derived from the curated classification source, which has no "To be deleted". So the refresh reverts curated edits, and `fleet focus`/`live` keep flagging the (now genuinely dead) domains `🔴`.
+
+**Root cause** — deletion/curation intent was written to the generated OUTPUT with no source layer to carry it. **Same class as the 2026-05-19 thoralox.com bug** (GoDaddy-no-API → stale manual CSV → generated `portfolio.json` reverts curated edits). Compounding: the health view has no notion of "intentionally dying," so it alarms on these regardless of category.
+
+**Where** — `src/portfolio/data.py` `cleanup()` / `_apply_classification` (category) + the `data/domains/godaddy.csv` manual-export path (auto_renew); `src/portfolio/focus.py` + `fleet live` (`🔴` regardless of "to be deleted").
+
+**Severity** — `major`. Curated state is silently lost on every refresh; has now bitten twice (thoralox, then iotnews/nosapta). Low blast radius per-incident but erodes trust in the inventory.
+
+**Fixed in** — durability resolved without the drafted overrides layer (**v34 dropped 2026-06-06** after audit): (1) **`auto_renew`** is now registrar-API truth — **v31** `fleet sync --refresh` pulls GoDaddy `auto_renew` (live-validated `Off` for iotnews/nosapta); the "GoDaddy has no API" premise in *Actual*/*Root cause* above was wrong (see ADR-0021). (2) **`category`** always had a durable home in `plan.md` (re-derived by `cleanup()` every run); the real defect was `plan.md`'s **false "deprecated — editing has no effect" banner**, which sent edits to the generated `portfolio.json`. Banner corrected + `iotnews.today`/`NOSAPTA.COM` moved to `### To be deleted immediately` (2026-06-06). **Accepted limitation:** the `🔴` health-view alarm on intentionally-dying domains stays (v34.C dropped) — cosmetic; the `dark_sites` suppression is the template if it ever earns a fix. See `docs/prd.md § v34`. Related: 2026-05-19 thoralox.com entry.
 
 ### 2026-06-05 — `new deploy` submits `/sitemap.xml` to GSC, but `@astrojs/sitemap` emits `/sitemap-index.xml` → fleet-wide GSC "sitemap parse errors" (drdebug.dev, mdburst.com)
 

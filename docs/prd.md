@@ -1791,7 +1791,9 @@ landing quietly.
 the build/check/visual-probe verify chain + the visual-probe mechanism once
 chosen), and ADR-0023 (ships with v33.A).
 
-### v34 — curated overrides layer for the generated inventory *(new 2026-06-05 after a hand-edit marking `iotnews.today` for deletion (autorenew-off + category "To be deleted") was silently reverted by the next `fleet sync` refresh — `data/portfolio.json` is a generated file, so curated edits don't survive regeneration. Same root-cause class as the 2026-05-19 thoralox.com bug (GoDaddy-no-API → stale manual CSV → reverted edits). See `docs/bugs.md` 2026-06-05.)*
+### v34 — *(reserved — curated overrides layer, **DROPPED 2026-06-06** after a pre-build audit showed the durability problem is already solved by shipped work + an existing source. The triggering bug was a hand-edit to `iotnews.today` (autorenew-off + category "To be deleted") being reverted by `fleet sync`. But: (1) **`auto_renew` is now API-truth via v31** — `fleet sync --refresh` pulls GoDaddy `auto_renew`, live-validated showing iotnews/nosapta = `Off`; no overrides layer needed. (2) **`category` already has a durable home in `plan.md`** — `data.py:cleanup()` re-derives category from `plan.md`'s `### `-sections every run, so moving a domain to `### To be deleted immediately` there survives every refresh. The real defect was `plan.md`'s **false "deprecated — editing has no effect" banner**, which sent the operator to edit the generated `portfolio.json` instead; banner corrected + iotnews/nosapta moved to the deletion section (2026-06-06). A dedicated `data/overrides.json` (v34.A/B) would only duplicate durability v31 + `plan.md` already provide for the two allowlisted fields. The residual `🔴` health-view alarm on intentionally-dying domains (what v34.C addressed) is accepted as **cosmetic** — revisit only if it becomes daily-use friction; the `dark_sites`-style suppression pattern is the template if so. Original trigger: `docs/bugs.md` 2026-06-05 → now Fixed.)*
+
+~~`data/portfolio.json` is materialized by `data.py:cleanup()`...~~ **(v34 dropped — see header. Original design preserved below for the record; not being built.)**
 
 `data/portfolio.json` is materialized by `data.py:cleanup()` from the registrar
 CSVs + classification, so any field the operator curates by hand (a deletion mark,
@@ -1817,9 +1819,9 @@ visible, not silent.
 
 | # | Status | Feature |
 |---|---|---|
-| v34.A | ☐ | **Kickoff / decisions lock + ADR-0024.** Decisions above locked; **ADR-0024** (curated overrides win over registrar-derived data — the inventory's source-of-truth precedence) written + indexed. Lock the `data/overrides.json` shape + the `category`/`auto_renew` allowlist. No code. |
-| v34.B | ☐ | **Overrides layer in `cleanup()`.** Load `data/overrides.json` and apply it as the final step of `cleanup()` (after `_apply_classification`), pinning allowlisted fields so a refresh can't revert them; log each applied override. Seed the file with `iotnews.today` + `nosapta.com` (`category = "To be deleted immediately"`, `auto_renew = "Off"`). Re-materialize `portfolio.json` once so the marks stick. Tests: a refresh over a seeded override preserves the pinned fields. |
-| v34.C | ☐ | **Health view honors "To be deleted".** `fleet focus`/`live` recognize the `"To be deleted immediately"` category and render an expected `↷ to be deleted (lapses <date>)` state instead of the `🔴 dead`/`error` alarm — so iotnews.today/nosapta.com stop resurfacing as problems. Mirrors the `dark_sites` suppression. Tests. |
+| v34.A | ✗ dropped | ~~Kickoff + ADR-0024 (curated overrides win over registrar-derived data).~~ **Dropped 2026-06-06** — no ADR written; `auto_renew` durability is owned by v31 (registrar API) and `category` durability by `plan.md`, so a precedence ADR for a new overrides file has no decision left to record. |
+| v34.B | ✗ dropped | ~~Overrides layer (`data/overrides.json`) in `cleanup()`.~~ **Dropped 2026-06-06** — redundant. `auto_renew` ← v31 GoDaddy API refresh (validated `Off` for iotnews/nosapta); `category` ← `plan.md` (durable, re-derived each `cleanup()`). iotnews.today + NOSAPTA.COM moved to `plan.md`'s `### To be deleted immediately` + the false "deprecated" banner corrected (the actual root cause). No new file, no code. |
+| v34.C | ✗ dropped | ~~Health view honors "To be deleted".~~ **Dropped 2026-06-06** — the only genuinely-unbuilt piece (`fleet focus`/`live` would render `↷ to be deleted` instead of `🔴`), but operator accepted the residual alarm on intentionally-dying domains as **cosmetic**. Template if resurrected: the `dark_sites` suppression pattern + the `"To be deleted immediately"` category that now lives durably in `plan.md`. |
 
 #### Design notes
 
