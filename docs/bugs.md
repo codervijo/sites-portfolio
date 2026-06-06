@@ -66,27 +66,6 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-06-05 — `new deploy` submits `/sitemap.xml` to GSC, but `@astrojs/sitemap` emits `/sitemap-index.xml` → fleet-wide GSC "sitemap parse errors" (drdebug.dev, mdburst.com)
-
-**Repro** — `lamill fleet focus` shows `drdebug.dev` + `mdburst.com` as `🔴 GSC: sitemap parse errors (1)`.
-
-**Diagnosis (confirmed via curl)** — `https://drdebug.dev/sitemap.xml` returns `HTTP 200` but **`content-type: text/html`**: the Astro SPA's catch-all (`not_found_handling: single-page-application`) serves `index.html` for the unmatched `/sitemap.xml` route, so GSC fetches HTML and can't parse it as XML. The **real** sitemap is at `https://drdebug.dev/sitemap-index.xml` (`200`, `application/xml`, valid — that's what `@astrojs/sitemap` emits), and `robots.txt` already points there: `Sitemap: https://drdebug.dev/sitemap-index.xml`. But deploy Step 9 hardcodes `f"https://{domain}/sitemap.xml"` and submits that.
-
-**Expected** — deploy submits the site's *actual* sitemap URL (the one in `robots.txt`), so GSC gets valid XML.
-
-**Actual** — `/sitemap.xml` is assumed. `@astrojs/sitemap` (used across the Astro fleet) emits `sitemap-index.xml` + `sitemap-0.xml`, never `sitemap.xml`, so **every Astro-sitemap site gets a GSC parse error** and its sitemap is effectively unsubmitted.
-
-**Root cause** — sitemap URL is assumed, not derived. The canonical pointer is the live `robots.txt` `Sitemap:` line (which `@astrojs/sitemap` auto-populates).
-
-**Where** — `src/portfolio/cli.py` `_deploy_step9_gsc` (~7855–7894, builds `/sitemap.xml`); `gsc_admin.submit_sitemap(domain, sitemap_url)` takes the URL (fine — caller picks the wrong one); `project_seo_diagnostics` sitemap fetch.
-
-**Severity** — `major`. Fleet-wide false GSC errors; the actual sitemap never gets submitted for Astro-sitemap sites.
-
-**Mitigation (2026-06-05)** — resubmitted the correct `…/sitemap-index.xml` for `drdebug.dev` + `mdburst.com` via `gsc_admin.submit_sitemap`. The broken `/sitemap.xml` entries remain in GSC (no `delete_sitemap` verb yet) until removed manually or by the fix.
-
-**Fix** — **v32.G** (drafted): deploy Step 9 + the GSC sitemap diagnostics read the live `robots.txt` `Sitemap:` line as the submit URL (fallback `/sitemap.xml`); optional `delete_sitemap` to clear the stale entry. Related: 2026-05-25 `project sitemap resubmit` feature request (same robots.txt-feedpath idea).
-
-
 ### 2026-06-05 — hand-edits to the generated `data/portfolio.json` (mark-for-deletion, autorenew-off) are silently reverted by the next `fleet sync` refresh (iotnews.today, nosapta.com)
 
 **Repro** — `a08eb1b` marked `iotnews.today` `auto_renew On→Off` + `category "Next session"→"To be deleted immediately"` by editing `data/portfolio.json`. A 2026-06-05 refresh (`cleanup()`, `generated_at` → `2026-06-05T10:04`) regenerated the file and **reverted both fields** back to `On` / `"Next session"`; the revert is uncommitted in the tree. `nosapta.com`'s intended deletion edit was lost the same way (now shows `My brand` / `On`).
@@ -102,98 +81,6 @@ when applicable. Don't delete.
 **Severity** — `major`. Curated state is silently lost on every refresh; has now bitten twice (thoralox, then iotnews/nosapta). Low blast radius per-incident but erodes trust in the inventory.
 
 **Fix** — **v34** (drafted): a curated **overrides layer** (`data/overrides.json`, applied *last* in `cleanup()`) so `category`/`auto_renew` pins survive refreshes, seeded with `iotnews.today` + `nosapta.com`; plus the health view demoting `🔴` → an expected "to be deleted" state for those domains (mirrors the `dark_sites` exclusion). See `docs/prd.md § v34`. Related: 2026-05-19 thoralox.com entry.
-
-
-### 2026-06-05 — `new deploy` Step 4 trusts Porkbun's `getNs` API over real delegation → reports NS cutover done while the domain is still on Porkbun NS (mdburst.com)
-
-**Repro** — `lamill new deploy mdburst.com --watch --yes` (cf-pages). Step 4 printed:
-```
-4. Registrar NS (point mdburst.com at Cloudflare)
-  ✓ Porkbun NS already match Cloudflare (dom.ns.cloudflare.com, kristina.ns.cloudflare.com)
-```
-but the domain's authoritative delegation is still Porkbun:
-```
-$ dig +short mdburst.com NS
-curitiba.ns.porkbun.com.
-fortaleza.ns.porkbun.com.
-maceio.ns.porkbun.com.
-salvador.ns.porkbun.com.
-$ dig +short mdburst.com A
-52.33.207.7
-44.230.85.241          # AWS — Porkbun forwarding infra, not Cloudflare
-```
-
-**Expected** — Step 4 verifies the *actual* delegation (`dig NS`) and, if the domain isn't really on Cloudflare NS, performs (or clearly reports it can't perform) the cutover — not a green "already match" based solely on the registrar API's stored value.
-
-**Actual** — Step 4 reads NS via Porkbun `getNs` and set-compares to the CF target (`ns_matches`). The API returned the CF NS (someone/something set them in Porkbun's record), so the check passed and skipped the cutover — while the real registry delegation stayed on Porkbun. The deploy "completed" but `mdburst.com` never moved to CF.
-
-**Root cause (confirmed)** — `mdburst.com` has **Porkbun URL Forwarding enabled** (apex serves `HTTP 302 → https://mdburst-com.l.ink/`, `l.ink` = Porkbun's forwarder). Porkbun URL Forwarding pins the domain to Porkbun nameservers regardless of the stored NS value, so the registrar API and the real delegation disagree. lamill never reads or clears URL Forwarding (`porkbun_list.py:143` — *"URL FORWARDS — separate API endpoint; not in scope here"*), so it can't see why the cutover silently no-ops.
-
-**Where** — `src/portfolio/cli.py` Step 4 block (~6747–6812), decision at ~6781 (`ns_matches(current_ns, target_ns)` → "already match"); `src/portfolio/porkbun_dns.py` `get_porkbun_ns()` (55–105, `POST /domain/getNs/<domain>`) + `ns_matches()` (160–165) — neither does an authoritative resolver check. Reusable: `src/portfolio/diagnose.py` `_dig()` (152–163) already does `dig +short` lookups (used by `probe_dns()`).
-
-**Severity** — `major`. A cf-pages deploy can report success + "fully live" while the domain still serves the registrar parking forward; no self-recovery, and the green output actively misleads. Hits any domain with Porkbun URL Forwarding still set.
-
-**Notes** — paired with the live-probe bug below (same deploy run): the false NS "match" is what *let* the run proceed, and the redirect-following probe is what *confirmed* a false "live." Fix scope in chat 2026-06-05. Manual recovery for mdburst: disable URL Forwarding at `https://porkbun.com/account/domain/mdburst.com`, set NS to `dom.ns.cloudflare.com` / `kristina.ns.cloudflare.com`, re-run deploy.
-
-
-### 2026-06-05 — `new deploy` live probe + `--watch` follow an off-domain 302 to a parking host and report it as `200 OK · fully live` (mdburst.com)
-
-**Repro** — same run (`lamill new deploy mdburst.com --watch --yes`). The watch loop and Step 8 printed:
-```
-  [00:00] zone=active     build=success        live=200
-✓ mdburst.com fully live (zone active · build success · HTTP 200 · 0s)
-8. Live probe (https://mdburst.com/)
-  ✓ 200 OK (3921 bytes)
-```
-but the apex actually returns a cross-domain redirect to Porkbun's forwarder:
-```
-$ curl -sS -I https://mdburst.com/
-HTTP/2 302
-server: openresty
-location: https://mdburst-com.l.ink/
-content-length: 142
-```
-
-**Expected** — A 3xx to a *different registrable domain* (and especially a known parking/forwarder host like `l.ink`) is **not live**. The probe should report `↷ forwarded to <host>` (or `✗ parked`) and the watch loop should not count it toward "fully live."
-
-**Actual** — `_deploy_step8_live_probe()` (`cli.py:7355–7387`) does `httpx.get(..., follow_redirects=True)` and never inspects `r.url`, so it follows `302 → l.ink`, lands on the 3921-byte parking page, and prints `✓ 200`. The watch loop (`_deploy_watch_loop()`, `cli.py:7412–7548`) HEADs with `follow_redirects=True` and at ~7512 sets `live_ok = live_status.startswith("2") or live_status.startswith("3")` — so even an *un-followed* 3xx counts as live.
-
-**Where** — `src/portfolio/cli.py` `_deploy_step8_live_probe()` (7355–7387, `follow_redirects=True`, ignores final URL) and `_deploy_watch_loop()` (live block ~7486–7496; "fully live" determination ~7510–7520, `startswith("3")`). Reusable: `src/portfolio/check.py` `_classify()` (96–119) already detects forwarders/parking by comparing eTLD+1 of the final URL host vs the domain, with `PARKED_HOST_SUFFIXES` (18–24) — **`l.ink` is not in that list yet**; `_fetch()` captures `final_url = str(resp.url)` (134).
-
-**Severity** — `major`. Turns a non-deployed/parked apex into a green "fully live" — the core false-positive the operator hit. Decoupled from Bug 1 (NS): even with NS correct, any apex that 3xx-redirects off-domain would mis-report.
-
-**Notes** — fix could reuse `check.py`'s classifier rather than reinventing: probe with `follow_redirects=False` (or inspect `resp.url` after following), and if the final host's eTLD+1 ≠ the domain's, treat as not-live with a `↷ forwarded to <host>` line; add `l.ink` to `PARKED_HOST_SUFFIXES`. Watch loop must drop `startswith("3")` from `live_ok`.
-
-
-### 2026-05-31 — `new deploy` builds the apex CNAME from `{slug}.pages.dev`, but CF can assign a suffixed project subdomain → permanent `1014` (scopeguard.xyz)
-
-**Repro** — `lamill new deploy scopeguard.xyz` (cf-pages). Pipeline reached `zone=active build=success` but the live probe returned `403` with body `error code: 1014` ("CNAME Cross-User Banned"), and `--watch` timed out after 30 min still at `live=403`. The Pages custom domain sat at `status=pending` forever.
-
-**Root cause (confirmed via the CF dashboard + API)** — `cli.py:7100` sets the apex CNAME target as `target_content = f"{slug}.pages.dev"` (here `scopeguard.pages.dev`). But Cloudflare assigned this project the subdomain **`scopeguard-abu.pages.dev`** (it appends a random suffix when the bare `<slug>.pages.dev` name is already taken globally). So the apex CNAME pointed at a `pages.dev` host that **isn't this project** → CF edge returns `1014`, and the custom-domain verification never completes (it's validating against a wrong target). Not a timing/propagation issue — it would never have resolved.
-
-**Fix applied to scopeguard (2026-05-31, manual)** — read the project's real subdomain (`GET /accounts/{acct}/pages/projects/{proj}` → `result.subdomain` = `scopeguard-abu.pages.dev`), PATCH the apex CNAME content to it, then remove + re-add the custom domain to re-verify against the corrected record. Domain went `pending → active` in ~100s; live is now `HTTP 200`. (Cloudflare infra only — no repo data changed.)
-
-**The lamill defect + fix** — step 6.5 must NOT assume `{slug}.pages.dev`. The Pages project object returned by `create_pages_project_with_git` / `get_pages_project` carries the authoritative `subdomain` field — use **that** as the CNAME target. This is the real fix and prevents the bug for any future site whose slug collides on `pages.dev`.
-
-**Secondary (aggravating) gap** — `new deploy` is idempotent (ADR-0015): step 6 (attach domain) is GET-then-skip and step 6.5 (apex DNS) is create-if-absent, so re-running on the broken state changes nothing and re-stalls at `live=403`. Worth a deploy-resilience follow-up: detect `1014` / `pending`-too-long during the watch and surface a distinct `✗ pending-verification` state with the remediation, plus a `--repair` re-verify path, instead of a generic `watch_timeout`.
-
-**Where** — `src/portfolio/cli.py:7100` (`target_content = f"{slug}.pages.dev"`, in `_deploy_cf_unified` step 6.5); the correct value is on the Pages project object (`subdomain`) from `src/portfolio/cloudflare.py` `create_pages_project_with_git` / `get_pages_project`.
-
-**Severity** — `major`. Any cf-pages deploy whose slug is already taken on `pages.dev` lands permanently broken (`1014`) with no self-recovery. The CNAME-target fix is small and high-value; the resilience improvements are a separate tier.
-
-**Severity** — `major` (a fresh deploy can land in a broken, un-self-healing state) but **situational** (apex cf-pages custom-domain verification path). Tracked for a future deploy-resilience tier.
-
-**Repro** — `thoralox.com` was renewed at GoDaddy (new expiry 2027-05-30) but `lamill fleet focus` showed `⚠️ Expiring in -99 days → renew at registrar before lapse`.
-
-**Root cause (two layers)**
-1. **Data staleness.** GoDaddy has no API (ADR — see architecture §6 "Provider API coverage"), so `data/domains/godaddy.csv` (a manual export, last refreshed 2026-04-24) and the materialized `data/portfolio.json` held the *pre-renewal* expiry `2026-02-20`. `lamill fleet sync --refresh` only refreshes Porkbun, so GoDaddy inventory silently goes stale until a manual re-export. (thoralox patched by hand 2026-05-30; the broader staleness remains for other GoDaddy domains.)
-2. **Confusing display.** `focus.py:~200` fires the ⚠️ for any `days <= 30` with no lower floor, so a *past* expiry renders as `Expiring in -99 days → renew before lapse` — reads like a future expiry and hides that the data is stale/lapsed.
-
-**Proposed fix (code, deferred — log only per operator)** — for `days < 0`, change the message to e.g. `expired N days ago (per <registrar> inventory, exp <date>) — verify renewal / re-export inventory`. Optionally surface the inventory-export staleness (e.g. `godaddy.csv` mtime) so GoDaddy drift is visible without a per-domain surprise.
-
-**Where** — `src/portfolio/focus.py` (~line 200, expiring signal); `data/domains/godaddy.csv` (manual export); `src/portfolio/data.py` `_load_godaddy`.
-
-**Severity** — `minor`. The display is cosmetic/confusing, not wrong logic; the data half is inherent to GoDaddy-no-API and is mitigated per-domain by hand-patch or full re-export. No code change made yet (operator: log only).
 
 
 ### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
@@ -1040,6 +927,123 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 "WIP vs live-site" filter question per resolution 11.B).
 
 ## Fixed bugs
+
+### 2026-06-05 — `new deploy` submits `/sitemap.xml` to GSC, but `@astrojs/sitemap` emits `/sitemap-index.xml` → fleet-wide GSC "sitemap parse errors" (drdebug.dev, mdburst.com)
+
+**Repro** — `lamill fleet focus` shows `drdebug.dev` + `mdburst.com` as `🔴 GSC: sitemap parse errors (1)`.
+
+**Diagnosis (confirmed via curl)** — `https://drdebug.dev/sitemap.xml` returns `HTTP 200` but **`content-type: text/html`**: the Astro SPA's catch-all (`not_found_handling: single-page-application`) serves `index.html` for the unmatched `/sitemap.xml` route, so GSC fetches HTML and can't parse it as XML. The **real** sitemap is at `https://drdebug.dev/sitemap-index.xml` (`200`, `application/xml`, valid — that's what `@astrojs/sitemap` emits), and `robots.txt` already points there: `Sitemap: https://drdebug.dev/sitemap-index.xml`. But deploy Step 9 hardcodes `f"https://{domain}/sitemap.xml"` and submits that.
+
+**Expected** — deploy submits the site's *actual* sitemap URL (the one in `robots.txt`), so GSC gets valid XML.
+
+**Actual** — `/sitemap.xml` is assumed. `@astrojs/sitemap` (used across the Astro fleet) emits `sitemap-index.xml` + `sitemap-0.xml`, never `sitemap.xml`, so **every Astro-sitemap site gets a GSC parse error** and its sitemap is effectively unsubmitted.
+
+**Root cause** — sitemap URL is assumed, not derived. The canonical pointer is the live `robots.txt` `Sitemap:` line (which `@astrojs/sitemap` auto-populates).
+
+**Where** — `src/portfolio/cli.py` `_deploy_step9_gsc` (~7855–7894, builds `/sitemap.xml`); `gsc_admin.submit_sitemap(domain, sitemap_url)` takes the URL (fine — caller picks the wrong one); `project_seo_diagnostics` sitemap fetch.
+
+**Severity** — `major`. Fleet-wide false GSC errors; the actual sitemap never gets submitted for Astro-sitemap sites.
+
+**Mitigation (2026-06-05)** — resubmitted the correct `…/sitemap-index.xml` for `drdebug.dev` + `mdburst.com` via `gsc_admin.submit_sitemap`. The broken `/sitemap.xml` entries remain in GSC (no `delete_sitemap` verb yet) until removed manually or by the fix.
+
+**Fix** — **v32.G** (drafted): deploy Step 9 + the GSC sitemap diagnostics read the live `robots.txt` `Sitemap:` line as the submit URL (fallback `/sitemap.xml`); optional `delete_sitemap` to clear the stale entry. Related: 2026-05-25 `project sitemap resubmit` feature request (same robots.txt-feedpath idea).
+
+**Fixed in** — `6127262` (v32.G — `resolve_sitemap_url` reads the robots.txt `Sitemap:` line; `delete_sitemap` clears stale entries).
+
+### 2026-06-05 — `new deploy` Step 4 trusts Porkbun's `getNs` API over real delegation → reports NS cutover done while the domain is still on Porkbun NS (mdburst.com)
+
+**Repro** — `lamill new deploy mdburst.com --watch --yes` (cf-pages). Step 4 printed:
+```
+4. Registrar NS (point mdburst.com at Cloudflare)
+  ✓ Porkbun NS already match Cloudflare (dom.ns.cloudflare.com, kristina.ns.cloudflare.com)
+```
+but the domain's authoritative delegation is still Porkbun:
+```
+$ dig +short mdburst.com NS
+curitiba.ns.porkbun.com.
+fortaleza.ns.porkbun.com.
+maceio.ns.porkbun.com.
+salvador.ns.porkbun.com.
+$ dig +short mdburst.com A
+52.33.207.7
+44.230.85.241          # AWS — Porkbun forwarding infra, not Cloudflare
+```
+
+**Expected** — Step 4 verifies the *actual* delegation (`dig NS`) and, if the domain isn't really on Cloudflare NS, performs (or clearly reports it can't perform) the cutover — not a green "already match" based solely on the registrar API's stored value.
+
+**Actual** — Step 4 reads NS via Porkbun `getNs` and set-compares to the CF target (`ns_matches`). The API returned the CF NS (someone/something set them in Porkbun's record), so the check passed and skipped the cutover — while the real registry delegation stayed on Porkbun. The deploy "completed" but `mdburst.com` never moved to CF.
+
+**Root cause (confirmed)** — `mdburst.com` has **Porkbun URL Forwarding enabled** (apex serves `HTTP 302 → https://mdburst-com.l.ink/`, `l.ink` = Porkbun's forwarder). Porkbun URL Forwarding pins the domain to Porkbun nameservers regardless of the stored NS value, so the registrar API and the real delegation disagree. lamill never reads or clears URL Forwarding (`porkbun_list.py:143` — *"URL FORWARDS — separate API endpoint; not in scope here"*), so it can't see why the cutover silently no-ops.
+
+**Where** — `src/portfolio/cli.py` Step 4 block (~6747–6812), decision at ~6781 (`ns_matches(current_ns, target_ns)` → "already match"); `src/portfolio/porkbun_dns.py` `get_porkbun_ns()` (55–105, `POST /domain/getNs/<domain>`) + `ns_matches()` (160–165) — neither does an authoritative resolver check. Reusable: `src/portfolio/diagnose.py` `_dig()` (152–163) already does `dig +short` lookups (used by `probe_dns()`).
+
+**Severity** — `major`. A cf-pages deploy can report success + "fully live" while the domain still serves the registrar parking forward; no self-recovery, and the green output actively misleads. Hits any domain with Porkbun URL Forwarding still set.
+
+**Notes** — paired with the live-probe bug below (same deploy run): the false NS "match" is what *let* the run proceed, and the redirect-following probe is what *confirmed* a false "live." Fix scope in chat 2026-06-05. Manual recovery for mdburst: disable URL Forwarding at `https://porkbun.com/account/domain/mdburst.com`, set NS to `dom.ns.cloudflare.com` / `kristina.ns.cloudflare.com`, re-run deploy.
+
+**Fixed in** — `ab37c41` (v32.C — Step 4 reports real `dig NS` delegation vs the registrar API) + `d625335` (v32.D — detect/clear the Porkbun URL Forwarding that pinned NS, the root cause).
+
+### 2026-06-05 — `new deploy` live probe + `--watch` follow an off-domain 302 to a parking host and report it as `200 OK · fully live` (mdburst.com)
+
+**Repro** — same run (`lamill new deploy mdburst.com --watch --yes`). The watch loop and Step 8 printed:
+```
+  [00:00] zone=active     build=success        live=200
+✓ mdburst.com fully live (zone active · build success · HTTP 200 · 0s)
+8. Live probe (https://mdburst.com/)
+  ✓ 200 OK (3921 bytes)
+```
+but the apex actually returns a cross-domain redirect to Porkbun's forwarder:
+```
+$ curl -sS -I https://mdburst.com/
+HTTP/2 302
+server: openresty
+location: https://mdburst-com.l.ink/
+content-length: 142
+```
+
+**Expected** — A 3xx to a *different registrable domain* (and especially a known parking/forwarder host like `l.ink`) is **not live**. The probe should report `↷ forwarded to <host>` (or `✗ parked`) and the watch loop should not count it toward "fully live."
+
+**Actual** — `_deploy_step8_live_probe()` (`cli.py:7355–7387`) does `httpx.get(..., follow_redirects=True)` and never inspects `r.url`, so it follows `302 → l.ink`, lands on the 3921-byte parking page, and prints `✓ 200`. The watch loop (`_deploy_watch_loop()`, `cli.py:7412–7548`) HEADs with `follow_redirects=True` and at ~7512 sets `live_ok = live_status.startswith("2") or live_status.startswith("3")` — so even an *un-followed* 3xx counts as live.
+
+**Where** — `src/portfolio/cli.py` `_deploy_step8_live_probe()` (7355–7387, `follow_redirects=True`, ignores final URL) and `_deploy_watch_loop()` (live block ~7486–7496; "fully live" determination ~7510–7520, `startswith("3")`). Reusable: `src/portfolio/check.py` `_classify()` (96–119) already detects forwarders/parking by comparing eTLD+1 of the final URL host vs the domain, with `PARKED_HOST_SUFFIXES` (18–24) — **`l.ink` is not in that list yet**; `_fetch()` captures `final_url = str(resp.url)` (134).
+
+**Severity** — `major`. Turns a non-deployed/parked apex into a green "fully live" — the core false-positive the operator hit. Decoupled from Bug 1 (NS): even with NS correct, any apex that 3xx-redirects off-domain would mis-report.
+
+**Notes** — fix could reuse `check.py`'s classifier rather than reinventing: probe with `follow_redirects=False` (or inspect `resp.url` after following), and if the final host's eTLD+1 ≠ the domain's, treat as not-live with a `↷ forwarded to <host>` line; add `l.ink` to `PARKED_HOST_SUFFIXES`. Watch loop must drop `startswith("3")` from `live_ok`.
+
+**Fixed in** — `ab37c41` (v32.B — `_probe_apex_live` classifies the followed-redirect final host; a forwarded/parked apex is not-live; `l.ink` added to `PARKED_HOST_SUFFIXES`).
+
+### 2026-05-31 — `new deploy` builds the apex CNAME from `{slug}.pages.dev`, but CF can assign a suffixed project subdomain → permanent `1014` (scopeguard.xyz)
+
+**Repro** — `lamill new deploy scopeguard.xyz` (cf-pages). Pipeline reached `zone=active build=success` but the live probe returned `403` with body `error code: 1014` ("CNAME Cross-User Banned"), and `--watch` timed out after 30 min still at `live=403`. The Pages custom domain sat at `status=pending` forever.
+
+**Root cause (confirmed via the CF dashboard + API)** — `cli.py:7100` sets the apex CNAME target as `target_content = f"{slug}.pages.dev"` (here `scopeguard.pages.dev`). But Cloudflare assigned this project the subdomain **`scopeguard-abu.pages.dev`** (it appends a random suffix when the bare `<slug>.pages.dev` name is already taken globally). So the apex CNAME pointed at a `pages.dev` host that **isn't this project** → CF edge returns `1014`, and the custom-domain verification never completes (it's validating against a wrong target). Not a timing/propagation issue — it would never have resolved.
+
+**Fix applied to scopeguard (2026-05-31, manual)** — read the project's real subdomain (`GET /accounts/{acct}/pages/projects/{proj}` → `result.subdomain` = `scopeguard-abu.pages.dev`), PATCH the apex CNAME content to it, then remove + re-add the custom domain to re-verify against the corrected record. Domain went `pending → active` in ~100s; live is now `HTTP 200`. (Cloudflare infra only — no repo data changed.)
+
+**The lamill defect + fix** — step 6.5 must NOT assume `{slug}.pages.dev`. The Pages project object returned by `create_pages_project_with_git` / `get_pages_project` carries the authoritative `subdomain` field — use **that** as the CNAME target. This is the real fix and prevents the bug for any future site whose slug collides on `pages.dev`.
+
+**Secondary (aggravating) gap** — `new deploy` is idempotent (ADR-0015): step 6 (attach domain) is GET-then-skip and step 6.5 (apex DNS) is create-if-absent, so re-running on the broken state changes nothing and re-stalls at `live=403`. Worth a deploy-resilience follow-up: detect `1014` / `pending`-too-long during the watch and surface a distinct `✗ pending-verification` state with the remediation, plus a `--repair` re-verify path, instead of a generic `watch_timeout`.
+
+**Where** — `src/portfolio/cli.py:7100` (`target_content = f"{slug}.pages.dev"`, in `_deploy_cf_unified` step 6.5); the correct value is on the Pages project object (`subdomain`) from `src/portfolio/cloudflare.py` `create_pages_project_with_git` / `get_pages_project`.
+
+**Severity** — `major`. Any cf-pages deploy whose slug is already taken on `pages.dev` lands permanently broken (`1014`) with no self-recovery. The CNAME-target fix is small and high-value; the resilience improvements are a separate tier.
+
+**Severity** — `major` (a fresh deploy can land in a broken, un-self-healing state) but **situational** (apex cf-pages custom-domain verification path). Tracked for a future deploy-resilience tier.
+
+**Repro** — `thoralox.com` was renewed at GoDaddy (new expiry 2027-05-30) but `lamill fleet focus` showed `⚠️ Expiring in -99 days → renew at registrar before lapse`.
+
+**Root cause (two layers)**
+1. **Data staleness.** GoDaddy has no API (ADR — see architecture §6 "Provider API coverage"), so `data/domains/godaddy.csv` (a manual export, last refreshed 2026-04-24) and the materialized `data/portfolio.json` held the *pre-renewal* expiry `2026-02-20`. `lamill fleet sync --refresh` only refreshes Porkbun, so GoDaddy inventory silently goes stale until a manual re-export. (thoralox patched by hand 2026-05-30; the broader staleness remains for other GoDaddy domains.)
+2. **Confusing display.** `focus.py:~200` fires the ⚠️ for any `days <= 30` with no lower floor, so a *past* expiry renders as `Expiring in -99 days → renew before lapse` — reads like a future expiry and hides that the data is stale/lapsed.
+
+**Proposed fix (code, deferred — log only per operator)** — for `days < 0`, change the message to e.g. `expired N days ago (per <registrar> inventory, exp <date>) — verify renewal / re-export inventory`. Optionally surface the inventory-export staleness (e.g. `godaddy.csv` mtime) so GoDaddy drift is visible without a per-domain surprise.
+
+**Where** — `src/portfolio/focus.py` (~line 200, expiring signal); `data/domains/godaddy.csv` (manual export); `src/portfolio/data.py` `_load_godaddy`.
+
+**Severity** — `minor`. The display is cosmetic/confusing, not wrong logic; the data half is inherent to GoDaddy-no-API and is mitigated per-domain by hand-patch or full re-export. No code change made yet (operator: log only).
+
+**Fixed in** — `d373077` (v32.E — `_resolve_pages_subdomain` re-fetches the authoritative `*.pages.dev`) + `279e350` (v32.F — `pending_verification` state + `--repair` re-points the CNAME and re-verifies).
 
 ### 2026-05-30 — legacy `lamill.toml` write paths full-rewrite and drop `[content]` + comments
 
