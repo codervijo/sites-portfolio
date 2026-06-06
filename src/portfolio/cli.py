@@ -8265,7 +8265,10 @@ def _deploy_step9_gsc(
         )
 
     # --- 9e: HEAD-probe + sitemap submission ---
-    sitemap_url = f"https://{domain}/sitemap.xml"
+    # v32.G — submit the site's ACTUAL sitemap (the robots.txt `Sitemap:`
+    # line, e.g. `/sitemap-index.xml` for @astrojs/sitemap), not an assumed
+    # `/sitemap.xml` (which the SPA catch-all serves as HTML → GSC parse error).
+    sitemap_url = gsc_admin.resolve_sitemap_url(domain)
     try:
         import httpx as _httpx
         head_resp = _httpx.head(

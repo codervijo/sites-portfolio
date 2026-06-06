@@ -596,6 +596,37 @@ def list_sitemaps(
     return list(body.get("sitemap") or [])
 
 
+def resolve_sitemap_url(
+    domain: str, *, client: httpx.Client | None = None,
+) -> str:
+    """v32.G — the site's *actual* sitemap URL, read from the live
+    `robots.txt` `Sitemap:` directive.
+
+    `@astrojs/sitemap` (used across the Astro fleet) emits
+    `/sitemap-index.xml`, never `/sitemap.xml`, and auto-writes that URL into
+    `robots.txt`. Submitting the assumed `/sitemap.xml` made the SPA catch-all
+    serve `index.html` for it → GSC "couldn't read" parse errors fleet-wide
+    (bugs.md 2026-06-05). We read the real URL from `robots.txt` and fall back
+    to `https://<domain>/sitemap.xml` only when robots.txt is unreachable or
+    carries no `Sitemap:` line. Returns the first `Sitemap:` entry."""
+    fallback = f"https://{domain}/sitemap.xml"
+    url = f"https://{domain}/robots.txt"
+    try:
+        r = (client.get(url) if client is not None
+             else httpx.get(url, timeout=5.0, follow_redirects=True))
+    except httpx.HTTPError:
+        return fallback
+    if r.status_code != 200:
+        return fallback
+    for line in (r.text or "").splitlines():
+        s = line.strip()
+        if s.lower().startswith("sitemap:"):
+            val = s.split(":", 1)[1].strip()
+            if val:
+                return val
+    return fallback
+
+
 def submit_sitemap(
     domain: str, sitemap_url: str, *,
     client: httpx.Client | None = None,
@@ -634,6 +665,43 @@ def submit_sitemap(
     if resp.status_code not in (200, 204):
         raise GSCAdminError(
             f"PUT webmasters/v3/sites/{site_uri}/sitemaps/{sitemap_url} → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    if own_client:
+        c.close()
+    return True
+
+
+def delete_sitemap(
+    domain: str, sitemap_url: str, *,
+    client: httpx.Client | None = None,
+) -> bool:
+    """v32.G — remove a stale sitemap entry from `sc-domain:<domain>` (e.g.
+    the bad `/sitemap.xml` that the SPA catch-all served as HTML). Returns
+    True if deleted, False if it wasn't listed (idempotent skip via
+    `list_sitemaps()` pre-check). Mirrors `submit_sitemap`, DELETE instead
+    of PUT."""
+    own_client = client is None
+    c = _client(client=client)
+
+    try:
+        existing = list_sitemaps(domain, client=c)
+    except GSCAdminError:
+        existing = []
+    if not any(s.get("path") == sitemap_url for s in existing):
+        if own_client:
+            c.close()
+        return False
+
+    site_uri = _sc_domain_uri(domain)
+    encoded_site = quote(site_uri, safe="")
+    encoded_feed = quote(sitemap_url, safe="")
+    resp = c.delete(
+        f"{_WEBMASTERS_API}/sites/{encoded_site}/sitemaps/{encoded_feed}"
+    )
+    if resp.status_code not in (200, 204):
+        raise GSCAdminError(
+            f"DELETE webmasters/v3/sites/{site_uri}/sitemaps/{sitemap_url} → "
             f"HTTP {resp.status_code}: {resp.text[:300]}"
         )
     if own_client:
