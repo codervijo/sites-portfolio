@@ -15,6 +15,8 @@ Both use the same {apikey, secretapikey} body shape that v15.F's
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import httpx
 
 PORKBUN_API = "https://api.porkbun.com/api/json/v3"
@@ -163,3 +165,105 @@ def ns_matches(current: list[str], target: list[str]) -> bool:
     return {n.strip().lower() for n in current} == {
         n.strip().lower() for n in target
     }
+
+
+# ---- URL Forwarding read / clear (v32.D) -----------------------------------
+#
+# Porkbun's URL Forwarding pins a domain to Porkbun nameservers regardless of
+# the stored NS value, so an apex with forwarding active silently no-ops an
+# NS cutover (the mdburst.com false-green root cause). lamill reads it as the
+# real cutover blocker and clears it only on explicit `--clear-forwarding`.
+#
+# Endpoints:
+#   - POST /domain/getUrlForwarding/<domain>           → list active forwards
+#   - POST /domain/deleteUrlForward/<domain>/<record_id> → remove one forward
+
+
+@dataclass
+class UrlForward:
+    """One Porkbun URL-forwarding record. `subdomain` is "" for the apex."""
+    id: str
+    subdomain: str
+    location: str
+    type: str  # "temporary" | "permanent"
+
+    @property
+    def is_apex(self) -> bool:
+        return self.subdomain.strip() == ""
+
+
+def _post_porkbun(path: str, *, api_key: str, secret: str, what: str) -> dict:
+    """Shared POST + envelope-validation for the URL-forwarding endpoints.
+    Mirrors `get_porkbun_ns`'s error handling (HTTP, JSON, SUCCESS, the
+    per-domain API-access toggle). Returns the parsed body dict."""
+    if not api_key or not secret:
+        raise PorkbunDnsError(
+            "missing PORKBUN_API_KEY or PORKBUN_SECRET_API_KEY"
+        )
+    try:
+        r = httpx.post(
+            f"{PORKBUN_API}/{path}",
+            json={"apikey": api_key, "secretapikey": secret},
+            timeout=HTTP_TIMEOUT,
+        )
+    except httpx.HTTPError as e:
+        raise PorkbunDnsError(
+            f"network error calling {what}: {type(e).__name__}: {e}"
+        ) from e
+    if r.status_code != 200:
+        raise PorkbunDnsError(f"{what} → HTTP {r.status_code}: {r.text[:200]}")
+    try:
+        body = r.json()
+    except ValueError as e:
+        raise PorkbunDnsError(f"{what} returned non-JSON: {e}") from e
+    if not isinstance(body, dict) or body.get("status") != "SUCCESS":
+        if isinstance(body, dict) and _api_access_off(body):
+            raise PorkbunApiAccessError(
+                f"per-domain API access is OFF for {what}"
+            )
+        raise PorkbunDnsError(f"{what} status != SUCCESS: {body}")
+    return body
+
+
+def get_porkbun_url_forwarding(
+    domain: str, *, api_key: str, secret: str,
+) -> list[UrlForward]:
+    """List active URL forwards for `domain`. Empty list = none configured.
+    Raises `PorkbunDnsError` (or `PorkbunApiAccessError`) on failure."""
+    body = _post_porkbun(
+        f"domain/getUrlForwarding/{domain}",
+        api_key=api_key, secret=secret, what=f"getUrlForwarding/{domain}",
+    )
+    raw = body.get("forwards") or []
+    if not isinstance(raw, list):
+        raise PorkbunDnsError(
+            f"getUrlForwarding/{domain} body.forwards is not a list: "
+            f"{type(raw).__name__}"
+        )
+    out: list[UrlForward] = []
+    for f in raw:
+        if not isinstance(f, dict):
+            continue
+        out.append(UrlForward(
+            id=str(f.get("id", "")),
+            subdomain=str(f.get("subdomain", "") or ""),
+            location=str(f.get("location", "") or ""),
+            type=str(f.get("type", "") or ""),
+        ))
+    return out
+
+
+def delete_porkbun_url_forward(
+    domain: str, record_id: str, *, api_key: str, secret: str,
+) -> None:
+    """Delete one URL-forwarding record by id. Raises `PorkbunDnsError`
+    (or `PorkbunApiAccessError`) on failure."""
+    if not record_id:
+        raise PorkbunDnsError(
+            f"refusing to delete URL forward with empty id for {domain}"
+        )
+    _post_porkbun(
+        f"domain/deleteUrlForward/{domain}/{record_id}",
+        api_key=api_key, secret=secret,
+        what=f"deleteUrlForward/{domain}/{record_id}",
+    )

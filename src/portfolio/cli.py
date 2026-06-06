@@ -6294,6 +6294,15 @@ def new_deploy(
         ),
     ),
     apply: bool = typer.Option(False, "--apply", help="Required to actually push files for hostgator/custom (dry-run default per ADR-0011)."),
+    clear_forwarding: bool = typer.Option(
+        False, "--clear-forwarding",
+        help=(
+            "v32.D — if Porkbun URL Forwarding is active on the apex (it "
+            "pins the domain to Porkbun NS and silently blocks the CF "
+            "cutover), delete it via the registrar API before setting NS. "
+            "Confirm-gated unless --yes; idempotent (no-op when none)."
+        ),
+    ),
 ) -> None:
     """Deploy a sites/<domain>/ project. Dispatches by lamill.toml platform.
 
@@ -6349,6 +6358,7 @@ def new_deploy(
             skip_dns_purge=skip_dns_purge,
             skip_gsc=skip_gsc,
             watch=watch,
+            clear_forwarding=clear_forwarding,
         )
         return
 
@@ -6401,6 +6411,7 @@ def _deploy_cf_unified(
     skip_dns_purge: bool = False,
     skip_gsc: bool = False,
     watch: bool = False,
+    clear_forwarding: bool = False,
 ) -> None:
     """v15.I — git-integrated CF deploy pipeline.
 
@@ -6466,7 +6477,8 @@ def _deploy_cf_unified(
         read_local_origin,
     )
     from .porkbun_dns import (
-        PorkbunApiAccessError, PorkbunDnsError, get_porkbun_ns, ns_matches,
+        PorkbunApiAccessError, PorkbunDnsError, delete_porkbun_url_forward,
+        get_porkbun_ns, get_porkbun_url_forwarding, ns_matches,
         update_porkbun_ns,
     )
 
@@ -6832,6 +6844,12 @@ def _deploy_cf_unified(
             f"  [dim]Set NS at Porkbun to: {', '.join(target_ns)}[/]"
         )
     else:
+        # v32.D — clear/detect URL Forwarding first; it pins NS to Porkbun
+        # and silently blocks the cutover regardless of the stored NS value.
+        _porkbun_forwarding_preflight(
+            domain, api_key=pb_key, secret=pb_secret,
+            clear=clear_forwarding, yes=yes,
+        )
         try:
             current_ns = get_porkbun_ns(
                 domain, api_key=pb_key, secret=pb_secret,
@@ -7532,6 +7550,64 @@ def _print_ns_delegation(domain: str, target_ns: list[str]) -> None:
             f"  [dim]requested (registrar): {', '.join(target_ns)}[/]\n"
             f"  [dim]delegated (dig NS):    {', '.join(delegated)}[/]"
         )
+
+
+def _porkbun_forwarding_preflight(
+    domain: str, *, api_key: str, secret: str, clear: bool, yes: bool,
+) -> None:
+    """v32.D — detect Porkbun URL Forwarding on the apex. URL Forwarding pins
+    a domain to Porkbun nameservers regardless of the stored NS value, so an
+    active apex forward silently no-ops the CF cutover (the mdburst.com
+    false-green root cause). With `clear=True`, delete it via the registrar
+    API (confirm-gated unless `yes`). Idempotent: no forwarding ⇒ silent
+    no-op. Read/clear-read failures warn but never abort the deploy (this is
+    a diagnostic preflight; the NS read right after owns hard failures)."""
+    from .porkbun_dns import (
+        PorkbunApiAccessError, PorkbunDnsError,
+        delete_porkbun_url_forward, get_porkbun_url_forwarding,
+    )
+    try:
+        forwards = get_porkbun_url_forwarding(
+            domain, api_key=api_key, secret=secret)
+    except PorkbunApiAccessError:
+        return  # the NS read surfaces the API-access toggle help; don't double-warn
+    except PorkbunDnsError as e:
+        console.print(
+            f"  [yellow]↷[/] could not read URL Forwarding (continuing): {e}")
+        return
+
+    apex = [f for f in forwards if f.is_apex]
+    if not apex:
+        return  # nothing pinning NS — clean
+
+    locs = ", ".join(f.location for f in apex if f.location) or "?"
+    if not clear:
+        console.print(
+            f"  [yellow]↷[/] Porkbun URL Forwarding active on the apex "
+            f"([cyan]{locs}[/]) — this pins [cyan]{domain}[/] to Porkbun NS "
+            f"and will silently block the Cloudflare cutover.\n"
+            f"  [dim]Remove it at "
+            f"[link]https://porkbun.com/account/domain/{domain}[/link] "
+            f"or re-run with [bold]--clear-forwarding[/].[/]"
+        )
+        return
+
+    confirm = yes or typer.confirm(
+        f"  Delete {len(apex)} apex URL forward(s) for {domain}?", default=True)
+    if not confirm:
+        console.print(
+            "  [yellow]↷[/] URL Forwarding left in place (declined) — the "
+            "cutover will not complete until it's removed.")
+        return
+    for f in apex:
+        try:
+            delete_porkbun_url_forward(
+                domain, f.id, api_key=api_key, secret=secret)
+        except PorkbunDnsError as e:
+            console.print(
+                f"  [red]✗[/] failed to delete URL forward {f.id}: {e}")
+            raise typer.Exit(7)
+    console.print(f"  [green]✓[/] cleared {len(apex)} apex URL forward(s)")
 
 
 def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> None:
