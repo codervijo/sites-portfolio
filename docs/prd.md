@@ -1975,7 +1975,7 @@ The boundary matters because the two blocks have different lifecycles. `[content
 
 rankmill's own working state — what's been generated, what's been audited, when — lives in `sites/<domain>/content-draft/` (drafts), `sites/<domain>/rankmill-output/` (analysis), and `rankmill-data/` at the workspace root (fleet-wide caches and snapshots). It does not live in lamill.toml.
 
-### v35 — code-smell + tech-debt audit pass *(DRAFT — captured 2026-06-06, not yet fleshed)*
+### v35 — code-smell + tech-debt audit pass
 
 Operator idea (2026-06-06): a deliberate audit pass over the `portfolio` /
 `lamill` codebase to surface code smells + accumulated tech debt — distinct
@@ -1990,7 +1990,13 @@ posture from v12. **Not fleshed — phases/scope/ADR TBD.**
 
 | # | Status | Feature |
 |---|---|---|
-| v35.A | ☐ | **Kickoff / decisions lock.** Scope the debt audit before any work: smell-inventory targets (long functions, the `cli.py` monolith, duplication, lazy-import gaps, dead code, error-handling drift, coverage holes), the prioritization rubric, and the output shape (a prioritized debt register → `architecture.md § Tracked refactors`, **not** a mega-refactor). Decide whether to reuse the v12 adversarial-audit posture. ADR TBD. |
+| v35.A | ✅ | **Kickoff + audit pass — register shipped.** 2026-06-06. Four parallel sweeps (monolith structure, duplication, error/import hygiene, dead-code/coverage), all findings cross-verified against real call sites. Output = the prioritized debt register in `architecture.md § Tracked refactors § v35` (7 HIGH / 8 MEDIUM / 3 LOW + a "came back clean" section). No mega-refactor; B+ implement it phase-by-phase. H3 (four divergent stack detectors) flagged as a latent **bug**, not just debt. |
+| v35.B | ☐ | **Shared HTTP layer + transient/permanent taxonomy (H4 + H7).** New `_httpapi.py` (base client / `managed_client()` ctx + parameterized `raise_for`) collapsing ~45 close-dance repetitions across 6 provider clients; base `TransientHTTPError`/`PermanentHTTPError` + body-aware `classify(status, body)` so the `↷`/`✗` color-code rule is enforceable fleet-wide. Foundational — enables H6's OpenAI classification. |
+| v35.C | ☐ | **Stack-detector consolidation (H3 — the bug).** Make `stack_classifier.classify_stack` the literal single source the docs already claim; `stack_translate.detect_stack` + `bootstrap.detect_stack_from_pkg` call it; extract shared `_merged_deps`/`_read_pkg`. Fixes the four-detectors-can-disagree hazard. |
+| v35.D | ☐ | **Silent-swallow fixes (H6) + bs4 wrap.** Capture swallowed causes into status/error fields (`diagnose.py`, `research_gates.py`, `decide.py`, `content_derive.py`); let missing-key config errors surface instead of presenting as "no results." Wrap the 3 unwrapped `bs4` lazy imports in SEO checks. Runtime-confirm H6 reachability first. |
+| v35.E | ☐ | **`deploy_pipeline.py` extraction (H2).** Extract `_deploy_cf_unified`'s inlined steps 0–7 into `_deploy_stepN_*(*, ctx)` with a `DeployContext` dataclass; relocate tail steps 8/9/10. **Gated by** a new ADR-0015 idempotency pytest harness (each step re-invoked against completed state asserts no write). Driver shrinks to ~60 lines. |
+| v35.F | ☐ | **`cli.py` per-scope split (H1).** Split the 11k-line monolith into per-scope modules (`cli/project.py`, `cli/fleet.py`, `cli/new.py`, `cli/settings.py`, `cli/domain.py`, `cli/_render.py`) per the existing tracked-refactor plan; folds in the platform-name-enum-drift refactor. Last + biggest, but behavior-preserving moves once B–E have drawn the seams. |
+| v35.G | ☐ | **(Reactive) MEDIUM/LOW cleanup.** Remaining register items as they earn priority: menu/render-helper relocation, `host_classify.py`, `project_hosting_render` tests, dead-function deletion, lazy-import hoisting. Picked off opportunistically, not a blocking phase. |
 
 ### v36 — `new domain`: auction + expired/dropping-domain discovery *(DRAFT — captured 2026-06-06, not yet fleshed)*
 

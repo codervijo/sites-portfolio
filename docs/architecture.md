@@ -1647,12 +1647,11 @@ here so they don't get lost.
 
 ### `cli.py` monolith — split into scope-first modules
 
-**Current state.** `src/portfolio/cli.py` is **8,782 lines** as of
-2026-05-21 — 4× the next-largest module (`hosting.py` at 2,054).
-Nearly every phase touches it; today's bug-fix run alone hit four
-unrelated stretches (MENU_ITEMS at line 2079, Step 5.5 DNS purge at
-6263, HG-extra column at 7782, footer aggregation at 7943).
+**Current state.** `src/portfolio/cli.py` is **11,095 lines** as of
+2026-06-06 (was 8,782 on 2026-05-21) — 5× the next-largest module
+(`hosting.py` at 2,054). Nearly every phase touches it.
 Grep+offset Read is the only navigation that works at this size.
+See the v35 register below — this is finding H1, the largest lever.
 
 **Proposed split.** Mirrors the existing scope-first CLI structure
 (`project` / `fleet` / `new` / `settings`):
@@ -1718,6 +1717,48 @@ Low risk per-file but breadth is wide.
 candidate refactor (see §10 Research module risks — rate-limit
 handling differs by provider) but not scheduled. Trigger: a third
 LLM provider lands.
+
+### v35 — code-smell + tech-debt audit register (2026-06-06)
+
+Output of the v35.A audit pass (four parallel sweeps: monolith
+structure, duplication, error/import hygiene, dead-code/coverage).
+All findings cross-verified against real call sites. This is the
+prioritized debt register; v35.B+ implement it. Static read —
+severities assume the failure mode is reachable in normal use
+(confirm H6 at runtime before fixing).
+
+**🔴 HIGH**
+
+| ID | Problem | Anchor | Fix |
+|---|---|---|---|
+| H1 | `cli.py` 11,095-line god-module (60+ command bodies + ~80 helpers + renderers + pipeline) | `cli.py:1` | Split into per-scope modules (see the cli.py-monolith entry above); largest lever, unblocks the rest. |
+| H2 | `_deploy_cf_unified` is a single **1,073-line** function — steps 0–7 inlined, ~15 locals threaded | `cli.py:6417` | Extract `_deploy_stepN_*(*, ctx)` into `deploy_pipeline.py` w/ a `DeployContext` dataclass; tail steps 8/9/10 (`:7493-8505`) move wholesale. Gate with an ADR-0015 idempotency pytest. |
+| H3 | **Latent bug:** four stack detectors with copy-pasted dep-merge that can *disagree* on the same repo | `stack_classifier.py:84`, `stack_translate.py:85`, `bootstrap.py:1746`, `check_151` | Make `stack_classifier.classify_stack` the literal single source; others call it. Extract shared `_merged_deps`/`_read_pkg`. |
+| H4 | httpx client boilerplate (`_client` reuse, `own_client` close-dance ×45, `_raise_for_status`) duplicated across 6 provider clients | `cloudflare.py:83`, `vercel.py:62`, `ga4_admin.py:145`, `gsc_admin.py:201`, `godaddy.py:28` | Shared `_httpapi.py`: base client / `managed_client()` ctx + parameterized `raise_for(resp, what)`. |
+| H5 | Two near-identical Google OAuth flows (GA4 vs GSC), line-for-line; diverge on token path | `ga4_admin.py:70-123`, `gsc.py:44-78` | Shared `google_oauth.py` — `oauth_credentials(config_dir, scopes, *, force)` + `save_token`. |
+| H6 | **Silent `except` swallows** mask operator-visible failures (load fail ≡ "absent"; missing key ≡ "no results") | `diagnose.py:292,305,319`; `research_gates.py:814,822`; `decide.py:122,182`; `content_derive.py:228` | Capture cause into a status/error field; let config errors propagate or return a typed sentinel. |
+| H7 | No shared transient-vs-permanent HTTP taxonomy — 6 ad-hoc encodings across 108 `raise_for_status` sites | repo-wide | Base `TransientHTTPError`/`PermanentHTTPError` + one body-aware `classify(status, body)`. Makes the `↷`/`✗` color-code rule fleet-wide. Pairs w/ H4. |
+
+**🟡 MEDIUM**
+
+- `new domain` menu/decide engine (~1,400 lines) embedded in cli.py despite existing `menu.py`/`decide.py` — `cli.py:2128-3586`.
+- bootstrap/validate render+resolve helpers inline beside their modules — `cli.py:3588`, `:4774`, `:5331-6105` → `bootstrap_render.py`/`research_render.py`.
+- `project fix` engine logic stranded in cli.py — `cli.py:8512`, `:8793` → `fix_helpers.py` (`fleet fix` already delegates).
+- Parked/provider host classification reimplemented 3× — `check.py:17`, `check_143:76`, `diagnose.py:73` → shared `host_classify.py`.
+- `bs4` lazy-imported unwrapped in 3 SEO-check paths — `checks/seo/_live.py:381`, `__init__.py:55`, `check_095:69` → wrap per `gtrends.py:130`.
+- `availability.py` RDAP broad excepts collapse transient vs permanent — `:199,328,334`.
+- `project_hosting_render.py` (298 loc) has no real test coverage → add `test_project_hosting_render.py`.
+- Idempotent "already exists / 409 / get-then-put" handling scattered w/ provider magic values (CF `8000018`, gh 422) → documented `idempotent_create(probe, create)` helper.
+
+**⚪ LOW / note-only**
+
+- Dead: `fix_registry.py:96 all_fixable_check_ids` (0 refs), `data.py:362 domain_to_registrar` (docs-only) → delete.
+- Unwrapped lazy imports of core deps (httpx/rich/dotenv/tomli_w) — conformance only; hoist to top-level.
+- 191 intra-package lazy imports dodging circular imports — module-graph entanglement (esp. heavy `serp.py`); track, don't churn.
+
+**✅ Clean (no action):** no real TODO/FIXME debt markers (the "33" were `[[todo]]` feature code + `G-XXX` placeholders); dead code well-pruned (v15.K left no residue); `ns_matches`/`_dig`/`_probe_apex_live` confirmed single-source.
+
+**Phasing.** v35.B `_httpapi.py` + HTTP taxonomy (H4+H7) → v35.C stack-detector consolidation (H3, the bug) → v35.D silent-swallow fixes (H6) + bs4 wrap → v35.E `deploy_pipeline.py` extraction (H2, gated by idempotency pytest) → v35.F `cli.py` per-scope split (H1, last — behavior-preserving moves once seams are clean). The existing platform-name-enum-drift refactor (above) folds naturally into v35.F.
 
 ---
 
