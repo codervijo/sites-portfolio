@@ -79,6 +79,7 @@ class StreamEvent:
     kind: Literal["tool_use", "text", "result", "other"]
     fingerprint: str | None = None
     cost_usd: float | None = None
+    is_error: bool | None = None   # set on the terminal `result` event
 
 
 @dataclass
@@ -220,7 +221,8 @@ def parse_stream_line(line: str) -> StreamEvent | None:
     if t == "result":
         cost = obj.get("total_cost_usd")
         return StreamEvent("result", None,
-                           float(cost) if cost is not None else None)
+                           float(cost) if cost is not None else None,
+                           is_error=bool(obj.get("is_error")))
     if t == "assistant":
         content = (obj.get("message") or {}).get("content") or []
         for block in content:
@@ -421,11 +423,16 @@ def run_delegate(domain: str, request: str, *,
     status: DelegateStatus = "done"
     reason = "agent finished within bounds"
 
+    saw_result = False
+    result_is_error = False
     backend.start(site_dir)
     try:
         for raw in backend.stream(prompt):
             now = clock()
             event = parse_stream_line(raw) if raw else None
+            if event is not None and event.kind == "result":
+                saw_result = True
+                result_is_error = bool(event.is_error)
             net = diff_sampler(site_dir)
             kill = sup.tick(now, net, event)
             if kill is not None:
@@ -438,6 +445,19 @@ def run_delegate(domain: str, request: str, *,
             backend.kill()
         except Exception:
             pass
+
+    # Honesty: stream-EOF is NOT success. Trust the terminal `result`
+    # event — a run that produced no result (the agent never really ran;
+    # auth/exec failure inside the sandbox) or an errored result must not
+    # report `done`. (Only re-judge the natural-end path; a supervisor kill
+    # already owns the status.)
+    if status == "done":
+        if not saw_result:
+            status, reason = ("error",
+                              "agent produced no result — it likely never ran "
+                              "(sandbox/auth failure). Nothing was changed.")
+        elif result_is_error:
+            status, reason = "error", "agent reported an error result"
 
     return DelegateResult(
         status=status,
@@ -471,17 +491,30 @@ class DockerBackend:
     operator's machine — exercised end-to-end there, not in unit tests
     (which drive `run_delegate` via a fake backend)."""
 
+    # Where the host's claude auth is mounted inside the container. NOT
+    # `/root` — claude refuses `--dangerously-skip-permissions` as root, so
+    # the agent runs as the host user with HOME here (see `stream`).
+    _HOME = "/cc"
+
     def __init__(self, domain: str, *, image: str = "node:20-bookworm",
                  docker_cmd: list[str] | None = None,
                  budget_usd: float = 3.0, poll_s: float = 2.0,
-                 claude_home: Path | None = None):
+                 claude_home: Path | None = None,
+                 claude_json: Path | None = None):
+        import os
         safe = domain.replace(".", "-").replace("/", "-")
         self.container = f"lamill-delegate-{safe}"
         self.image = image
         self.docker = docker_cmd or ["docker"]
         self.budget_usd = budget_usd
         self.poll_s = poll_s
+        # Both halves of claude's on-disk state must be mounted: the
+        # `~/.claude` directory AND the `~/.claude.json` config file (which
+        # holds account/auth). Mounting only the dir leaves claude
+        # unconfigured → "config file not found" → it never runs.
         self.claude_home = claude_home or (Path.home() / ".claude")
+        self.claude_json = claude_json or (Path.home() / ".claude.json")
+        self._uid, self._gid = os.getuid(), os.getgid()
         self._proc: subprocess.Popen | None = None
         self._started = False
 
@@ -495,14 +528,16 @@ class DockerBackend:
         run_args = [
             "run", "-d", "--name", self.container, "--network=host",
             "-v", f"{site_dir}:/work",
-            "-v", f"{self.claude_home}:/root/.claude",
+            "-v", f"{self.claude_home}:{self._HOME}/.claude",
+            "-v", f"{self.claude_json}:{self._HOME}/.claude.json",
             "-w", "/work", self.image, "tail", "-f", "/dev/null",
         ]
         r = self._run(run_args)
         if r.returncode != 0:
             raise RuntimeError(f"container start failed: {r.stderr.strip()}")
         self._started = True
-        # Ensure claude is available inside the sandbox (install-on-start).
+        # Install claude as root (npm -g needs it); the agent itself runs as
+        # the host user (see `stream`).
         self._run(["exec", self.container, "sh", "-lc",
                    "command -v claude >/dev/null 2>&1 || "
                    "npm i -g @anthropic-ai/claude-code >/dev/null 2>&1"],
@@ -511,7 +546,13 @@ class DockerBackend:
     def stream(self, prompt: str) -> Iterator[str]:
         import select
         cmd = self.docker + [
-            "exec", self.container, "claude", "-p", prompt,
+            "exec",
+            # Run as the host user (mounts are host-owned + claude refuses
+            # skip-permissions as root), with HOME pointing at the mounted
+            # claude config.
+            "--user", f"{self._uid}:{self._gid}",
+            "-e", f"HOME={self._HOME}",
+            self.container, "claude", "-p", prompt,
             "--output-format", "stream-json", "--verbose",
             "--allowedTools", "Read Write Edit Glob Grep Bash",
             "--dangerously-skip-permissions",   # safe: disposable sandbox

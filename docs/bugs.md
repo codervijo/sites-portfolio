@@ -74,6 +74,8 @@ when applicable. Don't delete.
 - **Where (guess)** — `src/portfolio/delegate.py` `run_delegate` (the `else: status="done"` natural-end path) + `DockerBackend.stream`/`start` (claude install/auth in-container). Honesty gap mirrors ADR-0022.
 - **Severity** — `major` (false-green defeats the verify posture; surfaced before v33.B is committed).
 - **Notes** — Fix in v33.B before commit: parse the terminal `result` event (`is_error`/subtype/`total_cost_usd`), and treat `$0.00` + zero net new changes as `✗`/`↷`, not `done`. Also confirm the in-container claude actually authenticates against the mounted `~/.claude` (root vs non-root home path) and that `--output-format stream-json --verbose` emits the expected events. The sandbox lifecycle itself (container up, mount, supervisor, clean-kill, diff render) worked.
+- **Root cause (confirmed live)** — two issues: (1) the container ran as **root**, and claude refuses `--dangerously-skip-permissions` as root → it exited immediately ($0.00, no work); (2) only `~/.claude` (dir) was mounted, not `~/.claude.json` (the auth/config file) → "config file not found." Fix: mount both at a non-root `HOME=/cc` and run the claude exec as the **host user** (`--user uid:gid`). Honesty layer added independently: `run_delegate` now requires a non-error terminal `result` event for `done` (no result ⇒ `error`).
+- **Fixed in** — v33.B (host-user exec + both `~/.claude` + `~/.claude.json` mounts + result-event honesty); live-validated 2026-06-06 (file actually created, honest `✓`).
 
 ### 2026-06-06 — pre-existing test failure: `test_check_143_deploy_drift::test_fail_when_declared_vercel_but_actual_is_wordpress`
 

@@ -334,3 +334,29 @@ def test_run_delegate_backend_error_is_caught(site):
     assert res.status == "error"
     assert "boom" in res.reason
     assert be.killed >= 1                   # still torn down
+
+
+def test_run_delegate_no_result_event_is_error_not_done(site):
+    """The v33.B false-green: the agent never really ran (no `result`
+    event) → must be `error`, never a green `done`."""
+    line = '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"a"}}]}}'
+    be = FakeBackend([line])               # tool_use but NO result event
+    res = run_delegate("example.com", "x", backend=be,
+                       clock=_clock([0, 1, 2]), sites_root=site.parent)
+    assert res.status == "error"
+    assert "no result" in res.reason
+
+
+def test_run_delegate_errored_result_is_error(site):
+    be = FakeBackend(['{"type":"result","is_error":true,"total_cost_usd":0.04}'])
+    res = run_delegate("example.com", "x", backend=be,
+                       clock=_clock([0, 1, 2]), sites_root=site.parent)
+    assert res.status == "error"
+    assert res.cost_usd == pytest.approx(0.04)
+
+
+def test_parse_result_is_error_flag():
+    ev = parse_stream_line('{"type":"result","is_error":true,"total_cost_usd":0.1}')
+    assert ev.kind == "result" and ev.is_error is True
+    ev2 = parse_stream_line('{"type":"result","total_cost_usd":0.1}')
+    assert ev2.is_error is False
