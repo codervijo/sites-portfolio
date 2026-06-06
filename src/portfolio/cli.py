@@ -9910,9 +9910,10 @@ def fleet_sync(
     ),
     refresh: bool = typer.Option(
         False, "--refresh",
-        help="v15.F — pull live Porkbun domain list via API (writes data/domains/porkbun.csv) "
-             "before merging. GoDaddy/Namecheap CSVs remain manual until those registrars' "
-             "account-API setup lands.",
+        help="v15.F — pull live Porkbun domain list + v31.B GoDaddy inventory "
+             "via API (writes data/domains/{porkbun,godaddy}.csv) before "
+             "merging. Namecheap CSV remains manual until its account-API "
+             "setup lands.",
     ),
     watch: bool = typer.Option(
         False, "--watch",
@@ -9927,7 +9928,8 @@ def fleet_sync(
     """Rebuild data/portfolio.json from registrar CSVs.
 
     Default: read existing CSVs and merge. `--refresh-rdap` adds the
-    domain-age fetch. `--refresh` pulls live from Porkbun first.
+    domain-age fetch. `--refresh` pulls live from Porkbun + GoDaddy first
+    (both registrars' APIs; Namecheap stays manual).
     `--watch` runs continuously, re-merging on CSV change.
     """
     if refresh:

@@ -1112,7 +1112,7 @@ steps. Assessed 2026-05-30 while scoping cross-tool automation.
 | **Vercel** | REST API (`vercel.py` — project/domain lookup, add-domain, redirect config) | `vercel` **CLI** subprocess (`vercel deploy --prod`, v11.M); relies on Vercel git-integration auto-build, not REST deployments API | **Partial** — API config, CLI deploy |
 | **Porkbun** | REST API (NS read) | REST API (NS push — `getNs` / `updateNs`) | **API-driven** (registrar role) |
 | **GoDaddy** | Management API (`godaddy.py` — list/detail, inventory refresh → `godaddy.csv`, NS read) | REST API (NS push — `get_nameservers` / `set_nameservers` via PUT `/v1/domains/{domain}`; `new deploy` step 4, symmetric with Porkbun) | **API-driven** (registrar role; v31) |
-| **Namecheap** | — | Manual | **Not API-driven** (deferred, same as GoDaddy) |
+| **Namecheap** | — | Manual | **Not API-driven** (deferred; only registrar still manual after v31 brought GoDaddy onto the API) |
 
 **Deferred — full-API Vercel deploy path.** The Vercel deploy is
 CLI-driven (`vercel deploy --prod`), not REST like the Cloudflare path.
