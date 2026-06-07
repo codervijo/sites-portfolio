@@ -931,6 +931,16 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-06-06 — `new deploy` Step 9 runs GSC verify/sitemap against un-propagated DNS + false-greens a deferred sitemap as "submitted" (mathbloom.xyz)
+
+- **Repro** — `lamill new deploy mathbloom.xyz` (no `--watch`) right after the Step 4 NS cutover, before delegation propagated (Step 8: `↷ no DNS answer yet`). Step 9 ran anyway.
+- **Expected** — Step 9 (GSC verify + sitemap) needs the deploy reachable; on un-propagated DNS it should defer (transient `↷`) and let the idempotent re-run complete it (ADR-0015). Nothing should be reported submitted that wasn't (ADR-0022 honesty).
+- **Actual** — two issues. (1) Without `--watch`, Step 9 was gated only on the watch result, so it ran unconditionally even when Step 8 reported the apex unreachable — burning a GSC verify-poll and emitting a red `✗ verify_domain (DNS_TXT) failed` for a transient state. (2) `_deploy_step9_gsc` returned `"created"` for *both* "sitemap submitted" and "sitemap deferred"; the summary then printed `✓ GSC: … sitemap submitted` even when the sitemap HEAD-probe failed and submission was deferred (false-green in the verify-OK-but-sitemap-unreachable window).
+- **Where** — `cli.py:_deploy_cf_unified` (Step 8/9 gating + GSC summary block) + `cli.py:_deploy_step9_gsc` (deferred return status) + `cli.py:_deploy_step8_live_probe`.
+- **Severity** — `major` (false-green violates the ADR-0022 deploy-verification-honesty posture; the premature GSC verify is noisy but the sitemap *submission* was already correctly guarded by the v32.G HEAD probe, so no bad sitemap was actually planted in GSC).
+- **Notes** — Fix: `_deploy_step8_live_probe` now returns the liveness bool; Step 9 is gated on a confirmed-live apex on *both* the `--watch` (`watch_result == "live"`) and no-watch (Step 8 probe) paths → `↷ deferred` instead of running. `_deploy_step9_gsc` returns distinct `created:sitemap_deferred` / `already-registered:sitemap_deferred` statuses, and the summary renders them as `↷ … sitemap deferred — re-run once live` (no "submitted" claim). Also dropped a dead `skipped:watch_` summary branch. 6 tests (4 Step-8 gate + 2 updated deferred-status asserts); deploy/gsc nets green (530). Surfaced during the v35.A audit / mathbloom.xyz deploy.
+- **Validated** — needs operator validation against a real fresh deploy (re-run after propagation should flip the deferred sitemap to submitted). Suite-green only so far.
+
 ### 2026-06-06 — `new deploy` crashes with a raw `httpx.ReadTimeout` traceback when CF Pages-project create times out
 
 - **Repro** — `lamill new deploy retouchlint.com --yes --watch`; Step 5 (`create_pages_project_with_git`) POST to `/accounts/{id}/pages/projects` hit a read timeout.

@@ -7432,15 +7432,19 @@ def _deploy_cf_unified(
             f"(not 'live'). Re-run [cyan]lamill new deploy {domain} --yes[/] "
             f"once the deploy resolves to exercise this step."
         )
+        apex_live = False
     else:
-        _deploy_step8_live_probe(domain=domain, dry_run=dry_run)
+        apex_live = _deploy_step8_live_probe(domain=domain, dry_run=dry_run)
 
     # --- Step 9: GSC property + sitemap (v24.C / v25.C) -----------------------
-    # Step 9 depends on the file/TXT being reachable to Google's fetcher,
-    # so on a fresh deploy where DNS hasn't propagated it'll fail. With
-    # --watch (after watch_result == "live"), DNS IS resolved and Step 9
-    # can verify successfully. Without --watch, runs anyway; soft-fail
-    # behavior preserved (deploy continues even if Step 9 reports issues).
+    # Step 9 (GSC verify + sitemap submit) needs the deploy reachable to
+    # Google's fetcher. Gate it on a confirmed-live apex (bug log 2026-06-06):
+    #   - --watch path: liveness is `watch_result == "live"`.
+    #   - no-watch path: liveness is Step 8's probe (`apex_live`).
+    # Running it against un-propagated DNS just burns a GSC verify-poll and
+    # emits a scary ✗ for a transient state. Deferred → the idempotent
+    # re-run completes it once live (ADR-0015). Honesty: nothing is reported
+    # submitted that wasn't (no false-green).
     if watch_result is not None and watch_result != "live":
         console.print(f"\n[bold]9. GSC property + sitemap[/] [dim]({domain})[/]")
         console.print(
@@ -7449,6 +7453,15 @@ def _deploy_cf_unified(
             f"re-run once live."
         )
         gsc_status, gsc_detail = (f"skipped:watch_{watch_result}", "")
+    elif not apex_live:
+        console.print(f"\n[bold]9. GSC property + sitemap[/] [dim]({domain})[/]")
+        console.print(
+            f"  [yellow]↷[/] deferred — apex not serving {domain} yet "
+            f"(NS/SSL still settling). GSC verification + sitemap need the "
+            f"deploy reachable; re-run [cyan]lamill new deploy {domain} --yes[/] "
+            f"once live."
+        )
+        gsc_status, gsc_detail = ("skipped:not_live", "")
     else:
         gsc_status, gsc_detail = _deploy_step9_gsc(
             domain=domain, zone=zone, project_dir=project_dir,
@@ -7470,6 +7483,19 @@ def _deploy_cf_unified(
             f"[green]✓[/] GSC: [cyan]sc-domain:{domain}[/] verified · "
             f"property added · sitemap submitted"
         )
+    elif gsc_status == "created:sitemap_deferred":
+        # Honesty (bug log 2026-06-06): verify+add succeeded but the
+        # sitemap was NOT submitted (URL unreachable) — don't claim it was.
+        console.print(
+            f"[yellow]↷[/] GSC: [cyan]sc-domain:{domain}[/] verified · "
+            f"property added · [yellow]sitemap deferred[/] — re-run "
+            f"[cyan]lamill new deploy {domain} --yes[/] once the sitemap is live"
+        )
+    elif gsc_status == "already-registered:sitemap_deferred":
+        console.print(
+            f"[yellow]↷[/] GSC: [cyan]sc-domain:{domain}[/] already verified + "
+            f"added · [yellow]sitemap deferred[/] — re-run once live"
+        )
     elif gsc_status == "already-registered":
         console.print(
             f"[green]✓[/] GSC: [cyan]sc-domain:{domain}[/] {gsc_detail}"
@@ -7482,11 +7508,6 @@ def _deploy_cf_unified(
         console.print(
             f"[red]✗[/] GSC: {gsc_status[len('failed:'):]}"
         )
-    elif gsc_status.startswith("skipped:watch_"):
-        # Watch returned non-live → Steps 8+9 were skipped. Renderer
-        # was already handled by the inline "skipped — watch returned X"
-        # message above; nothing additional to add here.
-        pass
     console.print("")
 
 
@@ -7757,16 +7778,20 @@ def _porkbun_forwarding_preflight(
     console.print(f"  [green]✓[/] cleared {len(apex)} apex URL forward(s)")
 
 
-def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> None:
+def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> bool:
     """v15.I — single HTTP HEAD probe of `https://<domain>/`. Soft-warns
     on non-2xx or connection error (expected on fresh deploys where DNS
     / SSL hasn't fully propagated). Extracted from inline Step 8 code
     2026-05-23 PM to enable `--watch`-mode reordering (run after watch
-    confirms live, not before)."""
+    confirms live, not before).
+
+    Returns True when the apex is confirmed serving this site (or under
+    --dry-run), False otherwise. The caller gates Step 9 on this — GSC
+    verify + sitemap submit need the deploy reachable (bug log 2026-06-06)."""
     console.print(f"\n[bold]8. Live probe[/] [dim](https://{domain}/)[/]")
     if dry_run:
         console.print("  [dim]would: GET https://<domain>/[/]")
-        return
+        return True
     # v32.B — "live" means the apex serves THIS site, not just any 200.
     # A 3xx that lands on a parking/forwarder host (e.g. Porkbun URL
     # Forwarding → l.ink) is NOT live, even though the chain ends 200.
@@ -7790,6 +7815,7 @@ def _deploy_step8_live_probe(*, domain: str, dry_run: bool) -> None:
             f"  [yellow]↷[/] {token} — may indicate NS propagation in flight "
             "or SSL not yet provisioned. Re-probe in 5-30 min."
         )
+    return is_live
 
 
 def _porkbun_api_access_help(domain: str) -> str:
@@ -8300,10 +8326,13 @@ def _deploy_step9_gsc(
             f"[dim](CHECK_063 covers /sitemap.xml presence; re-run "
             f"deploy after sitemap goes live)[/]"
         )
-        # Still count as success for the verify+add half.
+        # Verify+add succeeded, but the sitemap was NOT submitted — return a
+        # distinct status so the summary doesn't false-green "sitemap
+        # submitted" (bug log 2026-06-06). The idempotent re-run submits it
+        # once the sitemap URL is reachable.
         if newly_added:
-            return ("created", "verified + added, sitemap deferred")
-        return ("already-registered", "already verified + added (sitemap deferred)")
+            return ("created:sitemap_deferred", "verified + added, sitemap deferred")
+        return ("already-registered:sitemap_deferred", "already verified + added (sitemap deferred)")
 
     try:
         newly_submitted = gsc_admin.submit_sitemap(domain, sitemap_url)

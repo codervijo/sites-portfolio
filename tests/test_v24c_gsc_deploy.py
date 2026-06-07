@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from portfolio import cloudflare, gsc_admin
-from portfolio.cli import _deploy_step9_gsc
+from portfolio.cli import _deploy_step8_live_probe, _deploy_step9_gsc
 from portfolio.cloudflare import DnsRecord, ZoneInfo
 
 
@@ -309,7 +309,8 @@ def test_sitemap_404_defers_submission(
     status, detail = _deploy_step9_gsc(
         domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
-    assert status == "created"
+    # Distinct status so the summary doesn't false-green "sitemap submitted".
+    assert status == "created:sitemap_deferred"
     assert "sitemap deferred" in detail
     assert submit_calls["n"] == 0
 
@@ -336,8 +337,42 @@ def test_sitemap_network_error_defers_submission(
     status, _ = _deploy_step9_gsc(
         domain="example.com", zone=stub_zone, project_dir=tmp_path, dry_run=False, skip_gsc=False,
     )
-    assert status == "created"
+    assert status == "created:sitemap_deferred"
     assert submit_calls["n"] == 0
+
+
+# ---- Step 8 live-probe gate (bug log 2026-06-06) ------------------
+# Step 9 is gated on a live apex; Step 8 returns the liveness signal.
+
+
+def test_step8_returns_true_when_apex_live(monkeypatch):
+    monkeypatch.setattr(
+        "portfolio.cli._probe_apex_live",
+        lambda domain, **kw: (True, "200", "serving"),
+    )
+    assert _deploy_step8_live_probe(domain="example.com", dry_run=False) is True
+
+
+def test_step8_returns_false_when_no_dns(monkeypatch):
+    # NS not propagated → no DNS answer → not live → Step 9 must defer.
+    monkeypatch.setattr(
+        "portfolio.cli._probe_apex_live",
+        lambda domain, **kw: (False, "DNS", ""),
+    )
+    assert _deploy_step8_live_probe(domain="example.com", dry_run=False) is False
+
+
+def test_step8_returns_false_when_forwarder(monkeypatch):
+    monkeypatch.setattr(
+        "portfolio.cli._probe_apex_live",
+        lambda domain, **kw: (False, "forwarder", "l.ink"),
+    )
+    assert _deploy_step8_live_probe(domain="example.com", dry_run=False) is False
+
+
+def test_step8_dry_run_returns_true(monkeypatch):
+    # dry-run must not gate out Step 9's "would" path.
+    assert _deploy_step8_live_probe(domain="example.com", dry_run=True) is True
 
 
 # ---- new_deploy command surface -----------------------------------
