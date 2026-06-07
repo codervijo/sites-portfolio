@@ -834,3 +834,98 @@ def _render_page_2_opportunities_section(p2: list, console) -> None:
         short_url = url if len(url) <= 50 else url[:47] + "…"
         t.add_row(site, short_url, f"{imp:,}", f"{pos:.1f}")
     console.print(t)
+
+
+# v35.F incr 6 — Google Trends payload renderer (the `new trends` output),
+# extracted from cli.py. console-as-param convention. The `new trends`
+# command callback stays in cli.py and calls _render_trends(payload, console).
+def _render_trends(payload, console) -> None:
+    """Render a `TrendsPayload` to the console — interest-over-time
+    sparkline table + related queries (top + rising)."""
+    from .gtrends import payload_age_hours, DEFAULT_TTL_HOURS
+
+    # 2026-05-22 — stale-cache warning header. Payloads returned via
+    # L1 fallback (rate-limit recovery) can be arbitrarily old; surface
+    # the age so the operator knows the data is stale and can decide
+    # whether to wait + retry with --refresh.
+    age = payload_age_hours(payload)
+    is_stale = age is not None and age > DEFAULT_TTL_HOURS
+    if is_stale:
+        # Format age compactly: 47h or 3d.
+        if age < 48:
+            age_str = f"{int(age)}h"
+        else:
+            age_str = f"{int(age / 24)}d"
+        console.print(
+            f"\n[yellow]⚠[/]  [yellow]Stale cache fallback[/] — "
+            f"Google Trends rate-limited; serving last cached payload "
+            f"([yellow]{age_str} old[/]). Wait 10-30 min and retry "
+            f"with [cyan]--refresh[/] for fresh data."
+        )
+
+    console.print(
+        f"\n[bold]Google Trends:[/] [cyan]{payload.topic}[/] "
+        f"[dim]({payload.timeframe} · "
+        f"{payload.region or 'worldwide'} · "
+        f"fetched {payload.fetched_at[:19]})[/]"
+    )
+
+    if payload.interest_over_time:
+        console.print("\n[bold]Interest over time[/]")
+        values = [r["value"] for r in payload.interest_over_time]
+        peak = max(values) if values else 0
+        bar_width = 30
+
+        # 12m timeframe = ~52 weekly rows; sample down so the output
+        # fits on a screen. 5y = ~260 rows; same logic.
+        n_rows = len(payload.interest_over_time)
+        if n_rows <= 10:
+            sample_rows = payload.interest_over_time
+        else:
+            step = max(1, n_rows // 7)
+            indices = list(range(0, n_rows, step))
+            if (n_rows - 1) not in indices:
+                indices.append(n_rows - 1)
+            sample_rows = [payload.interest_over_time[i] for i in indices]
+
+        for row in sample_rows:
+            value = row["value"]
+            pct = value / peak if peak else 0
+            bar_len = int(pct * bar_width)
+            bar = "█" * bar_len + "·" * (bar_width - bar_len)
+            console.print(
+                f"  {row['date']}  [dim]{bar}[/]  [cyan]{value:>3}[/]"
+            )
+
+        # Trend-direction badge — last vs first.
+        first_val = payload.interest_over_time[0]["value"]
+        last_val = payload.interest_over_time[-1]["value"]
+        if first_val > 0:
+            change_pct = (last_val - first_val) / first_val * 100
+            if change_pct > 10:
+                arrow = "[green]rising[/]"
+            elif change_pct < -10:
+                arrow = "[red]declining[/]"
+            else:
+                arrow = "[yellow]flat[/]"
+            console.print(
+                f"  [dim]Direction over window:[/] {arrow} "
+                f"[cyan]{change_pct:+.0f}%[/]"
+            )
+    else:
+        console.print("\n[yellow]No interest-over-time data returned.[/]")
+
+    if payload.related_top:
+        console.print("\n[bold]Related queries — top[/]")
+        for r in payload.related_top[:10]:
+            console.print(f"  [cyan]{r['value']:>3}[/]  {r['query']}")
+
+    if payload.related_rising:
+        console.print("\n[bold]Related queries — rising[/]")
+        for r in payload.related_rising[:10]:
+            v = r["value"]
+            v_str = "↑↑" if v is None else f"+{v}%"
+            console.print(f"  [cyan]{v_str:>6}[/]  {r['query']}")
+
+    if not (payload.related_top or payload.related_rising):
+        console.print("\n[dim]No related-queries data returned.[/]")
