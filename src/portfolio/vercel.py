@@ -29,6 +29,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from . import _httpapi
+
 API_BASE = "https://api.vercel.com"
 HTTP_TIMEOUT = 15.0
 
@@ -37,8 +39,14 @@ class MissingCredentialsError(RuntimeError):
     """VERCEL_TOKEN not set in portfolio.env."""
 
 
-class VercelAPIError(RuntimeError):
-    """Non-success response from Vercel."""
+class VercelAPIError(_httpapi.HttpApiError):
+    """Non-success response from Vercel. Permanent by default; a 429 / 5xx
+    raises `VercelTransientError`."""
+
+
+class VercelTransientError(VercelAPIError, _httpapi.TransientHTTPError):
+    """A retryable Vercel failure (429 rate-limit / transient 5xx).
+    Subclasses `VercelAPIError` so existing handlers still catch it."""
 
 
 def _read_token() -> str:
@@ -77,13 +85,17 @@ def _client(token: str | None = None, *,
 
 
 def _raise_for_status(resp: httpx.Response, verb_url: str) -> None:
-    """Common error path — surface non-2xx with the API's error body
-    so debugging doesn't require log-spelunking."""
+    """Common error path — surface non-2xx with the API's error body so
+    debugging doesn't require log-spelunking. Picks transient (429 / 5xx)
+    vs permanent via the shared taxonomy so the failure reads `↷` vs `✗`."""
     if 200 <= resp.status_code < 300:
         return
-    raise VercelAPIError(
-        f"{verb_url} → HTTP {resp.status_code}: {resp.text[:400]}"
+    cls = (
+        VercelTransientError
+        if _httpapi.status_is_transient(resp.status_code)
+        else VercelAPIError
     )
+    raise cls(f"{verb_url} → HTTP {resp.status_code}: {resp.text[:400]}")
 
 
 # ---------- domain → project lookup ----------
@@ -116,10 +128,8 @@ def find_project_by_domain(
         page, or pagination overflows `max_pages` (defensive cap so
         the fixer can't hang on a misshaped response).
     """
-    own_client = client is None
-    c = _client(client=client)
     target = domain.lower()
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         until: int | None = None
         for _ in range(max_pages):
             params: dict = {"limit": page_size}
@@ -144,9 +154,6 @@ def find_project_by_domain(
             f"no Vercel project attaches {domain!r} "
             f"(searched up to {max_pages} pages of {page_size})"
         )
-    finally:
-        if own_client:
-            c.close()
 
 
 def _production_aliases(project: dict) -> list[str]:
@@ -187,13 +194,8 @@ def get_project_domain(
     Returns None when the domain isn't attached (HTTP 404). Raises
     `VercelAPIError` on any other non-200.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(f"/v9/projects/{project_id}/domains/{domain}")
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code == 404:
         return None
     _raise_for_status(resp, f"GET /v9/projects/{project_id}/domains/{domain}")
@@ -229,14 +231,9 @@ def update_domain_redirect(
         body["redirectStatusCode"] = status_code
     else:
         body["redirectStatusCode"] = None
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.patch(f"/v9/projects/{project_id}/domains/{domain}",
                        json=body)
-    finally:
-        if own_client:
-            c.close()
     _raise_for_status(
         resp,
         f"PATCH /v9/projects/{project_id}/domains/{domain}",
@@ -259,13 +256,8 @@ def add_domain_to_project(
     if redirect_to is not None:
         body["redirect"] = redirect_to
         body["redirectStatusCode"] = status_code
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(f"/v10/projects/{project_id}/domains", json=body)
-    finally:
-        if own_client:
-            c.close()
     _raise_for_status(resp, f"POST /v10/projects/{project_id}/domains")
 
 
@@ -273,12 +265,7 @@ def verify_token(*, client: httpx.Client | None = None) -> dict:
     """GET /v2/user — same probe `apikeys._probe_vercel` uses; returned
     here as a typed wrapper so the v26.D fixer can do its own pre-flight
     check before walking projects. Raises `VercelAPIError` on non-200."""
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get("/v2/user")
-    finally:
-        if own_client:
-            c.close()
     _raise_for_status(resp, "GET /v2/user")
     return resp.json()

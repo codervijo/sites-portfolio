@@ -14,10 +14,9 @@ def _client(handler):
 # ---- client construction (auth header) ----
 
 
-def test_own_client_carries_sso_key_header():
-    c, own = godaddy._client("K", "S", None)
+def test_build_client_carries_sso_key_header():
+    c = godaddy._build_client("K", "S")
     try:
-        assert own is True
         assert c.headers["Authorization"] == "sso-key K:S"
     finally:
         c.close()

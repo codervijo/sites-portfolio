@@ -16,32 +16,37 @@ from pathlib import Path
 
 import httpx
 
+from . import _httpapi
+
 API_BASE = "https://api.godaddy.com"
 _TIMEOUT = 15.0
 _PAGE_LIMIT = 100
 
 
-class GoDaddyError(RuntimeError):
-    """A GoDaddy API call failed (auth / rate-limit / unexpected status)."""
+class GoDaddyError(_httpapi.HttpApiError):
+    """A GoDaddy API call failed (auth / bad-request / unexpected status).
+    Permanent by default; a 429 rate-limit raises `GoDaddyTransientError`."""
 
 
-def _client(api_key: str, secret: str,
-            client: httpx.Client | None) -> tuple[httpx.Client, bool]:
-    """(client, owned) — reuse a caller-supplied client (tests) or build one."""
-    if client is not None:
-        return client, False
-    return (
-        httpx.Client(
-            base_url=API_BASE,
-            headers={"Authorization": f"sso-key {api_key}:{secret}",
-                     "Accept": "application/json"},
-            timeout=_TIMEOUT,
-        ),
-        True,
+class GoDaddyTransientError(GoDaddyError, _httpapi.TransientHTTPError):
+    """A retryable GoDaddy failure (429 rate-limit). Subclasses `GoDaddyError`
+    so existing `except GoDaddyError` handlers still catch it; the taxonomy
+    lets callers report `↷` + re-run (ADR-0015)."""
+
+
+def _build_client(api_key: str, secret: str) -> httpx.Client:
+    """Build an httpx.Client bound to the GoDaddy API. Lifecycle (close iff
+    owned) is handled by `_httpapi.managed_client` at the call site."""
+    return httpx.Client(
+        base_url=API_BASE,
+        headers={"Authorization": f"sso-key {api_key}:{secret}",
+                 "Accept": "application/json"},
+        timeout=_TIMEOUT,
     )
 
 
 def _raise_for(resp: httpx.Response, what: str) -> None:
+    """Typed non-2xx → permanent `GoDaddyError`, except 429 → transient."""
     if resp.status_code in (401, 403):
         raise GoDaddyError(
             f"{what}: {resp.status_code} — check GODADDY_API_KEY / "
@@ -49,7 +54,7 @@ def _raise_for(resp: httpx.Response, what: str) -> None:
             f"keys don't work against api.godaddy.com)"
         )
     if resp.status_code == 429:
-        raise GoDaddyError(f"{what}: 429 rate-limited — retry later")
+        raise GoDaddyTransientError(f"{what}: 429 rate-limited — retry later")
     if resp.status_code >= 400:
         raise GoDaddyError(f"{what}: HTTP {resp.status_code} {resp.text[:200]}")
 
@@ -60,8 +65,9 @@ def list_domains(*, api_key: str, secret: str,
     """All owned domains (summary records) via GET /v1/domains, marker-
     paginated. Each record carries at least `domain`, `status`, `expires`,
     `renewAuto`."""
-    c, own = _client(api_key, secret, client)
-    try:
+    with _httpapi.managed_client(
+        client, lambda: _build_client(api_key, secret)
+    ) as c:
         out: list[dict] = []
         marker: str | None = None
         while True:
@@ -80,23 +86,18 @@ def list_domains(*, api_key: str, secret: str,
             if not marker:
                 break
         return out
-    finally:
-        if own:
-            c.close()
 
 
 def get_domain(domain: str, *, api_key: str, secret: str,
                client: httpx.Client | None = None) -> dict:
     """Detail record for one domain via GET /v1/domains/{domain}
     (`expires`, `status`, `nameServers`, `renewAuto`, …)."""
-    c, own = _client(api_key, secret, client)
-    try:
+    with _httpapi.managed_client(
+        client, lambda: _build_client(api_key, secret)
+    ) as c:
         r = c.get(f"/v1/domains/{domain}")
         _raise_for(r, f"get domain {domain}")
         return r.json()
-    finally:
-        if own:
-            c.close()
 
 
 # ---- nameservers: get / set (v31.C — `new deploy` Step 4) ------------
@@ -125,13 +126,11 @@ def set_nameservers(domain: str, *, api_key: str, secret: str,
     failure. GoDaddy returns 200 with an empty body on success."""
     if not ns_list:
         raise GoDaddyError(f"refusing to set NS to empty list for {domain}")
-    c, own = _client(api_key, secret, client)
-    try:
+    with _httpapi.managed_client(
+        client, lambda: _build_client(api_key, secret)
+    ) as c:
         r = c.put(f"/v1/domains/{domain}", json={"nameServers": list(ns_list)})
         _raise_for(r, f"set nameservers {domain}")
-    finally:
-        if own:
-            c.close()
 
 
 # ---- inventory refresh → data/domains/godaddy.csv (v31.B) ------------
@@ -159,8 +158,9 @@ def fetch_inventory(api_key: str, secret: str, *,
     for the summary, falling back to `get_domain` for nameServers when the
     summary omits them. `active_only` (default) drops cancelled/expired
     domains — the account carries years of dead ones."""
-    c, own = _client(api_key, secret, client)
-    try:
+    with _httpapi.managed_client(
+        client, lambda: _build_client(api_key, secret)
+    ) as c:
         out: list[dict] = []
         for s in list_domains(api_key=api_key, secret=secret, client=c):
             dom = (s.get("domain") or "").strip()
@@ -184,9 +184,6 @@ def fetch_inventory(api_key: str, secret: str, *,
                 "nameServers": ns or [],
             })
         return out
-    finally:
-        if own:
-            c.close()
 
 
 def _apply_api_fields(row: dict, d: dict) -> None:

@@ -36,6 +36,7 @@ trade-offs were, and what the consequences are.
 | 0021 | GoDaddy Management API adopted for inventory (reverses the manual-CSV deferral) | Accepted | —         |
 | 0022 | Deploy verification must be honest — report only confirmed state, never false-green | Accepted | —         |
 | 0023 | `project delegate` — agent-authored changes run sandboxed in a container, supervised, verify-gated | Accepted | — |
+| 0024 | Provider HTTP clients share one lifecycle helper + one transient/permanent error taxonomy (`_httpapi`) | Accepted | — |
 
 ## When to write an ADR
 

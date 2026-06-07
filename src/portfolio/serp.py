@@ -40,6 +40,7 @@ from typing import Any, Callable
 
 import requests
 
+from . import _httpapi
 from .data import ROOT
 
 SERP_DIR = ROOT / "data" / "serp"
@@ -284,7 +285,9 @@ def _openai_api_key() -> str:
 # Pattern mirrors the v25.B-era retry approach (sequential intervals,
 # explicit budget). 5xx and 429 are transient; 4xx (other) is permanent.
 _OPENAI_RETRY_INTERVALS_S: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0)
-_OPENAI_RETRYABLE_STATUSES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+# Canonical retryable-status set lives in `_httpapi` (v35.B) — aliased here so
+# the OpenAI retry loop and the provider HTTP clients agree on what's transient.
+_OPENAI_RETRYABLE_STATUSES: frozenset[int] = _httpapi.RETRYABLE_STATUSES
 
 
 def call_openai(system: str, user: str, *, api_key: str,
