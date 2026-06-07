@@ -739,3 +739,98 @@ def _render_research_v2_full(payload: dict, console) -> None:
             )
         else:
             console.print(f"  [dim]LLM cost: ${total_usd:.4f}[/]")
+
+
+# v35.F incr 5 — fleet-aggregated SEO detail renderers (the `fleet seo --detail`
+# sections), extracted from cli.py. Converted to the console-as-param convention
+# used throughout this module. The `fleet seo` command callback stays in cli.py
+# and calls _render_fleet_seo_detail(only=..., console=console).
+def _render_fleet_seo_detail(*, only: str, console) -> None:
+    """v16.D — render fleet-aggregated top queries / top pages /
+    page-2 opportunities. Reads `gsc_rollup` aggregations across
+    every domain in scope."""
+    from .data import load_domains, load_plan
+    from .gsc_rollup import (
+        fleet_aggregated_top_pages,
+        fleet_aggregated_top_queries,
+        fleet_page_2_opportunities,
+    )
+
+    fleet_doms = [d.name for d in load_domains()]
+    # Honor the same scope as the upstream `check_seo` call.
+    if only and only != "all":
+        try:
+            plan = load_plan()
+            scope_doms = {
+                d for d, cat in plan.items()
+                if cat and cat.lower() == only.lower()
+            }
+            fleet_doms = [d for d in fleet_doms if d in scope_doms]
+        except Exception:
+            # Best-effort scope filter; fall through to full fleet.
+            pass
+
+    queries = fleet_aggregated_top_queries(fleet_doms, top_n=10)
+    pages = fleet_aggregated_top_pages(fleet_doms, top_n=10)
+    p2 = fleet_page_2_opportunities(fleet_doms, top_n=15)
+
+    console.print()
+    _render_top_queries_section(queries, console)
+    console.print()
+    _render_top_pages_section(pages, console)
+    console.print()
+    _render_page_2_opportunities_section(p2, console)
+    console.print(
+        "\n[dim]Source: per-domain GSC cache "
+        "(`data/gsc/<domain>/<UTC-today>.json`). "
+        "Populate via `lamill project seo <domain>`.[/]"
+    )
+
+
+def _render_top_queries_section(queries: list, console) -> None:
+    tag = "" if queries else " [dim](empty — no cached query data)[/]"
+    console.print(f"[bold]🔎 Top queries (fleet-aggregated, 28d){tag}[/]")
+    if not queries:
+        return
+    t = Table(show_header=True, header_style="bold", box=None,
+              padding=(0, 1))
+    t.add_column("Query")
+    t.add_column("Sites", justify="right")
+    t.add_column("Imp", justify="right")
+    t.add_column("Clicks", justify="right")
+    for key, imp, clicks, sites in queries:
+        t.add_row(key, str(sites), f"{imp:,}", f"{clicks:,}")
+    console.print(t)
+
+
+def _render_top_pages_section(pages: list, console) -> None:
+    tag = "" if pages else " [dim](empty — no cached page data)[/]"
+    console.print(f"[bold]📄 Top pages (fleet-aggregated, 28d){tag}[/]")
+    if not pages:
+        return
+    t = Table(show_header=True, header_style="bold", box=None,
+              padding=(0, 1))
+    t.add_column("URL")
+    t.add_column("Imp", justify="right")
+    t.add_column("Clicks", justify="right")
+    for url, imp, clicks in pages:
+        short_url = url if len(url) <= 60 else url[:57] + "…"
+        t.add_row(short_url, f"{imp:,}", f"{clicks:,}")
+    console.print(t)
+
+
+def _render_page_2_opportunities_section(p2: list, console) -> None:
+    tag = "" if p2 else " [dim](empty — no qualifying pages, pos 11-20 / imp ≥50)[/]"
+    console.print(f"[bold]💡 Page-2 opportunities (fleet-summed){tag}[/]")
+    if not p2:
+        return
+    t = Table(show_header=True, header_style="bold", box=None,
+              padding=(0, 1))
+    t.add_column("Site")
+    t.add_column("URL")
+    t.add_column("Imp", justify="right")
+    t.add_column("Pos", justify="right")
+    for site, url, imp, pos in p2:
+        short_url = url if len(url) <= 50 else url[:47] + "…"
+        t.add_row(site, short_url, f"{imp:,}", f"{pos:.1f}")
+    console.print(t)
