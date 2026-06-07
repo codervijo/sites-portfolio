@@ -16,6 +16,7 @@ from pathlib import Path
 
 import httpx
 
+from . import _httpapi
 from .data import ROOT
 
 CONFIG_DIR = Path.home() / ".config" / "portfolio" / "cloudflare"
@@ -31,18 +32,20 @@ class MissingCredentialsError(RuntimeError):
     rather than a hard error — operator can configure the token and retry."""
 
 
-class CloudflareAPIError(RuntimeError):
+class CloudflareAPIError(_httpapi.HttpApiError):
     """Non-success response from Cloudflare. Carries the API's `errors`
     array in the message so debugging doesn't require log-spelunking."""
 
 
-class CloudflareTransientError(CloudflareAPIError):
+class CloudflareTransientError(CloudflareAPIError, _httpapi.TransientHTTPError):
     """A network-level failure (read/connect timeout, transport error)
     talking to the CF API — as opposed to a CF *response* error. Transient
     and retryable: the deploy pipeline reports it as `↷` + re-run (ADR-0015
     idempotency), not as a permanent failure or a raw traceback. Subclasses
     `CloudflareAPIError` so existing `except CloudflareAPIError` handlers
-    still catch it; handlers that want to distinguish catch this first."""
+    still catch it; also a `_httpapi.TransientHTTPError` so `except
+    TransientHTTPError` catches it fleet-wide; handlers that want to
+    distinguish catch this first."""
 
 
 def _read_token() -> str:
@@ -128,13 +131,8 @@ def resolve_zone_id(domain: str, *,
     if domain in cache:
         return cache[domain]
 
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get("/zones", params={"name": domain})
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"GET /zones?name={domain} → HTTP {resp.status_code}: {resp.text[:300]}"
@@ -188,13 +186,8 @@ def verify_token(*, client: httpx.Client | None = None) -> dict:
     Cheaper than `GET /zones` for verification — `/user/tokens/verify`
     is the CF-documented endpoint for "does this token still work?"
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get("/user/tokens/verify")
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"GET /user/tokens/verify → HTTP {resp.status_code}: {resp.text[:300]}"
@@ -255,13 +248,8 @@ def purge_files(zone_id: str, urls: list[str], *,
             f"Refusing to purge {len(urls)} URLs in one call — CF caps "
             "at 30 per request. Split the list or rerun the check first."
         )
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(f"/zones/{zone_id}/purge_cache", json={"files": urls})
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"POST purge_cache → HTTP {resp.status_code}: {resp.text[:300]}"
@@ -285,13 +273,8 @@ def get_zone_setting(zone_id: str, setting_id: str, *,
     for boolean-shaped toggles; longer strings for SSL mode / minify
     settings). Raises `CloudflareAPIError` on non-200 or `success=false`.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(f"/zones/{zone_id}/settings/{setting_id}")
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"GET settings/{setting_id} → HTTP {resp.status_code}: {resp.text[:300]}"
@@ -313,16 +296,11 @@ def set_zone_setting(zone_id: str, setting_id: str, value: str, *,
     `success=false`. Returns None on success (caller can re-read via
     `get_zone_setting` to verify).
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.patch(
             f"/zones/{zone_id}/settings/{setting_id}",
             json={"value": value},
         )
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"PATCH settings/{setting_id} → HTTP {resp.status_code}: {resp.text[:300]}"
@@ -400,13 +378,11 @@ def probe_token_scopes(
     (CF permission hierarchy). Write-step 403s still surface
     distinctly during the pipeline.
     """
-    own_client = client is None
-    c = _client(client=client)
     missing: list[str] = []
     notes: list[str] = []
     pages_ok = zone_ok = account_ok = False
 
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         # Token alive.
         resp = c.get("/user/tokens/verify")
         if resp.status_code == 401:
@@ -460,9 +436,6 @@ def probe_token_scopes(
                 "Token should include 'Account Settings:Read' on the "
                 "Account scope."
             )
-    finally:
-        if own_client:
-            c.close()
 
     return TokenScopeReport(
         ok=(not missing),
@@ -537,14 +510,12 @@ def diagnose_token(*, client: httpx.Client | None = None) -> TokenDiagnostic:
     JSON) errors — auth failures land in the diagnostic itself
     (`valid=False`, token_status reflects the failure).
     """
-    own_client = client is None
-    c = _client(client=client)
     accounts: list[AccountDiag] = []
     zones: list[ZoneDiag] = []
     missing_account_perms: list[str] = []
     missing_zone_perms: list[tuple[str, str]] = []
 
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         # Token alive?
         verify_resp = c.get("/user/tokens/verify")
         if verify_resp.status_code == 401:
@@ -646,9 +617,6 @@ def diagnose_token(*, client: httpx.Client | None = None) -> TokenDiagnostic:
             missing_account_permissions=missing_account_perms,
             missing_zone_permissions=missing_zone_perms,
         )
-    finally:
-        if own_client:
-            c.close()
 
 
 # --- ZoneInfo + ensure_zone ------------------------------------------
@@ -676,9 +644,7 @@ def ensure_zone(domain: str, *,
     Creation: on cache+API miss, POST /zones with {name, account.id}
     if `account_id` provided; otherwise raise.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         try:
             zone_id = resolve_zone_id(domain, client=c)
             # Existing zone — fetch full record for NS + status.
@@ -694,9 +660,6 @@ def ensure_zone(domain: str, *,
                     ) from e
                 return _create_zone(domain, account_id, client=c)
             raise
-    finally:
-        if own_client:
-            c.close()
 
 
 def get_zone(zone_id: str, *,
@@ -709,13 +672,8 @@ def get_zone(zone_id: str, *,
     Returns ZoneInfo with `created=False`. Raises CloudflareAPIError
     on non-200.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         return _fetch_zone_record(zone_id, client=c, created=False)
-    finally:
-        if own_client:
-            c.close()
 
 
 def _fetch_zone_record(zone_id: str, *, client: httpx.Client,
@@ -834,13 +792,8 @@ def get_workers_service(name: str, *,
     as of Jan 2026. This helper only DETECTS existing Workers
     Services; cannot create new git-integrated ones from API.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(f"/accounts/{account_id}/workers/services/{name}")
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code == 404:
         return None
     if resp.status_code != 200:
@@ -892,9 +845,7 @@ def attach_workers_custom_domain(
     Returns True if PUT was issued + succeeded; False if the
     mapping was already present (GET-detected; PUT skipped).
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         # v15.Q — GET existing mappings; skip PUT if (hostname, service) present.
         list_resp = c.get(f"/accounts/{account_id}/workers/domains")
         if list_resp.status_code == 200:
@@ -915,9 +866,6 @@ def attach_workers_custom_domain(
                 "zone_id": zone_id,
             },
         )
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code not in (200, 201):
         raise CloudflareAPIError(
             f"PUT /workers/domains (service={service_name}, "
@@ -938,13 +886,8 @@ def get_pages_project(name: str, *,
                       account_id: str,
                       client: httpx.Client | None = None) -> PagesProject | None:
     """Idempotency probe. 404 → None; 200 → PagesProject; else raise."""
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(f"/accounts/{account_id}/pages/projects/{name}")
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code == 404:
         return None
     if resp.status_code != 200:
@@ -978,8 +921,6 @@ def create_pages_project_with_git(
     step at https://dash.cloudflare.com/?to=/:account/workers-and-pages/
     create/connect-to-git).
     """
-    own_client = client is None
-    c = _client(client=client)
     body = {
         "name": name,
         "production_branch": production_branch,
@@ -998,26 +939,24 @@ def create_pages_project_with_git(
             "destination_dir": destination_dir,
         },
     }
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         # Pages project creation can legitimately take >15s (CF provisions
         # the project + queues the first build), so give this POST a longer
         # ceiling than the default client timeout. A network timeout here is
         # transient — surface it as such, never as a raw traceback.
-        resp = c.post(
-            f"/accounts/{account_id}/pages/projects",
-            json=body,
-            timeout=60.0,
-        )
-    except (httpx.TimeoutException, httpx.TransportError) as e:
-        raise CloudflareTransientError(
-            f"CF API timed out creating Pages project '{name}' "
-            f"({type(e).__name__}). This is transient — the project may even "
-            f"have been created. Re-run `lamill new deploy {gh_repo} --yes` "
-            f"(idempotent; Step 5 detects an existing project/service)."
-        ) from e
-    finally:
-        if own_client:
-            c.close()
+        try:
+            resp = c.post(
+                f"/accounts/{account_id}/pages/projects",
+                json=body,
+                timeout=60.0,
+            )
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            raise CloudflareTransientError(
+                f"CF API timed out creating Pages project '{name}' "
+                f"({type(e).__name__}). This is transient — the project may "
+                f"even have been created. Re-run `lamill new deploy {gh_repo} "
+                f"--yes` (idempotent; Step 5 detects an existing project)."
+            ) from e
     if resp.status_code not in (200, 201):
         # Surface GitHub-App-missing errors with operator-actionable text.
         text_lower = resp.text.lower()
@@ -1058,9 +997,7 @@ def attach_pages_custom_domain(
     `hostname` isn't already in the list. Defensive against CF's
     undocumented idempotency behavior on duplicate POST.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         existing = get_pages_project(project_name, account_id=account_id, client=c)
         if existing is None:
             raise CloudflareAPIError(
@@ -1073,9 +1010,6 @@ def attach_pages_custom_domain(
             f"/accounts/{account_id}/pages/projects/{project_name}/domains",
             json={"name": hostname},
         )
-    finally:
-        if own_client:
-            c.close()
     # 409 → already attached in a race window — treat as success.
     if resp.status_code == 409:
         return False
@@ -1117,16 +1051,11 @@ def get_pages_domain_status(
     watch loop tell a stuck `pending-verification` (often the `1014`
     wrong-CNAME case) apart from a generic propagation timeout. Raises
     `CloudflareAPIError` on other non-2xx."""
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(
             f"/accounts/{account_id}/pages/projects/{project_name}"
             f"/domains/{hostname}"
         )
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code == 404:
         return None
     if resp.status_code != 200:
@@ -1151,16 +1080,11 @@ def delete_pages_custom_domain(
     against a corrected DNS record (the `--repair` path). `DELETE
     .../domains/{hostname}`. Returns True when deleted, False if it wasn't
     attached (404 — already absent, idempotent). Raises on other non-2xx."""
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.delete(
             f"/accounts/{account_id}/pages/projects/{project_name}"
             f"/domains/{hostname}"
         )
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code == 404:
         return False
     if resp.status_code not in (200, 204):
@@ -1195,16 +1119,11 @@ def trigger_pages_deployment(
     against a project that already has queued builds is harmless but
     adds to the queue.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(
             f"/accounts/{account_id}/pages/projects/{project_name}/deployments",
             json={"branch": branch},
         )
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code not in (200, 201):
         raise CloudflareAPIError(
             f"POST /pages/projects/{project_name}/deployments → "
@@ -1231,16 +1150,11 @@ def latest_deployment_status(
     "deploy"}. Returns `("", None, None)` if no deployments exist yet
     (e.g., create just queued one but it hasn't started).
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(
             f"/accounts/{account_id}/pages/projects/{project_name}/deployments",
             params={"page": 1, "per_page": 1},
         )
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"GET /pages/projects/{project_name}/deployments → "
@@ -1342,16 +1256,11 @@ def list_dns_records(
 ) -> list[DnsRecord]:
     """List DNS records in a zone. CF caps per_page at 50000 but our
     use case rarely exceeds 20 records per zone."""
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(
             f"/zones/{zone_id}/dns_records",
             params={"per_page": 100},
         )
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"GET /zones/{zone_id}/dns_records → HTTP {resp.status_code}: "
@@ -1393,9 +1302,7 @@ def create_dns_record(
     so callers can capture the assigned `record_id` (useful if they
     later need to clean up via `delete_dns_record`).
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(
             f"/zones/{zone_id}/dns_records",
             json={
@@ -1406,9 +1313,6 @@ def create_dns_record(
                 "proxied": proxied,
             },
         )
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"POST /zones/{zone_id}/dns_records ({type} {name}) → "
@@ -1434,13 +1338,8 @@ def delete_dns_record(
     client: httpx.Client | None = None,
 ) -> None:
     """Delete a single DNS record by id."""
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.delete(f"/zones/{zone_id}/dns_records/{record_id}")
-    finally:
-        if own_client:
-            c.close()
     if resp.status_code != 200:
         raise CloudflareAPIError(
             f"DELETE /zones/{zone_id}/dns_records/{record_id} → "
@@ -1501,9 +1400,7 @@ def probe_zone_write_capability(
     wide, but the specific zone isn't covered) at the cheapest moment,
     before Steps 5.5 / 9 attempt DNS writes mid-pipeline.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(
             f"/zones/{zone_id}/dns_records",
             json={
@@ -1546,9 +1443,6 @@ def probe_zone_write_capability(
             f"POST /zones/{zone_id}/dns_records (write-probe) → "
             f"HTTP {resp.status_code}: {resp.text[:300]}"
         )
-    finally:
-        if own_client:
-            c.close()
 
 
 def probe_zone_cache_purge(
@@ -1575,9 +1469,7 @@ def probe_zone_cache_purge(
       - HTTP 404 → zone not found; raises CloudflareAPIError.
       - Other → raises CloudflareAPIError.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(f"/zones/{zone_id}/purge_cache", json={"files": []})
         if resp.status_code == 403:
             return ZoneWriteProbe(
@@ -1600,9 +1492,6 @@ def probe_zone_cache_purge(
             f"POST /zones/{zone_id}/purge_cache (cache-purge probe) → "
             f"HTTP {resp.status_code}: {resp.text[:300]}"
         )
-    finally:
-        if own_client:
-            c.close()
 
 
 def probe_zone_settings_edit(
@@ -1630,9 +1519,7 @@ def probe_zone_settings_edit(
         bogus enum to a default; if it does, the probe needs to switch
         to a different setting before shipping).
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.patch(
             f"/zones/{zone_id}/settings/development_mode",
             json={"value": "invalid"},
@@ -1659,9 +1546,6 @@ def probe_zone_settings_edit(
             f"(zone-settings probe) → HTTP {resp.status_code}: "
             f"{resp.text[:300]}"
         )
-    finally:
-        if own_client:
-            c.close()
 
 
 def purge_conflicting_root_records(
@@ -1684,10 +1568,8 @@ def purge_conflicting_root_records(
     Token must have DNS:Edit on the zone (operator's "lamillio
     build token" has Zone-scope DNS:Edit on All Zones).
     """
-    own_client = client is None
-    c = _client(client=client)
     deleted: list[DnsRecord] = []
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         records = list_dns_records(zone_id, client=c)
         targets = {domain, f"*.{domain}", f"www.{domain}"}
         conflicting_types = {"A", "AAAA", "CNAME"}
@@ -1698,7 +1580,4 @@ def purge_conflicting_root_records(
                 continue
             delete_dns_record(zone_id, r.record_id, client=c)
             deleted.append(r)
-    finally:
-        if own_client:
-            c.close()
     return deleted

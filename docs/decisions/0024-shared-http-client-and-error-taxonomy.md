@@ -64,9 +64,10 @@ provider clients adopt it incrementally.
 
 Migration is incremental and behavior-preserving: a client is "migrated" when
 it uses `managed_client` and its error classes subclass the taxonomy. Done so
-far (v35.B): `godaddy`, `vercel`, plus `serp` sourcing the retryable set.
-Remaining: `cloudflare`, `ga4_admin`, `gsc_admin` (and opportunistically
-`gtrends`, `indexnow`, `porkbun_dns`).
+far (v35.B): `godaddy`, `vercel`, `cloudflare` (25 sites; the v32 ReadTimeout
+`try/except` nests inside the `with`), plus `serp` sourcing the retryable set.
+Remaining: `ga4_admin`, `gsc_admin` (and opportunistically `gtrends`,
+`indexnow`, `porkbun_dns`).
 
 ## Consequences
 
