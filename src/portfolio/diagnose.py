@@ -117,6 +117,10 @@ class InventoryLayer:
     in_recent_check: bool = False
     last_classification: str | None = None
     in_gsc: bool | None = None                # True/False if known; None if no SEO snapshot
+    # v35.D (H6) — a data-load that *threw* is recorded here so a broken
+    # snapshot/inventory read is distinguishable from "domain genuinely
+    # absent" (a bare `except: pass` made them look identical).
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -289,8 +293,8 @@ def probe_inventory(domain: str) -> InventoryLayer:
                 out.in_portfolio_json = True
                 out.portfolio_category = d.category
                 break
-    except Exception:
-        pass
+    except Exception as e:
+        out.errors.append(f"portfolio.json read failed: {type(e).__name__}: {e}")
 
     # Most-recent live snapshot row for this domain.
     try:
@@ -302,8 +306,8 @@ def probe_inventory(domain: str) -> InventoryLayer:
             if row:
                 out.in_recent_check = True
                 out.last_classification = row.get("classification")
-    except Exception:
-        pass
+    except Exception as e:
+        out.errors.append(f"live snapshot read failed: {type(e).__name__}: {e}")
 
     # GSC presence (via the most recent SEO snapshot — read-only).
     try:
@@ -316,8 +320,8 @@ def probe_inventory(domain: str) -> InventoryLayer:
                     # gsc_status is "ok" when the property exists and we got data.
                     out.in_gsc = (r.gsc_status == "ok")
                     break
-    except Exception:
-        pass
+    except Exception as e:
+        out.errors.append(f"SEO snapshot read failed: {type(e).__name__}: {e}")
     return out
 
 
@@ -600,6 +604,10 @@ def render(d: Diagnosis, console) -> None:
         f"  [cyan]Inventory[/]  portfolio.json {in_portfolio}{cat}  ·  "
         f"live class: {cls}  ·  {gsc}"
     )
+    for err in inv.errors:
+        # v35.D (H6) — a read that threw is surfaced, not silently hidden;
+        # otherwise a broken snapshot reads as "domain absent".
+        console.print(f"             [yellow]↷ {err}[/]")
 
     # Hosting (v11.K) — sixth layer, snapshot-read only.
     host = d.hosting

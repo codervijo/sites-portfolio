@@ -43,6 +43,22 @@ def _is_web_project(repo_path: str) -> bool:
     return (Path(repo_path) / "package.json").is_file()
 
 
+def _bs4():
+    """Return the `BeautifulSoup` class, wrapping the lazy import with a
+    typed error that names the fix command (v35.D — global rule: lazy
+    imports of optional/heavy deps must raise an actionable error, not a
+    raw ModuleNotFoundError, on a partial/broken install). bs4 is the
+    heaviest SEO-check dep + the most likely to be missing. Shared by the
+    SEO checks (`_live`, `check_095`) so the wrap lives in one place."""
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError as e:  # pragma: no cover - bs4 is a core dep
+        raise RuntimeError(
+            f"beautifulsoup4 not importable ({e}). Run `uv sync` to install."
+        ) from e
+    return BeautifulSoup
+
+
 def _parse_html(text: str):
     """Parse the index HTML/Astro content into a BeautifulSoup tree.
     Astro frontmatter (between leading `---` markers) is stripped first
@@ -52,5 +68,4 @@ def _parse_html(text: str):
         end = text.find("\n---", 3)
         if end != -1:
             text = text[end + 4:]
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(text, "html.parser")
+    return _bs4()(text, "html.parser")

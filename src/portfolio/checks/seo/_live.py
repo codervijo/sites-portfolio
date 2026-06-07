@@ -378,8 +378,8 @@ def _parse_html(html: str):
     """Whole-document parse via BeautifulSoup html.parser. The audit's
     prerendered washcalc HTML is on a single line — line-based regex
     breaks for these checks, so always use the parser."""
-    from bs4 import BeautifulSoup
-    return BeautifulSoup(html, "html.parser")
+    from . import _bs4  # v35.D — wrapped bs4 import (typed error on broken install)
+    return _bs4()(html, "html.parser")
 
 
 def parse_jsonld_blocks(html: str) -> list[JsonLdBlock]:

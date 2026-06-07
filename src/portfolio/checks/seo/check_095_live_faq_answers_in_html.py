@@ -66,8 +66,8 @@ def _signature(text: str) -> str:
 def _extract_body_text(html: str) -> str:
     """Return the page's visible text (scripts + style tags stripped),
     normalized."""
-    from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html, "html.parser")
+    from . import _bs4  # v35.D — wrapped bs4 import (typed error on broken install)
+    soup = _bs4()(html, "html.parser")
     for tag in soup.find_all(["script", "style", "noscript"]):
         tag.decompose()
     return _normalize(soup.get_text(" ", strip=True))

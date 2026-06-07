@@ -214,6 +214,39 @@ def test_render_does_not_crash():
     render(d, sink)
 
 
+# ---------- v35.D (H6): inventory read failures are captured, not hidden ----
+
+
+def test_probe_inventory_captures_load_errors(monkeypatch):
+    """A throwing data-load is recorded on `errors`, not swallowed — so a
+    broken snapshot is distinguishable from 'domain genuinely absent'."""
+    import portfolio.data as data_mod
+    from portfolio.diagnose import probe_inventory
+
+    def _boom():
+        raise OSError("portfolio.json unreadable")
+
+    monkeypatch.setattr(data_mod, "load_domains", _boom)
+    inv = probe_inventory("x.com")
+    assert inv.in_portfolio_json is False
+    assert any("portfolio.json read failed" in e for e in inv.errors)
+
+
+def test_probe_inventory_renders_errors(monkeypatch):
+    """The captured error surfaces in the rendered output (not silent)."""
+    from io import StringIO
+    from rich.console import Console
+    from portfolio.diagnose import render
+
+    d = _stub_diagnosis(
+        inventory=InventoryLayer(errors=["portfolio.json read failed: OSError: boom"]),
+    )
+    synthesize(d)
+    sink = Console(file=StringIO(), force_terminal=False, width=120)
+    render(d, sink)
+    assert "portfolio.json read failed" in sink.file.getvalue()
+
+
 # ---------- Platform-guess from DNS ----------
 
 

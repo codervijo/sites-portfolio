@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
@@ -811,7 +812,15 @@ def suggest_reductions(topic: str, g1: GateResult, g2: GateResult,
         from .serp import _openai_api_key, call_openai
         try:
             api_key = _openai_api_key()
-        except Exception:
+        except Exception as e:
+            # v35.D (H6) — a missing/unresolvable key is operator-action,
+            # not "no reductions". Surface the cause instead of an empty
+            # list that reads as "nothing to suggest".
+            print(
+                f"  ↷ reduction suggestions skipped — OpenAI key unavailable "
+                f"({type(e).__name__}: {e})",
+                file=sys.stderr,
+            )
             return []
         def _default_llm(system_msg, user_msg):
             return call_openai(system_msg, user_msg, api_key=api_key)
@@ -819,7 +828,13 @@ def suggest_reductions(topic: str, g1: GateResult, g2: GateResult,
 
     try:
         raw = llm_call(system, user)
-    except Exception:    # noqa: BLE001
+    except Exception as e:    # noqa: BLE001
+        # v35.D (H6) — don't hide an LLM failure as "no reductions".
+        print(
+            f"  ↷ reduction suggestions skipped — LLM call failed "
+            f"({type(e).__name__}: {e})",
+            file=sys.stderr,
+        )
         return []
 
     raw = (raw or "").strip()
