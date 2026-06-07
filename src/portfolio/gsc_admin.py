@@ -37,6 +37,8 @@ from urllib.parse import quote
 
 import httpx
 
+from . import _httpapi
+
 # v25.C — verification method values accepted by the Site Verification API.
 #
 # v25.F (2026-05-23) — IMPORTANT: verification method must match property
@@ -65,10 +67,16 @@ _DEFAULT_TIMEOUT = 30.0
 _PROPAGATION_INTERVALS_S: tuple[int, ...] = (5, 10, 20, 25)
 
 
-class GSCAdminError(RuntimeError):
+class GSCAdminError(_httpapi.HttpApiError):
     """Non-2xx response from the Site Verification or Webmasters API.
     Carries the HTTP status + truncated body in the message. Mirrors
-    `cloudflare.CloudflareAPIError` and `ga4_admin.GA4AdminError`."""
+    `cloudflare.CloudflareAPIError` and `ga4_admin.GA4AdminError`.
+    Permanent by default; a 429 / 5xx raises `GSCTransientError`."""
+
+
+class GSCTransientError(GSCAdminError, _httpapi.TransientHTTPError):
+    """A retryable GSC/Webmasters failure (429 / transient 5xx). Subclasses
+    `GSCAdminError` so existing handlers still catch it."""
 
 
 class VerificationFailedError(RuntimeError):
@@ -77,6 +85,12 @@ class VerificationFailedError(RuntimeError):
     pipeline) treats this as operator-action gate: print actionable
     "TXT record present at Cloudflare but Google hasn't picked it up
     yet — wait + re-run, or verify manually in GSC" hint."""
+
+
+def _err_cls(status: int) -> type[GSCAdminError]:
+    """Pick the transient vs permanent GSC error class for an HTTP status
+    (429 / 5xx → transient), so the failure reads `↷` vs `✗` (v35.B)."""
+    return GSCTransientError if _httpapi.status_is_transient(status) else GSCAdminError
 
 
 # v25.D — GSC 403 cause-classification constants. The Step 9 helpers
@@ -267,9 +281,7 @@ def get_verification_token(
     Raises `GSCAdminError` on non-200 response, unknown method, or empty
     token in the response.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(
             f"{_SITE_VERIFICATION_API}/token",
             json={
@@ -277,26 +289,20 @@ def get_verification_token(
                 "site": _site_payload_for_method(domain, method),
             },
         )
-    finally:
-        # Don't close test-injected clients — caller owns those.
-        pass
-
-    if resp.status_code != 200:
-        raise GSCAdminError(
-            f"POST siteVerification/v1/token (domain={domain}, "
-            f"method={method}) → HTTP {resp.status_code}: "
-            f"{resp.text[:300]}"
-        )
-    body = resp.json()
-    token = body.get("token", "")
-    if not token:
-        raise GSCAdminError(
-            f"siteVerification.getToken returned empty token "
-            f"for {domain} (method={method}): {body!r}"
-        )
-    if own_client:
-        c.close()
-    return token
+        if resp.status_code != 200:
+            raise _err_cls(resp.status_code)(
+                f"POST siteVerification/v1/token (domain={domain}, "
+                f"method={method}) → HTTP {resp.status_code}: "
+                f"{resp.text[:300]}"
+            )
+        body = resp.json()
+        token = body.get("token", "")
+        if not token:
+            raise GSCAdminError(
+                f"siteVerification.getToken returned empty token "
+                f"for {domain} (method={method}): {body!r}"
+            )
+        return token
 
 
 def write_verification_file(project_dir: Path, token: str) -> Path:
@@ -354,15 +360,14 @@ def wait_for_verification_file_live(
     runs instantly without hitting real wall-clock time or live
     network).
     """
-    own_client = client is None
-    if client is None:
-        client = httpx.Client(timeout=10.0, follow_redirects=True)
     url = f"https://{domain}/{token}"
     attempts = len(intervals) + 1
-    try:
+    with _httpapi.managed_client(
+        client, lambda: httpx.Client(timeout=10.0, follow_redirects=True)
+    ) as c:
         for attempt_idx in range(attempts):
             try:
-                resp = client.head(url)
+                resp = c.head(url)
                 if resp.status_code == 200:
                     return True
             except httpx.HTTPError:
@@ -371,9 +376,6 @@ def wait_for_verification_file_live(
                 return False
             sleep(intervals[attempt_idx])
         return False
-    finally:
-        if own_client:
-            client.close()
 
 
 def verify_domain(
@@ -507,21 +509,15 @@ def list_sites(*, client: httpx.Client | None = None) -> list[dict]:
     Returns the raw `siteEntry` array from the API response (each
     entry: `{siteUrl: str, permissionLevel: str}`).
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(f"{_WEBMASTERS_API}/sites")
-    finally:
-        pass
-    if resp.status_code != 200:
-        raise GSCAdminError(
-            f"GET webmasters/v3/sites → HTTP {resp.status_code}: "
-            f"{resp.text[:300]}"
-        )
-    body = resp.json() or {}
-    if own_client:
-        c.close()
-    return list(body.get("siteEntry") or [])
+        if resp.status_code != 200:
+            raise _err_cls(resp.status_code)(
+                f"GET webmasters/v3/sites → HTTP {resp.status_code}: "
+                f"{resp.text[:300]}"
+            )
+        body = resp.json() or {}
+        return list(body.get("siteEntry") or [])
 
 
 def add_site(
@@ -535,38 +531,28 @@ def add_site(
     via `verify_domain()` must complete BEFORE this call — Google
     rejects sites.add() for unverified domains.
     """
-    own_client = client is None
-    c = _client(client=client)
+    with _httpapi.managed_client(client, _client) as c:
+        # Idempotency probe: skip if the property already exists.
+        site_uri = _sc_domain_uri(domain)
+        try:
+            existing = list_sites(client=c)
+        except GSCAdminError:
+            # If the list call fails, fall through to the PUT — the API
+            # gives us the same outcome with one less call.
+            existing = []
+        if any(e.get("siteUrl") == site_uri for e in existing):
+            return False
 
-    # Idempotency probe: skip if the property already exists.
-    site_uri = _sc_domain_uri(domain)
-    try:
-        existing = list_sites(client=c)
-    except GSCAdminError:
-        # If the list call fails, fall through to the PUT — the API
-        # gives us the same outcome with one less call.
-        existing = []
-    if any(e.get("siteUrl") == site_uri for e in existing):
-        if own_client:
-            c.close()
-        return False
-
-    # URL-encode the property URI for the path. `sc-domain:example.com`
-    # → `sc-domain%3Aexample.com`.
-    encoded = quote(site_uri, safe="")
-    try:
+        # URL-encode the property URI for the path. `sc-domain:example.com`
+        # → `sc-domain%3Aexample.com`.
+        encoded = quote(site_uri, safe="")
         resp = c.put(f"{_WEBMASTERS_API}/sites/{encoded}")
-    finally:
-        pass
-
-    if resp.status_code not in (200, 204):
-        raise GSCAdminError(
-            f"PUT webmasters/v3/sites/{site_uri} → "
-            f"HTTP {resp.status_code}: {resp.text[:300]}"
-        )
-    if own_client:
-        c.close()
-    return True
+        if resp.status_code not in (200, 204):
+            raise _err_cls(resp.status_code)(
+                f"PUT webmasters/v3/sites/{site_uri} → "
+                f"HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        return True
 
 
 # ---- Webmasters API → sitemaps ------------------------------------
@@ -577,23 +563,17 @@ def list_sitemaps(
 ) -> list[dict]:
     """List sitemaps currently submitted for `sc-domain:<domain>`.
     Used by `submit_sitemap()` for the idempotency probe."""
-    own_client = client is None
-    c = _client(client=client)
     site_uri = _sc_domain_uri(domain)
     encoded = quote(site_uri, safe="")
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.get(f"{_WEBMASTERS_API}/sites/{encoded}/sitemaps")
-    finally:
-        pass
-    if resp.status_code != 200:
-        raise GSCAdminError(
-            f"GET webmasters/v3/sites/{site_uri}/sitemaps → "
-            f"HTTP {resp.status_code}: {resp.text[:300]}"
-        )
-    body = resp.json() or {}
-    if own_client:
-        c.close()
-    return list(body.get("sitemap") or [])
+        if resp.status_code != 200:
+            raise _err_cls(resp.status_code)(
+                f"GET webmasters/v3/sites/{site_uri}/sitemaps → "
+                f"HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        body = resp.json() or {}
+        return list(body.get("sitemap") or [])
 
 
 def resolve_sitemap_url(
@@ -639,37 +619,28 @@ def submit_sitemap(
     `sitemap_url` is the full URL (e.g., `https://example.com/sitemap.xml`)
     not a path. GSC stores it as the `path` field in the response.
     """
-    own_client = client is None
-    c = _client(client=client)
+    with _httpapi.managed_client(client, _client) as c:
+        # Idempotency probe.
+        try:
+            existing = list_sitemaps(domain, client=c)
+        except GSCAdminError:
+            existing = []
+        if any(s.get("path") == sitemap_url for s in existing):
+            return False
 
-    # Idempotency probe.
-    try:
-        existing = list_sitemaps(domain, client=c)
-    except GSCAdminError:
-        existing = []
-    if any(s.get("path") == sitemap_url for s in existing):
-        if own_client:
-            c.close()
-        return False
-
-    site_uri = _sc_domain_uri(domain)
-    encoded_site = quote(site_uri, safe="")
-    encoded_feed = quote(sitemap_url, safe="")
-    try:
+        site_uri = _sc_domain_uri(domain)
+        encoded_site = quote(site_uri, safe="")
+        encoded_feed = quote(sitemap_url, safe="")
         resp = c.put(
             f"{_WEBMASTERS_API}/sites/{encoded_site}"
             f"/sitemaps/{encoded_feed}",
         )
-    finally:
-        pass
-    if resp.status_code not in (200, 204):
-        raise GSCAdminError(
-            f"PUT webmasters/v3/sites/{site_uri}/sitemaps/{sitemap_url} → "
-            f"HTTP {resp.status_code}: {resp.text[:300]}"
-        )
-    if own_client:
-        c.close()
-    return True
+        if resp.status_code not in (200, 204):
+            raise _err_cls(resp.status_code)(
+                f"PUT webmasters/v3/sites/{site_uri}/sitemaps/{sitemap_url} → "
+                f"HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        return True
 
 
 def delete_sitemap(
@@ -681,29 +652,23 @@ def delete_sitemap(
     True if deleted, False if it wasn't listed (idempotent skip via
     `list_sitemaps()` pre-check). Mirrors `submit_sitemap`, DELETE instead
     of PUT."""
-    own_client = client is None
-    c = _client(client=client)
+    with _httpapi.managed_client(client, _client) as c:
+        try:
+            existing = list_sitemaps(domain, client=c)
+        except GSCAdminError:
+            existing = []
+        if not any(s.get("path") == sitemap_url for s in existing):
+            return False
 
-    try:
-        existing = list_sitemaps(domain, client=c)
-    except GSCAdminError:
-        existing = []
-    if not any(s.get("path") == sitemap_url for s in existing):
-        if own_client:
-            c.close()
-        return False
-
-    site_uri = _sc_domain_uri(domain)
-    encoded_site = quote(site_uri, safe="")
-    encoded_feed = quote(sitemap_url, safe="")
-    resp = c.delete(
-        f"{_WEBMASTERS_API}/sites/{encoded_site}/sitemaps/{encoded_feed}"
-    )
-    if resp.status_code not in (200, 204):
-        raise GSCAdminError(
-            f"DELETE webmasters/v3/sites/{site_uri}/sitemaps/{sitemap_url} → "
-            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        site_uri = _sc_domain_uri(domain)
+        encoded_site = quote(site_uri, safe="")
+        encoded_feed = quote(sitemap_url, safe="")
+        resp = c.delete(
+            f"{_WEBMASTERS_API}/sites/{encoded_site}/sitemaps/{encoded_feed}"
         )
-    if own_client:
-        c.close()
-    return True
+        if resp.status_code not in (200, 204):
+            raise _err_cls(resp.status_code)(
+                f"DELETE webmasters/v3/sites/{site_uri}/sitemaps/{sitemap_url} → "
+                f"HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        return True

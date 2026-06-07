@@ -37,6 +37,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
+from . import _httpapi
+
 # Per feedback_no_hidden_config — use `~/lamill/`, NOT `~/.config/portfolio/`.
 CONFIG_DIR = Path.home() / "lamill" / "ga4"
 CREDENTIALS_PATH = CONFIG_DIR / "credentials.json"
@@ -58,10 +60,16 @@ class MissingCredentialsError(RuntimeError):
     and re-raised by `lamill settings ga4 auth` with an actionable hint."""
 
 
-class GA4AdminError(RuntimeError):
+class GA4AdminError(_httpapi.HttpApiError):
     """Non-success response from the GA4 Admin API. Carries the
     response body in the message so debugging doesn't require
-    log-spelunking. Mirrors `cloudflare.CloudflareAPIError`."""
+    log-spelunking. Mirrors `cloudflare.CloudflareAPIError`. Permanent by
+    default; a 429 / 5xx raises `GA4TransientError`."""
+
+
+class GA4TransientError(GA4AdminError, _httpapi.TransientHTTPError):
+    """A retryable GA4 Admin failure (429 / transient 5xx). Subclasses
+    `GA4AdminError` so existing handlers still catch it."""
 
 
 # ---- OAuth flow + token management ---------------------------------
@@ -180,9 +188,7 @@ def create_property(
 
     Raises `GA4AdminError` on non-201 response.
     """
-    own_client = client is None
-    c = _client(client=client)
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(
             f"{_ADMIN_API_BASE}/properties",
             json={
@@ -192,27 +198,24 @@ def create_property(
                 "currencyCode": currency_code,
             },
         )
-    finally:
-        if own_client:
-            # Only close clients we created. Test-injected clients
-            # are managed by the caller.
-            pass
-
-    if resp.status_code != 200:
-        raise GA4AdminError(
-            f"POST /properties (display_name={display_name}) "
-            f"→ HTTP {resp.status_code}: {resp.text[:300]}"
-        )
-    body = resp.json()
-    # Response shape: { "name": "properties/123456789", "displayName": "...", ... }
-    name = body.get("name", "")
-    if not name.startswith("properties/"):
-        raise GA4AdminError(
-            f"unexpected create_property response shape: {body!r}"
-        )
-    if own_client:
-        c.close()
-    return name[len("properties/"):]
+        if resp.status_code != 200:
+            cls = (
+                GA4TransientError
+                if _httpapi.status_is_transient(resp.status_code)
+                else GA4AdminError
+            )
+            raise cls(
+                f"POST /properties (display_name={display_name}) "
+                f"→ HTTP {resp.status_code}: {resp.text[:300]}"
+            )
+        body = resp.json()
+        # Response shape: { "name": "properties/123456789", ... }
+        name = body.get("name", "")
+        if not name.startswith("properties/"):
+            raise GA4AdminError(
+                f"unexpected create_property response shape: {body!r}"
+            )
+        return name[len("properties/"):]
 
 
 def create_web_stream(
@@ -232,16 +235,13 @@ def create_web_stream(
 
     Raises `GA4AdminError` on non-201 response.
     """
-    own_client = client is None
-    c = _client(client=client)
-
     if display_name is None:
         # "https://washcalc.app/" → "washcalc.app web stream"
         from urllib.parse import urlparse
         host = urlparse(default_uri).hostname or default_uri
         display_name = f"{host} web stream"
 
-    try:
+    with _httpapi.managed_client(client, _client) as c:
         resp = c.post(
             f"{_ADMIN_API_BASE}/properties/{property_id}/dataStreams",
             json={
@@ -252,35 +252,33 @@ def create_web_stream(
                 },
             },
         )
-    finally:
-        if own_client:
-            pass
-
-    if resp.status_code != 200:
-        raise GA4AdminError(
-            f"POST /properties/{property_id}/dataStreams "
-            f"(uri={default_uri}) → HTTP {resp.status_code}: "
-            f"{resp.text[:300]}"
-        )
-    body = resp.json()
-    # Response shape: {
-    #   "name": "properties/123/dataStreams/456",
-    #   "webStreamData": { "measurementId": "G-XXXXXX", ... },
-    #   ...
-    # }
-    name = body.get("name", "")
-    if "/dataStreams/" not in name:
-        raise GA4AdminError(
-            f"unexpected create_web_stream response shape: {body!r}"
-        )
-    stream_id = name.split("/dataStreams/", 1)[1]
-    web_data = body.get("webStreamData") or {}
-    measurement_id = web_data.get("measurementId", "")
-    if not measurement_id.startswith("G-"):
-        raise GA4AdminError(
-            f"create_web_stream returned no measurementId in response: "
-            f"{body!r}"
-        )
-    if own_client:
-        c.close()
-    return stream_id, measurement_id
+        if resp.status_code != 200:
+            cls = (
+                GA4TransientError
+                if _httpapi.status_is_transient(resp.status_code)
+                else GA4AdminError
+            )
+            raise cls(
+                f"POST /properties/{property_id}/dataStreams "
+                f"(uri={default_uri}) → HTTP {resp.status_code}: "
+                f"{resp.text[:300]}"
+            )
+        body = resp.json()
+        # Response shape: {
+        #   "name": "properties/123/dataStreams/456",
+        #   "webStreamData": { "measurementId": "G-XXXXXX", ... }, ...
+        # }
+        name = body.get("name", "")
+        if "/dataStreams/" not in name:
+            raise GA4AdminError(
+                f"unexpected create_web_stream response shape: {body!r}"
+            )
+        stream_id = name.split("/dataStreams/", 1)[1]
+        web_data = body.get("webStreamData") or {}
+        measurement_id = web_data.get("measurementId", "")
+        if not measurement_id.startswith("G-"):
+            raise GA4AdminError(
+                f"create_web_stream returned no measurementId in response: "
+                f"{body!r}"
+            )
+        return stream_id, measurement_id
