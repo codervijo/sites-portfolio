@@ -5641,195 +5641,6 @@ def _render_reconciliation_block(payload: dict, console) -> None:
 # ---------- v13.B — per-project GSC diagnostics ----------
 
 
-_SITEMAP_STATUS_GLYPH = {
-    "OK":      ("✓", "green"),
-    "WARN":    ("⚠", "yellow"),
-    "PENDING": ("…", "dim"),
-    "ERROR":   ("✗", "red"),
-}
-
-
-def _coverage_glyph(state: str | None) -> tuple[str, str]:
-    """Map URL Inspection coverage_state → (glyph, rich-color).
-    `submitted_indexed` is the happy path; everything else is a
-    failure mode the renderer should call out."""
-    if not state:
-        return ("?", "dim")
-    if state == "submitted_indexed":
-        return ("✓", "green")
-    return ("✗", "red")
-
-
-def _hint_severity_color(severity: str) -> str:
-    return {"error": "red", "warn": "yellow", "info": "dim"}.get(
-        severity, "default",
-    )
-
-
-def _human_age_from_iso(iso: str | None) -> str:
-    """`2026-05-19T07:02:23+00:00` → `1d ago` etc. Returns `—` on
-    parse failure or None. Same shape as the rest of the CLI's
-    age renderers (1h / 1d / 12d / 4w / 8y)."""
-    if not iso:
-        return "—"
-    try:
-        from datetime import datetime, timezone
-        ts = datetime.fromisoformat(iso)
-        now = datetime.now(timezone.utc)
-        delta = now - ts
-        secs = int(delta.total_seconds())
-        if secs < 3600:
-            return f"{max(1, secs // 60)}m ago"
-        if secs < 86400:
-            return f"{secs // 3600}h ago"
-        if secs < 86400 * 14:
-            return f"{secs // 86400}d ago"
-        if secs < 86400 * 90:
-            return f"{secs // (86400 * 7)}w ago"
-        # 2026-05-28 — months branch. Without it, any delta in the
-        # 90-364 day range fell through to the years branch and rendered
-        # "0y ago" (secs // (86400*365) == 0). Surface "Nmo ago" instead.
-        if secs < 86400 * 365:
-            return f"{secs // (86400 * 30)}mo ago"
-        return f"{secs // (86400 * 365)}y ago"
-    except (ValueError, TypeError):
-        return "—"
-
-
-def _render_project_seo_diagnostics(diag, console) -> None:
-    """v13.B — render the diagnostics block (sitemaps + coverage +
-    hints) for one domain. Accepts a `ProjectSeoDiagnostics`
-    dataclass instance OR a dict reconstructed from the cache;
-    duck-typed access (`getattr`/`.get`) keeps both shapes
-    supported."""
-    # Normalize access — works for both dataclass and dict.
-    def _get(obj, key, default=None):
-        if isinstance(obj, dict):
-            return obj.get(key, default)
-        return getattr(obj, key, default)
-
-    not_registered = _get(diag, "not_registered", False)
-    property_url   = _get(diag, "property_url", "")
-    sitemaps       = _get(diag, "sitemaps", []) or []
-    coverage       = _get(diag, "coverage", []) or []
-    hints          = _get(diag, "hints", []) or []
-
-    console.print()
-    if not_registered:
-        # Single-line "not in GSC" + the registration hint. No
-        # sitemap / coverage block — nothing to show.
-        console.print(
-            "  [yellow]Property:[/] [dim]not registered in GSC[/]"
-        )
-        for h in hints:
-            text = _get(h, "text", "")
-            console.print(f"  [dim]💡 {text}[/]")
-        console.print()
-        return
-
-    console.print(f"  [bold cyan]GSC diagnostics[/]")
-    if property_url:
-        console.print(f"    [dim]Property: {property_url}[/]")
-
-    # 📋 Sitemaps
-    if sitemaps:
-        console.print(f"    [bold]📋 Sitemaps[/] [dim]({len(sitemaps)} submitted)[/]")
-        for sm in sitemaps:
-            status = _get(sm, "status", "OK")
-            path   = _get(sm, "path", "?")
-            errs   = _get(sm, "errors", 0)
-            warns  = _get(sm, "warnings", 0)
-            last_dl = _get(sm, "last_downloaded")
-            summary = _get(sm, "error_summary", "")
-            glyph, color = _SITEMAP_STATUS_GLYPH.get(status, ("·", "white"))
-            line = (
-                f"      [{color}]{glyph} {status:<8}[/] [bold]{path:<32}[/] "
-            )
-            tail_bits: list[str] = []
-            if warns:
-                tail_bits.append(f"{warns} warning(s)")
-            if last_dl:
-                tail_bits.append(f"fetched {_human_age_from_iso(last_dl)}")
-            if summary:
-                # 2026-05-28 — when GSC is mid-refetch (PENDING), the
-                # error count is from the prior fetch and may clear on
-                # the next download. Annotate so the operator doesn't
-                # chase a stale error.
-                if status == "PENDING":
-                    tail_bits.append(
-                        f"{summary} from prior fetch (clears on next download)"
-                    )
-                else:
-                    tail_bits.append(summary)
-            if tail_bits:
-                line += "[dim]" + "  ·  ".join(tail_bits) + "[/]"
-            console.print(line)
-    else:
-        console.print(
-            "    [yellow]📋 Sitemaps[/] [dim]none submitted[/]"
-        )
-
-    # 📊 Coverage
-    if coverage:
-        # Headline: how many indexed of how many inspected.
-        indexed_count = sum(
-            1 for c in coverage
-            if (_get(c, "coverage_state") or "").lower() == "submitted_indexed"
-        )
-        total = len(coverage)
-        pct = (indexed_count * 100 // total) if total else 0
-        console.print(
-            f"    [bold]📊 Coverage[/] "
-            f"[dim](top {total} inspected — {indexed_count}/{total} indexed, {pct}%)[/]"
-        )
-        for cv in coverage:
-            state = (_get(cv, "coverage_state") or "").lower()
-            url   = _get(cv, "url", "?")
-            verdict = _get(cv, "verdict")
-            last_crawl = _get(cv, "last_crawl_at")
-            err = _get(cv, "error")
-            glyph, color = _coverage_glyph(state)
-            # Truncate long URLs from the middle so the prefix +
-            # path leaf both stay visible.
-            display_url = url if len(url) <= 38 else url[:18] + "…" + url[-19:]
-            state_display = state or ("error" if err else "unknown")
-            line = (
-                f"      [{color}]{glyph}[/] "
-                f"[bold]{display_url:<38}[/] "
-                f"[dim]{state_display:<24}[/]"
-            )
-            tail_bits: list[str] = []
-            if verdict and verdict != "PASS":
-                tail_bits.append(f"verdict={verdict}")
-            if last_crawl:
-                tail_bits.append(f"crawled {_human_age_from_iso(last_crawl)}")
-            if err:
-                tail_bits.append(err[:40])
-            if tail_bits:
-                line += "  [dim]" + " · ".join(tail_bits) + "[/]"
-            console.print(line)
-    else:
-        console.print(
-            "    [dim]📊 Coverage  (no URLs inspected — sitemap unreachable)[/]"
-        )
-
-    # 💡 Hints
-    if hints:
-        console.print(f"    [bold]💡 Hints[/]")
-        for h in hints:
-            severity = _get(h, "severity", "info")
-            text = _get(h, "text", "")
-            color = _hint_severity_color(severity)
-            # Soft-wrap long hints at 70 chars with 6-space indent.
-            from textwrap import fill as _fill
-            wrapped = _fill(
-                text, width=72, initial_indent="", subsequent_indent="        ",
-            )
-            console.print(f"      [{color}]·[/] {wrapped}")
-
-    console.print()
-
-
 def _run_project_seo_diagnostics(domain: str, *, top_n: int,
                                  refresh: bool, console) -> None:
     """v13.B — load (or fetch) per-project GSC diagnostics and
@@ -5922,13 +5733,19 @@ def _render_gates_block(payload: dict, console) -> None:
     console.print()
 
 
-# v35.F (H1) — SERP-synthesis renderers extracted to research_render.py.
-# Re-imported into this namespace so existing `from portfolio.cli import
-# _render_serp_*` (tests) and in-module callers keep working unchanged.
+# v35.F (H1) — SERP-synthesis renderers + the v13.B SEO-diagnostics
+# renderer extracted to research_render.py. Re-imported into this namespace
+# so existing `from portfolio.cli import _render_*` (tests) and in-module
+# callers (e.g. _run_project_seo_diagnostics) keep working unchanged.
 from .research_render import (  # noqa: E402
+    _SITEMAP_STATUS_GLYPH,
     _SYNTHESIS_PREFIX,
     _UNSAFE_SYNTHESIS_FIELDS,
     _VERDICT_BLOCKED_BLOCK,
+    _coverage_glyph,
+    _hint_severity_color,
+    _human_age_from_iso,
+    _render_project_seo_diagnostics,
     _render_serp_brief,
     _render_serp_full,
     _render_serp_json,
