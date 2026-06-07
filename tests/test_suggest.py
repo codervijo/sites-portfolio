@@ -2063,7 +2063,7 @@ def test_v4a_menu_shortlist_auto_prints_on_entry():
         captured["called"] = True
         return real_print(short, rs)
 
-    with patch("portfolio.cli._print_shortlist", side_effect=fake_print), \
+    with patch("portfolio.cli_domain._print_shortlist", side_effect=fake_print), \
          patch("portfolio.cli.typer.prompt", return_value="b"):
         _menu_shortlist(rows, ["alpha"])
     assert captured.get("called") is True

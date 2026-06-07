@@ -13,6 +13,7 @@ import io
 from rich.console import Console
 
 from portfolio import cli as cli_mod
+from portfolio import cli_domain as cli_domain_mod
 from portfolio.suggest import GridRow
 
 
@@ -29,11 +30,12 @@ def _one_row() -> GridRow:
 
 
 def _patch_capturing_console(monkeypatch) -> Console:
-    """`_render_grid` writes to `cli.console` (module-level Console),
-    not a passed-in handle. Monkeypatch the global with a StringIO-
-    backed Console so the tests can read the rendered output."""
+    """`_render_grid` writes to the module-level `console` (now living in
+    `cli_domain` after the v35.F incr-4 split), not a passed-in handle.
+    Monkeypatch that global with a StringIO-backed Console so the tests can
+    read the rendered output."""
     cap = _capturing_console()
-    monkeypatch.setattr(cli_mod, "console", cap)
+    monkeypatch.setattr(cli_domain_mod, "console", cap)
     return cap
 
 

@@ -1742,7 +1742,7 @@ severities assume the failure mode is reachable in normal use
 
 **🟡 MEDIUM**
 
-- `new domain` menu/decide engine (~1,400 lines) embedded in cli.py despite existing `menu.py`/`decide.py` — `cli.py:2128-3586`.
+- ~~`new domain` menu/decide engine (~1,400 lines) embedded in cli.py despite existing `menu.py`/`decide.py` — `cli.py:2128-3586`.~~ **DONE v35.F incr 4** → extracted verbatim to `cli_domain.py` (1,485 loc; 33 helpers/constants incl. both orchestrators + the 3 input parsers). Prerequisite: rich `Console` singleton hoisted to neutral `console.py` so cli.py + cli_domain.py share it without a cycle. cli.py re-exports every name; the `@new_app.command("domain")` callback stays in cli.py.
 - bootstrap/validate render+resolve helpers inline beside their modules — `cli.py:3588`, `:4774`, `:5331-6105` → `bootstrap_render.py`/`research_render.py`.
 - `project fix` engine logic stranded in cli.py — `cli.py:8512`, `:8793` → `fix_helpers.py` (`fleet fix` already delegates).
 - Parked/provider host classification reimplemented 3× — `check.py:17`, `check_143:76`, `diagnose.py:73` → shared `host_classify.py`.

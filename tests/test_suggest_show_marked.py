@@ -14,6 +14,7 @@ import io
 from rich.console import Console
 
 from portfolio import cli as cli_mod
+from portfolio import cli_domain as cli_domain_mod
 from portfolio.suggest import GridRow
 
 
@@ -29,8 +30,11 @@ def _row(name: str) -> GridRow:
 
 
 def _patch_console(monkeypatch) -> Console:
+    # The show-marked renderers (_menu_show_marked / _render_grid / _render_menu)
+    # live in cli_domain after the v35.F incr-4 split and write to its
+    # module-level `console`; patch the global where they look it up.
     cap = _capturing_console()
-    monkeypatch.setattr(cli_mod, "console", cap)
+    monkeypatch.setattr(cli_domain_mod, "console", cap)
     return cap
 
 
