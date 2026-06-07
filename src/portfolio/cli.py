@@ -5207,14 +5207,6 @@ def _run_audit_pass_and_reconcile(topic: str, payload: dict, *,
         )
 
 
-def _confidence_color(confidence: str) -> str:
-    """HIGH → green, MEDIUM → yellow, LOW → red. Used by the
-    interpretive-verdict header line + the rich render."""
-    return {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}.get(
-        confidence, "white",
-    )
-
-
 def _update_cost_summary(payload: dict) -> None:
     """v12.F — recompute the cluster-snapshot `costs` block from the
     individual pass metas. Idempotent; safe to call after either
@@ -5328,316 +5320,6 @@ def _run_research_synthesis(topic: str, *, no_cache: bool,
         _render_serp_full(payload, console)
 
 
-def _render_research_v2_full(payload: dict, console) -> None:
-    """v8.D renderer for `research-cluster-v2` snapshots. Shows the
-    cluster, gates + verdict + reductions (if present), and per-query
-    SERP details. Gates section is omitted when `payload["gates"]` is
-    absent — keeps the renderer compatible with older snapshots
-    written before Phase 2 wired the gates in."""
-    topic = payload.get("topic", "?")
-    cluster_queries = payload.get("cluster_queries", [])
-    per_query = payload.get("per_query_results", [])
-    from_cache = payload.get("from_cache", False)
-    fetch_errors = payload.get("fetch_errors", [])
-
-    src_line = f"source: SerpAPI · {len(cluster_queries)} queries"
-    if from_cache:
-        src_line += " · from cluster cache"
-    console.print(f"\n[bold]SERP research — \"{topic}\"[/]")
-    console.print(f"  [dim]{src_line}[/]\n")
-
-    # Topic on its own line just above the cluster grid — easy
-    # reference while scanning the LLM's cluster expansion without
-    # having to scroll back to the header.
-    console.print(f"  [bold]Topic:[/] [cyan]{topic}[/]")
-    console.print()
-
-    # Cluster
-    console.print(f"  [cyan]Topic cluster:[/]")
-    for i, q in enumerate(cluster_queries, 1):
-        marker = "[bold]→[/]" if q.lower() == topic.lower() else " "
-        console.print(f"    {marker} {i}. {q}")
-    console.print()
-
-    # Gates + verdict + reductions (Phase 2)
-    if "gates" in payload:
-        _render_gates_block(payload, console)
-
-    # v8.I — primary interpretive verdict (Claude). Lands right after
-    # the mechanical gates so the operator reads both verdicts
-    # back-to-back; disagreement between them is the high-signal case.
-    if "primary_verdict" in payload:
-        _render_primary_verdict_block(payload, console)
-
-    # v12.E — reconciliation block (audit + primary). Renders only
-    # when --verify was set on this or a prior cached run (i.e., the
-    # snapshot has a `reconciliation` field). Sits below the primary
-    # block so the operator scans mechanical → primary → audit/
-    # reconciliation top-down, matching the verdict-formation order.
-    if "reconciliation" in payload:
-        _render_reconciliation_block(payload, console)
-
-    # Per-query SERP summaries
-    for pq in per_query:
-        q = pq.get("query", "?")
-        organic = pq.get("organic_results", [])
-        features = pq.get("features", {})
-        console.print(f"  [bold cyan]Query:[/] {q}")
-
-        # Top 5 organic
-        for r in organic[:5]:
-            pos = r.get("position", "?")
-            dom = r.get("domain", "?")
-            console.print(f"    {pos:>2}. [bold]{dom:<28}[/] [dim]{r.get('title', '')[:55]}[/]")
-
-        # Key SERP features (only present ones)
-        f_tags = []
-        if features.get("ai_overview", {}).get("present"):
-            f_tags.append("[yellow]AI Overview[/]")
-        if features.get("reddit_card", {}).get("present"):
-            pos = features["reddit_card"].get("position", "?")
-            f_tags.append(f"[yellow]Reddit #{pos}[/]")
-        if features.get("featured_snippet", {}).get("present"):
-            f_tags.append("[yellow]Featured snippet[/]")
-        if features.get("local_pack", {}).get("present"):
-            f_tags.append("[yellow]Local Pack[/]")
-        if features.get("video_pack", {}).get("present"):
-            f_tags.append("[yellow]Video Pack[/]")
-        if f_tags:
-            console.print(f"    [dim]Features:[/] " + " · ".join(f_tags))
-        console.print()
-
-    if fetch_errors:
-        console.print(f"  [yellow]Fetch errors ({len(fetch_errors)}):[/]")
-        for err in fetch_errors[:3]:
-            console.print(f"    · {err}")
-
-    # v12.F — cost-summary footer. Renders when at least one LLM pass
-    # ran (primary or audit); skips on snapshots predating v12.F that
-    # don't carry the `costs` block.
-    costs = payload.get("costs")
-    if costs and costs.get("total_usd", 0.0) > 0:
-        primary_usd = costs.get("primary_usd", 0.0)
-        audit_usd   = costs.get("audit_usd",   0.0)
-        total_usd   = costs.get("total_usd",   0.0)
-        # Show the breakdown only when both passes contributed; on a
-        # primary-only run, the single number is enough.
-        if audit_usd > 0:
-            console.print(
-                f"  [dim]LLM cost: ${total_usd:.4f} "
-                f"(primary ${primary_usd:.4f}, audit ${audit_usd:.4f})[/]"
-            )
-        else:
-            console.print(f"  [dim]LLM cost: ${total_usd:.4f}[/]")
-
-
-def _gate_marker(label: str) -> str:
-    """Status glyph + color for a gate label."""
-    if label == "PASS":
-        return "[green]✓ PASS[/]"
-    if label == "FAIL":
-        return "[red]✗ FAIL[/]"
-    if label == "WEAK-PASS":
-        return "[yellow]~ WEAK PASS[/]"
-    if label == "PENDING":
-        return "[dim]… PENDING[/]"
-    return f"[dim]{label}[/]"
-
-
-def _verdict_marker(verdict: str) -> str:
-    if verdict == "GO":
-        return "[bold green]GO[/]"
-    if verdict == "NICHE-DOWN":
-        return "[bold yellow]NICHE-DOWN[/]"
-    return "[bold red]NO-GO[/]"
-
-
-_VERDICT_COLOR = {
-    "GO": "green",
-    "NICHE-DOWN": "yellow",
-    "NO-GO": "red",
-    "REVIEW_REQUIRED": "magenta",   # v12.E — reconciliation's fourth verdict token
-}
-
-
-def _render_primary_verdict_block(payload: dict, console) -> None:
-    """Render the v8.I primary interpretive verdict (Claude) block.
-
-    Format intentionally mirrors the v8.D mechanical-gates block above
-    it — same color palette for verdict / confidence, same indentation,
-    same "Verdict: <token>" header structure — so the reader can scan
-    both verdicts side-by-side without re-orienting. Disagreement
-    between the two verdicts is the high-signal case v8.J's audit pass
-    will dig into.
-
-    Renders only the populated fields. `moat_required=False`, empty
-    reductions list, empty operator_fit_warnings, etc. → those
-    subsections are skipped (matches the prompt's "leave empty when
-    X" convention).
-    """
-    pv = payload["primary_verdict"]
-    meta = payload.get("primary_pass_meta", {})
-
-    verdict = pv.get("verdict", "?")
-    confidence = pv.get("confidence", "?")
-    v_color = _VERDICT_COLOR.get(verdict, "white")
-    c_color = _confidence_color(confidence)
-
-    console.print()
-    console.print("  [bold cyan]Interpretive verdict (Claude)[/]")
-    cost = meta.get("cost_usd")
-    duration = meta.get("duration_s")
-    model = meta.get("model_id", "?")
-    prompt_ver = meta.get("prompt_version", "?")
-    if cost is not None and duration is not None:
-        console.print(
-            f"    [dim]source: {model} · prompt={prompt_ver} · "
-            f"cost=${cost:.4f} · duration={duration:.1f}s[/]"
-        )
-    console.print(
-        f"    [bold]Verdict:[/]    [{v_color}]{verdict}[/]"
-    )
-    console.print(
-        f"    [bold]Confidence:[/] [{c_color}]{confidence}[/]"
-    )
-
-    reasoning = (pv.get("reasoning") or "").strip()
-    if reasoning:
-        from textwrap import fill
-        wrapped = fill(reasoning, width=68, initial_indent="      ",
-                       subsequent_indent="      ")
-        console.print(f"    [bold]Reasoning:[/]")
-        console.print(wrapped)
-
-    moat_required = pv.get("moat_required")
-    if moat_required:
-        console.print(f"    [bold]Moat required:[/] [yellow]yes[/]")
-        moat_prompt = (pv.get("moat_prompt") or "").strip()
-        if moat_prompt:
-            console.print(f"    [dim]    {moat_prompt}[/]")
-
-    reductions = pv.get("reductions") or []
-    if reductions:
-        console.print(f"    [bold]Suggested reductions:[/]")
-        for i, r in enumerate(reductions, 1):
-            console.print(f"      {i}. {r}")
-
-    warnings = pv.get("operator_fit_warnings") or []
-    if warnings:
-        console.print(f"    [bold]Operator-fit warnings:[/]")
-        for w in warnings:
-            console.print(f"      [yellow]·[/] {w}")
-
-    blind_spot = (pv.get("blind_spot_self_report") or "").strip()
-    if blind_spot:
-        console.print(f"    [bold dim]Blind-spot self-report:[/]")
-        from textwrap import fill
-        wrapped = fill(blind_spot, width=68, initial_indent="      ",
-                       subsequent_indent="      ")
-        console.print(f"[dim]{wrapped}[/]")
-
-    # Disagreement callout — when Claude's verdict differs from the
-    # mechanical verdict above, the operator should look at both.
-    # v8.J will formalize this with the GPT-4o audit pass; for now,
-    # a one-line nudge keeps the disagreement visible.
-    mechanical = payload.get("verdict")
-    if mechanical and mechanical != verdict:
-        console.print(
-            f"    [yellow bold]⚠[/] [yellow]Disagreement with mechanical "
-            f"verdict ([bold]{mechanical}[/] vs Claude's "
-            f"[bold]{verdict}[/]). Both views above; read them carefully.[/]"
-        )
-    console.print()
-
-
-def _render_reconciliation_block(payload: dict, console) -> None:
-    """v12.E — render the reconciled audit + primary verdict.
-
-    Three render shapes keyed on `audit.agreement_level`:
-      - full     → terse one-line confirmation; no caveats block
-      - partial  → caveats block populated from audit.specific_concerns
-      - disagree → REVIEW_REQUIRED banner; both verdicts surfaced
-                   side-by-side; audit's counter_verdict + self-check
-                   shown so the operator has both sides to weigh
-
-    Same indentation + color palette as the primary block above so
-    the three verdicts (mechanical / primary / reconciled) read as a
-    visually consistent cascade. REVIEW_REQUIRED renders in magenta
-    to distinguish from NO-GO (red) — they mean very different
-    things to the operator.
-    """
-    audit = payload["audit"]
-    rec   = payload["reconciliation"]
-    meta  = payload.get("audit_pass_meta", {})
-
-    agreement = audit.get("agreement_level", "?")
-    final_verdict     = rec.get("final_verdict", "?")
-    final_confidence  = rec.get("final_confidence", "?")
-    caveats           = rec.get("caveats") or []
-    counter_token     = audit.get("counter_verdict_token", "")
-    counter_reasoning = audit.get("counter_verdict_reasoning", "")
-    self_check        = (audit.get("audit_self_check") or "").strip()
-
-    v_color = _VERDICT_COLOR.get(final_verdict, "magenta")
-    c_color = _confidence_color(final_confidence)
-
-    console.print()
-    console.print("  [bold cyan]Reconciliation (audit + primary)[/]")
-
-    model     = meta.get("model_id", "?")
-    prompt_ver = meta.get("prompt_version", "?")
-    cost      = meta.get("cost_usd")
-    duration  = meta.get("duration_s")
-    if cost is not None and duration is not None:
-        console.print(
-            f"    [dim]source: {model} · prompt={prompt_ver} · "
-            f"cost=${cost:.4f} · duration={duration:.1f}s[/]"
-        )
-
-    agreement_label = {
-        "full":     "[green]full agreement[/]",
-        "partial":  "[yellow]partial agreement[/]",
-        "disagree": "[red bold]disagreement[/]",
-    }.get(agreement, f"[dim]{agreement}[/]")
-    console.print(f"    [bold]Audit agreement:[/] {agreement_label}")
-    console.print(
-        f"    [bold]Final verdict:[/]   [{v_color}]{final_verdict}[/]"
-    )
-    console.print(
-        f"    [bold]Final confidence:[/] [{c_color}]{final_confidence}[/]"
-    )
-
-    if caveats:
-        console.print(f"    [bold]Caveats from audit:[/]")
-        for c in caveats:
-            console.print(f"      [yellow]·[/] {c}")
-
-    if agreement == "disagree":
-        # Render the audit's counter-verdict + the primary's verdict
-        # side-by-side. The operator needs both to break the tie.
-        console.print(f"    [bold]REVIEW_REQUIRED — verdicts side-by-side:[/]")
-        primary_verdict_token = payload.get("primary_verdict", {}).get("verdict", "?")
-        p_color = _VERDICT_COLOR.get(primary_verdict_token, "white")
-        console.print(
-            f"      Primary (Claude): [{p_color}]{primary_verdict_token}[/]"
-        )
-        if counter_token:
-            ct_color = _VERDICT_COLOR.get(counter_token, "white")
-            console.print(
-                f"      Audit ({model}):   [{ct_color}]{counter_token}[/] — "
-                f"{counter_reasoning}"
-            )
-
-    if self_check:
-        from textwrap import fill
-        console.print(f"    [bold dim]Audit self-check:[/]")
-        wrapped = fill(self_check, width=68, initial_indent="      ",
-                       subsequent_indent="      ")
-        console.print(f"[dim]{wrapped}[/]")
-
-    console.print()
-
-
 # ---------- v13.B — per-project GSC diagnostics ----------
 
 
@@ -5701,38 +5383,6 @@ def _run_project_seo_diagnostics(domain: str, *, top_n: int,
     _render_project_seo_diagnostics(diag, console)
 
 
-def _render_gates_block(payload: dict, console) -> None:
-    """v8.D Phase 2 — gate findings + verdict + suggested reductions."""
-    gates = payload.get("gates", {})
-    g1 = gates.get("gate_1_market", {})
-    g2 = gates.get("gate_2_serp", {})
-    g3 = gates.get("gate_3_moat", {})
-    verdict = payload.get("verdict", "NO-GO")
-    reductions = payload.get("suggested_reductions", []) or []
-
-    def _render_gate(name: str, gate: dict) -> None:
-        marker = _gate_marker(gate.get("label", "?"))
-        findings = gate.get("findings", []) or []
-        first = findings[0] if findings else ""
-        console.print(f"  [bold]{name:<20}[/] {marker:<20}  [dim]· {first}[/]")
-        for f in findings[1:]:
-            console.print(f"  {'':<20} {'':<20}  [dim]· {f}[/]")
-
-    _render_gate("Gate 1 (Market):", g1)
-    _render_gate("Gate 2 (SERP):", g2)
-    _render_gate("Gate 3 (Moat):", g3)
-    console.print()
-
-    console.print(f"  [bold]Verdict:[/] {_verdict_marker(verdict)}")
-
-    if verdict == "NICHE-DOWN" and reductions:
-        console.print()
-        console.print(f"  [bold]Suggested reductions:[/]")
-        for i, red in enumerate(reductions, 1):
-            console.print(f"    {i}. {red}")
-    console.print()
-
-
 # v35.F (H1) — SERP-synthesis renderers + the v13.B SEO-diagnostics
 # renderer extracted to research_render.py. Re-imported into this namespace
 # so existing `from portfolio.cli import _render_*` (tests) and in-module
@@ -5742,14 +5392,22 @@ from .research_render import (  # noqa: E402
     _SYNTHESIS_PREFIX,
     _UNSAFE_SYNTHESIS_FIELDS,
     _VERDICT_BLOCKED_BLOCK,
+    _VERDICT_COLOR,
+    _confidence_color,
     _coverage_glyph,
+    _gate_marker,
     _hint_severity_color,
     _human_age_from_iso,
+    _render_gates_block,
+    _render_primary_verdict_block,
     _render_project_seo_diagnostics,
+    _render_reconciliation_block,
+    _render_research_v2_full,
     _render_serp_brief,
     _render_serp_full,
     _render_serp_json,
     _strip_unsafe_synthesis_fields,
+    _verdict_marker,
 )
 
 
