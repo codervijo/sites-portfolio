@@ -1744,7 +1744,13 @@ def bootstrap_starter_todos(today=None, content_values=None):
 
 
 def detect_stack_from_pkg(project_dir: Path) -> str:
-    """If package.json exists, infer stack. Default 'vite' if React; 'astro' if astro dep; else fallback."""
+    """If package.json exists, infer stack. Default 'vite' if React; 'astro'
+    if astro dep; else fallback. Crude astro/vite/unknown vocab on purpose —
+    this is the new-bootstrap path, distinct from `stack_classifier` (fleet
+    drift) and `stack_translate` (Lovable port). Shares only the dep-merge
+    primitive (v35.C)."""
+    from .stack_classifier import merged_deps
+
     pkg_path = project_dir / "package.json"
     if not pkg_path.exists():
         return "vite"
@@ -1752,7 +1758,7 @@ def detect_stack_from_pkg(project_dir: Path) -> str:
         pkg = json.loads(pkg_path.read_text())
     except json.JSONDecodeError:
         return "vite"
-    deps = {**(pkg.get("dependencies") or {}), **(pkg.get("devDependencies") or {})}
+    deps = merged_deps(pkg)
     if "astro" in deps:
         return "astro"
     if "vite" in deps or "react" in deps:

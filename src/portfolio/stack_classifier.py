@@ -62,7 +62,12 @@ class StackDetection:
     notes: str | None = None
 
 
-def _read_pkg(repo_path: Path) -> dict:
+def read_package_json(repo_path: Path) -> dict:
+    """Parse `<repo_path>/package.json`, tolerant of a missing or invalid
+    file (returns `{}`). Shared dep-reading primitive for the stack
+    detectors (v35.C). Callers that need to *signal* an unreadable file
+    (e.g. `stack_translate.detect_stack`) keep their own read; this is the
+    tolerant default."""
     p = repo_path / "package.json"
     if not p.is_file():
         return {}
@@ -70,6 +75,25 @@ def _read_pkg(repo_path: Path) -> dict:
         return json.loads(p.read_text(errors="replace"))
     except Exception:
         return {}
+
+
+def merged_deps(pkg: dict) -> dict:
+    """Merge a package.json's `dependencies` + `devDependencies` into one
+    name→version map (devDeps win on conflict). The single definition of
+    "what does this project depend on" — the same expression was
+    copy-pasted verbatim across `stack_classifier`, `stack_translate`, and
+    `bootstrap` before v35.C (the H3 four-detectors-can-drift hazard). The
+    detectors still differ in *vocabulary* and *looseness* by design
+    (disjoint consumers: fleet drift-check vs Lovable-port vs new
+    bootstrap), but they now read deps through one primitive."""
+    return {
+        **(pkg.get("dependencies") or {}),
+        **(pkg.get("devDependencies") or {}),
+    }
+
+
+# Back-compat alias for any internal caller that referenced the old name.
+_read_pkg = read_package_json
 
 
 def _list_files_with_prefix(repo_path: Path, prefix: str) -> list[str]:
@@ -100,11 +124,8 @@ def classify_stack(repo_path: Path) -> StackDetection:
         return StackDetection(framework="wordpress", signals=signals)
 
     # JS-side markers.
-    pkg = _read_pkg(repo_path)
-    deps = {
-        **(pkg.get("dependencies") or {}),
-        **(pkg.get("devDependencies") or {}),
-    }
+    pkg = read_package_json(repo_path)
+    deps = merged_deps(pkg)
     astro_cfg = _list_files_with_prefix(repo_path, "astro.config.")
     vite_cfg = _list_files_with_prefix(repo_path, "vite.config.")
     for n in astro_cfg:

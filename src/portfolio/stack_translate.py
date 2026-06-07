@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .fix_helpers import ClaudeResult, claude_available, run_claude
+from .stack_classifier import merged_deps
 
 # Stack values returned by detect_stack(). Use these constants in
 # bootstrap.py + tests to avoid string-mismatch bugs.
@@ -104,10 +105,7 @@ def detect_stack(genai_dir: Path) -> StackDetection:
     if pkg_path.exists():
         try:
             pkg_data = json.loads(pkg_path.read_text())
-            deps = {
-                **(pkg_data.get("dependencies") or {}),
-                **(pkg_data.get("devDependencies") or {}),
-            }
+            deps = merged_deps(pkg_data)
         except (json.JSONDecodeError, OSError):
             signals.append("package_json_unreadable")
 
@@ -187,10 +185,7 @@ def validate_translation(project_dir: Path) -> ValidationResult:
         except json.JSONDecodeError as e:
             issues.append(f"package.json: invalid JSON ({e})")
             pkg_data = {}
-        deps = {
-            **(pkg_data.get("dependencies") or {}),
-            **(pkg_data.get("devDependencies") or {}),
-        }
+        deps = merged_deps(pkg_data)
         if "astro" not in deps:
             issues.append("package.json: missing 'astro' dependency")
         # 4: banned frameworks. These are PARTIAL matches because

@@ -11,7 +11,38 @@ from pathlib import Path
 import pytest
 
 from portfolio.lamill_toml import STACK_FRAMEWORK_VALUES
-from portfolio.stack_classifier import StackDetection, classify_stack
+from portfolio.stack_classifier import (
+    StackDetection,
+    classify_stack,
+    merged_deps,
+    read_package_json,
+)
+
+
+# ---------- shared dep primitives (v35.C) ----------
+
+
+def test_merged_deps_merges_deps_and_devdeps():
+    pkg = {"dependencies": {"a": "1", "b": "2"}, "devDependencies": {"c": "3"}}
+    assert merged_deps(pkg) == {"a": "1", "b": "2", "c": "3"}
+
+
+def test_merged_deps_devdeps_win_on_conflict():
+    pkg = {"dependencies": {"vite": "5"}, "devDependencies": {"vite": "6"}}
+    assert merged_deps(pkg)["vite"] == "6"
+
+
+def test_merged_deps_tolerates_missing_keys():
+    assert merged_deps({}) == {}
+    assert merged_deps({"dependencies": None, "devDependencies": None}) == {}
+
+
+def test_read_package_json_tolerant(tmp_path: Path):
+    assert read_package_json(tmp_path) == {}  # missing
+    (tmp_path / "package.json").write_text("{ not json")
+    assert read_package_json(tmp_path) == {}  # invalid
+    (tmp_path / "package.json").write_text('{"dependencies": {"astro": "^5"}}')
+    assert read_package_json(tmp_path)["dependencies"]["astro"] == "^5"
 
 
 def _pkg(deps: dict[str, str] | None = None,
