@@ -359,11 +359,6 @@ def load_domains(path: Path | None = None) -> list[Domain]:
     return domains
 
 
-def domain_to_registrar() -> dict[str, str]:
-    """Map of domain name -> registrar, for cross-feature dispatch (no API calls wasted)."""
-    return {d.name: d.registrar for d in load_domains()}
-
-
 def load_plan(path: Path | None = None) -> dict[str, str]:
     """Map of domain -> category. Sourced from `domain.category` (was plan.md)."""
     return {d.name: d.category for d in load_domains() if d.category}

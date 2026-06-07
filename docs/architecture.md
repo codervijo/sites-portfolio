@@ -1753,7 +1753,7 @@ severities assume the failure mode is reachable in normal use
 
 **⚪ LOW / note-only**
 
-- Dead: `fix_registry.py:96 all_fixable_check_ids` (0 refs), `data.py:362 domain_to_registrar` (docs-only) → delete.
+- ~~Dead: `fix_registry.py:96 all_fixable_check_ids` (0 refs), `data.py:362 domain_to_registrar` (docs-only) → delete.~~ **DONE v35.G** — both deleted (re-confirmed 0 refs across src/ + tests/; suite green).
 - Unwrapped lazy imports of core deps (httpx/rich/dotenv/tomli_w) — conformance only; hoist to top-level.
 - 191 intra-package lazy imports dodging circular imports — module-graph entanglement (esp. heavy `serp.py`); track, don't churn.
 

@@ -88,13 +88,3 @@ def fixable_check_ids(*, tier: int = 1) -> set[str]:
     if tier == 2:
         return set(list_tier_2().keys())
     raise ValueError(f"unknown tier: {tier!r}")
-
-
-# Convenience: combined fixable set (Tier 1 OR Tier 2). Useful when the
-# user passes --ai and we want to include checks that have ONLY a Tier 2
-# fixer (e.g. CHECK_025 growth-md-nonempty).
-def all_fixable_check_ids(*, include_tier_2: bool) -> set[str]:
-    out = set(list_tier_1().keys())
-    if include_tier_2:
-        out |= set(list_tier_2().keys())
-    return out
