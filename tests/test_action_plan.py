@@ -24,8 +24,10 @@ class _FakeConsole:
 
 
 def _set_console(monkeypatch, fake):
-    import portfolio.cli as cli_module
-    monkeypatch.setattr(cli_module, "console", fake)
+    # _render_action_plan lives in check_render after the v35.F incr-7 split
+    # and resolves `console` in that module's namespace.
+    import portfolio.check_render as check_render
+    monkeypatch.setattr(check_render, "console", fake)
 
 
 # ---------- categorization ----------
