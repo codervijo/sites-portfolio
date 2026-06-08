@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import typer
 
-from portfolio import cli as cli_mod
+from portfolio import bootstrap_cli as cli_mod  # v35.F incr 8: these helpers moved out of cli.py
 from portfolio.bootstrap import bootstrap
 
 

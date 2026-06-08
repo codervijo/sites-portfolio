@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
-from portfolio import cli as cli_mod
+from portfolio import bootstrap_cli as cli_mod  # v35.F incr 8: these helpers moved out of cli.py
 
 
 def _capturing_console() -> Console:
