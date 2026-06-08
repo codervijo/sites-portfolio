@@ -37,8 +37,8 @@ def _patch_repos_dir_and_domains(monkeypatch, repos_dir, domain_categories):
                status="Active", category=cat)
         for name, cat in domain_categories.items()
     ]
-    import portfolio.cli as cli_module
-    monkeypatch.setattr(cli_module, "load_domains", lambda: domains)
+    import portfolio.fix_cli as fix_cli_mod  # v35.F incr 11: fix engine moved here
+    monkeypatch.setattr(fix_cli_mod, "load_domains", lambda: domains)
 
 
 def _make_repos(tmp_path, names):
@@ -90,8 +90,8 @@ def test_fleet_honors_ignore_repos(tmp_path, monkeypatch):
                       dark_sites=[])
     import portfolio.checks.config as config_module
     monkeypatch.setattr(config_module, "load_config", lambda path=None: cfg)
-    import portfolio.cli as cli_module
-    monkeypatch.setattr(cli_module, "load_domains", lambda: [])
+    import portfolio.fix_cli as fix_cli_mod  # v35.F incr 11: fix engine moved here
+    monkeypatch.setattr(fix_cli_mod, "load_domains", lambda: [])
 
     from portfolio.cli import _list_fleet_eligible_projects
     names = sorted(d for d, _ in _list_fleet_eligible_projects())
@@ -113,8 +113,8 @@ def test_fleet_skips_dark_sites(tmp_path, monkeypatch):
     )
     import portfolio.checks.config as config_module
     monkeypatch.setattr(config_module, "load_config", lambda path=None: cfg)
-    import portfolio.cli as cli_module
-    monkeypatch.setattr(cli_module, "load_domains", lambda: [])
+    import portfolio.fix_cli as fix_cli_mod  # v35.F incr 11: fix engine moved here
+    monkeypatch.setattr(fix_cli_mod, "load_domains", lambda: [])
 
     from portfolio.cli import _list_fleet_eligible_projects
     names = sorted(d for d, _ in _list_fleet_eligible_projects())
@@ -135,8 +135,8 @@ def test_fleet_dark_sites_match_is_case_insensitive(tmp_path, monkeypatch):
     )
     import portfolio.checks.config as config_module
     monkeypatch.setattr(config_module, "load_config", lambda path=None: cfg)
-    import portfolio.cli as cli_module
-    monkeypatch.setattr(cli_module, "load_domains", lambda: [])
+    import portfolio.fix_cli as fix_cli_mod  # v35.F incr 11: fix engine moved here
+    monkeypatch.setattr(fix_cli_mod, "load_domains", lambda: [])
 
     from portfolio.cli import _list_fleet_eligible_projects
     names = sorted(d for d, _ in _list_fleet_eligible_projects())
