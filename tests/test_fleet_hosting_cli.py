@@ -21,7 +21,7 @@ from pathlib import Path
 import typer
 from typer.testing import CliRunner
 
-from portfolio import cli, data, hosting, hosting_cache
+from portfolio import cli, data, fleet_cli, hosting, hosting_cache
 from portfolio.hosting import (
     HostingResult,
     HostingRow,
@@ -43,8 +43,10 @@ def _patch_fleet_domains(monkeypatch, names: list[str]) -> None:
     deterministic without depending on the operator's portfolio.json."""
     class _D:
         def __init__(self, name): self.name = name
+    # _fleet_hosting_impl resolves load_domains in fleet_cli's namespace
+    # after the v35.F incr-10 split.
     monkeypatch.setattr(
-        cli, "load_domains",
+        fleet_cli, "load_domains",
         lambda *a, **kw: [_D(n) for n in names],
     )
 
