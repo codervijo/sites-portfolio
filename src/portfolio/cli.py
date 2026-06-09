@@ -4376,6 +4376,46 @@ def project_diagnose(
     render(d, console)
 
 
+# v33.F — request input ergonomics. A full multi-step prompt shouldn't have
+# to survive shell quoting as one positional arg. `request` is optional: an
+# inline arg wins; otherwise read from stdin — a banner + paste-til-Ctrl-D
+# on an interactive TTY, or silent read when piped (`delegate <d> < req.txt`).
+def _resolve_delegate_request(request: str | None) -> str:
+    """Resolve the delegate request from an inline arg, an interactive paste,
+    or piped stdin. Returns the stripped request (``""`` when empty — the
+    caller aborts)."""
+    import sys
+
+    if request is None:
+        if sys.stdin.isatty():
+            console.print("[dim]Paste your request, then Ctrl-D:[/]")
+        request = sys.stdin.read()
+    return (request or "").strip()
+
+
+def _delegate_confirm(prompt: str = "Proceed?", default: bool = True) -> bool:
+    """Read a y/n confirmation from the controlling terminal (``/dev/tty``),
+    not stdin. A pasted/piped request consumes ``sys.stdin``, so ``typer.confirm``
+    (which reads stdin) would hit EOF; ``/dev/tty`` is the git pattern for the
+    same situation (confirming after a piped commit)."""
+    try:
+        tty = open("/dev/tty", "r+")
+    except OSError:
+        console.print(
+            "[red]✗ no terminal available for confirmation.[/] "
+            "Re-run with [bold]--yes[/] to skip the prompt.")
+        raise typer.Exit(1)
+    try:
+        tty.write(f"{prompt} {'[Y/n]' if default else '[y/N]'} ")
+        tty.flush()
+        answer = tty.readline().strip().lower()
+    finally:
+        tty.close()
+    if not answer:
+        return default
+    return answer in ("y", "yes")
+
+
 # v33.B — `project delegate`. Hands a site a multi-step instruction and
 # lets Claude implement it semi-autonomously inside a fresh, disposable
 # container (only the site dir mounted RW + host ~/.claude), supervised on
@@ -4384,7 +4424,10 @@ def project_diagnose(
 @project_app.command("delegate")
 def project_delegate(
     domain: str = typer.Argument(..., help="Site to work on (e.g. drdebug.dev)"),
-    request: str = typer.Argument(..., help="What to implement (quote it)"),
+    request: str = typer.Argument(
+        None,
+        help="What to implement. Omit to paste it (Ctrl-D to end) or pipe it "
+             "in (`delegate <domain> < prompt.txt`)."),
     force: bool = typer.Option(
         False, "--force",
         help="Run even if the working tree is dirty (diff will be muddied — "
@@ -4429,14 +4472,22 @@ def project_delegate(
                       "agent inside a container; install/start Docker first.")
         raise typer.Exit(1)
 
+    # v33.F — resolve the request (inline arg ▸ interactive paste ▸ piped
+    # stdin) so a full multi-step prompt needn't survive shell quoting.
+    request = _resolve_delegate_request(request)
+    if not request:
+        console.print("↷ no request, aborting.")
+        raise typer.Exit(0)
+
     # Write-surface confirmation gate (per architecture.md § write-surface
-    # gates): delegate mutates the working tree.
+    # gates): delegate mutates the working tree. The confirm reads /dev/tty,
+    # not stdin — a pasted/piped request has already consumed stdin.
     if not yes:
         console.print(
             f"[bold]delegate[/] will let Claude edit "
             f"[cyan]sites/{domain}/[/] in a sandbox and leave the changes "
             f"uncommitted for your review.")
-        if not typer.confirm("Proceed?", default=True):
+        if not _delegate_confirm("Proceed?", default=True):
             console.print("↷ aborted.")
             raise typer.Exit(0)
 

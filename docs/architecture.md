@@ -1535,6 +1535,16 @@ surface** (joins § 2.1's two when v33.B ships).
   containerized invocation rather than a host spawn. Lives in
   `src/portfolio/delegate.py` (`DockerBackend` + `run_delegate`); CLI verb
   `project delegate` in `cli.py`.
+- **Request input (v33.F).** `request` is optional: an inline arg wins;
+  otherwise it's read from stdin — a `Paste your request, then Ctrl-D:`
+  banner + read-to-EOF on an interactive TTY, or a silent read when piped
+  (`delegate <domain> < prompt.txt`, heredoc). Empty after `strip()` →
+  abort. Lets a full multi-step prompt arrive without surviving shell
+  quoting, and the piped form retires the need for a `--request-file` flag.
+  The `--yes`/confirm gate reads `/dev/tty` (not the stdin a pasted/piped
+  request has consumed — the git pattern for confirming after a piped
+  commit). Helpers `_resolve_delegate_request` / `_delegate_confirm` in
+  `cli.py`.
 - **Supervision (v33.B core; tuning v33.E).** Host-side two-axis
   watchdog: **liveness** (output stream flowing) + **progress** (net
   diff growth + `tool_use` fingerprint novelty over a rolling window).
