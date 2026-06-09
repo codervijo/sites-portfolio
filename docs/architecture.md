@@ -966,6 +966,13 @@ Both write surfaces follow the same pattern:
 `new deploy` follows a similar pattern for GitHub repo + CF Pages
 project creation (not a project-dir write, but irreversible).
 
+**`project delegate` is exempt (v33.J).** It mutates a working tree, but
+its output is an *uncommitted diff the operator reviews before committing*
+— so a pre-run confirmation guards nothing the review doesn't. Its safety is
+the sandbox + supervisor + verify gate + uncommitted-review stop (ADR-0023),
+not a prompt. It therefore runs without confirming; `--yes`/`-y` is kept as
+an accepted no-op for compatibility.
+
 ### Projected CLI surface (current + planned)
 
 Full command tree at the end of v14, with shipped nodes marked ✅

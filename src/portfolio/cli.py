@@ -4393,29 +4393,6 @@ def _resolve_delegate_request(request: str | None) -> str:
     return (request or "").strip()
 
 
-def _delegate_confirm(prompt: str = "Proceed?", default: bool = True) -> bool:
-    """Read a y/n confirmation from the controlling terminal (``/dev/tty``),
-    not stdin. A pasted/piped request consumes ``sys.stdin``, so ``typer.confirm``
-    (which reads stdin) would hit EOF; ``/dev/tty`` is the git pattern for the
-    same situation (confirming after a piped commit)."""
-    try:
-        tty = open("/dev/tty", "r+")
-    except OSError:
-        console.print(
-            "[red]✗ no terminal available for confirmation.[/] "
-            "Re-run with [bold]--yes[/] to skip the prompt.")
-        raise typer.Exit(1)
-    try:
-        tty.write(f"{prompt} {'[Y/n]' if default else '[y/N]'} ")
-        tty.flush()
-        answer = tty.readline().strip().lower()
-    finally:
-        tty.close()
-    if not answer:
-        return default
-    return answer in ("y", "yes")
-
-
 # v33.B — `project delegate`. Hands a site a multi-step instruction and
 # lets Claude implement it semi-autonomously inside a fresh, disposable
 # container (only the site dir mounted RW + host ~/.claude), supervised on
@@ -4438,7 +4415,9 @@ def project_delegate(
     timeout: int = typer.Option(
         1200, "--timeout", help="Wall-clock cap in seconds."),
     yes: bool = typer.Option(
-        False, "--yes", "-y", help="Skip the write-surface confirmation."),
+        False, "--yes", "-y",
+        help="Deprecated no-op — delegate no longer prompts (kept for "
+             "compatibility)."),
     no_verify: bool = typer.Option(
         False, "--no-verify",
         help="Skip the post-run verify gate (build + project check + visual)."),
@@ -4488,17 +4467,11 @@ def project_delegate(
         console.print("↷ no request, aborting.")
         raise typer.Exit(0)
 
-    # Write-surface confirmation gate (per architecture.md § write-surface
-    # gates): delegate mutates the working tree. The confirm reads /dev/tty,
-    # not stdin — a pasted/piped request has already consumed stdin.
-    if not yes:
-        console.print(
-            f"[bold]delegate[/] will let Claude edit "
-            f"[cyan]sites/{domain}/[/] in a sandbox and leave the changes "
-            f"uncommitted for your review.")
-        if not _delegate_confirm("Proceed?", default=True):
-            console.print("↷ aborted.")
-            raise typer.Exit(0)
+    # v33.J — no pre-run confirmation prompt. delegate's safety is the
+    # uncommitted reviewable diff (you review before committing) + the
+    # sandbox/supervisor/verify gate (ADR-0023), not a prompt; typing the
+    # command + supplying a request is intent enough. `--yes` is kept as an
+    # accepted no-op for compatibility.
 
     # Build the verify gate: snapshot conformance BEFORE the agent runs (on
     # the clean tree) so we can flag only *new* failures. Reuse the site_dir

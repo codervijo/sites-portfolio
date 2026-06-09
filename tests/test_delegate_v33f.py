@@ -1,18 +1,15 @@
 """Tests for v33.F — `project delegate` request-input ergonomics.
 
-Covers the two CLI helpers that let a full multi-step prompt arrive without
-surviving shell quoting: `_resolve_delegate_request` (inline arg ▸ interactive
-paste ▸ piped stdin ▸ empty) and `_delegate_confirm` (reads /dev/tty, not the
-stdin a pasted/piped request has already consumed).
+Covers `_resolve_delegate_request` — the helper that lets a full multi-step
+prompt arrive without surviving shell quoting: inline arg ▸ interactive paste
+▸ piped stdin ▸ empty. (The v33.F /dev/tty confirm was removed in v33.J when
+the pre-run confirmation gate was dropped.)
 """
 from __future__ import annotations
 
 import io
 
-import pytest
-import typer
-
-from portfolio.cli import _delegate_confirm, _resolve_delegate_request
+from portfolio.cli import _resolve_delegate_request
 
 
 # ---------- _resolve_delegate_request ----------
@@ -50,75 +47,3 @@ def test_empty_stdin_returns_empty(monkeypatch):
     fake.isatty = lambda: True  # type: ignore[attr-defined]
     monkeypatch.setattr("sys.stdin", fake)
     assert _resolve_delegate_request(None) == ""  # caller aborts on ""
-
-
-# ---------- _delegate_confirm ----------
-
-
-class _FakeTty:
-    """Minimal /dev/tty stand-in: records writes, replays a queued answer."""
-
-    def __init__(self, answer: str):
-        self._answer = answer
-        self.written = ""
-
-    def write(self, s):
-        self.written += s
-
-    def flush(self):
-        pass
-
-    def readline(self):
-        return self._answer
-
-    def close(self):
-        pass
-
-
-def _patch_tty(monkeypatch, fake):
-    """Route open('/dev/tty', ...) to `fake`; anything else uses real open."""
-    real_open = open
-
-    def fake_open(path, *a, **k):
-        if path == "/dev/tty":
-            return fake
-        return real_open(path, *a, **k)
-
-    monkeypatch.setattr("builtins.open", fake_open)
-
-
-def test_confirm_reads_tty_not_stdin(monkeypatch):
-    # stdin would raise if touched — proving the confirm uses /dev/tty.
-    monkeypatch.setattr("sys.stdin", type("S", (), {
-        "read": staticmethod(lambda: (_ for _ in ()).throw(AssertionError("stdin read"))),
-        "readline": staticmethod(lambda: (_ for _ in ()).throw(AssertionError("stdin readline"))),
-    })())
-    _patch_tty(monkeypatch, _FakeTty("y\n"))
-    assert _delegate_confirm("Proceed?", default=True) is True
-
-
-def test_confirm_empty_line_uses_default(monkeypatch):
-    _patch_tty(monkeypatch, _FakeTty("\n"))
-    assert _delegate_confirm("Proceed?", default=True) is True
-    _patch_tty(monkeypatch, _FakeTty("\n"))
-    assert _delegate_confirm("Proceed?", default=False) is False
-
-
-@pytest.mark.parametrize("answer,expected", [
-    ("y\n", True), ("yes\n", True), ("Y\n", True),
-    ("n\n", False), ("no\n", False), ("nope\n", False),
-])
-def test_confirm_parses_answer(monkeypatch, answer, expected):
-    _patch_tty(monkeypatch, _FakeTty(answer))
-    assert _delegate_confirm("Proceed?", default=True) is expected
-
-
-def test_confirm_no_tty_exits(monkeypatch):
-    def no_tty_open(path, *a, **k):
-        if path == "/dev/tty":
-            raise OSError("no controlling terminal")
-        raise AssertionError("unexpected open")
-
-    monkeypatch.setattr("builtins.open", no_tty_open)
-    with pytest.raises(typer.Exit):
-        _delegate_confirm("Proceed?", default=True)

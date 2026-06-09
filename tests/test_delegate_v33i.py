@@ -58,10 +58,6 @@ def test_preflight_runs_before_request_then_empty_aborts(monkeypatch, tmp_path):
     monkeypatch.setattr(
         climod, "_resolve_delegate_request",
         lambda r: (order.append("resolve"), "")[1])   # empty → caller aborts
-    # The confirm gate / run must never be reached on an empty request.
-    monkeypatch.setattr(
-        climod, "_delegate_confirm",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("confirm reached")))
 
     result = CliRunner().invoke(climod.app, ["project", "delegate", "example.com"])
     assert result.exit_code == 0
