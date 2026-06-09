@@ -4378,19 +4378,32 @@ def project_diagnose(
 
 # v33.F — request input ergonomics. A full multi-step prompt shouldn't have
 # to survive shell quoting as one positional arg. `request` is optional: an
-# inline arg wins; otherwise read from stdin — a banner + paste-til-Ctrl-D
-# on an interactive TTY, or silent read when piped (`delegate <d> < req.txt`).
+# inline arg wins; otherwise read from stdin — an interactive paste or a
+# silent read when piped (`delegate <d> < req.txt`).
+# v33.K — interactive paste ends on a lone `.` sentinel (deterministic
+# regardless of trailing newline), with Ctrl-D/EOF kept as a fallback. The
+# old Ctrl-D-only path was flaky: a terminal only signals EOF at line start,
+# so a no-trailing-newline paste needed a second Ctrl-D.
 def _resolve_delegate_request(request: str | None) -> str:
     """Resolve the delegate request from an inline arg, an interactive paste,
     or piped stdin. Returns the stripped request (``""`` when empty — the
     caller aborts)."""
     import sys
 
-    if request is None:
-        if sys.stdin.isatty():
-            console.print("[dim]Paste your request, then Ctrl-D:[/]")
-        request = sys.stdin.read()
-    return (request or "").strip()
+    if request is not None:
+        return request.strip()
+    if not sys.stdin.isatty():
+        # Piped (`< prompt.txt`, heredoc): read to EOF; no sentinel needed.
+        return sys.stdin.read().strip()
+    # Interactive: read lines until a lone `.` sentinel, or EOF (Ctrl-D).
+    console.print("[dim]Paste your request, then a line with just "
+                  "'.' (or Ctrl-D):[/]")
+    lines: list[str] = []
+    for line in sys.stdin:
+        if line.strip() == ".":        # lone-dot terminator (sentinel)
+            break
+        lines.append(line)
+    return "".join(lines).strip()
 
 
 # v33.B — `project delegate`. Hands a site a multi-step instruction and

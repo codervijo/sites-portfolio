@@ -1542,16 +1542,15 @@ surface** (joins § 2.1's two when v33.B ships).
   containerized invocation rather than a host spawn. Lives in
   `src/portfolio/delegate.py` (`DockerBackend` + `run_delegate`); CLI verb
   `project delegate` in `cli.py`.
-- **Request input (v33.F).** `request` is optional: an inline arg wins;
-  otherwise it's read from stdin — a `Paste your request, then Ctrl-D:`
-  banner + read-to-EOF on an interactive TTY, or a silent read when piped
-  (`delegate <domain> < prompt.txt`, heredoc). Empty after `strip()` →
-  abort. Lets a full multi-step prompt arrive without surviving shell
-  quoting, and the piped form retires the need for a `--request-file` flag.
-  The `--yes`/confirm gate reads `/dev/tty` (not the stdin a pasted/piped
-  request has consumed — the git pattern for confirming after a piped
-  commit). Helpers `_resolve_delegate_request` / `_delegate_confirm` in
-  `cli.py`.
+- **Request input (v33.F, v33.K).** `request` is optional: an inline arg
+  wins; otherwise it's read from stdin. On an interactive TTY the paste ends
+  on a **lone `.` sentinel** (with Ctrl-D/EOF as a fallback) — v33.K, because
+  Ctrl-D alone only signals EOF at line start, so a no-trailing-newline paste
+  needed a second Ctrl-D ("sometimes works, sometimes not"). Piped input
+  (`delegate <domain> < prompt.txt`, heredoc) reads straight to EOF — no
+  sentinel. Empty after `strip()` → abort. Lets a full multi-step prompt
+  arrive without surviving shell quoting, and the piped form retires the need
+  for a `--request-file` flag. Helper `_resolve_delegate_request` in `cli.py`.
 - **Prompt grounding (v33.G).** The agent gets a *system* prompt (via
   `--append-system-prompt`) carrying the guardrails (smallest coherent
   change · follow conventions · don't commit) + site context (AI_AGENTS.md
