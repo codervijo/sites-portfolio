@@ -1588,6 +1588,15 @@ surface** (joins § 2.1's two when v33.B ships).
 - **Output.** Streamed `✓ ✗ ↷` markers; ends at a reviewable `git diff`
   + screenshot. Never auto-commits, never auto-reverts. No `fleet
   delegate` for now.
+- **Live progress (v33.L).** The sandbox bringup (`docker run` + first-run
+  image pull + in-container claude install) and the wait for the first
+  stream line were silent — a dead terminal for up to a minute. `run_delegate`
+  now emits an `on_progress(kind, detail)` stream (`kind` ∈ {"phase",
+  "action"}: starting-sandbox → agent-starting → per-`tool_use` action →
+  verifying); the CLI drives a `rich` spinner whose caption tracks it. The
+  spinner animates via rich's own refresh thread, so it keeps moving even
+  while `backend.start()` blocks. Presentation-only — delegate.py stays
+  console-free (the hook is optional); degrades to a no-op on non-TTY.
 
 See ADR-0023 + `docs/prd.md § v33` for the full rationale.
 

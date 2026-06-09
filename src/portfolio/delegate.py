@@ -463,14 +463,24 @@ def run_delegate(domain: str, request: str, *,
                  verifier: "Verifier | None" = None,
                  clock: Clock = time.monotonic,
                  diff_sampler: DiffSampler = working_tree_diff_size,
+                 on_progress: "Callable[[str, str], None] | None" = None,
                  sites_root: Path | None = None) -> DelegateResult:
     """Orchestrate one delegate run: preflight → start sandbox → supervise
     the agent stream on two axes → clean-kill → report the uncommitted diff.
+
+    `on_progress(kind, detail)` (v33.L) is an optional presentation hook —
+    `kind` ∈ {"phase", "action"} — so the caller can surface live progress
+    during the otherwise-silent sandbox bringup + agent run. delegate.py
+    stays console-free; the CLI renders.
 
     Never raises for the expected paths: a preflight refusal returns
     `status="refused"` (message carries the operator-facing text); a backend
     failure returns `status="error"`. The container is always torn down."""
     bounds = bounds or Bounds()
+
+    def emit(kind: str, detail: str = "") -> None:
+        if on_progress is not None:
+            on_progress(kind, detail)
     try:
         site_dir = preflight(domain, force=force, sites_root=sites_root)
     except DelegateRefused as e:
@@ -487,11 +497,19 @@ def run_delegate(domain: str, request: str, *,
 
     saw_result = False
     result_is_error = False
+    # v33.L — the sandbox bringup is the silent gap: a `docker run` (first
+    # run pulls the image) + the in-container claude install, all before the
+    # first stream line. Announce it so the terminal isn't dead.
+    emit("phase", "starting sandbox… (first run pulls the image + installs "
+                  "claude — up to a minute)")
     backend.start(site_dir)
+    emit("phase", "agent starting…")
     try:
         for raw in backend.stream(user_prompt, system_prompt=system_prompt):
             now = clock()
             event = parse_stream_line(raw) if raw else None
+            if event is not None and event.kind == "tool_use" and event.fingerprint:
+                emit("action", event.fingerprint)
             if event is not None and event.kind == "result":
                 saw_result = True
                 result_is_error = bool(event.is_error)
@@ -516,6 +534,7 @@ def run_delegate(domain: str, request: str, *,
         # Verify gate (v33.C/D) — only on a clean `done` that actually
         # changed something, while the container is still alive.
         if status == "done" and verifier is not None and changed_files(site_dir):
+            emit("phase", "verifying the change (build + checks)…")
             verify = verifier(site_dir, backend)
             if verify.build_ok is False:
                 status, reason = ("verify-fail",

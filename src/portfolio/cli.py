@@ -4498,8 +4498,27 @@ def project_delegate(
     bounds = Bounds(wall_clock_s=timeout, budget_usd=budget)
     backend = DockerBackend(domain, budget_usd=budget)
     console.print(f"▸ delegate · [cyan]{domain}[/] — running in sandbox…")
-    result = run_delegate(domain, request, backend=backend, bounds=bounds,
-                          force=force, verifier=verifier)
+
+    # v33.L — live progress. A rich spinner animates (via its own refresh
+    # thread) even while backend.start() blocks on the image pull / claude
+    # install, and its caption tracks the current phase/action from
+    # run_delegate's on_progress hook. Degrades to a no-op when not a TTY.
+    import contextlib
+
+    status_cm = (console.status("[cyan]starting…[/]", spinner="dots")
+                 if console.is_terminal else contextlib.nullcontext())
+    with status_cm as status:
+        def _on_progress(kind: str, detail: str) -> None:
+            if status is None:
+                return
+            if kind == "phase":
+                status.update(f"[cyan]{detail}[/]")
+            elif kind == "action":
+                status.update(f"[cyan]agent:[/] [dim]{detail}[/]")
+
+        result = run_delegate(domain, request, backend=backend, bounds=bounds,
+                              force=force, verifier=verifier,
+                              on_progress=_on_progress)
     _render_delegate_result(result, domain)
     if result.status not in ("done",):
         raise typer.Exit(1 if result.status in ("error", "refused") else 0)
