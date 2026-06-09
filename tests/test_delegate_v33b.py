@@ -17,7 +17,7 @@ from portfolio.delegate import (
     DelegateRefused,
     StreamEvent,
     Supervisor,
-    build_delegate_prompt,
+    build_delegate_system_prompt,
     changed_files,
     format_dirty_tree_error,
     parse_stream_line,
@@ -238,12 +238,14 @@ def test_quiet_thinking_burst_is_alive_not_spinning():
 # ---------- prompt assembly ----------
 
 
-def test_prompt_includes_request_and_context(site):
+def test_system_prompt_includes_guardrails_and_context(site):
+    # v33.G — guardrails + site context now live in the system prompt; the
+    # request is the separate user turn (run_delegate passes request.strip()
+    # as the -p prompt).
     (site / "AI_AGENTS.md").write_text("# Example site\nConventions here.\n")
-    prompt = build_delegate_prompt(site, "  add a dark mode toggle  ")
-    assert "add a dark mode toggle" in prompt
-    assert "Do not commit" in prompt
-    assert "Conventions here." in prompt
+    sysp = build_delegate_system_prompt(site)
+    assert "Do not commit" in sysp
+    assert "Conventions here." in sysp
 
 
 # ---------- orchestration: run_delegate (fake backend) ----------
@@ -261,8 +263,9 @@ class FakeBackend:
     def start(self, site_dir):
         self.started_with = site_dir
 
-    def stream(self, prompt):
+    def stream(self, prompt, system_prompt=None):
         self.prompt = prompt
+        self.system_prompt = system_prompt
         if self.raise_on_stream:
             raise RuntimeError("boom")
         for ln in self.lines:
@@ -289,7 +292,7 @@ def test_run_delegate_refused_dirty_never_starts(site):
 
 def test_run_delegate_done_reports_changed_files(site):
     # the "agent" creates a file mid-run; backend just streams events
-    def stream_with_side_effect(self, prompt):
+    def stream_with_side_effect(self, prompt, system_prompt=None):
         (site / "feature.txt").write_text("new\n")
         yield '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":"feature.txt"}}]}}'
         yield '{"type":"result","total_cost_usd":0.12}'
@@ -377,7 +380,7 @@ def _backend_that_changes(site: Path):
     a clean result event (→ status done), so the verify gate engages."""
     be = FakeBackend([])
 
-    def stream(self, prompt):
+    def stream(self, prompt, system_prompt=None):
         (site / "feature.txt").write_text("x\n")
         yield '{"type":"result","is_error":false,"total_cost_usd":0.05}'
     be.stream = stream.__get__(be, FakeBackend)
@@ -441,7 +444,7 @@ class ExecBackend:
         self.calls = []
 
     def start(self, sd): pass
-    def stream(self, p): yield ""
+    def stream(self, p, system_prompt=None): yield ""
     def kill(self): pass
 
     def exec(self, cmd, *, timeout=600):

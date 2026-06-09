@@ -337,21 +337,40 @@ class Supervisor:
 # ---------- prompt assembly ----------
 
 
-def build_delegate_prompt(site_dir: Path, request: str) -> str:
-    """Assemble the agent prompt: the operator's request + brief site
-    context (AI_AGENTS.md + package.json) so Claude inherits the site's
-    conventions. The build/verify steps run *after* the agent, in the
-    verify gate (v33.C/D), so they're described, not invoked here."""
-    ctx = project_context(site_dir)
+def docs_listing(site_dir: Path) -> str:
+    """v33.G — a cheap MAP of the site's `docs/`: filenames only, never
+    contents. The in-container agent has Read/Glob/Grep, so it fetches the
+    docs that matter itself; pre-loading the whole tree would pay full token
+    cost every run and eat the budget. Returns "" when there's no `docs/`."""
+    docs = site_dir / "docs"
+    if not docs.is_dir():
+        return ""
+    names = sorted(
+        p.name for p in docs.iterdir()
+        if p.is_file() and not p.name.startswith("."))
+    if not names:
+        return ""
+    return "docs/ contains: " + ", ".join(names)
+
+
+def build_delegate_system_prompt(site_dir: Path) -> str:
+    """v33.G — the agent's *system* prompt (passed via `--append-system-
+    prompt`): guardrails + site context + a `docs/` map. The operator's
+    request is the separate user turn. The build/verify steps run *after*
+    the agent, in the verify gate (v33.C/D), so they're described, not
+    invoked here."""
     parts = [
         "You are implementing a change in this site's working tree, in place.",
         "Follow the site's existing conventions, structure, and styling.",
         "Make the smallest coherent change that fully satisfies the request.",
         "Do not commit; leave your changes uncommitted for review.",
-        "",
-        "=== REQUEST ===",
-        request.strip(),
     ]
+    listing = docs_listing(site_dir)
+    if listing:
+        parts.append(
+            "Before implementing, read AI_AGENTS.md and any relevant files "
+            f"under docs/ to understand this site's conventions. {listing}.")
+    ctx = project_context(site_dir)
     if ctx:
         parts += ["", "=== SITE CONTEXT ===", ctx]
     return "\n".join(parts)
@@ -373,11 +392,14 @@ class DelegateBackend(Protocol):
         site dir mounted RW + host ~/.claude mounted, and ensure `claude`
         is available inside it."""
 
-    def stream(self, prompt: str) -> Iterator[str]:
+    def stream(self, prompt: str,
+               system_prompt: str | None = None) -> Iterator[str]:
         """Run the agent and yield raw stream-json lines as they arrive.
-        Yields "" as a heartbeat when no line has arrived within a poll
-        interval, so the supervisor can still evaluate idle/timeout while
-        the stream is quiet."""
+        `prompt` is the operator's request (the user turn); `system_prompt`
+        (v33.G) carries guardrails + site context via `--append-system-
+        prompt`. Yields "" as a heartbeat when no line has arrived within a
+        poll interval, so the supervisor can still evaluate idle/timeout
+        while the stream is quiet."""
 
     def kill(self) -> None:
         """Tear the sandbox down. Must be idempotent — `run_delegate` may
@@ -455,7 +477,8 @@ def run_delegate(domain: str, request: str, *,
         return DelegateResult(status="refused", reason="preflight",
                               message=str(e))
 
-    prompt = build_delegate_prompt(site_dir, request)
+    system_prompt = build_delegate_system_prompt(site_dir)
+    user_prompt = request.strip()
     start = clock()
     sup = Supervisor(bounds, start=start)
     status: DelegateStatus = "done"
@@ -466,7 +489,7 @@ def run_delegate(domain: str, request: str, *,
     result_is_error = False
     backend.start(site_dir)
     try:
-        for raw in backend.stream(prompt):
+        for raw in backend.stream(user_prompt, system_prompt=system_prompt):
             now = clock()
             event = parse_stream_line(raw) if raw else None
             if event is not None and event.kind == "result":
@@ -604,8 +627,11 @@ class DockerBackend:
                    "npm i -g @anthropic-ai/claude-code >/dev/null 2>&1"],
                   timeout=600)
 
-    def stream(self, prompt: str) -> Iterator[str]:
-        import select
+    def _claude_cmd(self, prompt: str,
+                    system_prompt: str | None = None) -> list[str]:
+        """Assemble the `docker exec … claude -p` argv. Extracted from
+        `stream` so the flag wiring (notably v33.G's `--append-system-
+        prompt`) is unit-testable without spawning a container."""
         cmd = self.docker + [
             "exec",
             # Run as the host user (mounts are host-owned + claude refuses
@@ -619,6 +645,14 @@ class DockerBackend:
             "--dangerously-skip-permissions",   # safe: disposable sandbox
             "--max-budget-usd", str(self.budget_usd),
         ]
+        if system_prompt:
+            cmd += ["--append-system-prompt", system_prompt]
+        return cmd
+
+    def stream(self, prompt: str,
+               system_prompt: str | None = None) -> Iterator[str]:
+        import select
+        cmd = self._claude_cmd(prompt, system_prompt)
         self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, text=True,
                                       bufsize=1)

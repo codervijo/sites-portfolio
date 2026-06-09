@@ -1545,6 +1545,15 @@ surface** (joins § 2.1's two when v33.B ships).
   request has consumed — the git pattern for confirming after a piped
   commit). Helpers `_resolve_delegate_request` / `_delegate_confirm` in
   `cli.py`.
+- **Prompt grounding (v33.G).** The agent gets a *system* prompt (via
+  `--append-system-prompt`) carrying the guardrails (smallest coherent
+  change · follow conventions · don't commit) + site context (AI_AGENTS.md
+  + package.json) + a `docs/` **map** (filenames only) with an instruction
+  to read the relevant docs itself; the operator's request is the separate
+  `-p` user turn. Map-not-slurp keeps per-run token/budget cost flat
+  regardless of `docs/` size — the in-container agent has Read/Glob/Grep to
+  fetch what it needs. `build_delegate_system_prompt` / `docs_listing` in
+  `delegate.py`; the flag is wired in `DockerBackend._claude_cmd`.
 - **Supervision (v33.B core; tuning v33.E).** Host-side two-axis
   watchdog: **liveness** (output stream flowing) + **progress** (net
   diff growth + `tool_use` fingerprint novelty over a rolling window).
