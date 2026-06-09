@@ -941,6 +941,19 @@ deprecation aliases, then cleanup.
 - Snapshot path printed: `Snapshot: data/<layer>/<YYYY-MM-DD>.json`.
 - Cache-age note when reading from cache:
   `Reading data/<layer>/<date>.json (Xh old · use --refresh to re-fetch)`.
+- **Long opaque-subprocess progress feed (v15.T).** When a verb blocks
+  on a single fully-buffered `claude` subprocess (`run_claude` →
+  `subprocess.run(capture_output=True)` — nothing reaches the terminal
+  until it exits), wrap the call in a `rich` `console.status` spinner
+  driven by a daemon thread that polls the output dirs for files modified
+  since the run start and reports a live tally:
+  `⠋ Porting mspproof.com… 1m24s · 7 files written · pages 3 · components 4 · public 0`.
+  Presentation-only (the subprocess primitive stays untouched); gated on
+  `console.is_terminal` so piped/CI output degrades to a `nullcontext`
+  no-op; thread torn down via a `threading.Event` + `join` in a `finally`.
+  First applied to `project translate` (the v15.M port verb), whose
+  spend/duration are still only known post-exit — a live cost readout
+  would need the streaming `--output-format stream-json` path (deferred).
 
 ### Write-surface confirmation gates
 

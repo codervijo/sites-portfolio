@@ -4626,6 +4626,75 @@ def _project_hosting_impl(
 # / higher budget defaults, retryable, runnable in the background.
 
 
+# v15.T — file-activity progress feed for `project translate`. The port
+# is one opaque, fully-buffered `claude` subprocess (capture_output=True),
+# so nothing reaches the terminal until it exits. Instead of leaving the
+# operator staring at a silent prompt for 5-30 minutes, a daemon thread
+# polls the output dirs and drives a rich spinner showing files landing.
+# Presentation only — `port_to_astro` / `run_claude` stay untouched.
+
+# Output buckets watched during a port (label, path-relative-to-project).
+_PORT_PROGRESS_BUCKETS = (
+    ("pages", ("src", "pages")),
+    ("components", ("src", "components")),
+    ("public", ("public",)),
+)
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    """Humanize an elapsed duration as `1m24s` / `42s` (matches the
+    header's terse style)."""
+    minutes, secs = divmod(int(seconds), 60)
+    return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
+
+
+def _count_recent_files(root, since: float) -> int:
+    """Count files under `root` (recursive) modified at/after `since`,
+    skipping atomic-write `.tmp` artifacts (the ones `sweep_tmp_artifacts`
+    later cleans — counting them would make the tally flicker)."""
+    if not root.is_dir():
+        return 0
+    n = 0
+    for path in root.rglob("*"):
+        try:
+            if (
+                path.is_file()
+                and not path.name.endswith(".tmp")
+                and path.stat().st_mtime >= since
+            ):
+                n += 1
+        except OSError:
+            continue
+    return n
+
+
+def _port_progress_counts(project_dir, since: float):
+    """Return `[(label, count), ...]` of files written per bucket since
+    `since` (wall-clock epoch seconds)."""
+    return [
+        (label, _count_recent_files(project_dir.joinpath(*parts), since))
+        for label, parts in _PORT_PROGRESS_BUCKETS
+    ]
+
+
+def _watch_port_progress(project_dir, domain, status, stop, start_mono, start_wall):
+    """Daemon-thread body: tick every ~2s, refresh the spinner caption
+    with elapsed time + per-bucket file counts until `stop` is set."""
+    import time
+
+    while not stop.is_set():
+        counts = _port_progress_counts(project_dir, start_wall)
+        total = sum(c for _, c in counts)
+        elapsed = _fmt_elapsed(time.monotonic() - start_mono)
+        detail = " · ".join(f"{label} {c}" for label, c in counts)
+        plural = "" if total == 1 else "s"
+        status.update(
+            f"[cyan]Porting {domain}[/]… {elapsed} · "
+            f"{total} file{plural} written · {detail}"
+        )
+        stop.wait(2.0)
+
+
 @project_app.command("translate")
 def project_translate(
     domain: str = typer.Argument(..., help="Domain whose sites/<domain>/genai/ to port into the Astro scaffold (e.g. agesdk.dev)"),
@@ -4724,13 +4793,43 @@ def project_translate(
         "src/pages/, src/components/, public/, etc.[/]"
     )
 
-    result = port_to_astro(
-        project_dir,
-        source_stack=source_stack,
-        source_signals=source_signals,
-        budget_usd=budget_usd,
-        timeout_s=timeout_s,
+    # v15.T — drive a live file-activity spinner while the (opaque,
+    # buffered) port subprocess runs. Skip the animation on non-TTY
+    # output (CI / piped logs) so captures stay clean; the port runs
+    # identically either way.
+    import contextlib
+    import threading
+    import time
+
+    start_mono = time.monotonic()
+    start_wall = time.time()
+    stop = threading.Event()
+    watcher: threading.Thread | None = None
+    status_cm = (
+        console.status(f"[cyan]Porting {domain}[/]…", spinner="dots")
+        if console.is_terminal
+        else contextlib.nullcontext()
     )
+    with status_cm as status:
+        if status is not None:
+            watcher = threading.Thread(
+                target=_watch_port_progress,
+                args=(project_dir, domain, status, stop, start_mono, start_wall),
+                daemon=True,
+            )
+            watcher.start()
+        try:
+            result = port_to_astro(
+                project_dir,
+                source_stack=source_stack,
+                source_signals=source_signals,
+                budget_usd=budget_usd,
+                timeout_s=timeout_s,
+            )
+        finally:
+            stop.set()
+            if watcher is not None:
+                watcher.join(timeout=2.0)
 
     if not result.ok:
         console.print(
@@ -4785,10 +4884,15 @@ def project_translate(
 
     marker.unlink(missing_ok=True)
 
+    # v15.T — final tally: files landed + wall-clock elapsed alongside the
+    # subprocess-reported cost.
+    files_written = sum(c for _, c in _port_progress_counts(project_dir, start_wall))
+    elapsed_total = _fmt_elapsed(time.monotonic() - start_mono)
+    plural = "" if files_written == 1 else "s"
     console.print(
         f"\n[green]✓ Port complete.[/] "
-        f"[dim]Cost: ${result.cost_usd:.4f} · Duration: "
-        f"{result.duration_s:.1f}s[/]"
+        f"[dim]{files_written} file{plural} written in {elapsed_total} · "
+        f"Cost: ${result.cost_usd:.4f}[/]"
     )
     console.print(
         f"[dim]Next: `cd ~/work/projects/sites/{domain} && make buildsh` "
