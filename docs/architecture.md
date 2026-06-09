@@ -1562,7 +1562,12 @@ surface** (joins § 2.1's two when v33.B ships).
   dumb backstops. Every exit path clean-kills the container.
 - **Precondition.** Refuse on a dirty working tree (clear cause +
   commit/stash recovery; `--force` demoted), so the post-run diff is
-  unambiguous.
+  unambiguous. **(v33.I)** The CLI runs this preflight (docker present +
+  site resolves + tree clean) *before* collecting the request, so a dirty
+  tree refuses instantly rather than after a wasted paste; the resolved
+  `site_dir` is reused for the verify baseline. Relatedly, `new bootstrap`
+  now gitignores `.astro/` (Astro's generated cache) so fresh sites don't
+  accumulate untracked junk that trips this gate.
 - **Verify gate (v33.C/D — `DockerVerifier`).** After a clean run that
   changed files (container kept alive): in-container **build** via the
   site's own script (corepack pnpm/yarn or npm, as the host user) +

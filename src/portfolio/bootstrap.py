@@ -672,6 +672,10 @@ build/
 .next/
 .cache/
 
+# Astro (generated content cache + types — never tracked; keeps the
+# working tree clean for `project delegate`'s dirty-tree precondition)
+.astro/
+
 # Env / secrets
 .env
 .env.*

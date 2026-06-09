@@ -4463,13 +4463,22 @@ def project_delegate(
     import shutil
 
     from .delegate import (Bounds, DelegateRefused, DockerBackend,
-                           DockerVerifier, resolve_site_dir, run_project_checks,
+                           DockerVerifier, preflight, run_project_checks,
                            run_delegate)
 
     domain = domain.lower()
     if shutil.which("docker") is None:
         console.print("[red]✗ docker not found on PATH.[/] delegate runs the "
                       "agent inside a container; install/start Docker first.")
+        raise typer.Exit(1)
+
+    # v33.I — preflight (resolve site dir + clean-tree precondition) BEFORE
+    # collecting the request, so a dirty tree refuses instantly instead of
+    # after the operator has pasted a whole multi-step prompt.
+    try:
+        site_dir = preflight(domain, force=force)
+    except DelegateRefused as e:
+        console.print(str(e))
         raise typer.Exit(1)
 
     # v33.F — resolve the request (inline arg ▸ interactive paste ▸ piped
@@ -4492,16 +4501,13 @@ def project_delegate(
             raise typer.Exit(0)
 
     # Build the verify gate: snapshot conformance BEFORE the agent runs (on
-    # the clean tree) so we can flag only *new* failures.
+    # the clean tree) so we can flag only *new* failures. Reuse the site_dir
+    # already resolved by preflight.
     verifier = None
     if not no_verify:
-        try:
-            site_dir = resolve_site_dir(domain)
-            baseline = run_project_checks(site_dir)
-            verifier = DockerVerifier(request, check_baseline=baseline,
-                                      do_visual=not no_visual)
-        except DelegateRefused:
-            pass  # run_delegate will resolve + refuse with the full message
+        baseline = run_project_checks(site_dir)
+        verifier = DockerVerifier(request, check_baseline=baseline,
+                                  do_visual=not no_visual)
 
     bounds = Bounds(wall_clock_s=timeout, budget_usd=budget)
     backend = DockerBackend(domain, budget_usd=budget)
