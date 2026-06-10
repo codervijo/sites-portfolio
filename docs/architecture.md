@@ -1587,7 +1587,14 @@ surface** (joins § 2.1's two when v33.B ships).
   (broke-build / regressed-conformance / builds-green-but-absent).
 - **Output.** Streamed `✓ ✗ ↷` markers; ends at a reviewable `git diff`
   + screenshot. Never auto-commits, never auto-reverts. No `fleet
-  delegate` for now.
+  delegate` for now. **(v33.M)** The end-of-run report surfaces the agent's
+  closing **summary** (captured from the `result` event into
+  `DelegateResult.summary`) — for an inspect-first / report-back run that's
+  the whole deliverable (no file changes). When there *are* changes it prints
+  a `diff:` command + a ready-to-paste `commit:` (`git -C sites/<d> add -A &&
+  … commit -m "delegate: <snippet>"`, `soft_wrap`ped so the long line
+  copy-pastes intact). lamill still hands over the command rather than
+  committing.
 - **Live progress (v33.L).** The sandbox bringup (`docker run` + first-run
   image pull + in-container claude install) and the wait for the first
   stream line were silent — a dead terminal for up to a minute. `run_delegate`

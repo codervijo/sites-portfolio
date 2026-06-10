@@ -4519,7 +4519,7 @@ def project_delegate(
         result = run_delegate(domain, request, backend=backend, bounds=bounds,
                               force=force, verifier=verifier,
                               on_progress=_on_progress)
-    _render_delegate_result(result, domain)
+    _render_delegate_result(result, domain, request)
     if result.status not in ("done",):
         raise typer.Exit(1 if result.status in ("error", "refused") else 0)
 
@@ -4544,9 +4544,17 @@ def _render_delegate_verify(v) -> None:
             console.print(f"     screenshot: [dim]{v.screenshot}[/]")
 
 
-def _render_delegate_result(result, domain: str) -> None:
-    """Marker-coded summary of a delegate run; always ends pointing at the
-    uncommitted diff for review."""
+def _suggested_commit_msg(request: str) -> str:
+    """v33.M — a ready-to-paste commit subject from the request's first
+    non-empty line (double-quotes neutralized so the shell command is safe)."""
+    first = next((ln.strip() for ln in request.splitlines() if ln.strip()),
+                 "agent change")
+    return f"delegate: {first[:60].rstrip().replace(chr(34), chr(39))}"
+
+
+def _render_delegate_result(result, domain: str, request: str = "") -> None:
+    """Marker-coded summary of a delegate run; surfaces the agent's closing
+    summary (v33.M) and ends pointing at the diff + a ready commit command."""
     if result.status == "refused":
         console.print(result.message)
         return
@@ -4562,13 +4570,29 @@ def _render_delegate_result(result, domain: str) -> None:
     else:  # idle / spinning / timeout / budget — supervisor/backstop kills
         console.print(f"  ↷ stopped — {result.reason} ({meta})")
     _render_delegate_verify(result.verify)
+
+    # v33.M — the agent's closing summary. For an inspect-first / report-back
+    # run this IS the deliverable (no file changes), so always surface it.
+    if result.summary:
+        text = result.summary.strip()
+        if len(text) > 6000:
+            text = text[:6000] + "\n… (summary truncated)"
+        console.print(f"\n[bold]Agent summary:[/]\n{escape(text)}")
+
     files = result.changed_files
     if files:
-        shown = "\n".join(f"    {f}" for f in files[:20])
+        shown = "\n".join(f"    {escape(f)}" for f in files[:20])
         more = f"\n    … and {len(files) - 20} more" if len(files) > 20 else ""
-        console.print(f"  changes left UNCOMMITTED for review:\n{shown}{more}")
-        console.print(f"  review:  [dim]git -C sites/{domain} diff[/]   "
-                      f"commit yourself when satisfied (lamill never commits).")
+        site = f"sites/{domain}"
+        msg = escape(_suggested_commit_msg(request))
+        console.print(
+            f"\n  {len(files)} file(s) changed, left UNCOMMITTED:\n{shown}{more}")
+        # soft_wrap so the (often long) commands emit as single logical lines —
+        # the terminal wraps them visually but copy-paste stays intact.
+        console.print(f"  diff:    [dim]git -C {site} diff[/]", soft_wrap=True)
+        console.print(f"  commit:  [dim]git -C {site} add -A && "
+                      f"git -C {site} commit -m \"{msg}\"[/]", soft_wrap=True)
+        console.print("  [dim](review first — lamill never commits for you.)[/]")
     else:
         console.print("  (no file changes)")
 

@@ -83,6 +83,7 @@ class StreamEvent:
     fingerprint: str | None = None
     cost_usd: float | None = None
     is_error: bool | None = None   # set on the terminal `result` event
+    text: str | None = None        # v33.M — agent's final summary (result event)
 
 
 @dataclass
@@ -114,6 +115,7 @@ class DelegateResult:
     changed_files: list[str] = field(default_factory=list)
     message: str = ""
     verify: VerifyResult | None = None
+    summary: str = ""               # v33.M — agent's final summary text
 
 
 class DelegateRefused(Exception):
@@ -242,9 +244,11 @@ def parse_stream_line(line: str) -> StreamEvent | None:
     t = obj.get("type")
     if t == "result":
         cost = obj.get("total_cost_usd")
+        summary = obj.get("result")
         return StreamEvent("result", None,
                            float(cost) if cost is not None else None,
-                           is_error=bool(obj.get("is_error")))
+                           is_error=bool(obj.get("is_error")),
+                           text=str(summary) if summary else None)
     if t == "assistant":
         content = (obj.get("message") or {}).get("content") or []
         for block in content:
@@ -497,6 +501,7 @@ def run_delegate(domain: str, request: str, *,
 
     saw_result = False
     result_is_error = False
+    summary = ""
     # v33.L — the sandbox bringup is the silent gap: a `docker run` (first
     # run pulls the image) + the in-container claude install, all before the
     # first stream line. Announce it so the terminal isn't dead.
@@ -513,6 +518,8 @@ def run_delegate(domain: str, request: str, *,
             if event is not None and event.kind == "result":
                 saw_result = True
                 result_is_error = bool(event.is_error)
+                if event.text:
+                    summary = event.text
             net = diff_sampler(site_dir)
             kill = sup.tick(now, net, event)
             if kill is not None:
@@ -568,6 +575,7 @@ def run_delegate(domain: str, request: str, *,
         duration_s=clock() - start,
         changed_files=changed_files(site_dir),
         verify=verify,
+        summary=summary,
     )
 
 
