@@ -1573,7 +1573,11 @@ surface** (joins § 2.1's two when v33.B ships).
   tree refuses instantly rather than after a wasted paste; the resolved
   `site_dir` is reused for the verify baseline. Relatedly, `new bootstrap`
   now gitignores `.astro/` (Astro's generated cache) so fresh sites don't
-  accumulate untracked junk that trips this gate.
+  accumulate untracked junk that trips this gate. **(v33.N)** Existing sites
+  are backfilled via the check catalog — `CHECK_156 astro-cache-gitignored`
+  (+ `fix_tier_1`, so `fleet fix` sweeps the fleet) and `CHECK_157
+  pnpm-lock-tracked` (warn-only; closes `CHECK_031`'s on-disk-vs-tracked
+  blind spot).
 - **Verify gate (v33.C/D — `DockerVerifier`).** After a clean run that
   changed files (container kept alive): in-container **build** via the
   site's own script (corepack pnpm/yarn or npm, as the host user) +
