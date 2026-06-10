@@ -52,7 +52,11 @@ def test_get_nameservers_auth_error_raises():
 # ---- set_nameservers ----
 
 
-def test_set_nameservers_puts_expected_body():
+def test_set_nameservers_patches_expected_body():
+    # Regression (2026-06-09): GoDaddy's domain resource has no PUT — updates
+    # go through PATCH /v1/domains/{domain}. A PUT 404'd on every real domain
+    # while this mock-backed test passed asserting PUT. Assert PATCH so the
+    # method can't silently drift back.
     seen = {}
 
     def handler(req):
@@ -66,7 +70,7 @@ def test_set_nameservers_puts_expected_body():
         "a.com", api_key="K", secret="S",
         ns_list=["ns1.cloudflare.com", "ns2.cloudflare.com"],
         client=_client(handler))
-    assert seen["method"] == "PUT"
+    assert seen["method"] == "PATCH"
     assert seen["path"] == "/v1/domains/a.com"
     assert seen["body"] == {
         "nameServers": ["ns1.cloudflare.com", "ns2.cloudflare.com"]}

@@ -120,16 +120,23 @@ def get_nameservers(domain: str, *, api_key: str, secret: str,
 def set_nameservers(domain: str, *, api_key: str, secret: str,
                     ns_list: list[str],
                     client: httpx.Client | None = None) -> None:
-    """Set nameservers for `domain` via PUT /v1/domains/{domain}. Does NOT
+    """Set nameservers for `domain` via PATCH /v1/domains/{domain}. Does NOT
     pre-check — callers GET-then-compare to skip no-op updates (the ADR-0015
     idempotency invariant). Refuses an empty list. Raises `GoDaddyError` on
-    failure. GoDaddy returns 200 with an empty body on success."""
+    failure. GoDaddy returns 200 with an empty body on success.
+
+    GoDaddy's domain resource exposes **PATCH** (not PUT) for updates — the
+    `nameServers` field rides in the DomainUpdate body. An earlier PUT 404'd
+    ("resource not found") because GoDaddy never registers PUT on this path,
+    even though GET on the same path succeeds — so the read worked while the
+    write silently failed on every GoDaddy domain.
+    """
     if not ns_list:
         raise GoDaddyError(f"refusing to set NS to empty list for {domain}")
     with _httpapi.managed_client(
         client, lambda: _build_client(api_key, secret)
     ) as c:
-        r = c.put(f"/v1/domains/{domain}", json={"nameServers": list(ns_list)})
+        r = c.patch(f"/v1/domains/{domain}", json={"nameServers": list(ns_list)})
         _raise_for(r, f"set nameservers {domain}")
 
 

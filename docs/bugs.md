@@ -931,6 +931,16 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
+### 2026-06-09 — GoDaddy NS update 404s on every domain (`new deploy` Step 4 used PUT, must be PATCH) — iotbastion.com
+
+- **Repro** — `lamill new deploy iotbastion.com` Step 4 (registrar NS → Cloudflare): `✗ GoDaddy NS update failed: set nameservers iotbastion.com: HTTP 404 {"code":"NOT_FOUND","message":"Not Found : The requested resource was not found"}`.
+- **Expected** — Step 4 points the domain's nameservers at the CF pair (ADR-0015-idempotent), 200 on success.
+- **Actual** — 404 on every GoDaddy domain. `GET /v1/domains/{domain}` returns 200 (domain readable, status ACTIVE), but `godaddy.set_nameservers` issued `PUT /v1/domains/{domain}` — GoDaddy's domain resource registers **no PUT route**, so the gateway answered 404 NOT_FOUND. The v31.C NS auto-push thus never actually pushed: the read-side (v31.B inventory) was validated, the write-side was never exercised against the real API.
+- **Where** — `godaddy.py:set_nameservers` (`c.put` → `c.patch`).
+- **Severity** — `major` (blocks the registrar-NS step of `new deploy` for all ~44 GoDaddy domains).
+- **Notes** — Root cause: GoDaddy updates the domain resource via **PATCH** (the DomainUpdate body carries `nameServers`); there is no PUT. The bug shipped green because `test_set_nameservers_puts_expected_body` asserted `method == "PUT"` against an httpx `MockTransport` that accepts any verb — the test validated the wrong method instead of catching it. Fix: `PUT` → `PATCH`; test renamed → asserts `PATCH` (regression guard). Recorded as v31.E.
+- **Validated** — code now sends PATCH (GoDaddy's documented update method); **needs live validation** on a real GoDaddy domain whose NS still needs changing — the mock confirms lamill *sends* PATCH, not that GoDaddy *accepts* it. Suite-green (8 godaddy-ns tests).
+
 ### 2026-06-06 — `new deploy` Step 9 runs GSC verify/sitemap against un-propagated DNS + false-greens a deferred sitemap as "submitted" (mathbloom.xyz)
 
 - **Repro** — `lamill new deploy mathbloom.xyz` (no `--watch`) right after the Step 4 NS cutover, before delegation propagated (Step 8: `↷ no DNS answer yet`). Step 9 ran anyway.
