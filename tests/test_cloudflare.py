@@ -127,6 +127,7 @@ def test_purge_files_posts_url_list():
 
     def handler(request):
         captured["url"] = str(request.url)
+        captured["method"] = request.method
         captured["body"] = json.loads(request.content)
         return httpx.Response(200, json={"success": True})
 
@@ -134,8 +135,43 @@ def test_purge_files_posts_url_list():
     cloudflare.purge_files("zone-abc",
                            ["https://x.com/a", "https://x.com/b"],
                            client=client)
+    assert captured["method"] == "POST"          # guard the verb, not just the path
     assert "/zones/zone-abc/purge_cache" in captured["url"]
     assert captured["body"] == {"files": ["https://x.com/a", "https://x.com/b"]}
+
+
+def test_set_zone_setting_patches_expected():
+    # v33 audit: set_zone_setting had NO HTTP-level test (its only caller
+    # monkeypatches it out), so a wrong verb/route would never fail a test —
+    # the exact structural gap that hid the GoDaddy PUT/PATCH bug.
+    seen: dict = {}
+
+    def handler(request):
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"success": True})
+
+    cloudflare.set_zone_setting("z1", "always_use_https", "on",
+                                client=_mock_client(handler))
+    assert seen["method"] == "PATCH"
+    assert seen["path"].endswith("/zones/z1/settings/always_use_https")
+    assert seen["body"] == {"value": "on"}
+
+
+def test_set_zone_setting_raises_on_non_200():
+    with pytest.raises(cloudflare.CloudflareAPIError):
+        cloudflare.set_zone_setting(
+            "z1", "always_use_https", "on",
+            client=_mock_client(lambda r: httpx.Response(403, text="nope")))
+
+
+def test_set_zone_setting_raises_on_success_false():
+    with pytest.raises(cloudflare.CloudflareAPIError):
+        cloudflare.set_zone_setting(
+            "z1", "always_use_https", "on",
+            client=_mock_client(
+                lambda r: httpx.Response(200, json={"success": False, "errors": []})))
 
 
 def test_purge_files_raises_on_more_than_30_urls():

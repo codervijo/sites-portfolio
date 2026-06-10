@@ -1719,6 +1719,34 @@ provider's rows still render normally.
 Refactors recommended during design but not yet scheduled. Carried
 here so they don't get lost.
 
+### Write-call tests assert against permissive mocks (GoDaddy-class blind spot)
+
+**Surfaced 2026-06-10** by the v31.E GoDaddy bug: `set_nameservers` used
+`PUT` where GoDaddy requires `PATCH` (404 on every domain), yet the test
+passed because it asserted `method == "PUT"` against an httpx `MockTransport`
+that accepts any verb/path. An audit of every registrar/CF/GitHub/Vercel write
+call followed.
+
+**Audit result (good).** Every write call's `(method, path)` was verified
+against the providers' official API docs and is **correct** — the GoDaddy PUT
+was the only live bug. (Even the scary ones check out: CF's lone `PUT
+/accounts/{id}/workers/domains` is doc-correct; Vercel's v9/v10 split is
+intentional.)
+
+**Hardened (2026-06-10).** Six under-guarded tests now assert `(method, path)`,
+not just the body / a 200: `cloudflare.set_zone_setting` (had **no** HTTP test —
+its caller monkeypatched it out), `gh_repo._create_repo_via_token`,
+`cloudflare.delete_pages_custom_domain`, `cloudflare.purge_files`,
+`porkbun_list.fetch_porkbun_domains`, `porkbun_dns.update_porkbun_ns`. This
+closes the *regression* door (a future verb/path typo now fails a test).
+
+**Residual (the real fix, deferred).** A mock-transport test still can't catch
+a provider *rejecting* a method — it only confirms what lamill *sends*. Only a
+**real-token integration smoke test** (one live call per write endpoint, gated
+on creds in CI) would have caught the original GoDaddy bug. Not scheduled —
+needs a creds-gated CI lane. Minor related nit: `delete_dns_record` accepts only
+HTTP 200 while the sibling Pages-delete accepts 200/204 (low risk for DNS).
+
 ### `cli.py` monolith — split into scope-first modules
 
 **Current state.** `src/portfolio/cli.py` is **11,095 lines** as of

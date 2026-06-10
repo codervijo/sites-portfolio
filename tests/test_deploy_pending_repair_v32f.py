@@ -71,10 +71,18 @@ def test_domain_status_error_raises():
 
 
 def test_delete_custom_domain_ok():
+    seen = {}
+
+    def handler(r):
+        seen["method"] = r.method
+        seen["path"] = r.url.path
+        return httpx.Response(200, json={"success": True})
+
     assert delete_pages_custom_domain(
-        "scope", "scope.xyz", account_id="a",
-        client=_client_for(lambda r: httpx.Response(200, json={"success": True})),
-    ) is True
+        "scope", "scope.xyz", account_id="a", client=_client_for(handler)) is True
+    # Guard verb + path (not just the 200): a wrong method/route would 404 live.
+    assert seen["method"] == "DELETE"
+    assert seen["path"].endswith("/accounts/a/pages/projects/scope/domains/scope.xyz")
 
 
 def test_delete_custom_domain_404_is_false():

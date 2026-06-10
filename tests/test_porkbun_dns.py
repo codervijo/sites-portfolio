@@ -100,12 +100,15 @@ def test_update_ns_happy(monkeypatch):
         return httpx.Response(200, json={"status": "SUCCESS"})
 
     def post_shim(url, **kw):
+        captured["url"] = url
         return handler(httpx.Request("POST", url, **{k: v for k, v in kw.items() if k != "timeout"}))
 
     monkeypatch.setattr(httpx, "post", post_shim)
     update_porkbun_ns("example.com", api_key="k", secret="s",
                      ns_list=["dom.ns.cloudflare.com", "kristina.ns.cloudflare.com"])
     assert "dom.ns.cloudflare.com" in captured["body"]
+    # Guard the endpoint path too (sibling getNs/url-forwarding tests do).
+    assert "updateNs/example.com" in captured["url"]
 
 
 def test_update_ns_empty_list_refuses():

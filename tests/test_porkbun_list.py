@@ -92,6 +92,20 @@ def test_domains_not_a_list(monkeypatch):
 # ---- happy paths ---------------------------------------------------
 
 
+def test_fetch_posts_to_listall_endpoint(monkeypatch):
+    # Guard the endpoint — the rest of the suite's stub ignores the URL, so a
+    # wrong path would ship green (the GoDaddy-class blind spot).
+    seen = {}
+
+    def _post(url, *a, **kw):
+        seen["url"] = url
+        return _ok_response([])
+
+    monkeypatch.setattr("portfolio.porkbun_list.httpx.post", _post)
+    fetch_porkbun_domains("key", "secret")
+    assert seen["url"].endswith("/domain/listAll")
+
+
 def test_fetch_normalizes_fields(monkeypatch):
     _stub_post(monkeypatch, _ok_response([{
         "domain": "Example.COM",

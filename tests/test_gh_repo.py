@@ -162,6 +162,7 @@ def test_ensure_repo_creates_new(monkeypatch):
     captured = {}
 
     def post_handler(url, json=None, **kw):
+        captured["url"] = url
         captured["json"] = json
         return httpx.Response(201, json=payload)
 
@@ -169,6 +170,9 @@ def test_ensure_repo_creates_new(monkeypatch):
     r = ensure_repo("agesdk-dev", owner="codervijo", private=True)
     assert r.created is True
     assert r.private is True
+    # Guard the endpoint, not just the body (GoDaddy-class blind spot):
+    # a wrong path/verb here would otherwise ship green.
+    assert captured["url"].endswith("/user/repos")
     assert captured["json"]["name"] == "agesdk-dev"
     assert captured["json"]["private"] is True
 
