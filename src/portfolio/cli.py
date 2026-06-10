@@ -4455,8 +4455,8 @@ def project_delegate(
     import shutil
 
     from .delegate import (Bounds, DelegateRefused, DockerBackend,
-                           DockerVerifier, preflight, run_project_checks,
-                           run_delegate)
+                           DockerVerifier, append_delegate_prompt_log,
+                           preflight, run_project_checks, run_delegate)
 
     domain = domain.lower()
     if shutil.which("docker") is None:
@@ -4519,6 +4519,18 @@ def project_delegate(
         result = run_delegate(domain, request, backend=backend, bounds=bounds,
                               force=force, verifier=verifier,
                               on_progress=_on_progress)
+
+    # v33.H — append this run to the site's docs/Prompts.md (orchestrator-
+    # owned, deterministic log) on a successful run that changed files. The
+    # agent's relevance-gated prd.md/CLAUDE.md updates ride in via the system
+    # prompt; Prompts.md is lamill's, so it writes that itself.
+    if result.status == "done" and result.changed_files:
+        if append_delegate_prompt_log(
+                site_dir, domain, request,
+                files=len(result.changed_files), cost=result.cost_usd,
+                today=date.today().isoformat()):
+            result.changed_files = sorted(
+                set(result.changed_files) | {"docs/Prompts.md"})
     _render_delegate_result(result, domain, request)
     if result.status not in ("done",):
         raise typer.Exit(1 if result.status in ("error", "refused") else 0)

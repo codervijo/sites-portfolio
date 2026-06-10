@@ -368,6 +368,14 @@ def build_delegate_system_prompt(site_dir: Path) -> str:
         "Follow the site's existing conventions, structure, and styling.",
         "Make the smallest coherent change that fully satisfies the request.",
         "Do not commit; leave your changes uncommitted for review.",
+        # v33.H — relevance-gated doc trail (the agent's half). lamill owns
+        # docs/Prompts.md (the run log) and writes it separately, so the agent
+        # must not touch it.
+        "If this change meaningfully alters what the site does, update "
+        "docs/prd.md (behaviour/features); if it alters the site's structure "
+        "or conventions, update docs/CLAUDE.md. Skip doc updates for cosmetic "
+        "or copy-only changes. Do not edit docs/Prompts.md — lamill maintains "
+        "that log.",
     ]
     listing = docs_listing(site_dir)
     if listing:
@@ -378,6 +386,45 @@ def build_delegate_system_prompt(site_dir: Path) -> str:
     if ctx:
         parts += ["", "=== SITE CONTEXT ===", ctx]
     return "\n".join(parts)
+
+
+_PROMPTS_MD_HEADER = """# Prompt History — {domain}
+
+<!-- Append new prompts at the bottom, newest last. Format:
+
+## YYYY-MM-DD [optional title]
+> <prompt text or short summary>
+
+The dated H2 (`## YYYY-MM-DD`) is what `portfolio project check` parses
+to surface "last AI prompt" per project. Keep entries append-only.
+-->
+"""
+
+
+def append_delegate_prompt_log(site_dir: Path, domain: str, request: str, *,
+                               files: int, cost: float, today: str) -> bool:
+    """v33.H — append a dated delegate entry to `docs/Prompts.md` (creating it
+    from the standard skeleton if absent). Orchestrator-owned + deterministic:
+    lamill knows the request / date / cost / file-count and the parseable
+    `## YYYY-MM-DD` H2 that `project check` reads — not trusted to the agent.
+    Returns True if the entry was written."""
+    first = next((ln.strip() for ln in request.splitlines() if ln.strip()),
+                 "agent change")
+    entry = (f"\n## {today} — delegate\n"
+             f"> {first[:100].rstrip()} · {files} file(s) · ${cost:.2f}\n")
+    prompts = site_dir / "docs" / "Prompts.md"
+    try:
+        if prompts.exists():
+            with prompts.open("a", encoding="utf-8") as fh:
+                fh.write(entry)
+        else:
+            prompts.parent.mkdir(parents=True, exist_ok=True)
+            prompts.write_text(
+                _PROMPTS_MD_HEADER.format(domain=domain) + entry,
+                encoding="utf-8")
+        return True
+    except OSError:
+        return False
 
 
 # ---------- orchestration ----------

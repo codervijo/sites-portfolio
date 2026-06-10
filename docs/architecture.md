@@ -1595,6 +1595,16 @@ surface** (joins § 2.1's two when v33.B ships).
   … commit -m "delegate: <snippet>"`, `soft_wrap`ped so the long line
   copy-pastes intact). lamill still hands over the command rather than
   committing.
+- **Doc trail (v33.H).** A successful run that changed files leaves a trail in
+  the site's own docs, two writers by design. **`docs/Prompts.md`** — written
+  by lamill (`append_delegate_prompt_log`), a deterministic `## YYYY-MM-DD —
+  delegate` entry (summary · files · cost) in the format `project check` reads
+  for "last AI prompt"; created from the standard skeleton if absent. lamill
+  owns it because it knows the exact request/date/cost and the parser-sensitive
+  format. **`docs/prd.md` / `docs/CLAUDE.md`** — written by the *agent*, via a
+  relevance-gated system-prompt instruction (behaviour→prd, structure→CLAUDE,
+  cosmetic→skip; leave Prompts.md to lamill). Both land in the same reviewable
+  diff. Orchestrator owns the log; agent owns the judgment.
 - **Live progress (v33.L).** The sandbox bringup (`docker run` + first-run
   image pull + in-container claude install) and the wait for the first
   stream line were silent — a dead terminal for up to a minute. `run_delegate`
