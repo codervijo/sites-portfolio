@@ -22,6 +22,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
+from .console import spinner_counter
+
 from datetime import date
 
 from .check import (
@@ -542,14 +544,12 @@ def run_dashboard(*, scope: str = "wip", sort: str = "attention",
         domains = _live_domains_from_snapshot(live_load_snapshot(snap_path))
         if domains:
             crux_key = load_env().get("CRUX_API_KEY", "").strip()
-            console.print(f"[cyan]Refreshing SEO probes ({len(domains)} domains)...[/]")
-
-            def progress(done: int, total: int, dom: str) -> None:
-                console.print(f"[dim]  [{done}/{total}] {dom}[/]")
-            seo_rows = run_seo(domains, days=28, crux_api_key=crux_key,
-                               progress_callback=progress)
+            with spinner_counter("SEO probes", len(domains)) as progress:
+                seo_rows = run_seo(domains, days=28, crux_api_key=crux_key,
+                                   progress_callback=progress)
             cache_path = seo_save_snapshot(seo_rows, days=28)
-            console.print(f"[dim]SEO cached: {cache_path.name}[/]")
+            console.print(f"[green]✓[/] SEO probes: {len(domains)} domains "
+                          f"({cache_path.name}) · {progress.elapsed:.0f}s")
 
     rows, freshness = build_dashboard_rows(scope=scope)
     rows = sort_rows(rows, sort)

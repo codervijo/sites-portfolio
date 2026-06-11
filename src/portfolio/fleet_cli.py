@@ -17,7 +17,7 @@ from rich.table import Table
 
 from .check import run_check
 from .check_render import LIVE_CLS_COLORS, _render_status
-from .console import console
+from .console import console, spinner_counter
 from .data import cleanup as run_cleanup, load_domains, load_plan
 
 
@@ -57,14 +57,12 @@ def focus(
         domains = _live_domains_from_snapshot(load_live(snap_path))
         if domains:
             crux_key = load_env().get("CRUX_API_KEY", "").strip()
-            console.print(f"[cyan]Refreshing SEO probes ({len(domains)} domains)...[/]")
-
-            def progress(done: int, total: int, dom: str) -> None:
-                console.print(f"[dim]  [{done}/{total}] {dom}[/]")
-            seo_rows = run_seo(domains, days=28, crux_api_key=crux_key,
-                               progress_callback=progress)
+            with spinner_counter("SEO probes", len(domains)) as progress:
+                seo_rows = run_seo(domains, days=28, crux_api_key=crux_key,
+                                   progress_callback=progress)
             cache_path = seo_save_snapshot(seo_rows, days=28)
-            console.print(f"[dim]SEO cached: {cache_path.name}[/]")
+            console.print(f"[green]✓[/] SEO probes: {len(domains)} domains "
+                          f"({cache_path.name}) · {progress.elapsed:.0f}s")
 
     # Pull every signal source. None / empty means "skip that signal."
     live_path = live_latest()
@@ -377,21 +375,22 @@ def info_cleanup(refresh_rdap: bool = False) -> None:
     if refresh_rdap:
         from .availability import rdap_creation_date
         from .data import update_domain_field
-        console.print(f"[cyan]Fetching RDAP creation dates ({len(domains)} domains)...[/]")
         hit = miss = 0
-        for i, d in enumerate(domains, start=1):
-            if d.domain_created is not None:
-                # Already cached — RDAP creation_date doesn't change. Skip.
-                hit += 1
-                continue
-            console.print(f"[dim]  [{i}/{len(domains)}] {d.name}[/]")
-            cd = rdap_creation_date(d.name)
-            if cd is not None:
-                update_domain_field(d.name, "domain_created", cd)
-                hit += 1
-            else:
-                miss += 1
-        console.print(f"[dim]RDAP: {hit} resolved · {miss} unresolved[/]")
+        with spinner_counter("RDAP creation dates", len(domains)) as progress:
+            for i, d in enumerate(domains, start=1):
+                progress(i, len(domains), d.name)
+                if d.domain_created is not None:
+                    # Already cached — RDAP creation_date doesn't change. Skip.
+                    hit += 1
+                    continue
+                cd = rdap_creation_date(d.name)
+                if cd is not None:
+                    update_domain_field(d.name, "domain_created", cd)
+                    hit += 1
+                else:
+                    miss += 1
+        console.print(f"[green]✓[/] RDAP creation dates: {hit} resolved · "
+                      f"{miss} unresolved · {progress.elapsed:.0f}s")
 
     by_reg = Counter(d.registrar for d in domains)
     by_cat = Counter(d.category for d in domains if d.category)

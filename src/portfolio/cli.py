@@ -16,7 +16,7 @@ from .check import (
     previous_snapshot,
     run_check,
 )
-from .console import console
+from .console import console, spinner_counter
 from .data import PORTFOLIO_JSON, cleanup as run_cleanup, load_domains, load_plan
 
 app = typer.Typer(
@@ -330,13 +330,11 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
     if not crux_key:
         console.print("[dim]CRUX_API_KEY not set in portfolio.env — Core Web Vitals columns will be empty.[/]")
 
-    console.print(f"[cyan]Probing {len(domains)} domain(s) — HTTP + GSC ({days}d) + CrUX...[/]")
-
-    def progress(done: int, total: int, dom: str) -> None:
-        console.print(f"[dim]  [{done}/{total}] {dom}[/]")
-
-    rows = run_seo(domains, days=days, crux_api_key=crux_key,
-                   progress_callback=progress)
+    with spinner_counter("SEO probes", len(domains)) as progress:
+        rows = run_seo(domains, days=days, crux_api_key=crux_key,
+                       progress_callback=progress)
+    console.print(f"[green]✓[/] SEO probes: {len(domains)} domain(s) — "
+                  f"HTTP + GSC ({days}d) + CrUX · {progress.elapsed:.0f}s")
 
     if cache_eligible:
         cache_path = seo_save_snapshot(rows, days=days)
