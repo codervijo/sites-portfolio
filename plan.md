@@ -62,7 +62,7 @@ WINMACBOOKAIR.COM
 yesuinnu.com
 
 ## Plan for the Portfolio As of April, 2026
-### To be deleted immediately (25 domains)
+### To be deleted immediately (26 domains)
 
 NAVODAYANSONLINE.COM
 iotnews.today
@@ -89,6 +89,7 @@ thakilists.com
 THAKINAAM.COM
 THAKIWEB.COM
 iotw00t.com
+veezp.com
 
 ### SEO under way (5 domains)
 carrepairsite.com
@@ -97,12 +98,11 @@ streamsgalaxy.com
 hybridautopart.com
 maslist.com
 
-### My brand (6 domains)
+### My brand (5 domains)
 lamill.io
 lamill.us
 lamillrentals.com
 kwizicle.com
-veezp.com
 VIJOCHERIAN.COM
 
 ### Next session (13 domains)
