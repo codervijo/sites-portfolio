@@ -85,6 +85,7 @@ when applicable. Don't delete.
 - **Where (guess)** — `checks/.../check_143` severity logic vs the test's expectation; drift between the check and its test. Unrelated to v33 (delegate isn't referenced by any check); fails on a clean tree.
 - **Severity** — `minor` (one stale test; rest of suite green at 3188 passed).
 - **Notes** — Surfaced while running the full suite during v33.B. Decide whether the check's `warn`-for-this-case is correct (→ update the test) or the test is (→ fix the check).
+- **Reconfirmed 2026-06-12** — still fails on a clean tree (verified by stashing unrelated WIP). Precise case: the fixture row is `classification="error", status=500` with a WordPress `<meta generator>` in the body excerpt. The check warn-skips before the WP→`hostgator` fingerprint wins, so genuine drift on an *erroring* WP page is masked (declared `vercel` never gets flagged). Likely fix-or-spec call: should an error/non-200 live row still surface the WP fingerprint (→ `fail`), or is warn-skip-on-error intentional (→ update the test)? The iotnews.today canonical case is exactly a 500-serving WP page, which argues for `fail`.
 
 ### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
 
