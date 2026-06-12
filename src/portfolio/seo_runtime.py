@@ -26,7 +26,7 @@ overall status is the worst of its individual metrics.
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -790,7 +790,11 @@ def run_seo(
     completed = 0
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
         futures = {ex.submit(fetch_one, d): i for i, d in enumerate(domains)}
-        for fut in futures:
+        # Report in COMPLETION order, not submission order — otherwise the
+        # progress counter blocks on each domain in turn (a slow domain #0
+        # freezes the count at 0/N while the rest finish in the background,
+        # then it jumps N/N). `rows[i]` keeps results in input order.
+        for fut in as_completed(futures):
             i = futures[fut]
             try:
                 rows[i] = fut.result()
