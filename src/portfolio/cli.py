@@ -256,8 +256,10 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
     the full probe and overwrites today's cache file. `--domain <one>`
     always probes fresh (single-domain runs aren't cached).
     """
+    from .check import all_domains as _all_domains
     from .check import latest_snapshot as live_latest_snapshot
     from .check import load_snapshot, run_check
+    from .check import wip_domains as _wip_domains
     from .seo_cache import (
         latest_snapshot as seo_latest_snapshot,
         load_snapshot as seo_load_snapshot,
@@ -297,9 +299,12 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
                     f"[dim]Latest snapshot {snap_path.name} is scope={snap_scope!r}, "
                     f"but --only={only!r} requested. Running live-site classification first.[/]"
                 )
-            console.print(f"[cyan]Classifying {only} domains (concurrency={concurrency})...[/]")
-            snap_path, _ = run_check(only=only, concurrency=concurrency)
-            console.print(f"[green]Snapshot:[/] {snap_path}")
+            _live_total = len(_wip_domains() if only == "wip" else _all_domains())
+            with spinner_counter(f"live classification ({only})", _live_total) as live_prog:
+                snap_path, _ = run_check(only=only, concurrency=concurrency,
+                                         progress=live_prog)
+            console.print(f"[green]✓[/] live classification: {snap_path.name} · "
+                          f"{live_prog.elapsed:.0f}s")
 
         domains = _live_domains_from_snapshot(load_snapshot(snap_path))
         if not domains:

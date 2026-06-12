@@ -538,9 +538,12 @@ def run_dashboard(*, scope: str = "wip", sort: str = "attention",
         from .seo_runtime import _live_domains_from_snapshot, run_seo
         from .suggest import load_env
 
-        console.print(f"[cyan]Refreshing live snapshot (scope={scope})...[/]")
-        snap_path, _ = run_check(only=scope, concurrency=20)
-        console.print(f"[dim]Snapshot: {snap_path.name}[/]")
+        _live_total = len(wip_domains() if scope == "wip" else all_domains())
+        with spinner_counter(f"live snapshot ({scope})", _live_total) as live_prog:
+            snap_path, _ = run_check(only=scope, concurrency=20,
+                                     progress=live_prog)
+        console.print(f"[green]✓[/] live snapshot: {snap_path.name} · "
+                      f"{live_prog.elapsed:.0f}s")
         domains = _live_domains_from_snapshot(live_load_snapshot(snap_path))
         if domains:
             crux_key = load_env().get("CRUX_API_KEY", "").strip()

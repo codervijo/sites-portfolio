@@ -46,14 +46,16 @@ def focus(
 
     if refresh:
         # Re-run live + seo upstream. Same shape as fleet dashboard --refresh.
-        from .check import run_check
+        from .check import run_check, wip_domains
         from .seo_cache import save_snapshot as seo_save_snapshot
         from .seo_runtime import _live_domains_from_snapshot, run_seo
         from .suggest import load_env
 
-        console.print("[cyan]Refreshing live snapshot (scope=wip)...[/]")
-        snap_path, _ = run_check(only="wip", concurrency=20)
-        console.print(f"[dim]Snapshot: {snap_path.name}[/]")
+        with spinner_counter("live snapshot", len(wip_domains())) as live_prog:
+            snap_path, _ = run_check(only="wip", concurrency=20,
+                                     progress=live_prog)
+        console.print(f"[green]✓[/] live snapshot: {snap_path.name} · "
+                      f"{live_prog.elapsed:.0f}s")
         domains = _live_domains_from_snapshot(load_live(snap_path))
         if domains:
             crux_key = load_env().get("CRUX_API_KEY", "").strip()

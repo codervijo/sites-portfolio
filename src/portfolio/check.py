@@ -181,17 +181,31 @@ async def _fetch(client: httpx.AsyncClient, domain: str, variant: str) -> CheckR
         )
 
 
-async def _run_all(domains: list[str], concurrency: int) -> list[CheckResult]:
+async def _run_all(domains: list[str], concurrency: int,
+                   progress=None) -> list[CheckResult]:
     sem = asyncio.Semaphore(concurrency)
     timeout = httpx.Timeout(READ_TIMEOUT, connect=CONNECT_TIMEOUT)
     headers = {"User-Agent": USER_AGENT, "Accept": "text/html,*/*;q=0.8"}
+    done = 0
     async with httpx.AsyncClient(timeout=timeout, headers=headers, verify=True) as client:
-        async def task(d: str, v: str) -> CheckResult:
+        async def fetch_one(d: str, v: str) -> CheckResult:
             async with sem:
                 return await _fetch(client, d, v)
 
-        coros = [task(d, v) for d in domains for v in ("bare", "www")]
-        return await asyncio.gather(*coros)
+        async def task(d: str) -> list[CheckResult]:
+            # Probe both variants, then report progress once per *domain* —
+            # so a caller's counter tracks domains (matching the SEO phase),
+            # not the 2× bare/www probe count. Result order is preserved:
+            # domain-major, bare then www, same as the old flat gather.
+            nonlocal done
+            pair = await asyncio.gather(fetch_one(d, "bare"), fetch_one(d, "www"))
+            done += 1
+            if progress is not None:
+                progress(done, len(domains), d)
+            return list(pair)
+
+        nested = await asyncio.gather(*(task(d) for d in domains))
+    return [r for pair in nested for r in pair]
 
 
 def wip_domains() -> list[str]:
@@ -203,7 +217,8 @@ def all_domains() -> list[str]:
     return sorted(d.name for d in load_domains())
 
 
-def run_check(only: str = "wip", concurrency: int = 20) -> tuple[Path, list[CheckResult]]:
+def run_check(only: str = "wip", concurrency: int = 20,
+              progress=None) -> tuple[Path, list[CheckResult]]:
     if only == "wip":
         domains = wip_domains()
     elif only == "all":
@@ -214,7 +229,7 @@ def run_check(only: str = "wip", concurrency: int = 20) -> tuple[Path, list[Chec
     if not domains:
         raise RuntimeError(f"No domains found for scope {only!r}")
 
-    results = asyncio.run(_run_all(domains, concurrency))
+    results = asyncio.run(_run_all(domains, concurrency, progress))
     CHECKS_DIR.mkdir(parents=True, exist_ok=True)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     out = CHECKS_DIR / f"{today}.json"
