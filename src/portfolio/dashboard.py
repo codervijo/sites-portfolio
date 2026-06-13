@@ -282,9 +282,14 @@ def _site_age_days(domain: str, launched: date | None) -> int | None:
     return (today - inferred).days
 
 
-def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
+def build_dashboard_rows(scope: str = "wip",
+                         progress=None) -> tuple[list[DashRow], dict]:
     """Build one DashRow per domain in scope. Returns (rows, freshness)
-    where freshness reports which caches were used."""
+    where freshness reports which caches were used.
+
+    `progress`, if given, is called `(done, total, domain)` after each
+    domain's row is built — the per-site `_git_summary_for` (git + per-repo
+    conformance) makes this loop the slow, silent phase otherwise."""
     domains = _domains_for_scope(scope)
     live_path, live_index = _load_live_index()
     seo_path, seo_index = _load_seo_index()
@@ -294,7 +299,7 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
     meta_by_name = {dom.name: dom for dom in load_domains()}
 
     rows: list[DashRow] = []
-    for d in domains:
+    for i, d in enumerate(domains, start=1):
         live = live_index.get(d)
         cls = live.get("classification") if live else None
         live_dot = _live_dot(cls)
@@ -346,6 +351,8 @@ def build_dashboard_rows(scope: str = "wip") -> tuple[list[DashRow], dict]:
             domain_age_days=dom_age,
             rollup_dot=rollup,
         ))
+        if progress is not None:
+            progress(i, len(domains), d)
 
     freshness = {
         "live_snapshot": live_path.name if live_path else None,
@@ -554,6 +561,8 @@ def run_dashboard(*, scope: str = "wip", sort: str = "attention",
             console.print(f"[green]✓[/] SEO probes: {len(domains)} domains "
                           f"({cache_path.name}) · {progress.elapsed:.0f}s")
 
-    rows, freshness = build_dashboard_rows(scope=scope)
+    _rows_total = len(wip_domains() if scope == "wip" else all_domains())
+    with spinner_counter("building dashboard", _rows_total) as build_prog:
+        rows, freshness = build_dashboard_rows(scope=scope, progress=build_prog)
     rows = sort_rows(rows, sort)
     render_dashboard(rows, freshness, sort_key=sort, console=console)
