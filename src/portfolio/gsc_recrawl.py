@@ -12,6 +12,8 @@ documented in the CLI command's help and in the README).
 """
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -403,3 +405,98 @@ def append_to_growth_md(site_dir: Path, markdown: str) -> Path:
     new_content = existing + "\n" + markdown + "\n"
     p.write_text(new_content)
     return p
+
+
+# ---------- GSC Exchange v1 contract — producer side -------------------
+#
+# Writes `sites/<domain>/.lamill/gsc.json` per the `gsc-exchange-v1`
+# contract (canonical: sites/rankmill/docs/contracts/gsc-exchange.md;
+# vendored: docs/contracts/gsc-exchange.md + .schema.json; ADR-0025).
+# lamill produces, rankmill consumes — file is the entire interface; the
+# data is the same `UrlInspection` set `run_recrawl` already computes.
+
+EXCHANGE_SCHEMA = "gsc-exchange-v1"
+EXCHANGE_SOURCE = "url-inspection"
+EXCHANGE_RELPATH = Path(".lamill") / "gsc.json"
+_VALID_VERDICTS = {"PASS", "PARTIAL", "FAIL", "NEUTRAL"}
+
+
+def _iso_z(dt: datetime | None) -> str | None:
+    """UTC ISO-8601 with a trailing `Z` (contract L3), or None. A naive
+    datetime is assumed UTC; an aware one is converted."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _inspection_to_page(insp: UrlInspection) -> dict:
+    """Map one internal `UrlInspection` → a contract `pages[]` record.
+    Drops the internal `status` field; defaults the two schema-required
+    string fields when GSC returned nothing (errored/unknown URLs still
+    carry the truth in `error`)."""
+    return {
+        "url": insp.url,
+        "verdict": insp.verdict if insp.verdict in _VALID_VERDICTS else "NEUTRAL",
+        "coverage_state": insp.coverage_state or "URL is unknown to Google",
+        "indexing_state": insp.indexing_state,
+        "page_fetch_state": insp.page_fetch_state,
+        "last_crawl_time": _iso_z(insp.last_crawl_time),
+        "error": insp.error,
+    }
+
+
+def build_exchange_payload(
+    report: RecrawlReport, *, fetched_at: datetime, error: str | None = None,
+) -> dict:
+    """Build the `gsc-exchange-v1` payload from a RecrawlReport. Pure —
+    `fetched_at` is injected so the producer test is deterministic."""
+    return {
+        "schema": EXCHANGE_SCHEMA,
+        "domain": report.site.strip().lower(),
+        "property": report.property_url,
+        "fetched_at": _iso_z(fetched_at),
+        "source": EXCHANGE_SOURCE,
+        "error": error,
+        "pages": [_inspection_to_page(i) for i in report.inspections],
+    }
+
+
+def write_exchange_file(site_dir: Path, payload: dict) -> Path:
+    """Atomically write `<site_dir>/.lamill/gsc.json` (contract L5): write
+    a temp file in the same dir, then `os.replace` (atomic on one fs) so a
+    crash never leaves a partial file a reader could observe."""
+    out = site_dir / EXCHANGE_RELPATH
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.parent / f".gsc.json.tmp.{os.getpid()}"
+    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    os.replace(tmp, out)   # atomic same-filesystem rename
+    return out
+
+
+def ensure_lamill_gitignored(site_dir: Path) -> bool:
+    """Ensure `.lamill/` is in `<site_dir>/.gitignore` (contract P5 — the
+    exchange file is transient, refreshed per crawl, never committed).
+    Idempotent; returns True if a line was added."""
+    gi = site_dir / ".gitignore"
+    existing = gi.read_text() if gi.exists() else ""
+    lines = {ln.strip().rstrip("/") for ln in existing.splitlines()}
+    if ".lamill" in lines:
+        return False
+    block = "" if (not existing or existing.endswith("\n")) else "\n"
+    block += "\n# lamill consumer-data exchange (transient, refreshed per crawl)\n.lamill/\n"
+    gi.write_text(existing + block)
+    return True
+
+
+def export_exchange_file(
+    report: RecrawlReport, site_dir: Path, *, fetched_at: datetime | None = None,
+) -> Path:
+    """Build + atomically write the exchange file for a successful recrawl,
+    and ensure `.lamill/` is gitignored. Returns the written path."""
+    fetched_at = fetched_at or datetime.now(timezone.utc)
+    payload = build_exchange_payload(report, fetched_at=fetched_at)
+    path = write_exchange_file(site_dir, payload)
+    ensure_lamill_gitignored(site_dir)
+    return path

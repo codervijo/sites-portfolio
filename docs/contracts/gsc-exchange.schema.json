@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rankmill/contracts/gsc-exchange-v1.schema.json",
+  "title": "GSC Exchange v1 — lamill → rankmill",
+  "description": "Per-URL Google Search Console index state for one domain. Written by lamill (producer), read by rankmill (consumer). See docs/contracts/gsc-exchange.md.",
+  "type": "object",
+  "required": ["schema", "domain", "property", "fetched_at", "source", "pages"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "gsc-exchange-v1",
+      "description": "Contract version. Consumer MUST reject an unrecognized major."
+    },
+    "domain": {
+      "type": "string",
+      "description": "Bare domain; MUST equal the site directory name.",
+      "pattern": "^[a-z0-9.-]+$"
+    },
+    "property": {
+      "type": "string",
+      "description": "The GSC property the data came from (provenance), e.g. `sc-domain:donready.xyz` or `https://donready.xyz/`."
+    },
+    "fetched_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC ISO-8601 with trailing Z. Drives consumer freshness."
+    },
+    "source": {
+      "type": "string",
+      "enum": ["url-inspection"],
+      "description": "Which GSC API produced `pages`. v1 = URL Inspection only."
+    },
+    "error": {
+      "type": ["string", "null"],
+      "description": "Top-level error when the whole pull failed (e.g. not a verified property). When set, `pages` MAY be empty."
+    },
+    "pages": {
+      "type": "array",
+      "description": "One record per inspected URL. MAY be empty (degrade, not error).",
+      "items": {
+        "type": "object",
+        "required": ["url", "verdict", "coverage_state"],
+        "additionalProperties": true,
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Absolute https URL inspected."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["PASS", "PARTIAL", "FAIL", "NEUTRAL"],
+            "description": "GSC inspection verdict for the URL."
+          },
+          "coverage_state": {
+            "type": "string",
+            "description": "GSC human coverage string, e.g. 'Submitted and indexed', 'URL is unknown to Google', 'Crawled - currently not indexed', 'Discovered - currently not indexed', 'Excluded by noindex tag', 'Blocked by robots.txt', 'Duplicate without user-selected canonical'. Consumer MUST treat unknown strings gracefully."
+          },
+          "indexing_state": {
+            "type": ["string", "null"],
+            "description": "e.g. INDEXING_ALLOWED, BLOCKED_BY_META_TAG, BLOCKED_BY_HTTP_HEADER, BLOCKED_BY_ROBOTS_TXT."
+          },
+          "page_fetch_state": {
+            "type": ["string", "null"],
+            "description": "e.g. SUCCESSFUL, SOFT_404, BLOCKED_ROBOTS_TXT, NOT_FOUND, ACCESS_DENIED, SERVER_ERROR, REDIRECT_ERROR."
+          },
+          "last_crawl_time": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "UTC ISO-8601 of Google's last crawl, or null if never crawled."
+          },
+          "error": {
+            "type": ["string", "null"],
+            "description": "Per-URL inspection error, or null."
+          }
+        }
+      }
+    }
+  }
+}

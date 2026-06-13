@@ -218,3 +218,31 @@ don't rewrite older entries when adding new ones.
 > Fallback message when nothing matches; never guesses.
 >
 > Tests: 877 → 894 passing.
+
+## 2026-06-13 — GSC Exchange v1 producer (lamill → rankmill) + v26.G canonicalization
+
+> Implemented the producer side of the `gsc-exchange-v1` file contract
+> (rankmill ADR-0015; lamill ADR-0025). On a successful
+> `settings gsc recrawl --site <domain>`, lamill now also writes
+> `sites/<domain>/.lamill/gsc.json` — the per-URL GSC index state
+> rankmill reads (read-only, no Google creds). It's a mapping +
+> guarded write over the `UrlInspection` set `run_recrawl` already
+> computes: `build_exchange_payload` / `write_exchange_file` (atomic
+> temp+os.replace) / `ensure_lamill_gitignored` / `export_exchange_file`
+> in `gsc_recrawl.py`, wired into the recrawl CLI. `.lamill/` gitignored
+> per site; not-a-property → no file (degrade, not crash). Vendored the
+> contract md + schema (byte-identical) under `docs/contracts/`; added
+> jsonschema dev dep. Producer conformance L1–L5 self-verified + an
+> 8-case test (validates emitted JSON against the vendored schema,
+> round-trips L2–L4, asserts atomic write + gitignore + empty-pages
+> degrade). Definition-of-done met: live recrawl of donready.xyz wrote a
+> schema-valid 6-page exchange file.
+>
+> Same session, v26.G — host-consistency triad: CHECK_158 (canonical-tag
+> host == apex), CHECK_159 (sitemap <loc> host), CHECK_160 (GSC-registered
+> sitemap host), all `error` severity; promoted CHECK_150 warn→error.
+> Apex is the only canonical host fleet-wide (no www option). Caught +
+> fixed a real www-sitemap registration on calcengine.site.
+>
+> Tests: full suite 3326 passing (lone red = pre-existing CHECK_143
+> deploy-drift bug, logged in bugs.md).

@@ -37,6 +37,7 @@ trade-offs were, and what the consequences are.
 | 0022 | Deploy verification must be honest — report only confirmed state, never false-green | Accepted | —         |
 | 0023 | `project delegate` — agent-authored changes run sandboxed in a container, supervised, verify-gated | Accepted | — |
 | 0024 | Provider HTTP clients share one lifecycle helper + one transient/permanent error taxonomy (`_httpapi`) | Accepted | — |
+| 0025 | lamill is the producer of the GSC Exchange v1 file contract (`sites/<domain>/.lamill/gsc.json`; lamill writes, rankmill reads) | Accepted | — |
 
 ## When to write an ADR
 

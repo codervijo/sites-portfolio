@@ -25,6 +25,7 @@ portfolio = "portfolio.cli:app"
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.26.0",
     "pytest>=8",
 ]
 

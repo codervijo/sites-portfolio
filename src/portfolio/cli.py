@@ -5577,8 +5577,9 @@ def settings_gsc_recrawl(
     """
     from pathlib import Path
     from .gsc_recrawl import (
-        RecrawlError, append_to_growth_md, format_markdown_report,
-        read_urls_from_file, resolve_site_dir, run_recrawl,
+        RecrawlError, append_to_growth_md, export_exchange_file,
+        format_markdown_report, read_urls_from_file, resolve_site_dir,
+        run_recrawl,
     )
     try:
         site_dir = resolve_site_dir(site)
@@ -5615,6 +5616,17 @@ def settings_gsc_recrawl(
             console.print(f"\n[dim]Appended to {written.relative_to(site_dir)}[/]")
         except OSError as e:
             console.print(f"[yellow]warn: could not append to growth.md: {e}[/]")
+
+    # GSC Exchange v1 (lamill → rankmill): on a successful recrawl, write
+    # the per-domain exchange file rankmill reads (ADR-0025). A failed pull
+    # raised RecrawlError above and exited, so no partial/empty file ships.
+    try:
+        ex = export_exchange_file(report, site_dir)
+        console.print(f"[green]✓[/] GSC exchange → {ex.relative_to(site_dir)} "
+                      f"[dim]({len(report.inspections)} page(s), schema "
+                      f"gsc-exchange-v1)[/]")
+    except OSError as e:
+        console.print(f"[yellow]warn: could not write exchange file: {e}[/]")
 
 
 @settings_gsc_app.command("status")
