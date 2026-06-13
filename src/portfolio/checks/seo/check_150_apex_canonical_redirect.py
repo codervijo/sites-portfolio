@@ -1,8 +1,12 @@
 """CHECK_150 — apex is canonical; www and http permanently redirect to it.
 
-v26.B — fleetwide canonical-redirect conformance. Shipped at `warn`
-severity for the v26.C soak cycle; promotes to `fail` once Bucket A
-sites are fixed (see `docs/bugs.md` 2026-05-25 audit entry).
+v26.B — fleetwide canonical-redirect conformance. Declared-severity
+**promoted `warn`→`error` 2026-06-13** at the operator's call after
+canonicalization bit the fleet hard. (`run()` already returns `fail`
+status for a violation — the grade is status-driven — so this aligns the
+catalog-declared severity with the hard outcome the check already emits.)
+Apex is the ONLY canonical host fleet-wide — there is no per-site
+`www`-canonical option (see `docs/CLAUDE.md § Locked target shapes`).
 
 Probes three endpoints per repo (domain = dir name):
   1. `HEAD https://<apex>/` → must be 200 (apex is the canonical).
@@ -35,7 +39,7 @@ from ..result import CheckResult
 CHECK_ID = "CHECK_150"
 CHECK_NAME = "apex-canonical-redirect"
 CATEGORY = "seo"
-SEVERITY = "warn"
+SEVERITY = "error"
 DESCRIPTION = (
     "Apex is the canonical endpoint (200); www and http variants "
     "permanently redirect (308/301) to it. Catches Vercel-style "

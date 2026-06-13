@@ -253,11 +253,12 @@ def test_warn_archived_site_skipped(tmp_path, monkeypatch):
 
 def test_metadata_constants():
     """Sanity — the registry contract attributes exist + have the
-    expected values for v26.B's `warn`-soak ship."""
+    expected values. Severity promoted `warn`→`error` 2026-06-13 (run()
+    already emits `fail` status; this aligns the declared severity)."""
     assert mod.CHECK_ID == "CHECK_150"
     assert mod.CHECK_NAME == "apex-canonical-redirect"
     assert mod.CATEGORY == "seo"
-    assert mod.SEVERITY == "warn"
+    assert mod.SEVERITY == "error"
     assert "apex" in mod.DESCRIPTION.lower()
 
 

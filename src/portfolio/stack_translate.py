@@ -687,6 +687,13 @@ preserve it as the original-source reference for archeology.
    `@astrojs/react` integration if the source has React components
    you're preserving as islands. Set `output: "static"`. **Wire any
    CSS toolchain Vite plugin** here (see "CSS toolchain" below).
+   **Canonical host (required):** set `site: "https://{project_dir.name}"`
+   — the bare apex, NEVER a `www.` host — and add the `@astrojs/sitemap`
+   integration (`@astrojs/sitemap` in deps + `integrations: [sitemap()]`).
+   Astro derives every page's `<link rel="canonical">` and the sitemap
+   `<loc>` URLs from `site`, so the apex value makes the port
+   canonicalization-conformant (CHECK_150 / CHECK_158 / CHECK_159) by
+   construction. Do not hardcode a `www.` host anywhere.
 3. `src/pages/` — one `.astro` file per route. Use Astro's
    file-based routing convention.
 4. `src/components/` — preserve component organization from the
