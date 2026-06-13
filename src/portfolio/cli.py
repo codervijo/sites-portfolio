@@ -122,16 +122,19 @@ def check_seo(
                                 help="Sort by: domain (default, alphabetical) | impressions | clicks | position | ctr"),
     refresh: bool = typer.Option(False, "--refresh",
                                  help="Ignore cached SEO snapshot and re-probe (HTTP + GSC + CrUX)"),
+    since: str = "",
 ) -> None:
     """Per-domain runtime SEO probe — HTTP + GSC + CrUX.
 
     Reads from `data/seo/<latest>.json` by default if it covers every
     domain in scope. `--refresh` forces a fresh probe and overwrites
-    today's cache file. `--domain <one>` always probes fresh.
+    today's cache file. `--domain <one>` always probes fresh. `since`
+    (e.g. "7d"/"28d") appends a Δ column on the fleet path — empty == off.
     """
     target = _resolve_domain_repo_synonyms(domain, repo)
     _run_check_seo_mode(days=days, only_domain=target, sort_by=sort_by,
-                        only=only, concurrency=concurrency, refresh=refresh)
+                        only=only, concurrency=concurrency, refresh=refresh,
+                        since=since)
 
 
 def _resolve_domain_repo_synonyms(domain: str, repo: str) -> str:
@@ -243,9 +246,52 @@ def _seo_snapshot_needs_refresh(snap_scope: str | None, only: str) -> bool:
     return False
 
 
+_SINCE_ALLOWED = {7: "7d", 28: "28d"}
+
+
+def _parse_since(since: str) -> int | None:
+    """`"7d"`/`"28d"` → 7/28. Empty/None → None (Δ off). Anything else exits."""
+    if not since:
+        return None
+    s = since.strip().lower()
+    m = re.fullmatch(r"(\d+)d?", s)
+    n = int(m.group(1)) if m else None
+    if n not in _SINCE_ALLOWED:
+        console.print(
+            f"[red]--since must be one of {', '.join(_SINCE_ALLOWED.values())}, "
+            f"got {since!r}.[/]"
+        )
+        raise typer.Exit(2)
+    return n
+
+
+def _seo_deltas_for(rows, *, current_path, since: str):
+    """Pair `rows` (the current snapshot) against an earlier baseline and
+    return `(deltas, baseline_pick)` — or `(None, None)` when Δ is off.
+
+    `deltas` is non-None whenever Δ is requested (so the column renders),
+    even if the pick is None (renderer shows the "no baseline" footer)."""
+    since_days = _parse_since(since)
+    if since_days is None:
+        return None, None
+    from .seo_cache import list_snapshots
+    from .seo_delta import compute_deltas, load_baseline_rows, pick_baseline
+    from datetime import date as _date
+
+    name = current_path.name if current_path is not None else ""
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", name)
+    current_date = (_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                    if m else _date.today())
+    pick = pick_baseline(list_snapshots(), since_days=since_days,
+                         current_date=current_date)
+    if pick is None:
+        return {}, None
+    return compute_deltas(rows, load_baseline_rows(pick)), pick
+
+
 def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
                         only: str, concurrency: int,
-                        refresh: bool = False) -> None:
+                        refresh: bool = False, since: str = "") -> None:
     """Driver for `portfolio check seo`. Picks domains from the latest
     classification snapshot (live-site + forwarder), reads cached SEO
     data when available (or runs HTTP/GSC/CrUX probes when `refresh` is
@@ -275,6 +321,7 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
     if only not in ("wip", "all"):
         console.print(f"[red]--only must be 'wip' or 'all', got {only!r}.[/]")
         raise typer.Exit(2)
+    _parse_since(since)  # fail fast on a bad --since before any probing
 
     if only_domain:
         # --domain bypasses both the live and seo caches — single-domain
@@ -327,7 +374,10 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
                 )
                 rows = [r for r in cached_rows if r.domain in set(domains)]
                 rows = sort_rows(rows, sort_by)
-                _render_seo_table(rows, days=cached.get("days", days), sort_by=sort_by)
+                deltas, pick = _seo_deltas_for(rows, current_path=cache_path,
+                                               since=since)
+                _render_seo_table(rows, days=cached.get("days", days),
+                                  sort_by=sort_by, deltas=deltas, delta_meta=pick)
                 return
 
     env = load_env()
@@ -341,12 +391,18 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
     console.print(f"[green]✓[/] SEO probes: {len(domains)} domain(s) — "
                   f"HTTP + GSC ({days}d) + CrUX · {progress.elapsed:.0f}s")
 
+    fresh_path = None
     if cache_eligible:
-        cache_path = seo_save_snapshot(rows, days=days)
-        console.print(f"[dim]Cached: {cache_path.name}[/]")
+        fresh_path = seo_save_snapshot(rows, days=days)
+        console.print(f"[dim]Cached: {fresh_path.name}[/]")
 
     rows = sort_rows(rows, sort_by)
-    _render_seo_table(rows, days=days, sort_by=sort_by)
+    # Δ only on the fleet path (a single --domain run has no current
+    # snapshot to anchor the diff).
+    deltas, pick = ((None, None) if not cache_eligible
+                    else _seo_deltas_for(rows, current_path=fresh_path, since=since))
+    _render_seo_table(rows, days=days, sort_by=sort_by,
+                      deltas=deltas, delta_meta=pick)
 
 
 # check_catalog — kept as implementation for `settings catalog list`.
@@ -5231,6 +5287,11 @@ def fleet_seo(
     concurrency: int = typer.Option(20, "--concurrency", "-c"),
     sort_by: str = typer.Option("impressions", "--sort"),
     refresh: bool = typer.Option(False, "--refresh"),
+    since: str = typer.Option(
+        "7d", "--since",
+        help="Δ baseline window: 7d (default) or 28d. Appends a Δ pos/imp "
+             "column vs the nearest snapshot on-or-before today−N days.",
+    ),
     detail: bool = typer.Option(
         False, "--detail",
         help="v16.D — append fleet-aggregated top queries / top pages / "
@@ -5239,14 +5300,17 @@ def fleet_seo(
 ) -> None:
     """Runtime SEO probe across all live-site/forwarder domains.
 
-    `--detail` (v16.D) renders three additional fleet-aggregated
-    sections below the per-site table, reading from each domain's
-    `data/gsc/<domain>/<UTC-today>.json` cache. Sections show as
+    `--since` (v40) appends a Δ pos/imp column comparing each domain to an
+    earlier dated snapshot (read-only diff of `data/seo/<date>.json`; no
+    new storage). `--detail` (v16.D) renders three additional
+    fleet-aggregated sections below the per-site table, reading from each
+    domain's `data/gsc/<domain>/<UTC-today>.json` cache. Sections show as
     "(empty)" when no domains have cached GSC analytics data yet —
     populate via `lamill project seo <domain>` per site.
     """
     check_seo(days=days, domain="", repo="", only=only,
-              concurrency=concurrency, sort_by=sort_by, refresh=refresh)
+              concurrency=concurrency, sort_by=sort_by, refresh=refresh,
+              since=since)
 
     if detail:
         _render_fleet_seo_detail(only=only, console=console)

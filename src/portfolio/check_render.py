@@ -423,7 +423,48 @@ def _fmt_cls(v: float | None) -> str:
     return f"{v:.2f}" if isinstance(v, float) else "—"
 
 
-def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
+def _fmt_compact_int(n: float) -> str:
+    """Compact magnitude for Δ cells: 79 → `79`, 8000 → `8.0k`, 2.1e6 → `2.1M`."""
+    n = abs(n)
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return f"{int(round(n))}"
+
+
+def _fmt_delta_part(delta: float | None, flat: bool, *, kind: str) -> str:
+    """One sub-value of a Δ cell. `+`/▲/green == improvement for either
+    metric (the sign is already normalized so positive == better)."""
+    if delta is None:
+        return "[dim]—[/]"
+    if flat:
+        return "[dim]=[/]"
+    up = delta > 0
+    arrow = "▲" if up else "▼"
+    color = "green" if up else "red"
+    sign = "+" if up else "-"
+    body = f"{abs(delta):.1f}" if kind == "pos" else _fmt_compact_int(delta)
+    return f"[{color}]{arrow}{sign}{body}[/]"
+
+
+def _fmt_delta_cell(delta) -> str:
+    """Render a `DomainDelta` as `▲+2.1 / ▲+8.0k` (pos / imp). New domains
+    show `· new`; both-flat collapses to `= flat`."""
+    if delta is None:
+        return ""
+    if delta.is_new:
+        return "[dim]· new[/]"
+    pos_part = _fmt_delta_part(delta.pos_delta, delta.pos_flat, kind="pos")
+    imp_part = _fmt_delta_part(delta.imp_delta, delta.imp_flat, kind="imp")
+    if delta.pos_flat and delta.imp_flat:
+        return "[dim]= flat[/]"
+    return f"{pos_part} / {imp_part}"
+
+
+def _render_seo_table(rows: list, *, days: int, sort_by: str,
+                      deltas: dict | None = None,
+                      delta_meta=None) -> None:
     from .dashboard import _site_age_days
     from .data import load_domains
     from .seo_runtime import gsc_sitemap_cell, overall_status, row_statuses
@@ -470,6 +511,12 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
         t.add_column("LCP", justify="right")
         t.add_column("INP", justify="right")
         t.add_column("CLS", justify="right")
+    # v40 — appended Δ column (pos / imp vs an earlier snapshot). Only
+    # present when the caller paired a baseline; existing columns/sort
+    # are untouched.
+    show_delta = deltas is not None
+    if show_delta:
+        t.add_column("Δ pos/imp")
 
     for row in rows:
         s = row_statuses(row)
@@ -494,8 +541,30 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str) -> None:
                 _color_value(s["inp"], _fmt_ms(row.crux_inp_p75)),
                 _color_value(s["cls"], _fmt_cls(row.crux_cls_p75)),
             ])
+        if show_delta:
+            cells.append(_fmt_delta_cell(deltas.get(row.domain.lower())))
         t.add_row(*cells)
     console.print(t)
+
+    # v40 — name the Δ baseline + the lookback actually used (gap can be
+    # smaller than requested when history doesn't reach back N days yet).
+    if show_delta and delta_meta is not None:
+        if delta_meta.exact:
+            console.print(
+                f"\n[dim]Δ vs {delta_meta.snapshot_date} "
+                f"({delta_meta.since_days}d).[/]"
+            )
+        else:
+            console.print(
+                f"\n[dim]Δ vs {delta_meta.snapshot_date} "
+                f"({delta_meta.since_days}d requested, {delta_meta.gap_days}d "
+                f"actual — closest earlier snapshot).[/]"
+            )
+    elif show_delta:
+        console.print(
+            "\n[dim]Δ unavailable — no earlier snapshot on disk to diff "
+            "against (need a second dated run).[/]"
+        )
 
     # Footer counts: how many domains hit each tier of overall status.
     from collections import Counter
