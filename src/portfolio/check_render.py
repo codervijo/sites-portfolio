@@ -448,18 +448,17 @@ def _fmt_delta_part(delta: float | None, flat: bool, *, kind: str) -> str:
     return f"[{color}]{arrow}{sign}{body}[/]"
 
 
-def _fmt_delta_cell(delta) -> str:
-    """Render a `DomainDelta` as `▲+2.1 / ▲+8.0k` (pos / imp). New domains
-    show `· new`; both-flat collapses to `= flat`."""
+def _fmt_delta_metric(delta, *, kind: str) -> str:
+    """One metric's Δ for the split ΔImp / ΔPos columns (each sits right
+    beside its value). New domains show `· new`; flat shows `=`; a missing
+    value shows `—`; empty when Δ wasn't requested for the row."""
     if delta is None:
         return ""
     if delta.is_new:
         return "[dim]· new[/]"
-    pos_part = _fmt_delta_part(delta.pos_delta, delta.pos_flat, kind="pos")
-    imp_part = _fmt_delta_part(delta.imp_delta, delta.imp_flat, kind="imp")
-    if delta.pos_flat and delta.imp_flat:
-        return "[dim]= flat[/]"
-    return f"{pos_part} / {imp_part}"
+    if kind == "pos":
+        return _fmt_delta_part(delta.pos_delta, delta.pos_flat, kind="pos")
+    return _fmt_delta_part(delta.imp_delta, delta.imp_flat, kind="imp")
 
 
 def _render_seo_table(rows: list, *, days: int, sort_by: str,
@@ -503,25 +502,28 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
     # reported errors on a submitted sitemap ("Sitemap could not be read"),
     # 🟡 = warnings, 🟢 = submitted and clean, ❌ = none submitted, ⚪ = no data.
     t.add_column("GSC sm", justify="center")
+    # v40 — Δ vs an earlier snapshot, each metric's delta sitting right
+    # beside its value (Imp│ΔImp … Pos│ΔPos). Only present when the caller
+    # paired a baseline; sort + the value columns are untouched.
+    show_delta = deltas is not None
     t.add_column("Imp", justify="right")
+    if show_delta:
+        t.add_column("ΔImp", justify="right")
     t.add_column("Clicks", justify="right")
     t.add_column("CTR", justify="right")
     t.add_column("Pos", justify="right")
+    if show_delta:
+        t.add_column("ΔPos", justify="right")
     if not crux_uniformly_empty:
         t.add_column("LCP", justify="right")
         t.add_column("INP", justify="right")
         t.add_column("CLS", justify="right")
-    # v40 — appended Δ column (pos / imp vs an earlier snapshot). Only
-    # present when the caller paired a baseline; existing columns/sort
-    # are untouched.
-    show_delta = deltas is not None
-    if show_delta:
-        t.add_column("Δ pos/imp")
 
     for row in rows:
         s = row_statuses(row)
         http_cell = f"{s['http']} {row.http_status}" if row.http_status is not None else f"{s['http']} err"
         site_age = age_by_domain.get(row.domain.lower())
+        d = deltas.get(row.domain.lower()) if show_delta else None
         cells = [
             overall_status(row, site_age_days=site_age),
             row.domain,
@@ -530,19 +532,21 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
             s["sitemap"],
             s["gsc"],
             gsc_sitemap_cell(row),
-            _color_value(s["imp"], _fmt_int(row.gsc_impressions)),
-            _fmt_int(row.gsc_clicks),
-            _fmt_pct(row.gsc_ctr, impressions=row.gsc_impressions),
-            _color_value(s["pos"], _fmt_pos(row.gsc_position)),
         ]
+        cells.append(_color_value(s["imp"], _fmt_int(row.gsc_impressions)))
+        if show_delta:
+            cells.append(_fmt_delta_metric(d, kind="imp"))
+        cells.append(_fmt_int(row.gsc_clicks))
+        cells.append(_fmt_pct(row.gsc_ctr, impressions=row.gsc_impressions))
+        cells.append(_color_value(s["pos"], _fmt_pos(row.gsc_position)))
+        if show_delta:
+            cells.append(_fmt_delta_metric(d, kind="pos"))
         if not crux_uniformly_empty:
             cells.extend([
                 _color_value(s["lcp"], _fmt_ms(row.crux_lcp_p75)),
                 _color_value(s["inp"], _fmt_ms(row.crux_inp_p75)),
                 _color_value(s["cls"], _fmt_cls(row.crux_cls_p75)),
             ])
-        if show_delta:
-            cells.append(_fmt_delta_cell(deltas.get(row.domain.lower())))
         t.add_row(*cells)
     console.print(t)
 
