@@ -79,11 +79,18 @@ class StreamEvent:
     `fingerprint` identifies a tool action as `(tool):(target)` so the
     progress axis can spot repetition (same edit/command over and over).
     `cost_usd` rides on the terminal `result` event."""
-    kind: Literal["tool_use", "text", "result", "other"]
+    kind: Literal["tool_use", "text", "result", "other", "rate_limit", "error"]
     fingerprint: str | None = None
     cost_usd: float | None = None
     is_error: bool | None = None   # set on the terminal `result` event
     text: str | None = None        # v33.M — agent's final summary (result event)
+    # v33.O — debuggability: the terminal `result` carries `api_error_status`,
+    # standalone `error` lines carry an error type, and `rate_limit_event`
+    # carries the usage-cap state. A silent no-result run is almost always one
+    # of these — capture them so the failure can be diagnosed honestly instead
+    # of guessed as "sandbox/auth".
+    api_error_status: str | None = None   # result.api_error_status / error line
+    rate_limit: dict | None = None        # {status, resets_at, overage_status, …}
 
 
 @dataclass
@@ -116,6 +123,84 @@ class DelegateResult:
     message: str = ""
     verify: VerifyResult | None = None
     summary: str = ""               # v33.M — agent's final summary text
+
+
+@dataclass
+class RunEvidence:
+    """v33.O — post-run forensics a backend can expose for honest failure
+    diagnosis: the process exit code, a tail of the agent's stderr (the real
+    error claude prints there), and the debug-transcript path if one was
+    written. Optional capability — `run_delegate` reads it defensively, so a
+    backend that doesn't surface it simply yields no extra evidence."""
+    exit_code: int | None = None
+    stderr_tail: str = ""
+    debug_path: str | None = None
+
+
+def _stderr_tail_for_msg(stderr_tail: str, *, max_lines: int = 6,
+                         max_chars: int = 600) -> str:
+    """Format a stderr tail for an operator-facing reason line (last few
+    lines, bounded). Empty string when there's nothing to show."""
+    s = (stderr_tail or "").strip()
+    if not s:
+        return ""
+    text = "\n".join(s.splitlines()[-max_lines:])
+    if len(text) > max_chars:
+        text = "…" + text[-max_chars:]
+    return f" — stderr:\n{text}"
+
+
+def diagnose_no_result(*, exit_code: int | None, stderr_tail: str,
+                       rate_limit: dict | None,
+                       api_error: str | None) -> str:
+    """Turn whatever evidence a no-result run left behind into an honest
+    reason. Ordered by how decisively each signal explains the silence; the
+    "sandbox/auth" guess is the LAST resort, used only when nothing else fits
+    (per the operator: don't misdiagnose a rate-limit/API error as auth)."""
+    # 1. Rate-limit is the most common silent no-result (5h cap exhausted,
+    #    org-level overage disabled → claude emits the event and no result).
+    if rate_limit:
+        status = (rate_limit.get("status") or "").lower()
+        overage = (rate_limit.get("overage_status") or "").lower()
+        if overage == "rejected" or status in ("exhausted", "rejected",
+                                               "blocked", "throttled"):
+            bits = ["rate-limited — usage cap reached"]
+            if rate_limit.get("resets_at"):
+                bits.append(f"resets at {rate_limit['resets_at']}")
+            if rate_limit.get("overage_disabled_reason"):
+                bits.append(f"overage {rate_limit['overage_disabled_reason']}")
+            return "; ".join(bits) + ". Nothing changed."
+    # 2. An explicit API error from the stream.
+    if api_error:
+        return f"API error: {api_error}. Nothing changed."
+    # 3. Non-zero exit code (+ whatever stderr explains it).
+    if exit_code is not None and exit_code != 0:
+        return (f"claude exited {exit_code}{_stderr_tail_for_msg(stderr_tail)}"
+                ". Nothing changed.")
+    # 4. Exit 0 (or unknown) but stderr has content — surface it.
+    if (stderr_tail or "").strip():
+        return (f"agent produced no result{_stderr_tail_for_msg(stderr_tail)}"
+                ". Nothing changed.")
+    # 5. Truly no evidence — the original guess, but flagged as a guess.
+    return ("agent produced no result and emitted no error output — possible "
+            "sandbox/auth issue (claude may not have started). Re-run with "
+            "--debug to capture the full transcript. Nothing changed.")
+
+
+def _read_backend_evidence(backend: object) -> RunEvidence:
+    """Defensively pull `RunEvidence` off a backend that exposes
+    `last_run_evidence()`. Backends without it (e.g. test fakes) yield an
+    empty evidence record — the diagnoser then falls back to stream-only
+    signals."""
+    fn = getattr(backend, "last_run_evidence", None)
+    if callable(fn):
+        try:
+            ev = fn()
+        except Exception:
+            return RunEvidence()
+        if isinstance(ev, RunEvidence):
+            return ev
+    return RunEvidence()
 
 
 class DelegateRefused(Exception):
@@ -228,6 +313,14 @@ def _tool_fingerprint(name: str, tool_input: dict) -> str:
     return f"{name.lower()}:{target}".rstrip(":")
 
 
+def _str_or_none(v: object) -> str | None:
+    """Coerce a JSON scalar to a non-empty string, or None."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
 def parse_stream_line(line: str) -> StreamEvent | None:
     """Map one `--output-format stream-json` line to a StreamEvent.
     Returns None for blank/unparseable lines (tolerant by design — a
@@ -248,7 +341,27 @@ def parse_stream_line(line: str) -> StreamEvent | None:
         return StreamEvent("result", None,
                            float(cost) if cost is not None else None,
                            is_error=bool(obj.get("is_error")),
-                           text=str(summary) if summary else None)
+                           text=str(summary) if summary else None,
+                           api_error_status=_str_or_none(obj.get("api_error_status")))
+    if t == "rate_limit_event":
+        info = obj.get("rate_limit_info") or {}
+        return StreamEvent("rate_limit", None, None, rate_limit={
+            "status": info.get("status"),
+            "resets_at": info.get("resetsAt"),
+            "overage_status": info.get("overageStatus"),
+            "overage_disabled_reason": info.get("overageDisabledReason"),
+        })
+    if t in ("error", "api_error"):
+        # Standalone error line. Shape varies across claude versions, so pull
+        # the status/type from the likeliest keys and keep a message tail.
+        err = obj.get("error")
+        status = (obj.get("api_error_status") or obj.get("status")
+                  or (err.get("type") if isinstance(err, dict) else None))
+        msg = obj.get("message") or (err if isinstance(err, str) else
+                                     (err or {}).get("message") if isinstance(err, dict) else None)
+        return StreamEvent("error", None, None,
+                           api_error_status=_str_or_none(status),
+                           text=_str_or_none(msg))
     if t == "assistant":
         content = (obj.get("message") or {}).get("content") or []
         for block in content:
@@ -461,6 +574,15 @@ class DelegateBackend(Protocol):
         return (returncode, combined-output). Used by the verify gate to
         build / screenshot in-container."""
 
+    # Optional (v33.O). Backends MAY expose post-run forensics so a silent
+    # no-result run can be diagnosed honestly. `run_delegate` reads it
+    # defensively via `_read_backend_evidence`, so implementing it is not
+    # required (test fakes omit it).
+    def last_run_evidence(self) -> "RunEvidence":  # pragma: no cover - optional
+        """Exit code + stderr tail + debug-transcript path from the last
+        `stream()` run."""
+        ...
+
 
 class Verifier(Protocol):
     """The verify-gate seam (v33.C/D). Called once, after a clean agent run
@@ -549,6 +671,9 @@ def run_delegate(domain: str, request: str, *,
     saw_result = False
     result_is_error = False
     summary = ""
+    # v33.O — evidence captured off the stream for honest no-result diagnosis.
+    last_rate_limit: dict | None = None
+    last_api_error: str | None = None
     # v33.L — the sandbox bringup is the silent gap: a `docker run` (first
     # run pulls the image) + the in-container claude install, all before the
     # first stream line. Announce it so the terminal isn't dead.
@@ -562,6 +687,11 @@ def run_delegate(domain: str, request: str, *,
             event = parse_stream_line(raw) if raw else None
             if event is not None and event.kind == "tool_use" and event.fingerprint:
                 emit("action", event.fingerprint)
+            if event is not None:
+                if event.kind == "rate_limit" and event.rate_limit:
+                    last_rate_limit = event.rate_limit
+                if event.api_error_status:
+                    last_api_error = event.api_error_status
             if event is not None and event.kind == "result":
                 saw_result = True
                 result_is_error = bool(event.is_error)
@@ -574,16 +704,23 @@ def run_delegate(domain: str, request: str, *,
                 break
 
         # Honesty: stream-EOF is NOT success. Trust the terminal `result`
-        # event — no result (agent never ran; sandbox/auth failure) or an
-        # errored result must not report `done`. (A supervisor kill already
-        # owns the status; only re-judge the natural-end path.)
+        # event — no result, or an errored result, must not report `done`. (A
+        # supervisor kill already owns the status; only re-judge the natural-
+        # end path.) v33.O — on a no-result run, diagnose from real evidence
+        # (exit code, stderr tail, last rate-limit / api_error) instead of
+        # blindly guessing "sandbox/auth".
         if status == "done":
             if not saw_result:
-                status, reason = ("error",
-                                  "agent produced no result — it likely never "
-                                  "ran (sandbox/auth failure). Nothing changed.")
+                evidence = _read_backend_evidence(backend)
+                status, reason = "error", diagnose_no_result(
+                    exit_code=evidence.exit_code,
+                    stderr_tail=evidence.stderr_tail,
+                    rate_limit=last_rate_limit,
+                    api_error=last_api_error,
+                )
             elif result_is_error:
-                status, reason = "error", "agent reported an error result"
+                detail = f" ({last_api_error})" if last_api_error else ""
+                status, reason = "error", f"agent reported an error result{detail}"
 
         # Verify gate (v33.C/D) — only on a clean `done` that actually
         # changed something, while the container is still alive.
@@ -658,14 +795,25 @@ class DockerBackend:
                  docker_cmd: list[str] | None = None,
                  budget_usd: float = 3.0, poll_s: float = 2.0,
                  claude_home: Path | None = None,
-                 claude_json: Path | None = None):
+                 claude_json: Path | None = None,
+                 debug_path: Path | None = None):
         import os
+        import threading
         safe = domain.replace(".", "-").replace("/", "-")
         self.container = f"lamill-delegate-{safe}"
         self.image = image
         self.docker = docker_cmd or ["docker"]
         self.budget_usd = budget_usd
         self.poll_s = poll_s
+        # v33.O — debuggability state. stderr is drained concurrently into a
+        # bounded tail (so a full stderr pipe can't deadlock the stdout loop);
+        # the exit code is captured after wait(); `--debug` tees the raw
+        # stream-json + stderr + docker argv to a post-mortem transcript.
+        self._stderr_tail: Deque[str] = deque(maxlen=400)
+        self._exit_code: int | None = None
+        self._debug_path = debug_path
+        self._debug_fh = None
+        self._debug_lock = threading.Lock()
         # Both halves of claude's on-disk state must be mounted: the
         # `~/.claude` directory AND the `~/.claude.json` config file (which
         # holds account/auth). Mounting only the dir leaves claude
@@ -680,7 +828,47 @@ class DockerBackend:
         return subprocess.run(self.docker + args, capture_output=True,
                               text=True, check=False, **kw)
 
+    # ----- v33.O debug transcript (opt-in via --debug / debug_path) -----
+
+    def _open_debug(self) -> None:
+        if self._debug_path is None or self._debug_fh is not None:
+            return
+        try:
+            self._debug_fh = open(self._debug_path, "w", encoding="utf-8")
+        except OSError:
+            self._debug_fh = None     # never let debug I/O break a real run
+
+    def _debug_write(self, channel: str, text: str) -> None:
+        if self._debug_path is None:
+            return
+        with self._debug_lock:
+            self._open_debug()
+            if self._debug_fh is None:
+                return
+            try:
+                self._debug_fh.write(f"[{channel}] {text}\n")
+                self._debug_fh.flush()
+            except (OSError, ValueError):
+                pass
+
+    def _close_debug(self) -> None:
+        with self._debug_lock:
+            if self._debug_fh is not None:
+                try:
+                    self._debug_fh.close()
+                finally:
+                    self._debug_fh = None
+
+    def last_run_evidence(self) -> "RunEvidence":
+        """v33.O — exit code + stderr tail + debug path from the last run."""
+        return RunEvidence(
+            exit_code=self._exit_code,
+            stderr_tail="\n".join(self._stderr_tail),
+            debug_path=str(self._debug_path) if self._debug_path else None,
+        )
+
     def start(self, site_dir: Path) -> None:
+        self._open_debug()
         # Clean any stale container from a previous interrupted run.
         self._run(["rm", "-f", self.container])
         run_args = [
@@ -695,11 +883,24 @@ class DockerBackend:
             raise RuntimeError(f"container start failed: {r.stderr.strip()}")
         self._started = True
         # Install claude as root (npm -g needs it); the agent itself runs as
-        # the host user (see `stream`).
-        self._run(["exec", self.container, "sh", "-lc",
-                   "command -v claude >/dev/null 2>&1 || "
-                   "npm i -g @anthropic-ai/claude-code >/dev/null 2>&1"],
-                  timeout=600)
+        # the host user (see `stream`). v33.O — capture the install output
+        # (was `>/dev/null 2>&1`, swallowing failures) and PROVE claude is on
+        # PATH afterward. A failed install used to be invisible → the agent
+        # silently no-op'd → misreported as "sandbox/auth failure".
+        install = self._run(
+            ["exec", self.container, "sh", "-lc",
+             "command -v claude >/dev/null 2>&1 && exit 0; "
+             "npm i -g @anthropic-ai/claude-code 2>&1"],
+            timeout=600)
+        present = self._run(["exec", self.container, "sh", "-lc",
+                             "command -v claude >/dev/null 2>&1"])
+        if present.returncode != 0:
+            out = ((install.stdout or "") + (install.stderr or "")).strip()
+            self._debug_write("install", out)
+            raise RuntimeError(
+                "claude CLI is not available in the sandbox after install "
+                f"(npm exit {install.returncode}). Install output:\n"
+                + (out[-1500:] or "(no output captured)"))
 
     def _claude_cmd(self, prompt: str,
                     system_prompt: str | None = None) -> list[str]:
@@ -726,22 +927,44 @@ class DockerBackend:
     def stream(self, prompt: str,
                system_prompt: str | None = None) -> Iterator[str]:
         import select
+        import threading
         cmd = self._claude_cmd(prompt, system_prompt)
+        self._debug_write("argv", " ".join(cmd))
         self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                       stderr=subprocess.PIPE, text=True,
                                       bufsize=1)
-        out = self._proc.stdout
-        assert out is not None
-        while True:
-            ready, _, _ = select.select([out], [], [], self.poll_s)
-            if ready:
-                line = out.readline()
-                if line == "":     # EOF — agent finished
-                    break
-                yield line
-            else:
-                yield ""           # heartbeat — let the supervisor tick
-        self._proc.wait()
+        out, err = self._proc.stdout, self._proc.stderr
+        assert out is not None and err is not None
+
+        # Drain stderr on its own thread. claude prints the real failure
+        # cause (auth, bad flag, rate-limit) to stderr; if we never read it
+        # the pipe buffer can fill and DEADLOCK the stdout loop. The tail is
+        # retained for `last_run_evidence` + the debug transcript.
+        def _drain_stderr() -> None:
+            for line in err:                # blocks per line until EOF
+                line = line.rstrip("\n")
+                self._stderr_tail.append(line)
+                self._debug_write("stderr", line)
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
+
+        try:
+            while True:
+                ready, _, _ = select.select([out], [], [], self.poll_s)
+                if ready:
+                    line = out.readline()
+                    if line == "":     # EOF — agent finished
+                        break
+                    self._debug_write("stdout", line.rstrip("\n"))
+                    yield line
+                else:
+                    yield ""           # heartbeat — let the supervisor tick
+        finally:
+            # Capture the exit code (was discarded) so a no-result run can be
+            # diagnosed honestly, and flush the stderr drain.
+            self._exit_code = self._proc.wait()
+            stderr_thread.join(timeout=2.0)
+            self._debug_write("meta", f"exit_code={self._exit_code}")
 
     def exec(self, shell_cmd: str, *, timeout: int = 600) -> tuple[int, str]:
         # Same identity as the agent run: host user + HOME at the mounted
@@ -760,6 +983,7 @@ class DockerBackend:
         if self._started:
             self._run(["rm", "-f", self.container])
             self._started = False
+        self._close_debug()
 
 
 # ---------- the verify gate (v33.C build + check; v33.D visual) ----------
