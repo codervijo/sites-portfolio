@@ -1685,8 +1685,26 @@ surface** (joins § 2.1's two when v33.B ships).
   sub-task into smaller pieces and runs them in its place (up to
   `max_resplit_depth`, default 1), rather than failing the chain. Any *other*
   non-`done` (verify-fail, real error) still stops the chain.
+- **Fallback backend (v37) — wrap OpenHands, agent swappable.** delegate's
+  `claude` CLI draws the operator's Anthropic 5h cap (overage declined). v37
+  adds a *second* `DelegateBackend` for when Claude is capped: instead of
+  building a coding agent, we **wrap a mature OSS one** behind the Protocol
+  seam. Pick (2026-06-13) = **OpenHands** — among OSI-permissive, headless,
+  container-friendly, "no-codex" options it covers the most of the six
+  Claude-Code "misses" natively (real `str_replace` edit tool + JSONL events +
+  exit codes that mini-swe-agent lacks). **`auto`** policy = Claude-primary,
+  OpenHands hand-off on a hard cap (continues the in-tree partial — resume-on-cap
+  is the hand-off mechanism); `--backend {auto,claude,oss}`. **The wrapped agent
+  is swappable:** OpenHands lives behind a small **agent adapter** (install cmd ·
+  headless argv · output→`StreamEvent` parser · error/exit mapping), so
+  `OSSAgentBackend` is generic over it — Codex / mini-swe-agent are future
+  adapters, not rewrites. Reuses v33.O–R wholesale (resume/split/supervisor/
+  verify are provider-agnostic) + v33.O's honest error-bubbling for OpenHands'
+  exit codes/stderr/JSON errors. The fine-splitting (v33.R) is what makes a
+  cruder fallback viable (it only gets bounded sub-tasks). Decision record +
+  the swap rationale: `docs/coding-agents-survey.md` (cross-project reference).
 
-See ADR-0023 + `docs/prd.md § v33` for the full rationale.
+See ADR-0023 + `docs/prd.md § v33`/`§ v37` for the full rationale.
 
 ## 10. Implementation risks
 

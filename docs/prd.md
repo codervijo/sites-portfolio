@@ -2351,7 +2351,7 @@ retire `plan.md`. Must preserve: `cleanup()` category derivation, focus
 |---|---|---|
 | v40.A | ☐ | **Kickoff / decisions lock.** Choose the durable intent store (overrides store vs per-site `lamill.toml` `category`/`intent` field, reconciled with live registrar facts), the schema, and the migration off hand-edited `plan.md` — preserving `cleanup()` category derivation, focus `IGNORE_CATEGORIES` suppression, fuzzy resolution, and dashboards. Load-bearing → **ADR required**. |
 
-### v37 — `project delegate` provider-pluggable fallback backend (wrap aider) *(new 2026-06-13 as v40; renumbered v40→v37 2026-06-13 to be the next tier implemented — operator's active priority; the old WHOIS/auction/plan.md drafts shifted +1 to v38/v39/v40)*
+### v37 — `project delegate` fallback backend: wrap OpenHands via a pluggable agent-adapter *(new 2026-06-13 as v40; renumbered v40→v37 to be the next tier implemented — operator's active priority; old WHOIS/auction/plan.md drafts shifted +1 to v38/v39/v40)*
 
 Operator friction (2026-06-13): `project delegate` runs the `claude` CLI inside
 the sandbox, which draws the operator's Anthropic **5-hour usage cap**; with
@@ -2383,9 +2383,9 @@ produces (fine-splitting is what makes the fallback viable). Load-bearing →
 
 | # | Status | Feature |
 |---|---|---|
-| v37.A | ☐ | **Kickoff / decisions lock + ADR.** FIRST **survey the *current* OSS coding-agent landscape** (aider, plandex, OpenHands, SWE-agent, Goose, + anything newer) — real present-day state, not training-cutoff memory — and pick the wrapper on evidence: must be multi-model, headless/scriptable (one bounded task → exit), strong edit application + repo-map, and able to leave an **uncommitted** diff. Then lock: the fallback policy + flag (`--backend {auto,claude,aider}`, default `auto`); the headless invocation contract (`--no-auto-commits --yes --message`, default a strong OpenAI coding model, `OPENAI_API_KEY` via the existing apikeys pathway); how the agent's stdout/result maps to our `StreamEvent`s (the wrapper emits `tool_use`/`text`/`result`); the guardrail division (wrapper owns sandbox/firewall/supervisor/verify/diff-review; agent owns the model-loop). **ADR** extending ADR-0023. |
-| v37.B | ☐ | **`AiderBackend(DelegateBackend)`** (name per the v37.A pick). Install the agent in the disposable container; run it headless per sub-task (`aider --model <m> --message "<subtask>" --yes --no-auto-commits` in `/work`); map output → `StreamEvent`s the supervisor consumes; cost from usage; `OPENAI_API_KEY` pathway. Implements `start`/`stream`/`kill`/`exec`/`last_run_evidence`. **Honest error bubbling (reuses v33.O):** parse aider/OpenAI failures — auth, 429/rate-limit, model/API errors, the agent process crashing/exiting non-zero — and surface the *real* cause via `last_run_evidence` (stderr tail + exit code) + the `diagnose_no_result`-style ranked reason, **never a generic "no result."** Mock-tested with a fake agent process (no real API). |
-| v37.C | ☐ | **Fallback wiring + selection.** `--backend {auto,claude,aider}`; `auto` = Claude-primary with an **aider hand-off on a hard cap** (continue the in-tree partial — reuses resume-on-cap's tree-as-memory). Adapt the resilient layer for aider/OpenAI: a 429 is a short backoff, not a 5h cap, so the quota-wait machinery mostly no-ops on the aider path; split + verify gate unchanged. |
+| v37.A | ✅ (survey) / ☐ (lock) | **Kickoff / decisions + ADR.** **Survey DONE → `docs/coding-agents-survey.md`; picked OpenHands** (operator 2026-06-13, respecting "no codex"): among OSI-permissive, headless, container-friendly options it covers the most of our six "misses" natively (real `str_replace` edit tool + JSONL events/exit-codes that mini-swe-agent lacks). Remaining to lock: the **agent-adapter interface** (install cmd · headless argv builder · output→`StreamEvent` parser · error/exit mapping — see v37.B); the fallback policy + flag (`--backend {auto,claude,oss}`, default `auto`); the guardrail division (wrapper owns sandbox/firewall/supervisor/verify/diff-review; agent owns the model-loop); **smoke-test OpenHands' exact invocation in a throwaway container** (confirm dirty-tree-not-committed + the JSON schema) before building. **ADR** extending ADR-0023. |
+| v37.B | ☐ | **`OSSAgentBackend(DelegateBackend)` + `OpenHandsAdapter`.** Build the backend **parameterized by a small agent adapter** (`install cmd · headless argv · output→StreamEvent parser · error/exit mapping`) so the wrapped agent is swappable — OpenHands first; Codex / mini-swe-agent are future adapters (see the survey's revisit triggers). Install + run the agent headless per sub-task (`openhands --headless --json -t "<subtask>"` in `/work`, `--override-with-envs`, model + `OPENAI_API_KEY` via the apikeys pathway, **don't mention git in the task** — its bash will commit); map OpenHands' JSONL events → `StreamEvent`s. Implements `start`/`stream`/`kill`/`exec`/`last_run_evidence`. **Honest error bubbling (reuses v33.O):** from OpenHands' exit codes 0/1/2 + stderr + JSON error events, surface the *real* cause via `last_run_evidence` + the `diagnose_no_result`-style ranked reason, **never a generic "no result."** Mock-tested with a fake agent process (no real API). |
+| v37.C | ☐ | **Fallback wiring + selection.** `--backend {auto,claude,oss}` (the `oss` backend runs the configured adapter, OpenHands by default); `auto` = Claude-primary with an **OSS-agent hand-off on a hard cap** (continue the in-tree partial — reuses resume-on-cap's tree-as-memory). Adapt the resilient layer for the OSS/OpenAI path: a 429 is a short backoff, not a 5h cap, so the quota-wait machinery mostly no-ops there; split + verify gate unchanged. |
 | v37.D | ☐ | **Live validation.** Run a real `project delegate` via the aider backend on a bounded sub-task (e.g. one airsucks route), confirm it finishes with a reviewable uncommitted diff that passes the verify gate; then validate the auto cap-hand-off (Claude → aider) end-to-end. |
 
 #### Design notes
@@ -2419,15 +2419,26 @@ aider unchanged. v37 adds a *backend*, not new orchestration. Fine-splitting
 (v33.R) is load-bearing here: a cruder agent finishes *bounded* sub-tasks, so the
 split is what makes the fallback work.
 
-**Error honesty (reuses v33.O).** aider/OpenAI surface a *different* set of
+**Error honesty (reuses v33.O).** OpenHands/OpenAI surface a *different* set of
 failures than the `claude` CLI — auth errors, HTTP 429 rate-limits, model/API
 errors, and the agent process itself crashing or exiting non-zero — and OpenAI
-"needs more guardrails" applies to *diagnosis* too. So the AiderBackend reuses
+"needs more guardrails" applies to *diagnosis* too. So `OSSAgentBackend` reuses
 v33.O's debuggability pattern: drain + retain the agent's stderr, capture its
 exit code, expose them via `last_run_evidence`, and rank the evidence into an
 honest reason (`diagnose_no_result`-style) — never swallow an error into a
 generic "no result." A `--debug` transcript of the raw agent I/O + invocation,
 same as the Claude path.
+
+**Extensibility — wrapped agent is swappable (operator requirement,
+2026-06-13).** OpenHands is the *pick*, not a hard couple. The OpenHands
+specifics live behind a small **agent adapter** (`install cmd · headless argv ·
+output→StreamEvent parser · error/exit mapping`); `OSSAgentBackend` is generic
+over it. Swapping OpenHands for Codex / mini-swe-agent / a newer tool later = a
+new adapter, not a backend rewrite. The adapter is the marked seam to "get back
+to it" — revisit if the operator reverses "no codex" (→ Codex, the cleanest
+technical fit per the survey), if OpenHands' weight/git-footgun bites, or a
+stronger 2026 entrant appears. Full survey + the swap rationale:
+`docs/coding-agents-survey.md` (cross-project reference).
 
 **Open questions for v37.A.** (a) **OSS survey first** — pick the wrapper on
 *current* evidence (aider vs plandex vs OpenHands vs Goose vs newer), not
