@@ -200,14 +200,46 @@ def test_empty_diff_cap_hard_reverts(site):
 def test_max_retries_bounds_the_loop(site):
     ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
     resets = ft.now() + timedelta(seconds=2)
-    # Always rate-limited → must give up at max_retries.
+    # Makes PROGRESS each window (growing diff) but still caps → bounded by
+    # max_retries (not the no-progress bail).
+    n = {"i": 0}
+
+    def factory():
+        n["i"] += 1
+        idx = n["i"]
+
+        def se(sd):
+            (sd / f"progress{idx}.txt").write_text("more\n")   # diff grows each window
+        return _ScriptedBackend([_rate_limit_line(resets)], side_effect=se)
+
     res = run_delegate_resilient(
-        "example.com", "do x",
-        backend_factory=lambda: _ScriptedBackend([_rate_limit_line(resets)]),
+        "example.com", "do x", backend_factory=factory,
         config=ResilientConfig(wait=True, max_wait_s=3600, max_retries=2),
         sites_root=site.parent, sleep=ft.sleep, now_fn=ft.now)
     assert res.status == "error"
     assert "--max-retries reached" in res.reason
+    assert res.capped_out is True
+
+
+def test_no_progress_window_bails_early_as_capped_out(site):
+    """v33.R — a resumed window that caps again WITHOUT growing the diff bails
+    early (before max_retries) with capped_out=True → signals 'too big, split'."""
+    ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
+    resets = ft.now() + timedelta(seconds=2)
+
+    def factory():
+        def se(sd):
+            (sd / "stuck.txt").write_text("same\n")   # SAME content every window
+        return _ScriptedBackend([_rate_limit_line(resets)], side_effect=se)
+
+    res = run_delegate_resilient(
+        "example.com", "do x", backend_factory=factory,
+        config=ResilientConfig(wait=True, max_wait_s=3600, max_retries=9),
+        sites_root=site.parent, sleep=ft.sleep, now_fn=ft.now)
+    assert res.status == "error"
+    assert res.capped_out is True
+    assert "no net progress" in res.reason.lower()
+    assert "--max-retries" not in res.reason            # bailed early, not at the cap
 
 
 def test_max_wait_exceeded_fails(site):

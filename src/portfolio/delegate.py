@@ -128,6 +128,11 @@ class DelegateResult:
     rate_limit: dict | None = None  # v33.P — the last rate_limit_event seen
                                     # (status / resets_at / overage_status), so
                                     # the quota-aware wrapper can wait + retry
+    capped_out: bool = False        # v33.R — set True only on a quota give-up
+                                    # that signals "too big / not converging"
+                                    # (max retries exhausted, or a resumed
+                                    # window with no net progress), so the
+                                    # splitter knows to re-split this sub-task.
 
 
 @dataclass
@@ -1368,6 +1373,7 @@ def run_delegate_resilient(
 
     attempt = 0
     preserved = False
+    prev_diff_size = 0           # v33.R — working-tree churn at the last cap
     while True:
         # Resume-on-cap: after a cap we KEEP the agent's partial in the tree, so
         # the retry continues from it (`force` past the clean-tree preflight)
@@ -1383,6 +1389,14 @@ def run_delegate_resilient(
 
         until = format_local(q.resets_at)
         files = changed_files(site_dir)
+        cur_diff = working_tree_diff_size(site_dir)
+        # v33.R — cross-window no-progress: a RESUMED window (attempt > 0) that
+        # caps again WITHOUT growing the diff means this sub-task isn't
+        # converging (too big to finish in one window, or no incremental
+        # checkpoints). Bail early so the splitter can re-split it instead of
+        # burning more 5-hour windows.
+        no_progress = attempt > 0 and cur_diff <= prev_diff_size
+        prev_diff_size = cur_diff
         # Disposition: NEVER hard-discard meaningful progress. Keep the partial
         # in the tree (so the retry — or a manual re-run — resumes from it) +
         # drop a recoverable backup stash. Only hard-revert an EMPTY diff.
@@ -1395,7 +1409,7 @@ def run_delegate_resilient(
             stash_label = None
             preserved = False
 
-        def _bail(reason_core: str) -> DelegateResult:
+        def _bail(reason_core: str, *, capped_out: bool = False) -> DelegateResult:
             backup = f", backup stash '{stash_label}'" if stash_label else ""
             kept = (f" Partial progress kept in the tree ({len(files)} file(s)"
                     f"{backup}) — re-run with --force to continue from here, or "
@@ -1404,14 +1418,19 @@ def run_delegate_resilient(
                     else " Nothing changed.")
             return DelegateResult(status="error", changed_files=files,
                                   reason=reason_core + kept + f" {OVERAGE_NOTE}",
-                                  rate_limit=result.rate_limit)
+                                  rate_limit=result.rate_limit, capped_out=capped_out)
 
-        if not config.wait:           # --no-wait / non-TTY opt-out
+        if not config.wait:           # --no-wait / non-TTY opt-out (operator's call)
             return _bail(f"rate-limited until {until} — re-run later, or drop "
                          f"--no-wait to wait it out.")
+        if no_progress:               # not converging → signal a re-split
+            return _bail(
+                f"rate-limited again with NO net progress since the last quota "
+                f"window — this sub-task isn't converging (likely too big to "
+                f"finish in one window); next reset {until}.", capped_out=True)
         if attempt >= config.max_retries:
             return _bail(f"rate-limited (cap hit {attempt + 1}×, --max-retries "
-                         f"reached); next reset {until}.")
+                         f"reached); next reset {until}.", capped_out=True)
 
         # Wait out the reset, then RESUME from the in-tree partial.
         if not _wait_out(q):          # --max-wait exceeded
@@ -1463,8 +1482,19 @@ _PLANNER_PROMPT = (
     "You are planning an autonomous coding task for the website in the local "
     "directory sites/{domain}.\n\n"
     "Break the request below into an ORDERED list of the SMALLEST INDEPENDENT, "
-    "separately-verifiable sub-tasks.\n"
+    "separately-verifiable sub-tasks. Each sub-task will be run by a fresh "
+    "agent in its own bounded session, so size matters: a sub-task that's too "
+    "big to finish in one focused sitting is a failure.\n"
     "Rules:\n"
+    "- ERR TOWARD MORE, SMALLER sub-tasks. Each should be completable + "
+    "verifiable in well under an hour of focused work. When unsure, split.\n"
+    "- If the request ENUMERATES concrete items (routes, pages, files, "
+    "components, endpoints), make roughly ONE sub-task PER ITEM — do not lump "
+    "them into a single 'do it for all of them' step.\n"
+    "- SEPARATE enabling a capability (config / setup / scaffolding) from "
+    "making each item actually satisfy it. E.g. 'turn on prerendering in the "
+    "config' is one sub-task; 'confirm route /X renders non-empty HTML, fixing "
+    "its loader/data if needed' is one sub-task PER route.\n"
     "- Each sub-task is self-contained and independently verifiable (it builds "
     "and has a concrete check).\n"
     "- Phrase each IDEMPOTENTLY — describe the END STATE, never \"continue\" / "
@@ -1472,8 +1502,9 @@ _PLANNER_PROMPT = (
     "tree and do only what's missing.\n"
     "- Carry over any explicit verification the user asked for into each "
     "sub-task it applies to.\n"
-    "- If the request is already small / atomic, return it as a SINGLE item.\n"
-    "- Prefer 2-8 sub-tasks; never more than {max_subtasks}.\n\n"
+    "- If the request is genuinely small / atomic, return it as a SINGLE "
+    "item.\n"
+    "- Never return more than {max_subtasks} items.\n\n"
     "Return ONLY a JSON array of strings (the sub-task prompts) and nothing "
     "else.\n\nRequest:\n{request}"
 )
@@ -1561,33 +1592,59 @@ def run_delegate_split(
     sleep: Callable[[float], None] = time.sleep,
     now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     clock: Clock = time.monotonic,
+    max_resplit_depth: int = 1,
 ) -> SplitResult:
     """Plan the request into sub-tasks, then run each through
     `run_delegate_resilient` in order, **accumulating in the working tree**
     (sub-task 2+ run with `force` to start from the prior sub-tasks' work).
-    Stops the chain on the first sub-task that doesn't finish `done` (the
-    completed work stays in the tree for review / re-run).
+
+    **Adaptive re-split (v33.R):** when a sub-task *caps out* — gives up on the
+    5-hour cap still not converging (`DelegateResult.capped_out`, set by the
+    resilient loop's max-retries / no-net-progress bails) — it's too big, so
+    (up to `max_resplit_depth` levels) we re-plan THAT sub-task into smaller
+    pieces and run those in its place, rather than failing the chain. Any
+    OTHER non-`done` (verify-fail, real error) stops the chain — the completed
+    work stays in the tree for review / re-run.
 
     A single-item plan (atomic request, or planner unavailable) runs exactly
     like a lone `run_delegate_resilient`. Pure orchestration over injected
     `planner`/`sleep`/`now_fn`/`backend_factory`, so it's unit-testable without
     docker, the network, or real time."""
-    plan = (planner or plan_subtasks)(domain, request)
-    total = len(plan)
+    plan_fn = planner or plan_subtasks
+    plan = plan_fn(domain, request)
+    # Work queue of (sub-task, resplit-depth). Re-split pieces are pushed to the
+    # FRONT so a too-big sub-task is broken down before the chain moves on.
+    queue: list[tuple[str, int]] = [(s, 0) for s in plan]
+    attempted: list[str] = []
     outcomes: list[DelegateResult] = []
-    for i, sub in enumerate(plan):
+    while queue:
+        sub, depth = queue.pop(0)
+        i = len(attempted)
         if on_subtask is not None:
-            on_subtask(i, total, sub)
+            on_subtask(i, i + 1 + len(queue), sub)   # best-effort running total
         res = run_delegate_resilient(
             domain, sub, backend_factory=backend_factory, config=config,
-            bounds=bounds, force=force or i > 0,
+            # force past the clean-tree preflight for any sub-task that starts
+            # from accumulated work: a later sub-task (i>0) OR a re-split piece
+            # (depth>0, where the capped-out parent's partial is in the tree).
+            bounds=bounds, force=force or i > 0 or depth > 0,
             verifier=make_verifier(sub) if make_verifier else None,
-            # Quota pre-flight only before the first sub-task; mid-chain caps
-            # are caught + resumed by the resilient loop itself.
+            # Quota pre-flight only before the very first sub-task; mid-chain
+            # caps are caught + resumed by the resilient loop itself.
             preflight_probe=preflight_probe if i == 0 else None,
             on_progress=on_progress, on_wait=on_wait, sites_root=sites_root,
             sleep=sleep, now_fn=now_fn, clock=clock)
+
+        if res.status != "done" and res.capped_out and depth < max_resplit_depth:
+            pieces = plan_fn(domain, sub)
+            if len(pieces) > 1:
+                if on_progress is not None:
+                    on_progress("phase", f"sub-task too big — re-split into "
+                                          f"{len(pieces)} smaller steps")
+                queue[:0] = [(p, depth + 1) for p in pieces]
+                continue                # don't record the capped-out attempt
+        attempted.append(sub)
         outcomes.append(res)
         if res.status != "done":
-            break                       # stop on the first non-done sub-task
-    return SplitResult(subtasks=plan, outcomes=outcomes)
+            break                       # genuine non-done → stop the chain
+    return SplitResult(subtasks=attempted, outcomes=outcomes)

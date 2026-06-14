@@ -1999,6 +1999,27 @@ monolithic run. Idempotent sub-task phrasing is load-bearing: it's what lets a
 fresh agent resume a partially-done sub-task (the tree is the memory) — the same
 property resume-on-cap relies on, now demanded of the planner's output.
 
+**v33.R — split *adaptively*, because the first split won't always be small
+enough.** The airsucks SSR run proved the gap: the planner split "make all 7
+routes SSR + sitemap" into a coarse `config` + `sitemap`, and the `config`
+sub-task alone outgrew a 5-hour quota window — resume-on-cap then ground it
+across multiple windows. Three reinforcing fixes, weakest assumption first: (1)
+**bias the planner finer** — one sub-task per enumerated item, and *separate*
+"enable the capability" from "make each item actually satisfy it + verify" (the
+exact shape airsucks needed: one config step + one per route). (2) **Detect
+non-convergence across windows** — the resilient loop watches working-tree
+churn between caps; a resumed window that caps again with no net new diff isn't
+converging (too big, or no incremental checkpoint), so it bails early with
+`capped_out=True` rather than burning more 5-hour windows to learn the same
+thing. (3) **Re-split on that signal** — the splitter runs sub-tasks off a
+depth-bounded queue and, when one comes back `capped_out`, re-plans it into
+smaller pieces in place instead of failing the chain. The design insight is
+that #1 is *advisory* (the model may still under-split), so #2 makes
+under-splitting *observable* and #3 makes it *self-correcting* — the planner's
+fallibility is contained by a feedback loop, not trusted outright. Bounded by
+`max_resplit_depth` (default 1) so it can't recurse forever; any non-quota
+failure (verify-fail, real error) still stops the chain for review.
+
 **v33.H — orchestrator owns the log, agent owns the judgment.** The split is
 deliberate. `Prompts.md` is a **deterministic record** (what was asked, when, cost,
 files) in a **parser-sensitive format** (`project check` reads the `## YYYY-MM-DD`

@@ -151,6 +151,96 @@ def test_split_stops_chain_on_first_non_done(site):
     assert not (site / "route3.txt").exists()      # never ran sub-task 3
 
 
+class _PromptBackend:
+    """Backend whose behaviour depends on the sub-task prompt: 'piece' prompts
+    succeed (and write a file); anything else caps out (rate-limit, no diff)."""
+    def __init__(self, resets):
+        self.resets = resets
+        self.killed = 0
+
+    def start(self, site_dir):
+        self.sd = site_dir
+
+    def stream(self, prompt, system_prompt=None):
+        if "piece" in prompt:
+            (self.sd / (prompt.replace(" ", "_") + ".txt")).write_text("ok\n")
+            yield _RESULT_OK
+        else:
+            yield _rate_limit_line(self.resets)      # cap, no progress
+
+    def kill(self):
+        self.killed += 1
+
+
+def _rate_limit_line(resets):
+    return ('{"type":"rate_limit_event","rate_limit_info":{"status":"rejected",'
+            f'"resetsAt":"{resets.isoformat()}","overageStatus":"rejected",'
+            '"overageDisabledReason":"org_level_disabled"}}')
+
+
+class _FakeTime:
+    def __init__(self, start):
+        self.t = start
+
+    def now(self):
+        return self.t
+
+    def sleep(self, s):
+        from datetime import timedelta
+        self.t += timedelta(seconds=s)
+
+
+def test_split_resplits_a_capped_out_subtask(site):
+    """v33.R — a sub-task that caps out (too big) is re-planned into smaller
+    pieces in place, which then complete — rather than failing the chain."""
+    from datetime import timedelta
+    ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
+    resets = ft.now() + timedelta(seconds=2)
+
+    def planner(domain, req):
+        # the original request plans to one big step; that big step re-splits.
+        return ["piece A", "piece B"] if req == "big step" else ["big step"]
+
+    res = run_delegate_split(
+        "example.com", "do something large",
+        backend_factory=lambda: _PromptBackend(resets),
+        planner=planner,
+        config=ResilientConfig(wait=True, max_wait_s=3600, max_retries=3),
+        sites_root=site.parent, sleep=ft.sleep, now_fn=ft.now)
+
+    assert res.all_done
+    assert res.subtasks == ["piece A", "piece B"]   # capped parent replaced
+    assert (site / "piece_A.txt").exists()
+    assert (site / "piece_B.txt").exists()
+
+
+def test_split_resplit_is_depth_bounded(site):
+    """When even the re-split pieces cap out, depth-bounding stops the chain
+    (no infinite re-splitting)."""
+    from datetime import timedelta
+    ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
+    resets = ft.now() + timedelta(seconds=2)
+
+    # Everything caps out (no "piece" prompt ever succeeds: planner names them
+    # "chunk N"), and the planner always offers 2 children.
+    def planner(domain, req):
+        return ["chunk 1", "chunk 2"]
+
+    res = run_delegate_split(
+        "example.com", "huge",
+        backend_factory=lambda: _PromptBackend(resets),   # all cap out
+        planner=planner,
+        config=ResilientConfig(wait=True, max_wait_s=3600, max_retries=2),
+        sites_root=site.parent, sleep=ft.sleep, now_fn=ft.now,
+        max_resplit_depth=1)
+
+    assert not res.all_done
+    # depth-0 "chunk 1" caps → re-split into chunk1/chunk2 at depth 1; a depth-1
+    # chunk caps and is NOT re-split (depth == max) → recorded + chain stops.
+    assert res.outcomes[-1].status == "error"
+    assert res.outcomes[-1].capped_out is True
+
+
 def test_split_single_task_behaves_like_one_run(site):
     res = run_delegate_split(
         "example.com", "atomic",

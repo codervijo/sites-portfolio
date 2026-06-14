@@ -1671,6 +1671,20 @@ surface** (joins § 2.1's two when v33.B ships).
   resume-on-cap wait. `--no-split` forces one monolithic run. Pure orchestration
   over an injected `planner`/`backend_factory`/`sleep`/`now` — unit-tested
   without docker, the network, or real time.
+- **Adaptive splitting (v33.R).** Three changes after the airsucks run showed a
+  coarse 2-way split left one sub-task bigger than a quota window. (1) **Finer
+  planner** — the prompt biases toward MORE, SMALLER sub-tasks: one per
+  enumerated item (route/page/file), and *separating* "turn the capability on"
+  from "make each item satisfy it + verify." (2) **Cross-window no-progress
+  bail** — `run_delegate_resilient` tracks working-tree churn across cap
+  windows; a *resumed* window that caps again without growing the diff means
+  the sub-task isn't converging, so it bails early (`DelegateResult.capped_out =
+  True`) instead of burning more 5-hour windows. (3) **Adaptive re-split** —
+  `run_delegate_split` runs sub-tasks off a depth-bounded work queue; when a
+  sub-task returns `capped_out` (max-retries OR no-progress), it re-plans THAT
+  sub-task into smaller pieces and runs them in its place (up to
+  `max_resplit_depth`, default 1), rather than failing the chain. Any *other*
+  non-`done` (verify-fail, real error) still stops the chain.
 
 See ADR-0023 + `docs/prd.md § v33` for the full rationale.
 
