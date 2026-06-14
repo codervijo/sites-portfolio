@@ -108,9 +108,10 @@ def test_quota_from_rate_limit():
 # ---------- the self-healing loop ----------
 
 
-def test_dod_detect_revert_wait_retry_complete(site):
-    """The headline: rate-limited run #1 → revert partial → wait countdown →
-    retry → complete. No flags."""
+def test_dod_resume_preserves_partial_wait_retry_complete(site):
+    """The headline: rate-limited run #1 → **keep** the partial → wait
+    countdown → retry **continues from it** → complete. No flags. (Resume-on-
+    cap: the retry runs with force so the dirty tree is the starting point.)"""
     ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
     resets = ft.now() + timedelta(seconds=5)
 
@@ -130,13 +131,33 @@ def test_dod_detect_revert_wait_retry_complete(site):
         on_wait=lambda remaining, target: ticks.append(remaining),
         sleep=ft.sleep, now_fn=ft.now)
 
-    assert res.status == "done"
+    assert res.status == "done"                    # retry succeeded past the dirty tree
     assert ticks                                   # countdown actually ran
-    assert not (site / "PARTIAL.txt").exists()     # reverted before retry
+    assert (site / "PARTIAL.txt").exists()         # PRESERVED — not thrown away
     assert b1.killed == 1 and b2.killed == 1
 
 
-def test_no_wait_fails_fast_with_reset_time_and_clean_tree(site):
+def test_give_up_after_max_retries_preserves_progress(site):
+    """Exhausting --max-retries keeps the accumulated work (re-run to continue),
+    rather than discarding it."""
+    ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
+    resets = ft.now() + timedelta(seconds=2)
+
+    def _make_partial(sd):
+        (sd / "PARTIAL.txt").write_text("some progress\n")
+
+    res = run_delegate_resilient(
+        "example.com", "do x",
+        backend_factory=lambda: _ScriptedBackend([_rate_limit_line(resets)],
+                                                  side_effect=_make_partial),
+        config=ResilientConfig(wait=True, max_wait_s=3600, max_retries=1),
+        sites_root=site.parent, sleep=ft.sleep, now_fn=ft.now)
+    assert res.status == "error"
+    assert "kept in the tree" in res.reason
+    assert (site / "PARTIAL.txt").exists()         # kept, not reverted
+
+
+def test_no_wait_fails_fast_keeps_partial_in_tree(site):
     ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
     resets = ft.now() + timedelta(hours=2)
 
@@ -153,7 +174,27 @@ def test_no_wait_fails_fast_with_reset_time_and_clean_tree(site):
     assert res.status == "error"
     assert "rate-limited until" in res.reason
     assert "overage" in res.reason                 # the real-fix note
-    assert not (site / "PARTIAL.txt").exists()     # clean tree
+    # v33.P resume: --no-wait no longer hard-discards — the partial stays in
+    # the tree (with a recovery hint), never thrown away.
+    assert (site / "PARTIAL.txt").exists()
+    assert "kept in the tree" in res.reason
+
+
+def test_empty_diff_cap_hard_reverts(site):
+    """The one case that DOES hard-revert: a cap with no progress (empty diff)
+    → clean tree, retry from scratch."""
+    ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
+    resets = ft.now() + timedelta(seconds=2)
+    # No side_effect → the rate-limited run leaves nothing.
+    b1 = _ScriptedBackend([_rate_limit_line(resets)])
+    b2 = _ScriptedBackend([_RESULT_OK])
+    backends = iter([b1, b2])
+    res = run_delegate_resilient(
+        "example.com", "do x",
+        backend_factory=lambda: next(backends),
+        config=ResilientConfig(wait=True, max_wait_s=3600, max_retries=2),
+        sites_root=site.parent, sleep=ft.sleep, now_fn=ft.now)
+    assert res.status == "done"
 
 
 def test_max_retries_bounds_the_loop(site):
@@ -179,6 +220,29 @@ def test_max_wait_exceeded_fails(site):
         sites_root=site.parent, sleep=ft.sleep, now_fn=ft.now)
     assert res.status == "error"
     assert "exceeds --max-wait" in res.reason
+
+
+def test_checkpoint_backs_up_tracked_progress_and_keeps_tree(site):
+    """A cap with tracked progress: the partial stays in the tree AND a
+    recoverable labeled backup stash is created."""
+    ft = _FakeTime(datetime(2026, 6, 13, 12, 0, tzinfo=timezone.utc))
+    resets = ft.now() + timedelta(seconds=2)
+
+    def _edit_tracked(sd):
+        (sd / "README.md").write_text("agent progress\n")   # README.md is tracked
+
+    res = run_delegate_resilient(
+        "example.com", "do x",
+        backend_factory=lambda: _ScriptedBackend([_rate_limit_line(resets)],
+                                                  side_effect=_edit_tracked),
+        config=ResilientConfig(wait=True, max_wait_s=3600, max_retries=0),
+        sites_root=site.parent, sleep=ft.sleep, now_fn=ft.now)
+
+    assert res.status == "error"
+    assert "agent progress" in (site / "README.md").read_text()   # kept in tree
+    stash = subprocess.run(["git", "stash", "list"], cwd=str(site),
+                           capture_output=True, text=True)
+    assert "delegate-wip" in stash.stdout                          # recoverable
 
 
 def test_preflight_probe_capped_waits_then_runs(site):

@@ -4558,7 +4558,7 @@ def project_delegate(
     from .delegate import (Bounds, DelegateRefused, DockerBackend,
                            DockerVerifier, ResilientConfig,
                            append_delegate_prompt_log, format_local,
-                           preflight, probe_quota_host, revert_tree,
+                           preflight, probe_quota_host,
                            run_delegate_resilient, run_project_checks)
 
     domain = domain.lower()
@@ -4664,8 +4664,20 @@ def project_delegate(
                 preflight_probe=preflight_probe,
                 on_progress=_on_progress, on_wait=_on_wait)
     except KeyboardInterrupt:
-        revert_tree(site_dir)
-        console.print("\n  [yellow]↷ aborted — reverted to a clean tree.[/]")
+        # v33.P resume — don't hard-discard the agent's partial on abort either;
+        # keep it in the tree (consistent with resume-on-cap) and tell the
+        # operator how to continue or clean it.
+        from .delegate import changed_files
+        kept = changed_files(site_dir)
+        if kept:
+            console.print(
+                f"\n  [yellow]↷ aborted — partial progress kept in the tree "
+                f"({len(kept)} file(s)).[/]\n"
+                f"  [dim]continue: re-run with --force · discard: "
+                f"git -C sites/{domain} checkout -- . && git -C sites/{domain} "
+                f"clean -fd[/]")
+        else:
+            console.print("\n  [yellow]↷ aborted — clean tree (no changes).[/]")
         raise typer.Exit(130)
 
     # v33.H — append this run to the site's docs/Prompts.md (orchestrator-

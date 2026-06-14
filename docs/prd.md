@@ -1960,17 +1960,26 @@ constraint the operator named: you can check quota to **start** a run, not to
 unpredictable). So the loop never promises one-shot completion. It pre-flight-
 probes the cap (a cheap **host-side** `claude -p` — the host has the auth
 delegate mounts, so no doomed sandbox bringup), and on a cap hit (pre-flight OR
-mid-run, read off the `rate_limit_event` v33.O already parses) it **reverts the
-partial diff** (clean tree for the retry — the supervisor leaves a muddied tree
-otherwise), **waits out the reset** with a live Ctrl-C-interruptible countdown,
-and **retries** — bounded by `--max-wait` (6h) + `--max-retries` (2). Two safety
-rails: `--no-wait` (fail fast with the local reset time + clean tree) and a
-**non-TTY-as-no-wait** default (never hang CI/automation for hours; `--wait`
-overrides). The whole loop is a pure orchestrator over an injected
-`sleep`/`now`/`backend_factory`/`preflight_probe`, so the wait/retry/revert is
-unit-tested without docker or real time. Every cap message also names the real
-fix vs the workaround: enabling **org-level overage** removes the hard stop
-entirely; wait/retry is only a workaround for the hard cap.
+mid-run, read off the `rate_limit_event` v33.O already parses) it **waits out
+the reset** with a live Ctrl-C-interruptible countdown and **retries** — bounded
+by `--max-wait` (6h) + `--max-retries` (2). **Resume-on-cap (refined 2026-06-13,
+operator):** the first cut reverted the partial before each retry, which is an
+infinite no-progress loop for any task bigger than one quota window — start clean
+→ burn fresh quota → cap mid-task → throw everything away → repeat. Fixed by
+*never hard-discarding meaningful progress*: the partial is **kept in the tree**
+so the retry resumes from accumulated work (`force` past the clean-tree
+preflight; the prompt is idempotent — "make *every* route SSR + verify" just
+finishes the rest), plus a recoverable backup stash (`checkpoint_partial` =
+`git stash create`+`store`, tree untouched). The tree is **hard-reverted only
+when the diff is empty** (no progress). All bail paths (`--no-wait`,
+`--max-retries`, `--max-wait`, Ctrl-C) keep the partial too, with a continue
+(re-run `--force`) / discard hint. `--no-wait` (and a **non-TTY-as-no-wait**
+default — never hang CI for hours; `--wait` overrides) fails fast. The whole
+loop is a pure orchestrator over an injected
+`sleep`/`now`/`backend_factory`/`preflight_probe`, unit-tested without docker or
+real time. Every cap message names the real fix vs the workaround: enabling
+**org-level overage** removes the hard stop entirely; wait/retry is only a
+workaround for the hard cap.
 
 **v33.H — orchestrator owns the log, agent owns the judgment.** The split is
 deliberate. `Prompts.md` is a **deterministic record** (what was asked, when, cost,

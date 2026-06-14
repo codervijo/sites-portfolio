@@ -1220,6 +1220,24 @@ def revert_tree(site_dir: Path) -> None:
     _git(["clean", "-fd"], site_dir)
 
 
+def checkpoint_partial(site_dir: Path, *, label: str) -> str | None:
+    """Drop a **recoverable backup** of the current tracked changes into a
+    labeled stash entry **without touching the working tree** — `git stash
+    create` + `git stash store` — so the operator can recover it later (`git
+    stash list` → `git stash apply <ref>`). The tree is left intact (the
+    primary resume path is the in-tree partial itself). Returns the `label` on
+    success, or None when there's nothing to back up (clean tree, or only
+    untracked files — which `git stash create` doesn't capture, but which the
+    in-tree resume keeps anyway). Best-effort: any git error yields None rather
+    than crashing the self-healing loop."""
+    rc, sha = _git(["stash", "create"], site_dir)
+    sha = sha.strip()
+    if rc != 0 or not sha:
+        return None
+    _git(["stash", "store", "-m", label, sha], site_dir)
+    return label
+
+
 def format_local(dt: datetime | None) -> str:
     """A reset time in the operator's local zone for messages. UTC-naive
     fallback when the local zone can't be resolved."""
@@ -1283,9 +1301,16 @@ def run_delegate_resilient(
 ) -> DelegateResult:
     """Quota-aware wrapper around `run_delegate`. Pre-flight-probes the cap
     (when a probe is supplied), then runs — and on a rate-limit (pre-flight or
-    mid-run) reverts the tree, waits out the reset with a live countdown, and
-    retries, bounded by `max_wait_s` + `max_retries`. `wait=False` fails fast
-    with the reset time + a clean tree.
+    mid-run) waits out the reset with a live countdown and retries, bounded by
+    `max_wait_s` + `max_retries`.
+
+    **Resume-on-cap:** a rate-limit retry does NOT throw away the agent's
+    partial work — it preserves the dirty tree and the retry continues from it
+    (`force` past the clean-tree preflight), so a task too big for one quota
+    window converges across windows instead of restarting each time. The tree
+    is only reverted to clean on the explicit opt-outs: `wait=False`
+    (fail-fast) and Ctrl-C (the CLI's abort). Giving up after `max_retries`
+    PRESERVES the accumulated progress (re-run to continue).
 
     Pure orchestration: `sleep`/`now_fn`/`backend_factory`/`preflight_probe`
     are injected, so the whole loop is unit-testable without docker or real
@@ -1293,8 +1318,8 @@ def run_delegate_resilient(
     a clean abort)."""
     config = config or ResilientConfig()
 
-    # Resolve the site dir up-front (also enforces the clean-tree precondition)
-    # so we can revert between attempts.
+    # Resolve the site dir up-front (also enforces the clean-tree precondition
+    # for the FIRST run; retries reuse it with `force` to resume the partial).
     try:
         site_dir = preflight(domain, force=force, sites_root=sites_root)
     except DelegateRefused as e:
@@ -1302,73 +1327,96 @@ def run_delegate_resilient(
 
     waited_total = 0.0
 
-    def _do_wait(q: QuotaStatus) -> DelegateResult | None:
-        """Wait out a cap. Returns a terminal DelegateResult to bail with, or
-        None to proceed with a retry."""
+    def _wait_out(q: QuotaStatus) -> bool:
+        """Wait until the reset, ticking the countdown. True = reset reached
+        (proceed); False = waiting would exceed --max-wait (bail). Tree-neutral
+        — the caller owns checkpoint/revert disposition."""
         nonlocal waited_total
-        until = format_local(q.resets_at)
-        if not config.wait:
-            return DelegateResult(
-                status="error",
-                reason=(f"rate-limited until {until} — re-run later, or drop "
-                        f"--no-wait to wait it out. {OVERAGE_NOTE}"),
-                rate_limit={"resets_at": q.resets_at.isoformat()
-                            if q.resets_at else None},
-            )
         start = now_fn()
         ok = _wait_for_reset(
             q.resets_at, budget_s=config.max_wait_s - waited_total,
             on_tick=on_wait, sleep=sleep, now_fn=now_fn)
         waited_total += (now_fn() - start).total_seconds()
-        if not ok:
-            hrs = config.max_wait_s / 3600
-            return DelegateResult(
-                status="error",
-                reason=(f"rate-limited until {until}, which exceeds --max-wait "
-                        f"({hrs:g}h). Re-run later or raise --max-wait. "
-                        f"{OVERAGE_NOTE}"))
-        if on_progress:
-            on_progress("reset", until)          # CLI prints "✓ quota reset…"
-        return None
+        if ok and on_progress:
+            on_progress("reset", format_local(q.resets_at))   # "✓ quota reset…"
+        return ok
 
-    # Pre-flight: don't even bring up the sandbox if we're already capped.
+    # Pre-flight: don't even bring up the sandbox if we're already capped (the
+    # tree is clean here — nothing to checkpoint/revert).
     if preflight_probe is not None:
         try:
             q = preflight_probe()
         except Exception:  # noqa: BLE001 — probe is best-effort
             q = None
         if q and q.capped:
+            until = format_local(q.resets_at)
+            if not config.wait:
+                return DelegateResult(
+                    status="error", rate_limit={"resets_at": q.resets_at.isoformat() if q.resets_at else None},
+                    reason=(f"rate-limited until {until} — re-run later, or drop "
+                            f"--no-wait to wait it out. Nothing changed. "
+                            f"{OVERAGE_NOTE}"))
             if on_progress:
                 on_progress("phase", "pre-flight: account is rate-limited")
-            bail = _do_wait(q)
-            if bail is not None:
-                return bail
+            if not _wait_out(q):
+                hrs = config.max_wait_s / 3600
+                return DelegateResult(
+                    status="error", rate_limit={"resets_at": q.resets_at.isoformat() if q.resets_at else None},
+                    reason=(f"rate-limited until {until}, which exceeds "
+                            f"--max-wait ({hrs:g}h). {OVERAGE_NOTE}"))
 
     attempt = 0
+    preserved = False
     while True:
+        # Resume-on-cap: after a cap we KEEP the agent's partial in the tree, so
+        # the retry continues from it (`force` past the clean-tree preflight)
+        # instead of restarting. The prompt re-runs as-is — an idempotent
+        # request ("make every route SSR + verify") just finishes the rest.
         result = run_delegate(
-            domain, request, backend=backend_factory(), bounds=bounds,
-            force=force, verifier=verifier, on_progress=on_progress,
-            sites_root=sites_root, clock=clock)
+            domain, request, backend=backend_factory(),
+            bounds=bounds, force=force or preserved, verifier=verifier,
+            on_progress=on_progress, sites_root=sites_root, clock=clock)
         q = result_quota(result)
         if q is None:
             return result                       # not a cap — done (good or bad)
 
-        # Rate-limited mid/at-start of the run. Revert the partial diff so the
-        # retry (or the operator's tree) starts clean.
-        revert_tree(site_dir)
+        until = format_local(q.resets_at)
+        files = changed_files(site_dir)
+        # Disposition: NEVER hard-discard meaningful progress. Keep the partial
+        # in the tree (so the retry — or a manual re-run — resumes from it) +
+        # drop a recoverable backup stash. Only hard-revert an EMPTY diff.
+        if files:
+            stash_label = checkpoint_partial(
+                site_dir, label=f"delegate-wip {domain} #{attempt + 1}")
+            preserved = True
+        else:
+            revert_tree(site_dir)
+            stash_label = None
+            preserved = False
 
+        def _bail(reason_core: str) -> DelegateResult:
+            backup = f", backup stash '{stash_label}'" if stash_label else ""
+            kept = (f" Partial progress kept in the tree ({len(files)} file(s)"
+                    f"{backup}) — re-run with --force to continue from here, or "
+                    f"`git -C sites/{domain} checkout -- . && git -C "
+                    f"sites/{domain} clean -fd` to discard." if files
+                    else " Nothing changed.")
+            return DelegateResult(status="error", changed_files=files,
+                                  reason=reason_core + kept + f" {OVERAGE_NOTE}",
+                                  rate_limit=result.rate_limit)
+
+        if not config.wait:           # --no-wait / non-TTY opt-out
+            return _bail(f"rate-limited until {until} — re-run later, or drop "
+                         f"--no-wait to wait it out.")
         if attempt >= config.max_retries:
-            until = format_local(q.resets_at)
-            return DelegateResult(
-                status="error",
-                reason=(f"rate-limited (cap hit {attempt + 1}×, --max-retries "
-                        f"reached); next reset {until}. Reverted to a clean "
-                        f"tree. {OVERAGE_NOTE}"),
-                rate_limit=result.rate_limit)
-        bail = _do_wait(q)
-        if bail is not None:
-            return bail
+            return _bail(f"rate-limited (cap hit {attempt + 1}×, --max-retries "
+                         f"reached); next reset {until}.")
+
+        # Wait out the reset, then RESUME from the in-tree partial.
+        if not _wait_out(q):          # --max-wait exceeded
+            hrs = config.max_wait_s / 3600
+            return _bail(f"rate-limited until {until}, which exceeds --max-wait "
+                         f"({hrs:g}h).")
         attempt += 1
 
 
