@@ -30,6 +30,7 @@ def test_bootstrap_gitignore_ignores_astro():
 
 def _docker_present(monkeypatch):
     monkeypatch.setattr("shutil.which", lambda cmd: "/usr/bin/docker")
+    monkeypatch.setattr(deleg, "plan_subtasks", lambda d, r: [r])  # v33.Q: no real planner
 
 
 def test_dirty_tree_refuses_before_reading_request(monkeypatch):

@@ -1657,6 +1657,20 @@ surface** (joins § 2.1's two when v33.B ships).
   cap depletes continuously). Help + every cap message names the real fix —
   enabling **org-level overage** removes the hard stop; wait/retry is the
   workaround.
+- **Auto-split (v33.Q — default).** A large request burns a whole quota window
+  and is hard to checkpoint, so by default delegate runs a cheap **host-side
+  planner** first (`plan_subtasks` — a `claude -p` that returns a JSON array of
+  ordered, INDEPENDENT, separately-verifiable, idempotently-phrased sub-tasks),
+  then `run_delegate_split` runs each through resume-on-cap **in sequence,
+  accumulating in the one working tree** (sub-task 2+ run with `force` to start
+  from the prior sub-tasks' work; each is verify-gated against the shared clean
+  baseline). The chain stops on the first sub-task that doesn't finish `done`,
+  leaving the completed work in the tree. The planner **degrades to a single
+  run** whenever it's unavailable / capped / returns one item, so a small or
+  atomic request just runs once and a capped account falls through to the
+  resume-on-cap wait. `--no-split` forces one monolithic run. Pure orchestration
+  over an injected `planner`/`backend_factory`/`sleep`/`now` — unit-tested
+  without docker, the network, or real time.
 
 See ADR-0023 + `docs/prd.md § v33` for the full rationale.
 

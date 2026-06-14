@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 
 def _docker_present(monkeypatch):
     monkeypatch.setattr("shutil.which", lambda cmd: "/usr/bin/docker")
+    monkeypatch.setattr(deleg, "plan_subtasks", lambda d, r: [r])  # v33.Q: no real planner
 
 
 def test_no_confirm_prompt_runs_directly(monkeypatch, tmp_path):

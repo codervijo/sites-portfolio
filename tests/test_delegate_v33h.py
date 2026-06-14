@@ -66,6 +66,9 @@ def test_system_prompt_has_doc_routing_instruction(tmp_path: Path):
 
 def _docker(monkeypatch):
     monkeypatch.setattr("shutil.which", lambda c: "/usr/bin/docker")
+    # v33.Q — keep these single-run CLI tests off the real planner (no `claude`
+    # call): a 1-item plan means no split, so the mocked run_delegate is hit.
+    monkeypatch.setattr(deleg, "plan_subtasks", lambda d, r: [r])
 
 
 def test_cli_logs_prompts_md_on_done_with_changes(monkeypatch, tmp_path):

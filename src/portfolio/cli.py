@@ -4538,6 +4538,13 @@ def project_delegate(
     max_retries: int = typer.Option(
         2, "--max-retries",
         help="Max post-cap re-runs before giving up (default 2)."),
+    no_split: bool = typer.Option(
+        False, "--no-split",
+        help="Run the request as ONE monolithic agent task. By default a "
+             "cheap planner first splits a large request into ordered, "
+             "independently-verifiable sub-tasks that run in sequence "
+             "(accumulating in the tree) — so a big job finishes in bites "
+             "instead of one quota-burning marathon."),
 ) -> None:
     """Delegate an open-ended change to Claude, in a sandboxed container.
 
@@ -4556,10 +4563,11 @@ def project_delegate(
     import shutil
 
     from .delegate import (Bounds, DelegateRefused, DockerBackend,
-                           DockerVerifier, ResilientConfig,
+                           DockerVerifier, ResilientConfig, SplitResult,
                            append_delegate_prompt_log, format_local,
                            preflight, probe_quota_host,
-                           run_delegate_resilient, run_project_checks)
+                           run_delegate_resilient, run_delegate_split,
+                           run_project_checks)
 
     domain = domain.lower()
     if shutil.which("docker") is None:
@@ -4590,13 +4598,17 @@ def project_delegate(
     # accepted no-op for compatibility.
 
     # Build the verify gate: snapshot conformance BEFORE the agent runs (on
-    # the clean tree) so we can flag only *new* failures. Reuse the site_dir
-    # already resolved by preflight.
-    verifier = None
-    if not no_verify:
-        baseline = run_project_checks(site_dir)
-        verifier = DockerVerifier(request, check_baseline=baseline,
-                                  do_visual=not no_visual)
+    # the clean tree) so we can flag only *new* failures. One shared baseline;
+    # a per-sub-task verifier (its own request drives the visual judge). Each
+    # completed sub-task introduces no new failures, so comparing every
+    # sub-task to the original clean baseline stays correct as the tree grows.
+    baseline = None if no_verify else run_project_checks(site_dir)
+
+    def _make_verifier(sub_request: str):
+        if no_verify:
+            return None
+        return DockerVerifier(sub_request, check_baseline=baseline,
+                              do_visual=not no_visual)
 
     bounds = Bounds(wall_clock_s=timeout, budget_usd=budget)
     # v33.O — opt-in post-mortem transcript (raw stream-json + stderr + argv).
@@ -4658,11 +4670,29 @@ def project_delegate(
                     f"[yellow]rate-limited — waiting for quota · resets "
                     f"{format_local(target)} · ~{mins}m left[/]")
 
-            result = run_delegate_resilient(
-                domain, request, backend_factory=_make_backend, config=config,
-                bounds=bounds, force=force, verifier=verifier,
-                preflight_probe=preflight_probe,
-                on_progress=_on_progress, on_wait=_on_wait)
+            def _on_subtask(i: int, total: int, sub: str) -> None:
+                if total > 1:
+                    snippet = sub if len(sub) <= 80 else sub[:79] + "…"
+                    console.print(f"\n  [bold cyan]▸ sub-task {i + 1}/{total}[/] "
+                                  f"[dim]{escape(snippet)}[/]")
+
+            if no_split:
+                result = run_delegate_resilient(
+                    domain, request, backend_factory=_make_backend,
+                    config=config, bounds=bounds, force=force,
+                    verifier=_make_verifier(request),
+                    preflight_probe=preflight_probe,
+                    on_progress=_on_progress, on_wait=_on_wait)
+                split = SplitResult(subtasks=[request], outcomes=[result])
+            else:
+                # v33.Q — default: plan → run each sub-task through resume-on-cap,
+                # accumulating in the tree.
+                split = run_delegate_split(
+                    domain, request, backend_factory=_make_backend,
+                    make_verifier=_make_verifier, config=config, bounds=bounds,
+                    force=force, preflight_probe=preflight_probe,
+                    on_progress=_on_progress, on_wait=_on_wait,
+                    on_subtask=_on_subtask)
     except KeyboardInterrupt:
         # v33.P resume — don't hard-discard the agent's partial on abort either;
         # keep it in the tree (consistent with resume-on-cap) and tell the
@@ -4680,20 +4710,71 @@ def project_delegate(
             console.print("\n  [yellow]↷ aborted — clean tree (no changes).[/]")
         raise typer.Exit(130)
 
-    # v33.H — append this run to the site's docs/Prompts.md (orchestrator-
-    # owned, deterministic log) on a successful run that changed files. The
-    # agent's relevance-gated prd.md/CLAUDE.md updates ride in via the system
-    # prompt; Prompts.md is lamill's, so it writes that itself.
-    if result.status == "done" and result.changed_files:
+    final = split.final
+    # v33.H — append this run to the site's docs/Prompts.md (orchestrator-owned,
+    # deterministic log) on full success that changed files. Logged once for the
+    # whole request, against the accumulated diff.
+    if split.all_done and final is not None and final.changed_files:
+        total_cost = sum(o.cost_usd for o in split.outcomes)
         if append_delegate_prompt_log(
                 site_dir, domain, request,
-                files=len(result.changed_files), cost=result.cost_usd,
+                files=len(final.changed_files), cost=total_cost,
                 today=date.today().isoformat()):
-            result.changed_files = sorted(
-                set(result.changed_files) | {"docs/Prompts.md"})
-    _render_delegate_result(result, domain, request)
-    if result.status not in ("done",):
-        raise typer.Exit(1 if result.status in ("error", "refused") else 0)
+            final.changed_files = sorted(
+                set(final.changed_files) | {"docs/Prompts.md"})
+
+    if split.was_split:
+        _render_delegate_split(split, domain, request)
+    else:
+        _render_delegate_result(split.outcomes[0], domain, request)
+
+    if not split.all_done:
+        statuses = {o.status for o in split.outcomes}
+        raise typer.Exit(1 if statuses & {"error", "refused"} else 0)
+
+
+def _render_delegate_split(split, domain: str, request: str) -> None:
+    """Render an auto-split run: the sub-task checklist + the accumulated diff
+    + commit suggestion. `split` is a `delegate.SplitResult`."""
+    total = len(split.subtasks)
+    done = sum(1 for o in split.outcomes if o.status == "done")
+    head = "green" if split.all_done else "yellow"
+    console.print(f"\n  [bold {head}]Auto-split:[/] {done}/{total} sub-task(s) "
+                  f"complete")
+    for i, sub in enumerate(split.subtasks):
+        snippet = sub if len(sub) <= 72 else sub[:71] + "…"
+        if i < len(split.outcomes):
+            o = split.outcomes[i]
+            ok = o.status == "done"
+            glyph, color = ("✓", "green") if ok else ("✗", "red")
+            console.print(f"    [{color}]{glyph}[/] {i + 1}. {escape(snippet)}")
+            if not ok:
+                console.print(f"        [dim]{escape(o.reason)}[/]")
+        else:
+            console.print(f"    [dim]·[/] {i + 1}. [dim]{escape(snippet)} "
+                          f"(not reached)[/]")
+
+    final = split.final
+    if final is not None and final.summary:
+        text = final.summary.strip()
+        if len(text) > 4000:
+            text = text[:4000] + "\n… (summary truncated)"
+        console.print(f"\n[bold]Last sub-task summary:[/]\n{escape(text)}")
+
+    files = final.changed_files if final else []
+    if files:
+        shown = "\n".join(f"    {escape(f)}" for f in files[:20])
+        more = f"\n    … and {len(files) - 20} more" if len(files) > 20 else ""
+        site = f"sites/{domain}"
+        msg = escape(_suggested_commit_msg(request))
+        console.print(f"\n  {len(files)} file(s) changed across the run, left "
+                      f"UNCOMMITTED:\n{shown}{more}")
+        console.print(f"  diff:    [dim]git -C {site} diff[/]", soft_wrap=True)
+        console.print(f"  commit:  [dim]git -C {site} add -A && "
+                      f"git -C {site} commit -m \"{msg}\"[/]", soft_wrap=True)
+        console.print("  [dim](review first — lamill never commits for you.)[/]")
+    elif split.all_done:
+        console.print("  (no file changes)")
 
 
 def _render_delegate_verify(v) -> None:

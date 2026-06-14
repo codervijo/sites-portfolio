@@ -88,6 +88,7 @@ def test_cli_passes_on_progress_to_run_delegate(monkeypatch, tmp_path):
     monkeypatch.setattr(
         deleg, "preflight",
         lambda domain, *, force=False, sites_root=None: tmp_path)
+    monkeypatch.setattr(deleg, "plan_subtasks", lambda d, r: [r])  # v33.Q: no real planner
     monkeypatch.setattr(climod, "_resolve_delegate_request", lambda r: "do x")
     captured = {}
 

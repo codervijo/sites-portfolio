@@ -24,6 +24,7 @@ working-tree-churn sampler. Everything here is pure and unit-testable.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import time
 from collections import deque
@@ -1445,3 +1446,148 @@ def probe_quota_host(
         if ev is not None and ev.kind == "rate_limit":
             return quota_from_rate_limit(ev.rate_limit)
     return None
+
+
+# ---------- v33.Q — auto-split a too-big request into sub-tasks ----------
+#
+# A single huge request ("make all 7 routes SSR + verify each") burns a whole
+# quota window and is hard to checkpoint. Auto-split runs a cheap HOST-side
+# planner first that decomposes the request into ordered, INDEPENDENT,
+# separately-verifiable sub-tasks, then runs each through the resume-on-cap
+# loop in turn — accumulating in the working tree. Default-on; `--no-split`
+# opts out. The planner degrades to a single task (no split) whenever it's
+# unavailable, capped, or returns one item — so a small/atomic request just
+# runs once, and a capped account falls through to resume-on-cap's wait.
+
+_PLANNER_PROMPT = (
+    "You are planning an autonomous coding task for the website in the local "
+    "directory sites/{domain}.\n\n"
+    "Break the request below into an ORDERED list of the SMALLEST INDEPENDENT, "
+    "separately-verifiable sub-tasks.\n"
+    "Rules:\n"
+    "- Each sub-task is self-contained and independently verifiable (it builds "
+    "and has a concrete check).\n"
+    "- Phrase each IDEMPOTENTLY — describe the END STATE, never \"continue\" / "
+    "\"next\"; a fresh agent must be able to run it against a partially-done "
+    "tree and do only what's missing.\n"
+    "- Carry over any explicit verification the user asked for into each "
+    "sub-task it applies to.\n"
+    "- If the request is already small / atomic, return it as a SINGLE item.\n"
+    "- Prefer 2-8 sub-tasks; never more than {max_subtasks}.\n\n"
+    "Return ONLY a JSON array of strings (the sub-task prompts) and nothing "
+    "else.\n\nRequest:\n{request}"
+)
+
+
+def _parse_subtask_json(text: str) -> list[str]:
+    """Pull the first JSON array-of-strings out of the planner's reply
+    (tolerant of surrounding prose / code fences). Returns [] on any miss."""
+    m = re.search(r"\[.*\]", text or "", re.DOTALL)
+    if not m:
+        return []
+    try:
+        arr = json.loads(m.group(0))
+    except (json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(arr, list):
+        return []
+    return [str(x).strip() for x in arr if isinstance(x, str) and str(x).strip()]
+
+
+def plan_subtasks(
+    domain: str, request: str, *,
+    runner: "Callable[[list[str]], subprocess.CompletedProcess] | None" = None,
+    max_subtasks: int = 8,
+) -> list[str]:
+    """Host-side planner: decompose `request` into ordered independent,
+    separately-verifiable sub-tasks. Returns `[request]` unchanged when the
+    task is atomic, the planner is unavailable / capped, or the output doesn't
+    parse — so auto-split always degrades safely to a single run. `runner` is
+    injectable for tests."""
+    prompt = _PLANNER_PROMPT.format(
+        domain=domain, request=request.strip(), max_subtasks=max_subtasks)
+    cmd = ["claude", "-p", prompt, "--output-format", "text",
+           "--max-budget-usd", "0.15"]
+
+    def _default_runner(c: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(c, capture_output=True, text=True, check=False,
+                              timeout=120)
+    run = runner or _default_runner
+    try:
+        proc = run(cmd)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return [request]
+    tasks = _parse_subtask_json(proc.stdout or "")
+    if len(tasks) <= 1:
+        return [request]
+    return tasks[:max_subtasks]
+
+
+@dataclass
+class SplitResult:
+    """Outcome of an auto-split delegate run: the plan + one DelegateResult per
+    ATTEMPTED sub-task (fewer than `subtasks` when the chain stopped early on a
+    non-`done` sub-task)."""
+    subtasks: list[str]
+    outcomes: list["DelegateResult"] = field(default_factory=list)
+
+    @property
+    def was_split(self) -> bool:
+        return len(self.subtasks) > 1
+
+    @property
+    def all_done(self) -> bool:
+        return (len(self.outcomes) == len(self.subtasks)
+                and all(o.status == "done" for o in self.outcomes))
+
+    @property
+    def final(self) -> "DelegateResult | None":
+        return self.outcomes[-1] if self.outcomes else None
+
+
+def run_delegate_split(
+    domain: str, request: str, *,
+    backend_factory: "Callable[[], DelegateBackend]",
+    make_verifier: "Callable[[str], Verifier | None] | None" = None,
+    config: ResilientConfig | None = None,
+    bounds: "Bounds | None" = None,
+    force: bool = False,
+    planner: "Callable[[str, str], list[str]] | None" = None,
+    preflight_probe: "Callable[[], QuotaStatus | None] | None" = None,
+    on_progress: "Callable[[str, str], None] | None" = None,
+    on_wait: "Callable[[float, datetime | None], None] | None" = None,
+    on_subtask: "Callable[[int, int, str], None] | None" = None,
+    sites_root: Path | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    clock: Clock = time.monotonic,
+) -> SplitResult:
+    """Plan the request into sub-tasks, then run each through
+    `run_delegate_resilient` in order, **accumulating in the working tree**
+    (sub-task 2+ run with `force` to start from the prior sub-tasks' work).
+    Stops the chain on the first sub-task that doesn't finish `done` (the
+    completed work stays in the tree for review / re-run).
+
+    A single-item plan (atomic request, or planner unavailable) runs exactly
+    like a lone `run_delegate_resilient`. Pure orchestration over injected
+    `planner`/`sleep`/`now_fn`/`backend_factory`, so it's unit-testable without
+    docker, the network, or real time."""
+    plan = (planner or plan_subtasks)(domain, request)
+    total = len(plan)
+    outcomes: list[DelegateResult] = []
+    for i, sub in enumerate(plan):
+        if on_subtask is not None:
+            on_subtask(i, total, sub)
+        res = run_delegate_resilient(
+            domain, sub, backend_factory=backend_factory, config=config,
+            bounds=bounds, force=force or i > 0,
+            verifier=make_verifier(sub) if make_verifier else None,
+            # Quota pre-flight only before the first sub-task; mid-chain caps
+            # are caught + resumed by the resilient loop itself.
+            preflight_probe=preflight_probe if i == 0 else None,
+            on_progress=on_progress, on_wait=on_wait, sites_root=sites_root,
+            sleep=sleep, now_fn=now_fn, clock=clock)
+        outcomes.append(res)
+        if res.status != "done":
+            break                       # stop on the first non-done sub-task
+    return SplitResult(subtasks=plan, outcomes=outcomes)

@@ -1981,6 +1981,24 @@ real time. Every cap message names the real fix vs the workaround: enabling
 **org-level overage** removes the hard stop entirely; wait/retry is only a
 workaround for the hard cap.
 
+**v33.Q — split the work, don't just survive the cap.** Resume-on-cap lets a
+big task *converge* across windows, but it still grinds the whole monolith and
+loses the natural checkpoint boundaries. v33.Q makes delegate **decompose by
+default**: a cheap host-side planner (`plan_subtasks` — a `claude -p` returning
+a JSON array of ordered, independent, separately-verifiable, *idempotently*
+phrased sub-tasks) runs first, then `run_delegate_split` runs each sub-task
+through the resume-on-cap loop in turn, **accumulating in the one tree** (later
+sub-tasks `force`-start from the earlier ones' work; each verify-gated against
+the shared clean baseline). The chain stops at the first non-`done` sub-task,
+leaving the finished work in the tree to review / re-run. The key design choice
+is that the planner is *advisory and self-erasing*: it degrades to a single run
+whenever it's unavailable, capped, or returns one item — so a small/atomic
+request runs once (no overhead beyond one planner call) and a capped account
+just falls through to the resume-on-cap wait. `--no-split` opts out to one
+monolithic run. Idempotent sub-task phrasing is load-bearing: it's what lets a
+fresh agent resume a partially-done sub-task (the tree is the memory) — the same
+property resume-on-cap relies on, now demanded of the planner's output.
+
 **v33.H — orchestrator owns the log, agent owns the judgment.** The split is
 deliberate. `Prompts.md` is a **deterministic record** (what was asked, when, cost,
 files) in a **parser-sensitive format** (`project check` reads the `## YYYY-MM-DD`
