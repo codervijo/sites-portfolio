@@ -4522,6 +4522,22 @@ def project_delegate(
         False, "--debug",
         help="Persist the raw stream-json + stderr + docker argv to a "
              "transcript file for post-mortem (also via LAMILL_DELEGATE_DEBUG=1)."),
+    no_wait: bool = typer.Option(
+        False, "--no-wait",
+        help="On the 5-hour usage cap, fail fast with the reset time instead "
+             "of waiting it out. (Default: wait + retry. Non-TTY contexts fail "
+             "fast automatically.) The real fix is enabling org-level overage "
+             "billing, which removes the hard cap entirely."),
+    wait: bool = typer.Option(
+        False, "--wait",
+        help="Force wait-out-the-cap even in a non-TTY/scripted context "
+             "(which otherwise fails fast)."),
+    max_wait: float = typer.Option(
+        6.0, "--max-wait",
+        help="Max hours to wait out a usage cap before giving up (default 6h)."),
+    max_retries: int = typer.Option(
+        2, "--max-retries",
+        help="Max post-cap re-runs before giving up (default 2)."),
 ) -> None:
     """Delegate an open-ended change to Claude, in a sandboxed container.
 
@@ -4540,8 +4556,10 @@ def project_delegate(
     import shutil
 
     from .delegate import (Bounds, DelegateRefused, DockerBackend,
-                           DockerVerifier, append_delegate_prompt_log,
-                           preflight, run_project_checks, run_delegate)
+                           DockerVerifier, ResilientConfig,
+                           append_delegate_prompt_log, format_local,
+                           preflight, probe_quota_host, revert_tree,
+                           run_delegate_resilient, run_project_checks)
 
     domain = domain.lower()
     if shutil.which("docker") is None:
@@ -4591,31 +4609,64 @@ def project_delegate(
         dbg_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         debug_path = dbg_dir / f"{domain}-{stamp}.log"
-    backend = DockerBackend(domain, budget_usd=budget, debug_path=debug_path)
+    def _make_backend():
+        # Fresh disposable container per attempt (a retry's prior container is
+        # already killed); same debug transcript path (last attempt wins).
+        return DockerBackend(domain, budget_usd=budget, debug_path=debug_path)
+
     console.print(f"▸ delegate · [cyan]{domain}[/] — running in sandbox…")
     if debug_path is not None:
         console.print(f"  [dim]↷ debug transcript → {debug_path}[/]")
 
-    # v33.L — live progress. A rich spinner animates (via its own refresh
-    # thread) even while backend.start() blocks on the image pull / claude
-    # install, and its caption tracks the current phase/action from
-    # run_delegate's on_progress hook. Degrades to a no-op when not a TTY.
+    # v33.P — quota-aware self-healing on the 5-hour cap. Wait-by-default; but
+    # in a non-TTY/scripted context behave as --no-wait (never hang automation
+    # for hours) unless --wait forces it. --no-wait always wins.
+    is_tty = console.is_terminal
+    effective_wait = False if no_wait else (True if wait else is_tty)
+    config = ResilientConfig(wait=effective_wait, max_wait_s=max_wait * 3600,
+                             max_retries=max_retries)
+    # Pre-flight quota probe (host-side, best-effort) — don't bring up a doomed
+    # sandbox if the cap is already exhausted. Skipped (None) on non-TTY when
+    # not waiting, since fail-fast doesn't need the extra call.
+    preflight_probe = probe_quota_host if (effective_wait or is_tty) else None
+
+    # v33.L/v33.P — live progress + a Ctrl-C-interruptible quota countdown,
+    # both driven through one rich spinner (suppressed off-TTY).
     import contextlib
 
     status_cm = (console.status("[cyan]starting…[/]", spinner="dots")
-                 if console.is_terminal else contextlib.nullcontext())
-    with status_cm as status:
-        def _on_progress(kind: str, detail: str) -> None:
-            if status is None:
-                return
-            if kind == "phase":
-                status.update(f"[cyan]{detail}[/]")
-            elif kind == "action":
-                status.update(f"[cyan]agent:[/] [dim]{detail}[/]")
+                 if is_tty else contextlib.nullcontext())
+    try:
+        with status_cm as status:
+            def _on_progress(kind: str, detail: str) -> None:
+                if kind == "reset":
+                    console.print(f"  [green]✓ quota reset — resuming…[/]")
+                    return
+                if status is None:
+                    return
+                if kind == "phase":
+                    status.update(f"[cyan]{detail}[/]")
+                elif kind == "action":
+                    status.update(f"[cyan]agent:[/] [dim]{detail}[/]")
 
-        result = run_delegate(domain, request, backend=backend, bounds=bounds,
-                              force=force, verifier=verifier,
-                              on_progress=_on_progress)
+            def _on_wait(remaining_s: float, target) -> None:
+                if status is None:
+                    return
+                import math
+                mins = max(1, math.ceil(remaining_s / 60))
+                status.update(
+                    f"[yellow]rate-limited — waiting for quota · resets "
+                    f"{format_local(target)} · ~{mins}m left[/]")
+
+            result = run_delegate_resilient(
+                domain, request, backend_factory=_make_backend, config=config,
+                bounds=bounds, force=force, verifier=verifier,
+                preflight_probe=preflight_probe,
+                on_progress=_on_progress, on_wait=_on_wait)
+    except KeyboardInterrupt:
+        revert_tree(site_dir)
+        console.print("\n  [yellow]↷ aborted — reverted to a clean tree.[/]")
+        raise typer.Exit(130)
 
     # v33.H — append this run to the site's docs/Prompts.md (orchestrator-
     # owned, deterministic log) on a successful run that changed files. The

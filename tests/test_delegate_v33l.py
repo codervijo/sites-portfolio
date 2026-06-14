@@ -85,13 +85,18 @@ def test_run_delegate_without_callback_still_runs(site):
 
 def test_cli_passes_on_progress_to_run_delegate(monkeypatch, tmp_path):
     monkeypatch.setattr("shutil.which", lambda cmd: "/usr/bin/docker")
-    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False: tmp_path)
+    monkeypatch.setattr(
+        deleg, "preflight",
+        lambda domain, *, force=False, sites_root=None: tmp_path)
     monkeypatch.setattr(climod, "_resolve_delegate_request", lambda r: "do x")
     captured = {}
 
     def fake_run(domain, request, **kw):
         captured.update(kw)
         return deleg.DelegateResult(status="done", reason="ok")
+    # v33.P — the CLI now drives run_delegate through run_delegate_resilient,
+    # which calls run_delegate internally; patch the module global so the
+    # wrapper hits the fake and we can assert on_progress threads through.
     monkeypatch.setattr(deleg, "run_delegate", fake_run)
 
     result = CliRunner().invoke(

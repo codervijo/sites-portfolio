@@ -28,6 +28,7 @@ import subprocess
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Deque, Iterator, Literal, Protocol
 
@@ -123,6 +124,9 @@ class DelegateResult:
     message: str = ""
     verify: VerifyResult | None = None
     summary: str = ""               # v33.M — agent's final summary text
+    rate_limit: dict | None = None  # v33.P — the last rate_limit_event seen
+                                    # (status / resets_at / overage_status), so
+                                    # the quota-aware wrapper can wait + retry
 
 
 @dataclass
@@ -760,6 +764,7 @@ def run_delegate(domain: str, request: str, *,
         changed_files=changed_files(site_dir),
         verify=verify,
         summary=summary,
+        rate_limit=last_rate_limit,
     )
 
 
@@ -1120,3 +1125,275 @@ class DockerVerifier:
         if jrc == 0 and verdict.startswith("FAIL"):
             return "fail", jout.strip()[:200], shot
         return "unavailable", f"judge inconclusive: {jout.strip()[:200]}", shot
+
+
+# ---------- v33.P — quota-aware, self-healing on the 5-hour cap ----------
+#
+# delegate dies when the account's 5-hour usage cap is exhausted (claude emits
+# a `rate_limit_event` with `status: rejected` + no result). v33.O made that
+# *honest*; v33.P makes it *self-healing*: detect the cap (pre-flight or
+# mid-run), revert any partial diff, wait out the reset with a live countdown,
+# and retry — so the operator never runs the manual
+# run→rate-limited→discard→wait→retry loop by hand.
+#
+# HONESTY (operator contract): quota can be checked to *start*, not to *finish*
+# — the 5-hour cap depletes continuously and run cost is unpredictable. So we
+# never promise one-shot completion; a mid-run exhaustion reverts + waits +
+# retries (bounded), or fails fast under --no-wait.
+
+# Shown in help + every rate-limit failure: the real fix vs the workaround.
+OVERAGE_NOTE = (
+    "Note: this is the account's hard 5-hour usage cap. The wait/retry is a "
+    "workaround — enabling org-level overage billing removes the hard stop "
+    "entirely (the real fix)."
+)
+
+# Small cushion added to a reported reset time before retrying — the cap can
+# lag the advertised `resetsAt` by a few seconds.
+_RESET_MARGIN_S = 20
+# When the cap is detected but no `resetsAt` is given, fall back to this.
+_BLIND_BACKOFF_S = 15 * 60
+
+
+@dataclass(frozen=True)
+class QuotaStatus:
+    """Parsed quota state from a `rate_limit_event` (v33.O parses the raw
+    dict; this interprets it)."""
+    capped: bool
+    resets_at: datetime | None = None    # tz-aware UTC
+    reason: str | None = None            # e.g. "org_level_disabled"
+
+
+# rate_limit_info.status values that mean "blocked right now".
+_CAPPED_STATUSES = frozenset({"rejected", "exhausted", "blocked", "throttled"})
+
+
+def parse_resets_at(value: object) -> datetime | None:
+    """Parse a `resetsAt` value (ISO-8601 string or epoch seconds) into a
+    tz-aware UTC datetime. None/garbage → None."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def quota_from_rate_limit(rate_limit: dict | None) -> QuotaStatus | None:
+    """Interpret a captured `rate_limit` dict (StreamEvent.rate_limit /
+    DelegateResult.rate_limit). Returns None when there's nothing to act on,
+    a `QuotaStatus(capped=…)` otherwise."""
+    if not rate_limit:
+        return None
+    status = (rate_limit.get("status") or "").lower()
+    overage = (rate_limit.get("overage_status") or "").lower()
+    capped = overage == "rejected" or status in _CAPPED_STATUSES
+    if not capped:
+        return None
+    return QuotaStatus(
+        capped=True,
+        resets_at=parse_resets_at(rate_limit.get("resets_at")),
+        reason=rate_limit.get("overage_disabled_reason") or status or None,
+    )
+
+
+def result_quota(result: DelegateResult) -> QuotaStatus | None:
+    """Did this completed run end on a rate-limit? (None ⇒ no.)"""
+    return quota_from_rate_limit(result.rate_limit)
+
+
+def revert_tree(site_dir: Path) -> None:
+    """Discard the working-tree changes a (doomed) run left behind so the
+    retry starts clean. Scoped to `site_dir`; resets tracked files to HEAD and
+    removes untracked files/dirs. Best-effort — a revert failure must not crash
+    the loop."""
+    _git(["checkout", "--", "."], site_dir)
+    _git(["clean", "-fd"], site_dir)
+
+
+def format_local(dt: datetime | None) -> str:
+    """A reset time in the operator's local zone for messages. UTC-naive
+    fallback when the local zone can't be resolved."""
+    if dt is None:
+        return "an unknown time"
+    try:
+        return dt.astimezone().strftime("%-I:%M %p %Z").strip()
+    except (ValueError, OSError):
+        return dt.strftime("%H:%M UTC")
+
+
+def _wait_for_reset(
+    resets_at: datetime | None, *, budget_s: float,
+    on_tick: "Callable[[float, datetime | None], None] | None",
+    sleep: Callable[[float], None], now_fn: Callable[[], datetime],
+) -> bool:
+    """Sleep until `resets_at` (+ margin), ticking `on_tick(remaining_s,
+    target)` ~once/second so the caller can animate a countdown. Returns True
+    on reset reached, False when `budget_s` (the remaining --max-wait) would be
+    exceeded first. Propagates KeyboardInterrupt (Ctrl-C) for a clean abort."""
+    if resets_at is not None:
+        target = resets_at + timedelta(seconds=_RESET_MARGIN_S)
+        remaining = (target - now_fn()).total_seconds()
+    else:
+        # No reset advertised — blind backoff, still bounded by the budget.
+        remaining = min(_BLIND_BACKOFF_S, budget_s)
+        target = now_fn() + timedelta(seconds=remaining)
+    if remaining > budget_s:
+        return False
+    while True:
+        remaining = (target - now_fn()).total_seconds()
+        if remaining <= 0:
+            return True
+        if on_tick is not None:
+            on_tick(remaining, target)
+        sleep(min(1.0, remaining))
+
+
+@dataclass
+class ResilientConfig:
+    """Knobs for the self-healing loop (CLI maps flags onto these)."""
+    wait: bool = True             # wait-by-default; --no-wait / non-TTY ⇒ False
+    max_wait_s: float = 6 * 3600  # --max-wait (total across all waits)
+    max_retries: int = 2          # --max-retries (post-cap re-runs)
+
+
+def run_delegate_resilient(
+    domain: str, request: str, *,
+    backend_factory: "Callable[[], DelegateBackend]",
+    config: ResilientConfig | None = None,
+    bounds: "Bounds | None" = None,
+    force: bool = False,
+    verifier: "Verifier | None" = None,
+    preflight_probe: "Callable[[], QuotaStatus | None] | None" = None,
+    on_progress: "Callable[[str, str], None] | None" = None,
+    on_wait: "Callable[[float, datetime | None], None] | None" = None,
+    sites_root: Path | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+    now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    clock: Clock = time.monotonic,
+) -> DelegateResult:
+    """Quota-aware wrapper around `run_delegate`. Pre-flight-probes the cap
+    (when a probe is supplied), then runs — and on a rate-limit (pre-flight or
+    mid-run) reverts the tree, waits out the reset with a live countdown, and
+    retries, bounded by `max_wait_s` + `max_retries`. `wait=False` fails fast
+    with the reset time + a clean tree.
+
+    Pure orchestration: `sleep`/`now_fn`/`backend_factory`/`preflight_probe`
+    are injected, so the whole loop is unit-testable without docker or real
+    time. KeyboardInterrupt during a wait propagates (the CLI reverts + reports
+    a clean abort)."""
+    config = config or ResilientConfig()
+
+    # Resolve the site dir up-front (also enforces the clean-tree precondition)
+    # so we can revert between attempts.
+    try:
+        site_dir = preflight(domain, force=force, sites_root=sites_root)
+    except DelegateRefused as e:
+        return DelegateResult(status="refused", reason="preflight", message=str(e))
+
+    waited_total = 0.0
+
+    def _do_wait(q: QuotaStatus) -> DelegateResult | None:
+        """Wait out a cap. Returns a terminal DelegateResult to bail with, or
+        None to proceed with a retry."""
+        nonlocal waited_total
+        until = format_local(q.resets_at)
+        if not config.wait:
+            return DelegateResult(
+                status="error",
+                reason=(f"rate-limited until {until} — re-run later, or drop "
+                        f"--no-wait to wait it out. {OVERAGE_NOTE}"),
+                rate_limit={"resets_at": q.resets_at.isoformat()
+                            if q.resets_at else None},
+            )
+        start = now_fn()
+        ok = _wait_for_reset(
+            q.resets_at, budget_s=config.max_wait_s - waited_total,
+            on_tick=on_wait, sleep=sleep, now_fn=now_fn)
+        waited_total += (now_fn() - start).total_seconds()
+        if not ok:
+            hrs = config.max_wait_s / 3600
+            return DelegateResult(
+                status="error",
+                reason=(f"rate-limited until {until}, which exceeds --max-wait "
+                        f"({hrs:g}h). Re-run later or raise --max-wait. "
+                        f"{OVERAGE_NOTE}"))
+        if on_progress:
+            on_progress("reset", until)          # CLI prints "✓ quota reset…"
+        return None
+
+    # Pre-flight: don't even bring up the sandbox if we're already capped.
+    if preflight_probe is not None:
+        try:
+            q = preflight_probe()
+        except Exception:  # noqa: BLE001 — probe is best-effort
+            q = None
+        if q and q.capped:
+            if on_progress:
+                on_progress("phase", "pre-flight: account is rate-limited")
+            bail = _do_wait(q)
+            if bail is not None:
+                return bail
+
+    attempt = 0
+    while True:
+        result = run_delegate(
+            domain, request, backend=backend_factory(), bounds=bounds,
+            force=force, verifier=verifier, on_progress=on_progress,
+            sites_root=sites_root, clock=clock)
+        q = result_quota(result)
+        if q is None:
+            return result                       # not a cap — done (good or bad)
+
+        # Rate-limited mid/at-start of the run. Revert the partial diff so the
+        # retry (or the operator's tree) starts clean.
+        revert_tree(site_dir)
+
+        if attempt >= config.max_retries:
+            until = format_local(q.resets_at)
+            return DelegateResult(
+                status="error",
+                reason=(f"rate-limited (cap hit {attempt + 1}×, --max-retries "
+                        f"reached); next reset {until}. Reverted to a clean "
+                        f"tree. {OVERAGE_NOTE}"),
+                rate_limit=result.rate_limit)
+        bail = _do_wait(q)
+        if bail is not None:
+            return bail
+        attempt += 1
+
+
+def probe_quota_host(
+    *, docker_cmd: list[str] | None = None,
+    runner: "Callable[[list[str]], subprocess.CompletedProcess] | None" = None,
+) -> QuotaStatus | None:
+    """Best-effort pre-flight quota probe via a tiny HOST-side `claude -p`
+    (the host has claude auth — delegate mounts it into the sandbox). Avoids
+    docker bringup entirely. Returns a `QuotaStatus` when a `rate_limit_event`
+    shows the cap, None when not capped OR the probe can't run (no claude on
+    PATH, timeout, parse miss) — callers treat None as "proceed"."""
+    cmd = ["claude", "-p", "ok", "--output-format", "stream-json", "--verbose",
+           "--max-budget-usd", "0.05"]
+
+    def _default_runner(c: list[str]) -> subprocess.CompletedProcess:
+        return subprocess.run(c, capture_output=True, text=True, check=False,
+                              timeout=60)
+    run = runner or _default_runner
+    try:
+        proc = run(cmd)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+    for line in (proc.stdout or "").splitlines():
+        ev = parse_stream_line(line)
+        if ev is not None and ev.kind == "rate_limit":
+            return quota_from_rate_limit(ev.rate_limit)
+    return None

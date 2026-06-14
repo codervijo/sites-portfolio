@@ -1634,6 +1634,22 @@ surface** (joins § 2.1's two when v33.B ships).
   with the install transcript otherwise. `--debug` (or `LAMILL_DELEGATE_DEBUG=1`)
   tees the raw stream-json + stderr + docker argv to
   `~/lamill/delegate-debug/<domain>-<ts>.log` for post-mortem.
+- **Quota self-healing (v33.P).** On the account's 5-hour usage cap, delegate no
+  longer forces a manual run→rate-limited→discard→wait→retry loop.
+  `run_delegate_resilient` wraps `run_delegate`: a best-effort **host-side**
+  pre-flight probe (`probe_quota_host` — a tiny `claude -p` reading
+  `rate_limit_event`; the host carries the auth delegate mounts, so no doomed
+  sandbox bringup), then on a cap hit (pre-flight or mid-run, off the v33.O
+  `rate_limit_event`) it **reverts the partial diff** (`revert_tree`), **waits**
+  out the reset with a live Ctrl-C-interruptible countdown spinner, and
+  **retries** — bounded by `--max-wait` (6h) + `--max-retries` (2).
+  Wait-by-default; `--no-wait` (and any non-TTY context, unless `--wait`) fails
+  fast with the local reset time + a clean tree. The loop is a pure orchestrator
+  over injected `sleep`/`now`/`backend_factory`/`preflight_probe` (docker- and
+  clock-free under test). Honesty contract: quota gates *starting*, not
+  *finishing* (the cap depletes continuously). Help + every cap message names
+  the real fix — enabling **org-level overage** removes the hard stop; wait/retry
+  is the workaround.
 
 See ADR-0023 + `docs/prd.md § v33` for the full rationale.
 

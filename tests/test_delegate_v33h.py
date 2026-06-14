@@ -70,7 +70,7 @@ def _docker(monkeypatch):
 
 def test_cli_logs_prompts_md_on_done_with_changes(monkeypatch, tmp_path):
     _docker(monkeypatch)
-    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False: tmp_path)
+    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False, sites_root=None: tmp_path)
     monkeypatch.setattr(climod, "_resolve_delegate_request", lambda r: "do a thing")
     monkeypatch.setattr(
         deleg, "run_delegate",
@@ -86,7 +86,7 @@ def test_cli_logs_prompts_md_on_done_with_changes(monkeypatch, tmp_path):
 
 def test_cli_skips_log_on_no_change_run(monkeypatch, tmp_path):
     _docker(monkeypatch)
-    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False: tmp_path)
+    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False, sites_root=None: tmp_path)
     monkeypatch.setattr(climod, "_resolve_delegate_request", lambda r: "inspect only")
     monkeypatch.setattr(
         deleg, "run_delegate",

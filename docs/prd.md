@@ -1953,6 +1953,25 @@ stream-json + stderr + docker argv for post-mortem. The seam choice
 (evidence on the backend, judgment in a pure function) keeps the diagnosis
 unit-testable without a container.
 
+**v33.P — honest about *starting*, not *finishing*.** v33.O made a capped run
+*honest*; v33.P makes it *self-healing* — but the design hinges on one honesty
+constraint the operator named: you can check quota to **start** a run, not to
+**finish** one (the 5-hour cap depletes continuously and run cost is
+unpredictable). So the loop never promises one-shot completion. It pre-flight-
+probes the cap (a cheap **host-side** `claude -p` — the host has the auth
+delegate mounts, so no doomed sandbox bringup), and on a cap hit (pre-flight OR
+mid-run, read off the `rate_limit_event` v33.O already parses) it **reverts the
+partial diff** (clean tree for the retry — the supervisor leaves a muddied tree
+otherwise), **waits out the reset** with a live Ctrl-C-interruptible countdown,
+and **retries** — bounded by `--max-wait` (6h) + `--max-retries` (2). Two safety
+rails: `--no-wait` (fail fast with the local reset time + clean tree) and a
+**non-TTY-as-no-wait** default (never hang CI/automation for hours; `--wait`
+overrides). The whole loop is a pure orchestrator over an injected
+`sleep`/`now`/`backend_factory`/`preflight_probe`, so the wait/retry/revert is
+unit-tested without docker or real time. Every cap message also names the real
+fix vs the workaround: enabling **org-level overage** removes the hard stop
+entirely; wait/retry is only a workaround for the hard cap.
+
 **v33.H — orchestrator owns the log, agent owns the judgment.** The split is
 deliberate. `Prompts.md` is a **deterministic record** (what was asked, when, cost,
 files) in a **parser-sensitive format** (`project check` reads the `## YYYY-MM-DD`

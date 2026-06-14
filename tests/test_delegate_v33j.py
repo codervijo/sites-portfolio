@@ -17,7 +17,7 @@ def _docker_present(monkeypatch):
 
 def test_no_confirm_prompt_runs_directly(monkeypatch, tmp_path):
     _docker_present(monkeypatch)
-    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False: tmp_path)
+    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False, sites_root=None: tmp_path)
     monkeypatch.setattr(climod, "_resolve_delegate_request", lambda r: "do x")
     seen = {}
 
@@ -35,7 +35,7 @@ def test_no_confirm_prompt_runs_directly(monkeypatch, tmp_path):
 
 def test_yes_flag_still_parses_as_noop(monkeypatch, tmp_path):
     _docker_present(monkeypatch)
-    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False: tmp_path)
+    monkeypatch.setattr(deleg, "preflight", lambda domain, *, force=False, sites_root=None: tmp_path)
     monkeypatch.setattr(climod, "_resolve_delegate_request", lambda r: "do x")
     monkeypatch.setattr(
         deleg, "run_delegate",
