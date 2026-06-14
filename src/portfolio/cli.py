@@ -4323,6 +4323,23 @@ def project_seo(
     with a 24h TTL. `--refresh` re-fetches.
     """
     domain = name.lower()
+
+    # v36 — problem-surfacing diagnosis: gather every crawl/discovery/index
+    # signal and compute an honest State (healthy/unproven/blocked) + a
+    # prioritized Blockers list. Project-scoped — the fleet grade is untouched.
+    # Degrades gracefully (never crashes the view) if a probe/source is absent.
+    from .seo_diagnose import gather_seo_diagnosis
+    from .research_render import render_seo_blockers, render_seo_state_header
+    diag = None
+    try:
+        diag = gather_seo_diagnosis(domain)
+    except Exception as e:    # noqa: BLE001 — diagnosis is additive, never fatal
+        console.print(f"  [dim]↷ SEO diagnosis skipped: {type(e).__name__}: {e}[/]")
+
+    # State headline ABOVE the table (so the honest verdict leads).
+    if diag is not None:
+        render_seo_state_header(diag, console)
+
     # Existing 1-row aggregate header (v5.D).
     _run_check_seo_mode(days=days, only_domain=domain,
                         sort_by=sort_by, only="wip", concurrency=20,
@@ -4330,6 +4347,11 @@ def project_seo(
     # v13.B diagnostics block below the header.
     _run_project_seo_diagnostics(domain, top_n=top_n,
                                  refresh=refresh, console=console)
+
+    # v36 — the Blockers section last (the whole point). Never ends on green
+    # when blockers exist.
+    if diag is not None:
+        render_seo_blockers(diag, console)
 
 
 # v27.D — per-site todo read view. Reads `lamill.toml [[todo]]` only;
@@ -4496,6 +4518,10 @@ def project_delegate(
     no_visual: bool = typer.Option(
         False, "--no-visual",
         help="Run build + check, but skip the Playwright visual probe."),
+    debug: bool = typer.Option(
+        False, "--debug",
+        help="Persist the raw stream-json + stderr + docker argv to a "
+             "transcript file for post-mortem (also via LAMILL_DELEGATE_DEBUG=1)."),
 ) -> None:
     """Delegate an open-ended change to Claude, in a sandboxed container.
 
@@ -4555,8 +4581,20 @@ def project_delegate(
                                   do_visual=not no_visual)
 
     bounds = Bounds(wall_clock_s=timeout, budget_usd=budget)
-    backend = DockerBackend(domain, budget_usd=budget)
+    # v33.O — opt-in post-mortem transcript (raw stream-json + stderr + argv).
+    import os
+    debug = debug or os.environ.get("LAMILL_DELEGATE_DEBUG", "") not in ("", "0", "false")
+    debug_path = None
+    if debug:
+        from datetime import datetime
+        dbg_dir = Path.home() / "lamill" / "delegate-debug"
+        dbg_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        debug_path = dbg_dir / f"{domain}-{stamp}.log"
+    backend = DockerBackend(domain, budget_usd=budget, debug_path=debug_path)
     console.print(f"▸ delegate · [cyan]{domain}[/] — running in sandbox…")
+    if debug_path is not None:
+        console.print(f"  [dim]↷ debug transcript → {debug_path}[/]")
 
     # v33.L — live progress. A rich spinner animates (via its own refresh
     # thread) even while backend.start() blocks on the image pull / claude

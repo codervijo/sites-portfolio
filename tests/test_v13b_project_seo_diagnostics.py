@@ -585,8 +585,9 @@ def test_render_diagnostics_not_registered(monkeypatch):
 
 
 def test_render_diagnostics_no_sitemaps_no_coverage(monkeypatch):
-    """Registered but no sitemaps + no coverage data — render the
-    'none submitted' / 'unreachable' fallback lines."""
+    """Registered but no sitemaps + no coverage AND no cached inspections —
+    render the honest 'no cached URL inspections' fallback (v36 replaced the
+    misleading 'unreachable' wording that contradicted the State header)."""
     cap = _capturing_console()
     diag = ProjectSeoDiagnostics(
         domain="bare.example",
@@ -599,8 +600,33 @@ def test_render_diagnostics_no_sitemaps_no_coverage(monkeypatch):
     )
     cli_mod._render_project_seo_diagnostics(diag, cap)
     out = cap.file.getvalue()
-    assert "none submitted" in out
-    assert "unreachable" in out or "no URLs inspected" in out
+    # v36 — defers to the State header instead of overclaiming "none submitted".
+    assert "none in this GSC-detail snapshot" in out
+    assert "no cached URL inspections" in out
+
+
+def test_render_diagnostics_falls_back_to_cached_inspections():
+    """v36 — when live coverage is empty but the cached dict carries
+    `v16c_inspections`, surface those instead of hiding them (the airsucks
+    'Crawled - not indexed' headline must show)."""
+    cap = _capturing_console()
+    cached = {
+        "domain": "airsucks.com",
+        "property_url": "https://airsucks.com/",
+        "not_registered": False,
+        "sitemaps": [],
+        "coverage": [],
+        "hints": [],
+        "v16c_inspections": [{
+            "url": "https://airsucks.com/", "status": "ok",
+            "coverage_state": "Crawled - currently not indexed",
+            "verdict": "NEUTRAL", "last_crawl_time": "2026-04-12T00:17:25+00:00",
+        }],
+    }
+    cli_mod._render_project_seo_diagnostics(cached, cap)
+    out = cap.file.getvalue()
+    assert "Crawled - currently not indexed" in out
+    assert "cached URL inspection" in out
 
 
 def test_render_diagnostics_accepts_dict_shape(monkeypatch):

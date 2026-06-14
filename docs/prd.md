@@ -1932,6 +1932,27 @@ recovery command and lets the operator commit. Note `CHECK_031` already passed o
 these sites because it tests *presence on disk*, not *git-tracking* — `CHECK_157`
 closes that specific blind spot.
 
+**v33.O — a misdiagnosis is worse than no diagnosis.** delegate's no-result
+path hardcoded "agent produced no result — sandbox/auth failure," which sent
+the operator chasing auth/mount/host-user bugs that were all fine. The real
+cause — the 5-hour usage cap exhausted with org-level overage disabled — was
+sitting in the stream (`rate_limit_event`) and on stderr the whole time, both
+discarded: `DockerBackend.stream` opened `stderr=PIPE` but never read it (also
+a latent deadlock — a full stderr pipe blocks the stdout loop), the process
+exit code was thrown away, and the parser only knew `result`/`assistant`. The
+fix is to *carry evidence, then judge from it*: parse `rate_limit_event` /
+`error` / `result.api_error_status`, drain stderr on a side thread + capture
+the exit code (exposed via an optional `last_run_evidence()` backend
+capability so the test fakes stay untouched), and let a pure
+`diagnose_no_result` rank the signals — sandbox/auth is the LAST resort, used
+only when nothing else explains the silence. Two adjacent honesty gaps closed
+in the same pass: the npm install ran `>/dev/null 2>&1` and its result was
+unchecked (a failed install → silent no-op), now it proves `claude` is on PATH
+and fails loudly with the transcript; and `--debug` persists the raw
+stream-json + stderr + docker argv for post-mortem. The seam choice
+(evidence on the backend, judgment in a pure function) keeps the diagnosis
+unit-testable without a container.
+
 **v33.H — orchestrator owns the log, agent owns the judgment.** The split is
 deliberate. `Prompts.md` is a **deterministic record** (what was asked, when, cost,
 files) in a **parser-sensitive format** (`project check` reads the `## YYYY-MM-DD`
@@ -2105,7 +2126,113 @@ register items dropped — see per-phase rows.
 | v35.F | ✅ | **`cli.py` split (H1).** Behavior-preserving extraction of the 11k-line monolith, **a verified cluster at a time** (each suite-gated; extracted modules import one-directionally + cli re-exports names so `from portfolio.cli import X` keeps working). **Increment 1:** SERP-synthesis renderers → `research_render.py` (cli.py 11095→10960). **Increment 2:** v13.B SEO-diagnostics renderer (`_render_project_seo_diagnostics` + `_coverage_glyph`/`_hint_severity_color`/`_human_age_from_iso` + `_SITEMAP_STATUS_GLYPH`) → `research_render.py` (cli.py 10960→10771). **Increment 3:** real-SerpAPI + verdict/gates/reconciliation renderers (`_render_research_v2_full`, `_render_primary_verdict_block`, `_render_reconciliation_block`, `_render_gates_block`, `_gate_marker`, `_verdict_marker` + shared leaves `_confidence_color`/`_VERDICT_COLOR`, re-exported) → `research_render.py` (cli.py 10771→10427; suite green 3240). **Increment 4 (the big one):** the entire `new domain` menu/decide/grid engine — 33 helpers/constants (`MENU_ITEMS`/`TLD_REFERENCE`/`TLD_REFERENCE_SUMMARY`, the `_menu_*` post-grid menu, `_decide_step1..6_*` + `_menu_decide`, `_render_grid`/`_render_menu`/`_render_tld_reference`/`_render_expanded_row`/`_render_decide_table`, the two orchestrators `_domain_suggest_validation`/`_domain_suggest_browse`, and the shared input parsers `parse_pick_input`/`parse_expand_input`/`parse_shortlist_input`) → new `cli_domain.py` (cli.py 10427→9019; suite green 3240). This cluster used module-level `console` 66×, so the **prerequisite** was extracting the rich `Console` singleton to a neutral `console.py` (`from .console import console`) that both cli.py and cli_domain.py depend on — breaking the would-be cli↔cli_domain cycle. The `@new_app.command("domain")` callback + topic-resolvers stay in cli.py and call the orchestrators imported from cli_domain. **Increment 5:** fleet-aggregated SEO detail renderers (`_render_fleet_seo_detail` + the `_render_top_queries_section`/`_render_top_pages_section`/`_render_page_2_opportunities_section` siblings behind `fleet seo --detail`) → `research_render.py`, converted to its console-as-param convention (cli.py 9019→8930; suite green 3240). **Increment 6:** Google Trends payload renderer (`_render_trends`, behind `new trends`) → `research_render.py`, console-as-param (cli.py 8930→8839). **Increment 7:** fleet/project check + SEO/status/GSC render cluster — 9 renderers + their 14 shared formatting leaves (`_fmt_*`, `_color_value`, `CLASSIFICATION_COLORS`/`VERDICT_COLORS`/`LIVE_CLS_COLORS`, `_CATEGORY_*`, `_MANUAL_HINTS`, `_sort_ids_by_category`, `_EMOJI_TO_RICH_COLOR`) → new `check_render.py` (23-symbol dependency closure, fully self-contained — every external dep is an import; cli.py 8839→8141; suite green 3240). **2026-06-07: operator confirmed approach A** — finish via sibling-module extraction (no `cli/` package conversion), reducing cli.py to a thin command-registration core; **deploy pipeline stays put** (v35.E territory, deferred). **Increment 8:** `new bootstrap` helper/renderer cluster — 14 helpers (operator-input collection, smart-paste, inventory/git-url/growth resolvers, preflight/summary/tree/conformance/LLM-template renderers) + 3 constants, all command-exclusive → new `bootstrap_cli.py` (cli.py 8141→7301; suite green 3240). **Increment 9:** `new validate` research-orchestration cluster (6 `_run_*`/`_prompt_for_moat`/`_update_cost_summary` passes — interpretive/audit/gates/synthesis) → new `research_cli.py` (imports renderers from research_render one-directionally; cli.py 7301→7021; suite green 3240). **Increment 10:** fleet command impl helpers (14 fns behind focus/live/domains/sync/drift/hosting — `focus`/`check_live`/`info_*`/`_fleet_hosting_impl`/refresh+watch helpers) → new `fleet_cli.py` (imports renderers from check_render; cli.py 7021→6062; suite green 3240). **Increment 11 (final):** `project fix`/`fleet fix` engine (`_run_project_fix_all`, `_list_fleet_eligible_projects` + cost/category constants) → new `fix_cli.py`; the shared repo-walk leaves (`_iterate_repos`/`_is_likely_repo`, also used by `fleet_check`) hoisted to a neutral `repo_walk.py` to break the cli↔fix_cli cycle (cli.py 6062→5848; suite green 3240). **v35.F complete (approach A):** cli.py 11,095→5,848 — now the typer command-registration core + the deploy pipeline (~1.9k lines, intentionally retained as v35.E territory). Behavior-identical throughout; bootstrap validated in real use 2026-06-07. Sibling modules: `console`/`cli_domain`/`research_render`/`check_render`/`bootstrap_cli`/`research_cli`/`fleet_cli`/`fix_cli`/`repo_walk`. Full `cli/`-package conversion explicitly NOT done (operator chose sibling-module approach). |
 | v35.G | dropped *(2026-06-08)* | **(Reactive) MEDIUM/LOW cleanup — partially shipped, remainder DROPPED.** **Shipped (kept):** dead-function deletion — `fix_registry.all_fixable_check_ids` + `data.domain_to_registrar` (both 0 refs; commit `ef135b8`). **Dropped** closing out v35: `host_classify.py` consolidation (same *disjoint-consumers* shape as H3 — divergent vocab across 3 host-classifiers; unification would break each consumer's contract for no operator-facing gain), `project_hosting_render` test backfill, and lazy-import hoisting. These are acknowledged debt, not blocking; re-open individually if they cause real friction. |
 
-### v36 — `new domain`: auction + expired/dropping-domain discovery *(DRAFT — captured 2026-06-06, not yet fleshed)*
+### v36 — `project seo` problem-surfacing SEO diagnostic (why a site earns no traffic)
+
+*(Renumbered v38→v36 by operator swap 2026-06-13; fleshed same day. **Re-scoped
+2026-06-13** from the narrower "sitemap-warning analyzer" into a full
+problem-surfacing diagnostic after the airsucks.com case showed `project seo`
+green-washes a site that earns nothing — see `bugs.md` 2026-06-13. The
+sitemap-honesty work below subsumes the original warning-analyzer idea; the
+GSC-warning-catalog reproduction (old v36.A) is deferred as a later enrichment.
+Old v36 auction/expired discovery → now v38.)*
+
+**Scope decision (operator, 2026-06-13): project-`seo`-only.** The State grade
+lives in the single-domain `project seo` path; the shared `overall_status()` /
+`fleet seo` / `fleet dashboard` emoji grade is **unchanged** (the heavy per-URL
+probes never run across the fleet). `project seo` renders its own State line
+above the table + a Blockers section below.
+
+Operator friction (2026-06-06, hybridautopart.com): `fleet focus` /
+`project seo` surface "GSC: sitemap warnings (3)" as a bare **count** the
+operator can't see or act on — because **the GSC API returns warning counts
+only, never the warning text** (the detail is UI-only). Idea: when GSC reports
+`warnings > 0`, lamill **independently inspects the sitemap(s)** and
+reproduces the likely issues against GSC's known sitemap-warning catalog —
+each mechanically checkable: URLs blocked by robots.txt, non-200 / redirect
+URLs, noindex URLs (meta + `x-robots-tag`), host/protocol mismatch vs the
+property, XML/date/namespace validity, empty/oversized. `project seo` shows
+the **detail** (or a "no reproducible issues → likely stale (fetched Nd ago)"
+verdict + the GSC UI deep-link); `fleet focus` keeps the count headline.
+Belongs in portfolio (enhances existing `project seo` GSC diagnostics, not
+the separate SEO pipeline). Live proof 2026-06-06: ran the analysis on
+hybridautopart's 51 sitemap URLs — all 200, same host, none noindex, robots
+clean → the 3 warnings are stale.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v36.A | ✅ | **Kickoff / decisions locked (2026-06-13).** Original narrow scope (sitemap-warning analyzer): catalog of mechanically-reproducible GSC warnings (robots-blocked / non-200 / noindex / host-protocol / XML-validity / empty-oversized), standalone module called from the project-seo path (NOT a `CHECK_NNN`), per-issue hints vs "likely stale" verdict. **Superseded in scope by the re-scope** — the sitemap-honesty subset shipped in v36.B; the full GSC-warning-catalog *reproduction* (noindex/host-mismatch/XML-validity detectors mapped to GSC's warning text) is deferred as a later enrichment of the same `seo_diagnose` module. ADR-0026 ("independent runtime analyzer") still applies if/when that reproduction lands. |
+| v36.B | ✅ | **Problem-surfacing diagnostic shipped (2026-06-13).** New `seo_diagnose.py` (project-scoped; injected I/O, unit-testable without network): (1) **State** model `healthy`/`unproven`/`blocked` via pure `compute_state` — a 0-impression site with a not-indexed homepage is **blocked**, never green; young 0-traffic with nothing wrong is **unproven** (not a false 🟢). (2) **Index** surfaced from the cached `data/gsc/<domain>/<date>.json` `v16c_inspections` (`read_index_insights`) — the "Crawled – not indexed" headline that was hidden behind "no URLs inspected"; the old coverage block now falls back to these too (no more contradiction). (3) **Sitemap honesty** via `audit_sitemap` — follows robots `Sitemap:`, redirects, recurses `<sitemapindex>` (mirrors rankmill ADR-0014; reuses `gsc_recrawl._extract_locs`/`_parse_robots_sitemap_urls`), reports URL-count + submitted + reachable + thinness; fixes the false "unreachable". (4) **Render/crawlability** via `probe_render` — flags empty SSR-less shells (no `<title>`/body). (5) **Blockers** section — prioritized ⛔/⚠ list with next actions even when unfixable; never ends on 🟢 when non-empty. Wired into `project seo` (State header above the table via `render_seo_state_header`, Blockers below via `render_seo_blockers`); both renderers in `research_render.py`. 16 unit tests incl. the DoD case (young + 0 imp + not-indexed homepage + 1-URL sitemap → blocked, ≥3 blockers). |
+| v36.C | ☐ *(deferred)* | **GSC-warning-catalog reproduction (the original narrow analyzer).** Map the per-URL probes already in `seo_diagnose` (non-200/redirect, noindex via meta + `x-robots-tag`, host/protocol mismatch, XML-namespace/`lastmod` validity, empty/oversized) onto GSC's UI-only sitemap-warning text, triggered on `gsc_sitemap_warnings > 0`, with the "no reproducible issues → likely stale (fetched Nd ago)" verdict + GSC deep-link. Deferred — the broader blocker surfacing landed first; pick up when the warning-count opacity resurfaces as friction. ADR-0026 applies. |
+
+#### Design notes
+
+**Data flow.** Trigger is `gsc_sitemap_warnings > 0` (summed per-property in
+`seo_runtime.py`; per-sitemap `SitemapDetail` from
+`project_seo_diagnostics.fetch_sitemap_details`). On trigger, `build_diagnostics`
+resolves the property → origin (`_origin_from_property`) and calls
+`sitemap_analyzer.analyze(...)`, which fetches the live sitemap(s) and runs the
+catalog detectors. Output is a list of `SitemapIssue` → mapped to `Hint`s
+appended to the existing diagnostics hints, OR a single "likely stale" verdict
+hint when the analyzer finds nothing reproducible.
+
+**Reuse map (no new HTTP/XML primitives).**
+- `gsc_recrawl.py`: `_parse_robots_sitemap_urls`, `_extract_locs`,
+  `_SITEMAP_FALLBACK_PATHS`, `_GOOGLEBOT_UA`, `fetch_sitemap_urls` (discover +
+  walk).
+- `_httpapi.py`: `managed_client`, `transient_network_errors`, `raise_for`,
+  `RETRYABLE_STATUSES` — so the live probes obey the `↷` transient / `✗`
+  permanent color taxonomy.
+- `gsc.py` / `project_seo_diagnostics.py`: `property_to_domain`,
+  `_origin_from_property` for the host/protocol-mismatch comparison.
+
+**Analyzer, not a CHECK_NNN.** The check registry runs `run(repo_path)` on a
+local repo dir; this analyzer runs on GSC property data + live URL probes for
+one domain, invoked from the `project seo` command path. It reproduces GSC's
+**UI-only warning text**, which is a different job from the repo/live
+conformance checks (`CHECK_090`/`159`/`160`). No new-project-creation shaping
+applies (the touch-list "a new check must also shape bootstrap" rule is for
+`CHECK_*`, not runtime analyzers). The catalog overlap with those checks is
+intentional and should be cross-referenced, not deduplicated.
+
+**Render: detail vs stale verdict.** The most common real outcome (per the live
+proof) is **nothing reproduces** → the 3 warnings are stale GSC state. That case
+must read as a confident "✓ no reproducible issues → likely stale (last fetched
+Nd ago); open GSC ↗" — not an empty render that looks like the analyzer failed.
+The GSC UI deep-link is the per-sitemap Search Console URL.
+
+**Blast radius (for v36.A review).** Enforce: nothing new. Create:
+`sitemap_analyzer.py` + tests. Fix/extend: `project_seo_diagnostics.build_diagnostics`
+(trigger + append), possibly one new `Hint`/verdict variant in
+`research_render._render_project_seo_diagnostics`. Document: `architecture.md`
+(new module + data flow), ADR if v36.A decides the posture is load-bearing.
+Unchanged: `focus.py` / `fleet_cli.py` count headline, the check registry,
+`seo_runtime.py` aggregation.
+
+**Open questions for v36.A.** (a) Live-probe cost — probing every sitemap URL on
+every `project seo` is heavy for large sitemaps; cap N + cache, or only probe a
+sample? (b) ADR yes/no. (c) Does the "likely stale" verdict need a freshness
+threshold (e.g. warn only if `last_downloaded` > Nd) or always show the age?
+
+### v37 — domain owner-details (WHOIS / RDAP) lookup *(DRAFT — captured 2026-06-06, not yet fleshed)*
+
+Operator idea (2026-06-06): look up **owner / registrant details** for
+arbitrary domains (registrant where public, registrar, creation/expiry dates,
+status) — e.g. for acquisition targets, competitors, or shortlisted
+candidates. Likely RDAP-first (structured, rate-friendlier) with WHOIS
+fallback. Open questions: privacy-redaction handling, where it surfaces
+(`new domain` decision-aid vs a standalone read verb), caching, pairing with
+v38's auction/expired discovery. Relates to the deferred decision-aids idea.
+**Not fleshed — protocol/CLI surface/caching/ADR TBD.**
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v37.A | ☐ | **Kickoff / decisions lock.** Decide protocol posture (RDAP-first, WHOIS fallback), privacy-redaction handling, where it surfaces (the `new domain` decision-aid vs a standalone read verb), caching, and pairing with v38's auction/expired discovery. Protocol/CLI surface/caching/ADR TBD. |
+
+### v38 — `new domain`: auction + expired/dropping-domain discovery *(DRAFT — captured 2026-06-06; renumbered v36→v38 by operator swap 2026-06-13, not yet fleshed)*
 
 Operator idea (2026-06-06): extend `new domain` (today: brainstorm → price/
 availability → shortlist → register) with an **acquisition-discovery** source
@@ -2120,48 +2247,7 @@ sources/CLI surface/scoring/ADR TBD.**
 
 | # | Status | Feature |
 |---|---|---|
-| v36.A | ☐ | **Kickoff / decisions lock.** Pick the acquisition-discovery sources (GoDaddy Auctions API / Porkbun / drop-list feeds), the ranking model (topical fit + price + age/authority), and how discovery folds into the existing `new domain` shortlist UI vs a separate surface. Sources/CLI surface/scoring/ADR TBD. |
-
-### v37 — domain owner-details (WHOIS / RDAP) lookup *(DRAFT — captured 2026-06-06, not yet fleshed)*
-
-Operator idea (2026-06-06): look up **owner / registrant details** for
-arbitrary domains (registrant where public, registrar, creation/expiry dates,
-status) — e.g. for acquisition targets, competitors, or shortlisted
-candidates. Likely RDAP-first (structured, rate-friendlier) with WHOIS
-fallback. Open questions: privacy-redaction handling, where it surfaces
-(`new domain` decision-aid vs a standalone read verb), caching, pairing with
-v36's auction/expired discovery. Relates to the deferred decision-aids idea.
-**Not fleshed — protocol/CLI surface/caching/ADR TBD.**
-
-#### Phases
-
-| # | Status | Feature |
-|---|---|---|
-| v37.A | ☐ | **Kickoff / decisions lock.** Decide protocol posture (RDAP-first, WHOIS fallback), privacy-redaction handling, where it surfaces (the `new domain` decision-aid vs a standalone read verb), caching, and pairing with v36's auction/expired discovery. Protocol/CLI surface/caching/ADR TBD. |
-
-### v38 — `project seo` sitemap-warning analyzer (turn the opaque GSC count into detail) *(DRAFT — captured 2026-06-06, not yet fleshed)*
-
-Operator friction (2026-06-06, hybridautopart.com): `fleet focus` /
-`project seo` surface "GSC: sitemap warnings (3)" as a bare **count** the
-operator can't see or act on — because **the GSC API returns warning counts
-only, never the warning text** (detail is UI-only). Idea: when GSC reports
-`warnings > 0`, lamill **independently inspects the sitemap(s)** and
-reproduces the likely issues against GSC's known sitemap-warning catalog —
-each mechanically checkable: URLs blocked by robots.txt, non-200 / redirect
-URLs, noindex URLs (meta + `x-robots-tag`), host/protocol mismatch vs the
-property, XML/date/namespace validity, empty/oversized. `project seo` shows
-the **detail** (or a "no reproducible issues → likely stale (fetched Nd ago)"
-verdict + the GSC UI deep-link); `fleet focus` keeps the count headline.
-Belongs in portfolio (enhances existing `project seo` GSC diagnostics, not
-the separate SEO pipeline). Live proof 2026-06-06: ran the analysis on
-hybridautopart's 51 sitemap URLs — all 200, same host, none noindex, robots
-clean → the 3 warnings are stale. **Not fleshed — module/render/CLI TBD.**
-
-#### Phases
-
-| # | Status | Feature |
-|---|---|---|
-| v38.A | ☐ | **Kickoff / decisions lock.** Lock the sitemap-warning analyzer shape: the GSC sitemap-warning catalog to reproduce mechanically (robots-blocked / non-200 / noindex / host-protocol mismatch / XML-date-namespace validity / empty-oversized), the analyzer module home (enhances existing `project seo` GSC diagnostics, not the separate SEO pipeline), the `project seo` detail render vs the "likely stale" verdict + GSC UI deep-link, and `fleet focus` keeping the count headline. Module/render/CLI TBD. |
+| v38.A | ☐ | **Kickoff / decisions lock.** Pick the acquisition-discovery sources (GoDaddy Auctions API / Porkbun / drop-list feeds), the ranking model (topical fit + price + age/authority), and how discovery folds into the existing `new domain` shortlist UI vs a separate surface. Sources/CLI surface/scoring/ADR TBD. |
 
 ### v39 — revisit / retire `plan.md` as the intent layer *(DRAFT — captured 2026-06-06, not yet fleshed)*
 

@@ -1078,6 +1078,7 @@ lamill
 | v25.C | `new deploy` Step 9 multi-method GSC verification (FILE first via `public/google<token>.html` commit+push+poll; DNS_TXT fallback for projects without `public/`). FILE method requires no `DNS:Edit` — sidesteps the entire token-scope failure mode. |
 | v25.D | `lamill settings cloudflare check-token` — comprehensive per-account + per-zone diagnostic with operator-facing fix block. GSC 403 error-body parsing — Step 9 hint text now distinguishes `insufficient_scope` / `service_disabled` (with GCP project URL) / `invalid_grant`. |
 | v25.E | Docs sync wrap (this row + module index + deploy verb table). |
+| v36.B | `project seo <domain>` becomes a problem-surfacing diagnostic (project-scoped — `fleet seo`/dashboard grade unchanged). New `seo_diagnose.py`: `compute_state` (State = healthy/unproven/**blocked**; a 0-impression site with a not-indexed homepage is never green), `read_index_insights` (surfaces the cached `v16c_inspections` "Crawled – not indexed" headline), `audit_sitemap` (robots→redirect→recurse `<sitemapindex>`, honest count/submitted/reachable/thinness; kills the false "unreachable"), `probe_render` (flags SSR-less empty shells). Renders a State line above the table + a prioritized **Blockers** section below (`render_seo_state_header`/`render_seo_blockers` in `research_render.py`). Heavy per-URL probes run only in this single-domain path. |
 
 #### Open CLI design questions
 
@@ -1618,6 +1619,21 @@ surface** (joins § 2.1's two when v33.B ships).
   spinner animates via rich's own refresh thread, so it keeps moving even
   while `backend.start()` blocks. Presentation-only — delegate.py stays
   console-free (the hook is optional); degrades to a no-op on non-TTY.
+- **Debuggability (v33.O).** A silent no-result run was hardcoded as
+  "sandbox/auth failure" — a misdiagnosis that hid the real cause (usually a
+  rate-limit or API error). The stream parser now recognizes `rate_limit_event`
+  (status / `resetsAt` / `overageStatus`), standalone `error` lines, and
+  `result.api_error_status`. `DockerBackend.stream` drains **stderr** on its own
+  thread (was opened-but-never-read → could deadlock; claude's real error prints
+  there) and captures the process **exit code** (was discarded), exposing both
+  via the optional `last_run_evidence() -> RunEvidence` backend capability.
+  `diagnose_no_result` then builds the failure reason from real evidence in
+  precedence order — rate-limit → api_error → exit-code+stderr → stderr →
+  the sandbox/auth guess only as a last resort. `start()` no longer swallows the
+  npm install output: it proves `claude` is on PATH afterward and fails loudly
+  with the install transcript otherwise. `--debug` (or `LAMILL_DELEGATE_DEBUG=1`)
+  tees the raw stream-json + stderr + docker argv to
+  `~/lamill/delegate-debug/<domain>-<ts>.log` for post-mortem.
 
 See ADR-0023 + `docs/prd.md § v33` for the full rationale.
 

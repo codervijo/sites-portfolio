@@ -320,8 +320,13 @@ def _render_project_seo_diagnostics(diag, console) -> None:
                 line += "[dim]" + "  ·  ".join(tail_bits) + "[/]"
             console.print(line)
     else:
+        # v36 — an empty `sitemaps` list here means "not in this GSC-detail
+        # snapshot" (e.g. a cache written by the v16c inspection path), NOT a
+        # definitive "none submitted" — which contradicted the authoritative
+        # State-header Sitemap line (audit + `gsc_sitemap_count`). Defer to it.
         console.print(
-            "    [yellow]📋 Sitemaps[/] [dim]none submitted[/]"
+            "    [dim]📋 Sitemaps  (none in this GSC-detail snapshot — see the "
+            "Sitemap line above for the live audit)[/]"
         )
 
     # 📊 Coverage
@@ -364,9 +369,36 @@ def _render_project_seo_diagnostics(diag, console) -> None:
                 line += "  [dim]" + " · ".join(tail_bits) + "[/]"
             console.print(line)
     else:
-        console.print(
-            "    [dim]📊 Coverage  (no URLs inspected — sitemap unreachable)[/]"
-        )
+        # v36 — the live coverage fetch came back empty, but the per-domain
+        # cache often holds URL inspections (`v16c_inspections`). Surface
+        # those instead of the misleading "no URLs inspected — unreachable"
+        # (which contradicted the honest State header above).
+        inspections = _get(diag, "v16c_inspections", []) or []
+        if inspections:
+            from .project_seo_diagnostics import _normalize_coverage_state
+            console.print(
+                f"    [bold]📊 Coverage[/] "
+                f"[dim]({len(inspections)} cached URL inspection(s))[/]"
+            )
+            for insp in inspections:
+                if not isinstance(insp, dict):
+                    continue
+                url = insp.get("url", "?")
+                label = insp.get("coverage_state") or "unknown"
+                token = (_normalize_coverage_state(label) or "").lower()
+                glyph, color = _coverage_glyph(token)
+                display_url = url if len(url) <= 38 else url[:18] + "…" + url[-19:]
+                line = (f"      [{color}]{glyph}[/] [bold]{display_url:<38}[/] "
+                        f"[dim]{label:<28}[/]")
+                last_crawl = insp.get("last_crawl_time")
+                if last_crawl:
+                    line += f"  [dim]crawled {_human_age_from_iso(last_crawl)}[/]"
+                console.print(line)
+        else:
+            console.print(
+                "    [dim]📊 Coverage  (no cached URL inspections — "
+                "run `--refresh`)[/]"
+            )
 
     # 💡 Hints
     if hints:
@@ -929,3 +961,77 @@ def _render_trends(payload, console) -> None:
 
     if not (payload.related_top or payload.related_rising):
         console.print("\n[dim]No related-queries data returned.[/]")
+
+
+# v36 — `project seo` problem-surfacing diagnostic (State header + Blockers).
+# Project-scoped; the fleet table's emoji grade is unchanged.
+
+_SEO_STATE_COLOR = {"healthy": "green", "unproven": "cyan", "blocked": "red"}
+
+
+def render_seo_state_header(diag, console) -> None:
+    """The honest headline above the table: State + the Index/Sitemap signals
+    that drive it. `diag` is a `seo_diagnose.SeoDiagnosis`."""
+    from .seo_diagnose import STATE_RENDER
+
+    glyph, label = STATE_RENDER[diag.state]
+    color = _SEO_STATE_COLOR.get(diag.state, "white")
+    console.print()
+    console.print(f"  [bold {color}]{glyph} SEO state: {label}[/]")
+
+    # Index — surfaced from the cached GSC URL inspections (the headline the
+    # old block hid behind "no URLs inspected").
+    idx = diag.index_insights
+    if idx:
+        home = next((i for i in idx
+                     if i.url.rstrip("/") == diag.origin.rstrip("/")), idx[0])
+        istate = home.coverage_label or home.coverage_state or "?"
+        icolor = "green" if home.is_indexed else "red"
+        more = f"  [dim](+{len(idx) - 1} more URL(s))[/]" if len(idx) > 1 else ""
+        console.print(f"    [bold]Index[/]   [{icolor}]{istate}[/]{more}")
+    else:
+        console.print("    [bold]Index[/]   [dim]no cached URL inspections "
+                      "(run `--refresh`)[/]")
+
+    # Sitemap — honest: URL count + submitted + reachable (replaces the
+    # /sitemap.xml-returns-200 cell that contradicted this block).
+    sm = diag.sitemap_audit
+    if sm is None:
+        console.print("    [bold]Sitemap[/] [dim]not probed[/]")
+    elif not sm.reachable:
+        console.print(f"    [bold]Sitemap[/] [red]unreachable[/] "
+                      f"[dim]({sm.error or 'unknown'})[/]")
+    else:
+        bits = [f"{sm.url_count} URL{'' if sm.url_count == 1 else 's'}",
+                "submitted" if sm.submitted_to_gsc else "not submitted",
+                "reachable"]
+        scolor = "green" if sm.healthy else "yellow"
+        console.print(f"    [bold]Sitemap[/] [{scolor}]{' · '.join(bits)}[/]")
+
+
+def render_seo_blockers(diag, console) -> None:
+    """The Blockers section — the whole point. A prioritized ⛔/⚠ list with
+    next actions, even when lamill can't fix the cause. Never silent when the
+    state isn't healthy."""
+    blockers = diag.blockers
+    console.print()
+    if not blockers:
+        if diag.state == "healthy":
+            console.print("  [green]✓ No blockers detected — site is earning "
+                          "traffic.[/]")
+        else:
+            console.print("  [cyan]✓ No blockers detected yet — give the "
+                          "freshness window time, then re-check.[/]")
+        for n in diag.notes:
+            console.print(f"    [dim]↷ {n}[/]")
+        return
+
+    console.print(f"  [bold red]⛔ Blockers[/] [dim]({len(blockers)} — why this "
+                  f"site earns no traffic)[/]")
+    for b in blockers:
+        color = "red" if b.kind == "blocker" else "yellow"
+        console.print(f"    [{color}]{b.glyph} {b.title}[/]")
+        console.print(f"      [dim]{b.detail}[/]")
+        console.print(f"      [dim]→ {b.next_action}[/]")
+    for n in diag.notes:
+        console.print(f"    [dim]↷ {n}[/]")
