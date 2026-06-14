@@ -2282,7 +2282,7 @@ every `project seo` is heavy for large sitemaps; cap N + cache, or only probe a
 sample? (b) ADR yes/no. (c) Does the "likely stale" verdict need a freshness
 threshold (e.g. warn only if `last_downloaded` > Nd) or always show the age?
 
-### v37 — domain owner-details (WHOIS / RDAP) lookup *(DRAFT — captured 2026-06-06, not yet fleshed)*
+### v38 — domain owner-details (WHOIS / RDAP) lookup *(DRAFT — captured 2026-06-06; renumbered v37→v38 2026-06-13 when the aider backend took v37, not yet fleshed)*
 
 Operator idea (2026-06-06): look up **owner / registrant details** for
 arbitrary domains (registrant where public, registrar, creation/expiry dates,
@@ -2297,9 +2297,9 @@ v38's auction/expired discovery. Relates to the deferred decision-aids idea.
 
 | # | Status | Feature |
 |---|---|---|
-| v37.A | ☐ | **Kickoff / decisions lock.** Decide protocol posture (RDAP-first, WHOIS fallback), privacy-redaction handling, where it surfaces (the `new domain` decision-aid vs a standalone read verb), caching, and pairing with v38's auction/expired discovery. Protocol/CLI surface/caching/ADR TBD. |
+| v38.A | ☐ | **Kickoff / decisions lock.** Decide protocol posture (RDAP-first, WHOIS fallback), privacy-redaction handling, where it surfaces (the `new domain` decision-aid vs a standalone read verb), caching, and pairing with v39's auction/expired discovery. Protocol/CLI surface/caching/ADR TBD. |
 
-### v38 — `new domain`: auction + expired/dropping-domain discovery *(DRAFT — captured 2026-06-06; renumbered v36→v38 by operator swap 2026-06-13, not yet fleshed)*
+### v39 — `new domain`: auction + expired/dropping-domain discovery *(DRAFT — captured 2026-06-06; renumbered v36→v38→v39 2026-06-13, not yet fleshed)*
 
 Operator idea (2026-06-06): extend `new domain` (today: brainstorm → price/
 availability → shortlist → register) with an **acquisition-discovery** source
@@ -2314,9 +2314,9 @@ sources/CLI surface/scoring/ADR TBD.**
 
 | # | Status | Feature |
 |---|---|---|
-| v38.A | ☐ | **Kickoff / decisions lock.** Pick the acquisition-discovery sources (GoDaddy Auctions API / Porkbun / drop-list feeds), the ranking model (topical fit + price + age/authority), and how discovery folds into the existing `new domain` shortlist UI vs a separate surface. Sources/CLI surface/scoring/ADR TBD. |
+| v39.A | ☐ | **Kickoff / decisions lock.** Pick the acquisition-discovery sources (GoDaddy Auctions API / Porkbun / drop-list feeds), the ranking model (topical fit + price + age/authority), and how discovery folds into the existing `new domain` shortlist UI vs a separate surface. Sources/CLI surface/scoring/ADR TBD. |
 
-### v39 — revisit / retire `plan.md` as the intent layer *(DRAFT — captured 2026-06-06, not yet fleshed)*
+### v40 — revisit / retire `plan.md` as the intent layer *(DRAFT — captured 2026-06-06; renumbered v39→v40 2026-06-13, not yet fleshed)*
 
 Operator (2026-06-06): "I used `plan.md` to get started and think it has
 outlived its usefulness." Reasoning established same day:
@@ -2349,7 +2349,93 @@ retire `plan.md`. Must preserve: `cleanup()` category derivation, focus
 
 | # | Status | Feature |
 |---|---|---|
-| v39.A | ☐ | **Kickoff / decisions lock.** Choose the durable intent store (overrides store vs per-site `lamill.toml` `category`/`intent` field, reconciled with live registrar facts), the schema, and the migration off hand-edited `plan.md` — preserving `cleanup()` category derivation, focus `IGNORE_CATEGORIES` suppression, fuzzy resolution, and dashboards. Load-bearing → **ADR required**. |
+| v40.A | ☐ | **Kickoff / decisions lock.** Choose the durable intent store (overrides store vs per-site `lamill.toml` `category`/`intent` field, reconciled with live registrar facts), the schema, and the migration off hand-edited `plan.md` — preserving `cleanup()` category derivation, focus `IGNORE_CATEGORIES` suppression, fuzzy resolution, and dashboards. Load-bearing → **ADR required**. |
+
+### v37 — `project delegate` provider-pluggable fallback backend (wrap aider) *(new 2026-06-13 as v40; renumbered v40→v37 2026-06-13 to be the next tier implemented — operator's active priority; the old WHOIS/auction/plan.md drafts shifted +1 to v38/v39/v40)*
+
+Operator friction (2026-06-13): `project delegate` runs the `claude` CLI inside
+the sandbox, which draws the operator's Anthropic **5-hour usage cap**; with
+org-level overage disabled (operator declined overage — do not re-suggest it),
+a capped run waits hours. v33.P/Q/R make that *survivable*, not *fast*. Operator
+wants a **fallback off the cap**.
+
+**Decision (2026-06-13): wrap a mature OSS coding agent (aider), don't build
+one.** Considered + rejected: the Codex CLI (operator ruled out), and a
+hand-built OpenAI agent loop (`openai_agent.py`) — which would reimplement the
+hard parts (repo-map navigation, edit application, context compaction) that
+aider already solved. Instead, delegate's backend becomes **provider/agent-
+pluggable** behind the existing `DelegateBackend` Protocol seam: **aider is the
+model-loop; our harness is the wrapper.** The harness already exists (v33.O–R):
+the container sandbox + command firewall + two-axis supervisor + verify gate +
+reviewable-diff-never-auto-commit + resume-on-cap + adaptive split — exactly the
+guardrails + batch orchestration that make *any* agent safe and cap-resilient.
+
+**Shape: Claude-primary, aider/OpenAI on-cap** (`--backend {auto,claude,aider}`,
+default `auto`). On a hard Claude cap, instead of waiting, hand the **in-tree
+partial** to the aider backend to continue (reuses resume-on-cap's tree-as-
+memory). `--backend aider` forces it (keeps Claude quota free for interactive
+work); `--backend claude` is today's wait-on-cap. aider is the weaker,
+guard-railed *finisher* — best on the **bounded, split sub-tasks** v33.R already
+produces (fine-splitting is what makes the fallback viable). Load-bearing →
+**ADR** (provider/agent-pluggable delegate backend; extends ADR-0023).
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v37.A | ☐ | **Kickoff / decisions lock + ADR.** FIRST **survey the *current* OSS coding-agent landscape** (aider, plandex, OpenHands, SWE-agent, Goose, + anything newer) — real present-day state, not training-cutoff memory — and pick the wrapper on evidence: must be multi-model, headless/scriptable (one bounded task → exit), strong edit application + repo-map, and able to leave an **uncommitted** diff. Then lock: the fallback policy + flag (`--backend {auto,claude,aider}`, default `auto`); the headless invocation contract (`--no-auto-commits --yes --message`, default a strong OpenAI coding model, `OPENAI_API_KEY` via the existing apikeys pathway); how the agent's stdout/result maps to our `StreamEvent`s (the wrapper emits `tool_use`/`text`/`result`); the guardrail division (wrapper owns sandbox/firewall/supervisor/verify/diff-review; agent owns the model-loop). **ADR** extending ADR-0023. |
+| v37.B | ☐ | **`AiderBackend(DelegateBackend)`** (name per the v37.A pick). Install the agent in the disposable container; run it headless per sub-task (`aider --model <m> --message "<subtask>" --yes --no-auto-commits` in `/work`); map output → `StreamEvent`s the supervisor consumes; cost from usage; `OPENAI_API_KEY` pathway. Implements `start`/`stream`/`kill`/`exec`/`last_run_evidence`. **Honest error bubbling (reuses v33.O):** parse aider/OpenAI failures — auth, 429/rate-limit, model/API errors, the agent process crashing/exiting non-zero — and surface the *real* cause via `last_run_evidence` (stderr tail + exit code) + the `diagnose_no_result`-style ranked reason, **never a generic "no result."** Mock-tested with a fake agent process (no real API). |
+| v37.C | ☐ | **Fallback wiring + selection.** `--backend {auto,claude,aider}`; `auto` = Claude-primary with an **aider hand-off on a hard cap** (continue the in-tree partial — reuses resume-on-cap's tree-as-memory). Adapt the resilient layer for aider/OpenAI: a 429 is a short backoff, not a 5h cap, so the quota-wait machinery mostly no-ops on the aider path; split + verify gate unchanged. |
+| v37.D | ☐ | **Live validation.** Run a real `project delegate` via the aider backend on a bounded sub-task (e.g. one airsucks route), confirm it finishes with a reviewable uncommitted diff that passes the verify gate; then validate the auto cap-hand-off (Claude → aider) end-to-end. |
+
+#### Design notes
+
+**Why wrap, not build.** The six Claude-Code "misses" — context compaction,
+mature edit/grep/read semantics, repo-map navigation, judgment/safety,
+tool-error self-correction, structured events — are exactly what a from-scratch
+`openai_agent.py` would have to reimplement, worse. aider already solves five of
+them. The sixth, **judgment/safety**, is irreducible for *any* model, and our
+**reviewable-diff-never-auto-commit** contract + container sandbox + verify gate
+cover it the same way they do for Claude. So aider closes 5/6; the harness
+covers the 6th the way it always has.
+
+**Guardrail division.** *Wrapper (ours):* the container is the hard sandbox
+(disposable `/work`, no host, no network exfil, no `git push`); the command
+firewall; the two-axis supervisor (liveness + progress + v33.R no-progress); the
+verify gate; reviewable-diff (aider runs `--no-auto-commits`). *Agent (aider):*
+the model-loop — navigation, edits, compaction. "OpenAI needs more guardrails"
+is satisfied by the *structural* wrapper, not by trusting the loop internals.
+
+**Fallback, not replacement.** Default `auto` keeps Claude primary (stronger
+agent, free under subscription), handing off to aider/OpenAI only on a hard cap
+— pay-per-use only when blocked. The in-tree partial (resume-on-cap) is the
+hand-off mechanism: the tree is the memory, so a fresh aider run continues
+Claude's work. aider's multi-model support means the same backend reaches OpenAI
+/ OpenRouter / local by `--model` — the gateway question collapses to config.
+
+**Reuses v33.O–R wholesale.** The Protocol seam makes resume-on-cap, adaptive
+split, the supervisor, and the verify gate provider-agnostic — they apply to
+aider unchanged. v37 adds a *backend*, not new orchestration. Fine-splitting
+(v33.R) is load-bearing here: a cruder agent finishes *bounded* sub-tasks, so the
+split is what makes the fallback work.
+
+**Error honesty (reuses v33.O).** aider/OpenAI surface a *different* set of
+failures than the `claude` CLI — auth errors, HTTP 429 rate-limits, model/API
+errors, and the agent process itself crashing or exiting non-zero — and OpenAI
+"needs more guardrails" applies to *diagnosis* too. So the AiderBackend reuses
+v33.O's debuggability pattern: drain + retain the agent's stderr, capture its
+exit code, expose them via `last_run_evidence`, and rank the evidence into an
+honest reason (`diagnose_no_result`-style) — never swallow an error into a
+generic "no result." A `--debug` transcript of the raw agent I/O + invocation,
+same as the Claude path.
+
+**Open questions for v37.A.** (a) **OSS survey first** — pick the wrapper on
+*current* evidence (aider vs plandex vs OpenHands vs Goose vs newer), not
+training-cutoff memory; aider is the recommendation to *beat*, not a foregone
+conclusion. (b) the agent's git behaviour — `--no-auto-commits` (leave
+uncommitted, matches delegate) vs let it commit to a wip branch as a checkpoint
+(could align with v33.R's checkpoint stash). (c) default model + whether to
+expose `--backend-model`. (d) ADR scope.
 
 ## 8. Open questions
 
