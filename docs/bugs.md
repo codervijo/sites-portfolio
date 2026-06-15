@@ -66,15 +66,6 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-06-15 — `CHECK_144 has-version-stamp` + `CHECK_146 last-build-success` are obsolete (version.json abandoned)
-
-- **Where** — `checks/deploy/check_144_has_version_stamp.py`, `check_146_last_build_success.py`.
-- **Actual** — both check the live `/version.json` build-artifact convention, which was **never rolled out** (0/39 sites serve it) and has now been *abandoned*: `CHECK_145 deploy-fresh` was rewritten (v41.B) to read deploy state from the CF deployments API instead. So 144 fails on every site (no version.json) and contradicts 145 (which no longer needs it).
-- **Severity** — `minor` (stale/contradictory checks; noise, not breakage).
-- **Fix** — retire 144 + 146 (remove the check files + their tests). **Deferred to the next bug-scrub** alongside the 3-parser consolidation.
-- **Notes** — surfaced building v41.B. Confirm nothing else references CHECK_144/146 before removing.
-
-
 ### 2026-06-15 — three duplicate sitemap-URL parsers (DRY violation; same bug needed fixing in two of them)
 
 - **Where** — `checks/seo/_live.py::_extract_sitemap_locs` (+ `get_sitemap_urls`), `gsc_recrawl.py::_extract_locs` (+ `fetch_sitemap_urls`), `indexnow.py::_LOC_RE` (regex). Three independent implementations of "extract `<loc>` URLs from a sitemap / sitemap-index."
@@ -910,86 +901,23 @@ with installations → option 2 (field-name mismatch, fix walker).
 
 ---
 
-### 2026-05-19 — `fleet dashboard` truncates every cell on standard terminal width
-
-**Repro**
-    lamill fleet dashboard
-    # Standard 80-col-ish terminal; output shows `hyb…`, `iot…`, `air…`
-    # for every domain.
-
-**Expected**
-Domain column wide enough to render the actual domain in the
-common-fleet-size case. Other columns either widen or accept
-narrower rendering — but domain (the row identifier) should never
-be truncated to "_xyz…_" unreadable form.
-
-**Actual**
-With 15 columns (12 original + Host + Prov added in v11.K + Site +
-Domain age), rich.Table squeezes every column to fit terminal
-width. Result: `hyb…` instead of `hybridautopart.com`.
-
-**Where (guess)**
-`src/portfolio/dashboard.py:render_dashboard` adds 13-15 columns
-with default sizing. Rich uses proportional shrinking. Options:
-
-1. Mark `Domain` as `no_wrap=True` + `min_width=25` so it gets
-   priority space.
-2. Drop the Live + Conf columns (less actionable than the dots)
-   when terminal width is < 120 columns.
-3. Default sort changes — surface most-actionable-first (already
-   sort=attention default) AND limit display to top-N by default
-   with --all to render everything.
-
-**Severity**
-minor — predates v11.K (was already truncating columns; v11.K just
-made it slightly worse by adding 2 more). Information is in the
-rendered cells, just unreadably narrow at standard width.
-
-**Notes**
-Pick up in a future v11 polish phase. Probably fold into v11.L
-docs sync if there's slack, or its own commit.
-
----
-
-### 2026-05-18 — `fleet seo --refresh` and `fleet domains` show different domain counts
-
-**Repro**
-    uv run lamill fleet seo --refresh
-    uv run lamill fleet domains
-
-**Expected**
-The two commands should show consistent fleet sizes, or — if the
-scope differs — surface that in the output footer so the operator
-can see *why* the counts diverge.
-
-**Actual**
-`fleet seo --refresh` shows 22 domains; `fleet domains` shows 36.
-No visible explanation for the 14-domain gap.
-
-**Where (guess)**
-`src/portfolio/cli.py:5324` (`fleet_domains`) and `cli.py:5334`
-(`fleet_seo`). Both default `--only wip` but `fleet_seo` calls
-through `check_seo` which additionally filters to
-`live-site`/`forwarder` classification (the SEO probe skips
-parked / dead / archived sites by design). The filter is silent
-— the operator sees only the final count.
-
-**Severity**
-minor — likely an intentional scope filter, but the silent
-discrepancy is a usability gap.
-
-**Notes**
-Two fix paths worth considering when this is picked up:
-(a) Show a footer note when SEO is filtering: "Showing N of M
-WIP domains (excluded: K parked / J dead / I archived)."
-(b) Add an explicit `--scope` flag to both commands so the
-operator can match scopes when comparing counts.
-
-Either path is small (≤30 min). Defer until after v10.A-D ships,
-or fold in alongside v11.A's `fleet hosting` (which has the same
-"WIP vs live-site" filter question per resolution 11.B).
-
 ## Fixed bugs
+
+### 2026-06-15 — `project seo` over-harsh ⛔ "blocked" verdict on young (<90d) sites
+
+- Within the freshness window, coverage "unknown to Google" states are now softened to `⚠ indexing pending` (expected indexing lag) instead of driving the ⛔ "blocked" verdict; *crawled-but-declined* still surfaces as ⛔ (a real content/authority signal). cricketfansite.com now reads "🌱 unproven"; airsucks stays ⛔ honestly (its homepage is genuinely crawled-but-declined). Validated live on both young sites. **Fixed in** — `3da6dad` (2026-06-15 parallel bug-sweep). [`seo_diagnose.py`]
+
+### 2026-06-15 — retired obsolete `CHECK_144 has-version-stamp` + `CHECK_146 last-build-success`
+
+- Both checked the abandoned `/version.json` convention (0/39 sites served it; v41.B moved deploy-freshness to the CF deployments API in `CHECK_145`). Deleted both checks + their tests; grep confirmed no dangling refs; `version_stamp.py` kept (still used by cli/hosting). **Fixed in** — `3da6dad`. [`checks/deploy/`]
+
+### 2026-05-19 — `fleet dashboard` truncated every cell on a standard terminal
+
+- The Domain column is now sized to the longest domain (`no_wrap`) so domains render in full instead of `air…`/`hyb…`; the metric columns flex/abbreviate instead. **Fixed in** — `3da6dad`. [`dashboard.py`]
+
+### 2026-05-18 — `fleet seo` vs `fleet domains` showed different counts
+
+- Diagnosed as a legitimate scope difference (fleet seo probes live-site/forwarder only). Reconciled in the `fleet seo` footer: `N live-site/forwarder domains probed (K parked/dead/error excluded from M fleet)`. **Fixed in** — `3da6dad`. [`cli.py`, `seo_runtime.py`]
 
 ### 2026-06-15 — `project seo` reports "Sitemap lists only 0 URLs" on a sitemap with 8 URLs (TanStack `https://` namespace)
 
