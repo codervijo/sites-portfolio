@@ -1,156 +1,133 @@
-"""Tests for CHECK_145 — deploy-fresh (v15.D).
+"""Tests for CHECK_145 — deploy-fresh (v41.B rewrite — CF Pages deployments API).
 
-Stubs the `version_stamp` boundary (fetch + local-head) so each
-test can drive specific FreshnessReport verdicts without git or
-HTTP I/O.
+Stubs the CF boundary (`_resolve_pages_project`, `latest_pages_deployment`),
+the creds (`apikeys.get_key`), and `local_head_sha`, so each test drives a
+specific deploy-health state without CF/HTTP/git I/O.
+
+NOTE on patch targets: the check lazy-imports `get_key` (from `apikeys`) and
+`latest_pages_deployment` (from `cloudflare`) *inside* `run()`, so they must be
+patched at their **source** modules. `_resolve_pages_project` and
+`local_head_sha` are module-level on the check, so patch them there.
 """
 from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import patch
 
-import httpx
-
 from portfolio.checks.deploy.check_145_deploy_fresh import run
-from portfolio.version_stamp import (
-    VersionStamp,
-    VersionStampError,
-)
+
+_MOD = "portfolio.checks.deploy.check_145_deploy_fresh"
 
 
-def _make_web_site(tmp_path: Path, name: str = "example.com") -> Path:
+def _make_site(tmp_path: Path, name="example.com", platform="cf-pages") -> Path:
     site = tmp_path / name
     site.mkdir()
-    (site / "package.json").write_text('{"name": "test", "version": "1.0.0"}')
+    (site / "package.json").write_text('{"name": "t", "version": "1.0.0"}')
     (site / "lamill.toml").write_text(
-        'schema = "lamill-toml-v1"\n\n[deploy]\nplatform = "cf-pages"\n'
-        '[live]\nurl = "https://example.com"\n'
-    )
+        f'schema = "lamill-toml-v1"\n\n[deploy]\nplatform = "{platform}"\n')
     return site
 
 
-def _patch_live_url(url):
-    return patch(
-        "portfolio.checks.deploy.check_145_deploy_fresh.resolve_live_url",
-        lambda _: url,
-    )
+def _creds(_k):
+    return "tok" if "TOKEN" in _k else "acct"
 
 
-def _patch_fetch(stamp_or_error):
-    return patch(
-        "portfolio.checks.deploy.check_145_deploy_fresh.fetch_version_stamp",
-        lambda _: stamp_or_error,
-    )
+def _run(site, *, deployment, head, project="example-com"):
+    """deployment = (status, commit, dep_id)."""
+    with patch("portfolio.apikeys.get_key", _creds), \
+         patch(f"{_MOD}._resolve_pages_project", lambda d, **k: project), \
+         patch("portfolio.cloudflare.latest_pages_deployment", lambda p, **k: deployment), \
+         patch(f"{_MOD}._origin_head_sha", lambda _p, _b: head):
+        return run(str(site))
 
 
-def _patch_head(sha):
-    return patch(
-        "portfolio.checks.deploy.check_145_deploy_fresh.local_head_sha",
-        lambda _: sha,
-    )
+# ---- skip paths ----------------------------------------------------
 
 
-# ---- skip paths ---------------------------------------------------
-
-
-def test_warn_when_not_a_web_project(tmp_path: Path):
+def test_warn_when_not_web_project(tmp_path):
     site = tmp_path / "not-web"
     site.mkdir()
-    result = run(str(site))
-    assert result.status == "warn"
-    assert "not a web project" in result.message
+    assert run(str(site)).status == "warn"
 
 
-def test_warn_when_no_live_url(tmp_path: Path):
-    site = _make_web_site(tmp_path)
-    with _patch_live_url(None):
-        result = run(str(site))
-    assert result.status == "warn"
-    assert "no live URL" in result.message
+def test_warn_when_not_cf_pages(tmp_path):
+    # platform check returns before creds are read — no patching needed.
+    site = _make_site(tmp_path, platform="vercel")
+    r = run(str(site))
+    assert r.status == "warn"
+    assert "vercel" in r.message and "not applicable" in r.message
 
 
-# ---- pass path: HEAD matches live ---------------------------------
+def test_warn_when_no_creds(tmp_path):
+    site = _make_site(tmp_path)
+    with patch("portfolio.apikeys.get_key", lambda k: None):
+        r = run(str(site))
+    assert r.status == "warn"
+    assert "creds" in r.message
 
 
-def test_pass_when_head_matches_live(tmp_path: Path):
-    site = _make_web_site(tmp_path)
-    stamp = VersionStamp(schema=1, commit="abc123def4567890", built_at="2026-05-20T10:00:00Z")
-    with _patch_live_url("https://example.com"), \
-         _patch_fetch(stamp), \
-         _patch_head("abc123def4567890"):
-        result = run(str(site))
-    assert result.status == "pass"
-    assert "HEAD matches live" in result.message
-    assert "abc123def456" in result.message
+# ---- the headline case: build failed --------------------------------
 
 
-# ---- fail path: drift ---------------------------------------------
+def test_fail_when_latest_build_failed(tmp_path):
+    site = _make_site(tmp_path)
+    r = _run(site, deployment=("failure", "abc123", "d1"), head="abc123")
+    assert r.status == "fail"
+    assert "FAILED" in r.message
 
 
-def test_fail_on_drift(tmp_path: Path):
-    site = _make_web_site(tmp_path)
-    stamp = VersionStamp(schema=1, commit="aaaaaaaaaaaaaaaa", built_at="2026-05-20T10:00:00Z")
-    with _patch_live_url("https://example.com"), \
-         _patch_fetch(stamp), \
-         _patch_head("bbbbbbbbbbbbbbbb"):
-        result = run(str(site))
-    assert result.status == "fail"
-    assert "drift" in result.message
-    assert "aaaaaaaaaaaa" in result.message
-    assert "bbbbbbbbbbbb" in result.message
-    # Actionable hint.
-    assert "redeploy" in result.message.lower() or "push" in result.message.lower()
+# ---- drift: deployed commit != HEAD ---------------------------------
 
 
-# ---- warn paths: can't determine ----------------------------------
+def test_fail_on_commit_drift(tmp_path):
+    site = _make_site(tmp_path)
+    r = _run(site, deployment=("success", "aaaaaaaaaaaa", "d1"), head="bbbbbbbbbbbb")
+    assert r.status == "fail"
+    assert "drift" in r.message
+    assert "aaaaaaaaaaaa" in r.message and "bbbbbbbbbbbb" in r.message
 
 
-def test_warn_when_head_undetermined(tmp_path: Path):
-    site = _make_web_site(tmp_path)
-    stamp = VersionStamp(schema=1, commit="abc", built_at="2026-05-20T10:00:00Z")
-    with _patch_live_url("https://example.com"), \
-         _patch_fetch(stamp), \
-         _patch_head(None):
-        result = run(str(site))
-    assert result.status == "warn"
-    assert "local HEAD" in result.message
+# ---- pass: build ok + commit matches --------------------------------
 
 
-def test_warn_when_live_unreachable(tmp_path: Path):
-    site = _make_web_site(tmp_path)
-    err = VersionStampError(kind="unreachable", detail="ConnectError: refused")
-    with _patch_live_url("https://example.com"), \
-         _patch_fetch(err), \
-         _patch_head("abc"):
-        result = run(str(site))
-    assert result.status == "warn"
-    assert "can't read live version.json" in result.message
-    # Cross-references CHECK_144.
-    assert "CHECK_144" in result.message
+def test_pass_when_head_shipped(tmp_path):
+    site = _make_site(tmp_path)
+    sha = "abc123def4567890"
+    r = _run(site, deployment=("success", sha, "d1"), head=sha)
+    assert r.status == "pass"
+    assert "shipped" in r.message
 
 
-def test_warn_when_live_404(tmp_path: Path):
-    """A 404 is the not-found error kind; CHECK_145 still soft-warns
-    so the operator only sees the actionable signal once (in CHECK_144)."""
-    site = _make_web_site(tmp_path)
-    err = VersionStampError(kind="not_found", detail="https://x/version.json → 404")
-    with _patch_live_url("https://example.com"), \
-         _patch_fetch(err), \
-         _patch_head("abc"):
-        result = run(str(site))
-    assert result.status == "warn"
-    assert "CHECK_144" in result.message
+def test_pass_when_commit_is_short_prefix_of_head(tmp_path):
+    site = _make_site(tmp_path)
+    r = _run(site, deployment=("success", "abc123de", "d1"), head="abc123def4567890")
+    assert r.status == "pass"
 
 
-def test_warn_when_live_commit_unknown(tmp_path: Path):
-    """Plugin's fallback commit when neither git nor cloud env vars
-    are available. Operator should fix the build env."""
-    site = _make_web_site(tmp_path)
-    stamp = VersionStamp(schema=1, commit="unknown", built_at="2026-05-20T10:00:00Z")
-    with _patch_live_url("https://example.com"), \
-         _patch_fetch(stamp), \
-         _patch_head("abc"):
-        result = run(str(site))
-    assert result.status == "warn"
-    assert "commit=\"unknown\"" in result.message
-    assert "CF_PAGES_COMMIT_SHA" in result.message
+# ---- warn: can't determine ------------------------------------------
+
+
+def test_warn_when_no_deployments(tmp_path):
+    site = _make_site(tmp_path)
+    r = _run(site, deployment=(None, None, None), head="abc")
+    assert r.status == "warn" and "no deployments" in r.message
+
+
+def test_warn_when_origin_ref_undetermined(tmp_path):
+    site = _make_site(tmp_path)
+    r = _run(site, deployment=("success", "abc123", "d1"), head=None)
+    assert r.status == "warn" and "origin/" in r.message
+
+
+def test_warn_when_no_commit_metadata(tmp_path):
+    site = _make_site(tmp_path)
+    r = _run(site, deployment=("success", None, "d1"), head="abc123")
+    assert r.status == "warn" and "commit metadata" in r.message
+
+
+def test_warn_when_project_not_resolvable(tmp_path):
+    site = _make_site(tmp_path)
+    with patch("portfolio.apikeys.get_key", _creds), \
+         patch(f"{_MOD}._resolve_pages_project", lambda d, **k: None):
+        r = run(str(site))
+    assert r.status == "warn" and "no CF Pages project" in r.message

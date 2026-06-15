@@ -1,108 +1,173 @@
-"""CHECK_145 — Live site's deployed commit matches local HEAD (v15.D).
+"""CHECK_145 — the live CF Pages deploy is current: the latest build
+succeeded AND the deployed commit matches local HEAD.
 
-Pairs with CHECK_144 (has-version-stamp). CHECK_144 ensures the
-build artifact convention is followed; CHECK_145 ensures the latest
-local commit is actually what's on the wire.
+**v41.B (2026-06-15) rewrite.** Reads the **CF Pages deployments API**
+(build status + the commit the deployment built from), not `/version.json`.
+The version-stamp convention this check used to depend on was never rolled
+out fleet-wide (0/39 sites served it), so the check was dead — it warn-skipped
+everywhere. The CF API gives the same signal — *"did my latest commit
+actually ship, and did the build pass?"* — with no per-site artifact, which is
+the whole point: it's what makes lamill *notice* a silent CF build failure.
 
-Reads `<live_url>/version.json`'s `commit` field and compares against
-the operator's local `git rev-parse HEAD`.
+Scope: **cf-pages only** (the fleet became uniform cf-pages with the
+2026-06-15 Worker→Pages consolidation). Non-cf-pages sites (vercel/hostgator)
+warn-skip — their deploy state lives behind different APIs.
 
-Pass / warn / fail:
-  - pass: local HEAD == live commit
-  - fail: known mismatch — operator has unshipped local commits
-          (or the deploy is ahead of local HEAD, which is rare and
-          indicates branch divergence)
-  - warn: can't determine one side
-          * not a web project / no live URL
-          * version.json unreachable / 404 / malformed
-            (CHECK_144 surfaces those — don't double-fail here)
-          * local HEAD undetermined (not a git repo / git missing)
-          * deploy ran without git context (commit literal "unknown")
+Project-name resolution: CF Pages project names follow two conventions in
+this fleet — the `_project_name` slug (older sites: `scopeguard`) and the
+dashed domain (sites migrated from Workers: `agesdk-dev`, `airsucks-com`).
+We try both.
 
-The fail message includes both SHAs (short form) so the operator can
-diff. Common cause: forgot to `git push` or deploy pipeline isn't
-wired up yet.
+Pass / fail / warn:
+  - pass: latest build succeeded AND deployed commit == local HEAD
+  - fail: latest CF build **FAILED** (the headline case — a silent build
+          failure leaves the old deploy serving), OR deployed commit !=
+          local HEAD (unshipped commits / stale deploy)
+  - warn: not cf-pages / no `lamill.toml` / no CF creds / project not
+          resolvable / no deployments yet / build in a non-terminal or
+          canceled state / local HEAD undetermined / commit metadata absent
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..result import CheckResult
-from ..seo._live import resolve_live_url
 from ..seo import _is_web_project
-from ...version_stamp import (
-    compare_versions,
-    fetch_version_stamp,
-    local_head_sha,
-)
+from ...lamill_toml import LAMILL_TOML_FILENAME, ParseError, load
+
+
+def _origin_head_sha(repo_path: str, branch: str) -> str | None:
+    """The commit at `origin/<branch>` — i.e. the latest *pushed* commit on the
+    production branch, which is what CF builds from. Uses the local remote-
+    tracking ref (no network; a `git push` updates it, so it's accurate right
+    after a deploy). Compares against this, not the working-tree HEAD, so a
+    local clone that's merely out of sync with origin doesn't false-fail."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "-C", repo_path, "rev-parse", f"origin/{branch}"],
+            capture_output=True, text=True, timeout=10)
+        sha = out.stdout.strip()
+        return sha if out.returncode == 0 and sha else None
+    except Exception:  # noqa: BLE001 — not a git repo / git missing
+        return None
 
 CHECK_ID = "CHECK_145"
 CHECK_NAME = "deploy-fresh"
 CATEGORY = "deploy"
 SEVERITY = "warn"
 DESCRIPTION = (
-    "Live site's deployed commit matches local HEAD (HEAD-vs-deployed drift signal)."
+    "Live CF Pages deploy is current — latest build succeeded and the deployed "
+    "commit matches local HEAD (catches silent build failures + stale deploys)."
 )
+
+
+def _resolve_pages_project(domain: str, *, account_id: str, client) -> str | None:
+    """Find the CF Pages project name for `domain`, trying both fleet naming
+    conventions: the `_project_name` slug and the dashed domain."""
+    from ...cloudflare import get_pages_project
+
+    candidates: list[str] = []
+    try:
+        from ...bootstrap import _project_name
+        candidates.append(_project_name(domain))
+    except Exception:  # noqa: BLE001 — slug helper is best-effort
+        pass
+    candidates.append(domain.replace(".", "-"))
+
+    seen: set[str] = set()
+    for name in candidates:
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        try:
+            # get_pages_project returns None on 404 (doesn't raise) — only a
+            # non-None result means this name is a real Pages project.
+            if get_pages_project(name, account_id=account_id, client=client) is not None:
+                return name
+        except Exception:  # noqa: BLE001 — transient/other error → try next
+            continue
+    return None
 
 
 def run(repo_path: str) -> CheckResult:
     if not _is_web_project(repo_path):
         return CheckResult(status="warn", message="not a web project — skipped")
+    base = Path(repo_path).resolve()
+    domain = base.name.lower()
 
-    origin = resolve_live_url(repo_path)
-    if not origin:
-        return CheckResult(status="warn", message="no live URL configured — skipped")
-
-    stamp_or_error = fetch_version_stamp(origin)
-    head = local_head_sha(repo_path)
-    report = compare_versions(head, stamp_or_error)
-
-    if report.verdict == "in_sync":
-        short = report.live_sha[:12] if report.live_sha else "?"
+    # cf-pages only — read the declared platform.
+    try:
+        payload = load(base)
+    except ParseError as e:
+        return CheckResult(status="warn",
+                           message=f"{LAMILL_TOML_FILENAME} invalid — see CHECK_059 ({e})")
+    if payload is None:
+        return CheckResult(status="warn",
+                           message=f"no {LAMILL_TOML_FILENAME} — deploy-fresh not checkable")
+    platform = payload.deploy.platform
+    if platform != "cf-pages":
         return CheckResult(
-            status="pass",
-            message=f"HEAD matches live · {short}",
-        )
+            status="warn",
+            message=f"platform={platform} — deploy-fresh (CF Pages API) not applicable")
 
-    if report.verdict == "drift":
-        head_short = (report.head_sha or "?")[:12]
-        live_short = (report.live_sha or "?")[:12]
+    # CF creds — degrade gracefully if absent.
+    from ...apikeys import get_key
+    token = get_key("CF_API_TOKEN")
+    account = get_key("CF_ACCOUNT_ID")
+    if not token or not account:
+        return CheckResult(status="warn", message="CF API creds not configured — skipped")
+
+    import httpx
+    from ...cloudflare import latest_pages_deployment
+    client = httpx.Client(
+        base_url="https://api.cloudflare.com/client/v4",
+        headers={"Authorization": f"Bearer {token}"}, timeout=20.0)
+    try:
+        project = _resolve_pages_project(domain, account_id=account, client=client)
+        if not project:
+            return CheckResult(status="warn",
+                               message=f"no CF Pages project found for {domain} — skipped")
+        try:
+            status, commit, _dep = latest_pages_deployment(
+                project, account_id=account, client=client)
+        except Exception as e:  # noqa: BLE001 — transport/API error → soft-skip
+            return CheckResult(status="warn",
+                               message=f"CF deployments API error ({type(e).__name__}) — skipped")
+    finally:
+        client.close()
+
+    if status is None:
+        return CheckResult(status="warn", message=f"{project}: no deployments yet — skipped")
+    if status == "failure":
         return CheckResult(
             status="fail",
             message=(
-                f"deploy drift · HEAD {head_short} ≠ live {live_short}. "
-                f"Push + redeploy, or check whether the deploy pipeline is wired up."
-            ),
-        )
+                f"latest CF Pages build FAILED ({project}) — the live site is "
+                f"stale; the last push didn't ship. Check the build log in the "
+                f"CF dashboard."))
+    if status not in ("success", "active", "idle"):
+        return CheckResult(status="warn",
+                           message=f"{project}: latest build status={status} — skipped")
 
-    if report.verdict == "head_unknown":
+    # Build ok / in-flight — compare deployed commit to origin/<prod-branch>
+    # (the latest pushed commit, which is what CF builds from).
+    branch = payload.deploy.production_branch or "main"
+    head = _origin_head_sha(str(base), branch)
+    if not head:
         return CheckResult(
             status="warn",
-            message=(
-                "can't determine local HEAD — not a git repo or `git` unavailable. "
-                "v15.D needs `git rev-parse HEAD` to compute drift."
-            ),
-        )
-
-    if report.verdict == "live_unknown":
+            message=f"can't determine origin/{branch} — not a git repo or no remote ref")
+    if not commit:
         return CheckResult(
             status="warn",
-            message=(
-                f"can't read live version.json ({report.error_detail}) — "
-                f"CHECK_144 surfaces the underlying cause."
-            ),
-        )
-
-    if report.verdict == "live_marker_unknown":
-        return CheckResult(
-            status="warn",
-            message=(
-                "live version.json has commit=\"unknown\" — deploy ran without "
-                "git context. Set CF_PAGES_COMMIT_SHA / VERCEL_GIT_COMMIT_SHA / "
-                "GITHUB_SHA in the build env."
-            ),
-        )
-
-    # Unknown verdict — defensive fallthrough.
+            message=f"{project}: deployment has no commit metadata — can't compare")
+    if commit == head or commit.startswith(head) or head.startswith(commit):
+        return CheckResult(status="pass",
+                           message=f"latest pushed commit shipped · build {status} · {commit[:12]}")
     return CheckResult(
-        status="warn",
-        message=f"unexpected freshness verdict: {report.verdict}",
-    )
+        status="fail",
+        message=(
+            f"deploy drift · origin/{branch} {head[:12]} ≠ deployed {commit[:12]} "
+            f"({project}). The latest pushed commit didn't ship — re-trigger the "
+            f"build or check its log."))

@@ -1177,6 +1177,49 @@ def latest_deployment_status(
     )
 
 
+def latest_pages_deployment(
+    project_name: str, *,
+    account_id: str,
+    client: httpx.Client | None = None,
+) -> tuple[str | None, str | None, str | None]:
+    """Latest Pages deployment health: `(build_status, commit_hash, deployment_id)`.
+
+    `build_status` is the latest stage's status ∈ {success, failure, active,
+    idle, canceled} (None if the project has no deployments yet). `commit_hash`
+    is the git commit the deployment built from
+    (`deployment_trigger.metadata.commit_hash`), or None for non-git deploys.
+
+    Unlike `latest_deployment_status` (which returns the stage *name*), this
+    surfaces the commit so callers can compare deployed-vs-local-HEAD — the
+    deploy-freshness signal CHECK_145 needs without a per-site version.json.
+    """
+    with _httpapi.managed_client(client, _client) as c:
+        resp = c.get(
+            f"/accounts/{account_id}/pages/projects/{project_name}/deployments",
+            params={"page": 1, "per_page": 1},
+        )
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET /pages/projects/{project_name}/deployments → "
+            f"HTTP {resp.status_code}: {resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"deployment list success=false: {body.get('errors')}"
+        )
+    result = body.get("result") or []
+    if not result:
+        return (None, None, None)
+    dep = result[0]
+    status = (dep.get("latest_stage") or {}).get("status")
+    commit = (
+        ((dep.get("deployment_trigger") or {}).get("metadata") or {})
+        .get("commit_hash")
+    )
+    return (status, commit, dep.get("id"))
+
+
 def poll_build(
     project_name: str, *,
     account_id: str,

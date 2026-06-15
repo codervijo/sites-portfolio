@@ -66,6 +66,15 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-15 — `CHECK_144 has-version-stamp` + `CHECK_146 last-build-success` are obsolete (version.json abandoned)
+
+- **Where** — `checks/deploy/check_144_has_version_stamp.py`, `check_146_last_build_success.py`.
+- **Actual** — both check the live `/version.json` build-artifact convention, which was **never rolled out** (0/39 sites serve it) and has now been *abandoned*: `CHECK_145 deploy-fresh` was rewritten (v41.B) to read deploy state from the CF deployments API instead. So 144 fails on every site (no version.json) and contradicts 145 (which no longer needs it).
+- **Severity** — `minor` (stale/contradictory checks; noise, not breakage).
+- **Fix** — retire 144 + 146 (remove the check files + their tests). **Deferred to the next bug-scrub** alongside the 3-parser consolidation.
+- **Notes** — surfaced building v41.B. Confirm nothing else references CHECK_144/146 before removing.
+
+
 ### 2026-06-15 — three duplicate sitemap-URL parsers (DRY violation; same bug needed fixing in two of them)
 
 - **Where** — `checks/seo/_live.py::_extract_sitemap_locs` (+ `get_sitemap_urls`), `gsc_recrawl.py::_extract_locs` (+ `fetch_sitemap_urls`), `indexnow.py::_LOC_RE` (regex). Three independent implementations of "extract `<loc>` URLs from a sitemap / sitemap-index."
