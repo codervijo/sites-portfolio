@@ -33,7 +33,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Deque, Iterator, Literal, Protocol
 
-from .fix_helpers import project_context
+from .fix_helpers import project_context, read_file_for_context
 from .project import SITES_ROOT
 
 
@@ -500,14 +500,48 @@ def build_delegate_system_prompt(site_dir: Path) -> str:
         "or copy-only changes. Do not edit docs/Prompts.md — lamill maintains "
         "that log.",
     ]
+    # v37.F — build contract: the exact package manager + build command, so the
+    # agent verifies its work the project's way and never switches PMs (running
+    # npm on a pnpm project creates a wrong lockfile and breaks the build).
+    cmd, pm = _detect_build(site_dir)
+    if cmd:
+        parts.append(
+            f"This project uses **{pm}**. If you build to check your work, run "
+            f"`{pm} run build`. Do NOT switch package managers — running npm or "
+            f"yarn on a {pm} project writes a conflicting lockfile and breaks the "
+            f"build.")
+    # v37.F — inoculate against thrashing on environmental failures. The harness
+    # confirms the pristine tree builds before the agent starts (v37.E baseline
+    # gate), so a post-change failure is most likely the change itself — but a
+    # clearly unrelated error is environmental, not something to loop on.
+    parts.append(
+        "This project was confirmed to build cleanly before you started. If a "
+        "build fails after your change, it is most likely your edit — fix that. "
+        "But if the error is clearly unrelated to what you changed (a missing "
+        "dependency, a package-manager/lockfile mismatch, a config you didn't "
+        "touch), say so and stop — do not thrash on configuration.")
     listing = docs_listing(site_dir)
     if listing:
         parts.append(
-            "Before implementing, read AI_AGENTS.md and any relevant files "
-            f"under docs/ to understand this site's conventions. {listing}.")
+            "Before implementing, read AI_AGENTS.md, CLAUDE.md, and any relevant "
+            f"files under docs/ to understand this site's conventions. {listing}.")
     ctx = project_context(site_dir)
     if ctx:
         parts += ["", "=== SITE CONTEXT ===", ctx]
+    # v37.F — inject the site's CLAUDE.md (conventions). project_context only
+    # carries AI_AGENTS.md, and CLAUDE.md was previously a write-target only —
+    # so the agent never actually saw the conventions it's told to follow.
+    for cm in (site_dir / "CLAUDE.md", site_dir / "docs" / "CLAUDE.md"):
+        if cm.is_file():
+            parts += ["", f"=== {cm.relative_to(site_dir)} (conventions) ===",
+                      read_file_for_context(cm, 2500)]
+            break
+    # v37.F — inject prior delegate learnings if the site keeps them, so each
+    # run benefits from what earlier runs discovered about this codebase.
+    notes = site_dir / "docs" / "delegate-notes.md"
+    if notes.is_file():
+        parts += ["", "=== PRIOR DELEGATE LEARNINGS (docs/delegate-notes.md) ===",
+                  read_file_for_context(notes, 2000)]
     return "\n".join(parts)
 
 

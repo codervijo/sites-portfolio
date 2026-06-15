@@ -72,7 +72,23 @@ def test_system_prompt_inlines_ai_agents_and_maps_docs(tmp_path: Path):
     sysp = build_delegate_system_prompt(tmp_path)
     assert "Conventions here." in sysp                      # AI_AGENTS inlined
     assert "docs/ contains: CLAUDE.md, prd.md" in sysp      # docs mapped, not slurped
-    assert "read AI_AGENTS.md and any relevant files" in sysp
+    assert "read AI_AGENTS.md, CLAUDE.md, and any relevant" in sysp  # v37.F
+
+
+def test_system_prompt_v37f_build_contract_conventions_and_learnings(tmp_path: Path):
+    # _detect_build needs a build script + a lockfile to resolve the PM.
+    (tmp_path / "package.json").write_text('{"scripts":{"build":"astro build"}}')
+    (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
+    docs = tmp_path / "docs"; docs.mkdir()
+    (docs / "CLAUDE.md").write_text("CONVENTION: apex-canonical only.")
+    (docs / "delegate-notes.md").write_text("LEARNING: prerender config lives in vite.config.")
+    sysp = build_delegate_system_prompt(tmp_path)
+    assert "uses **pnpm**" in sysp                                  # build contract
+    assert "pnpm run build" in sysp
+    assert "Do NOT switch package managers" in sysp
+    assert "confirmed to build cleanly before you started" in sysp  # anti-thrash inoculation
+    assert "CONVENTION: apex-canonical only." in sysp               # CLAUDE.md injected
+    assert "LEARNING: prerender config" in sysp                     # delegate-notes injected
 
 
 def test_system_prompt_degrades_without_docs(tmp_path: Path):
