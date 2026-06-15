@@ -1592,6 +1592,16 @@ surface** (joins § 2.1's two when v33.B ships).
   (the actual root cause: defaulting the no-lockfile case to npm built
   pnpm-only sites with the wrong PM, breaking the verify gate independent of
   the agent).
+- **Build-outcome observability (v37.H).** The agent builds *inside* its run to
+  check its work, but lamill saw only opaque tool-use — never "the build
+  failed" — so a build-thrash loop could eat the whole quota window silently
+  (the verify gate names build failures, but only after a *clean finish*; a
+  mid-thrash cap never reaches it). `classify_build_line` scans each raw stream
+  line for distinctive build success/failure signatures (works for claude's
+  stream-json + OpenHands' JSONL); `run_delegate` surfaces failures **live**
+  (`⚠ the agent's own build is failing ×N`) and **names them in the result**
+  `message`. Also gives the supervisor a real "not progressing" signal that
+  config-edit churn used to mask — which v37.G can trip on.
 - **Request input (v33.F, v33.K).** `request` is optional: an inline arg
   wins; otherwise it's read from stdin. On an interactive TTY the paste ends
   on a **lone `.` sentinel** (with Ctrl-D/EOF as a fallback) — v33.K, because

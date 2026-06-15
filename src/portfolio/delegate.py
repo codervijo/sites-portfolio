@@ -385,6 +385,44 @@ def parse_stream_line(line: str) -> StreamEvent | None:
     return StreamEvent("other", None, None)
 
 
+# v37.H — recognize the agent's OWN build outcomes from its stream. The agent
+# builds inside its run to check its work; lamill saw only opaque tool-use, not
+# "the build failed", so a build-thrash loop ate the quota window silently
+# (the airsucks burn). We scan each raw stream line for distinctive build
+# success/failure signatures — works for both claude's stream-json and
+# OpenHands' JSONL, since the signature text is in the line regardless of JSON
+# shape. Heuristic, but the markers are build-tool-specific (low false-positive).
+_BUILD_FAIL_RE = re.compile(
+    r"ELIFECYCLE|error during build:|Build failed with \d+ error|"
+    r"✘ \[ERROR\]|Command failed with exit code [1-9]|"
+    r"rollup failed to resolve|Failed to compile",
+    re.IGNORECASE)
+_BUILD_OK_RE = re.compile(
+    r"✓ built in|built in \d|Prerendered \d+ page|compiled successfully|"
+    r"build (?:completed|complete|succeeded)|✨ +Done in",
+    re.IGNORECASE)
+
+
+def classify_build_line(raw: str) -> str | None:
+    """'fail' / 'pass' if a raw stream line carries a build-outcome signature,
+    else None. Failure is checked first, so a line with both reads as fail."""
+    if not raw:
+        return None
+    if _BUILD_FAIL_RE.search(raw):
+        return "fail"
+    if _BUILD_OK_RE.search(raw):
+        return "pass"
+    return None
+
+
+def _build_failure_snippet(raw: str) -> str:
+    """A short, readable tail of the build-failure signature for the operator."""
+    m = _BUILD_FAIL_RE.search(raw)
+    if not m:
+        return ""
+    return raw[max(0, m.start() - 20):m.start() + 110].strip()
+
+
 # ---------- the two-axis supervisor ----------
 
 
@@ -741,6 +779,10 @@ def run_delegate(domain: str, request: str, *,
     saw_result = False
     result_is_error = False
     summary = ""
+    # v37.H — track the agent's OWN build outcomes seen on the stream, so a
+    # silent build-thrash loop is visible live + named in the result.
+    build_fails = 0
+    last_build_err = ""
     # v33.O — evidence captured off the stream for honest no-result diagnosis.
     last_rate_limit: dict | None = None
     last_api_error: str | None = None
@@ -779,6 +821,15 @@ def run_delegate(domain: str, request: str, *,
             event = _parse(raw) if raw else None
             if event is not None and event.kind == "tool_use" and event.fingerprint:
                 emit("action", event.fingerprint)
+            # v37.H — surface the agent's own build outcomes live.
+            outcome = classify_build_line(raw) if raw else None
+            if outcome == "fail":
+                build_fails += 1
+                last_build_err = _build_failure_snippet(raw)
+                emit("phase", f"⚠ the agent's own build is failing (×{build_fails})")
+            elif outcome == "pass" and build_fails:
+                emit("phase", "✓ the agent's build is passing again")
+                build_fails = 0
             if event is not None:
                 if event.kind == "rate_limit" and event.rate_limit:
                     last_rate_limit = event.rate_limit
@@ -857,12 +908,24 @@ def run_delegate(domain: str, request: str, *,
         except Exception:
             pass
 
+    # v37.H — when the run didn't cleanly succeed and the agent's own builds
+    # were failing, name that in the result so the operator (and any future
+    # circuit-breaker) knows the run was stuck on the build, not flailing
+    # blindly. The baseline gate already proved the env builds, so repeated
+    # build failures here point at the agent's change/approach.
+    message = ""
+    if build_fails and status != "done":
+        message = (
+            f"the agent's own build failed ×{build_fails} during the run "
+            f"(last: {last_build_err}) — it was stuck on the build. The baseline "
+            f"build passed, so this is the change/approach, not the environment.")
     return DelegateResult(
         status=status,
         reason=reason,
         cost_usd=sup.cost_usd,
         duration_s=clock() - start,
         changed_files=changed_files(site_dir),
+        message=message,
         verify=verify,
         summary=summary,
         rate_limit=last_rate_limit,
