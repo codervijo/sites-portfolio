@@ -1162,6 +1162,43 @@ The HTTP wrappers ride `httpx`. No central rate-limit abstraction yet
 below — Research module risks), an `LLMClient` protocol is a
 candidate refactor if a third LLM provider lands.
 
+### Sitemap & GSC handling — learned
+
+Hard-won notes on reading sitemaps + Google Search Console. Most of
+this was paid for in real debugging (2026-06-15).
+
+- **Sitemap XML namespace is opaque; tolerate variants.** The spec
+  mandates `http://www.sitemaps.org/schemas/sitemap/0.9`, but
+  generators vary — **TanStack Start emits the `https://` scheme**,
+  which is a *different* XML namespace (exact-string compare, not
+  URL-equivalence). Google parses both fine. lamill's parsers use the
+  **`{*}` wildcard** namespace (matches http/https/none); never pin to
+  the literal `{http://…}` or strict parsing reports 0 URLs on a
+  healthy sitemap. (Drop bare-name fallbacks when using `{*}` — they
+  double-count no-namespace docs.)
+- **Sitemap *path* also varies by generator.** `@astrojs/sitemap`
+  emits `/sitemap-index.xml`; TanStack Start emits `/sitemap.xml`.
+  Resolve the real URL from the live `robots.txt` `Sitemap:` line
+  (`gsc_admin.resolve_sitemap_url`, v32.G), never assume a path — an
+  assumed `/sitemap.xml` on an Astro site hits the SPA catch-all and
+  GSC reports a parse error.
+- **GSC's own count is the source of truth for "did Google read it."**
+  `gsc_admin.list_sitemaps(domain)` returns `contents:[{type,
+  submitted, indexed}]` + `errors`/`warnings`/`isPending`/
+  `lastDownloaded`. `submitted` = URLs Google parsed; `indexed` = how
+  many it indexed (0 is normal for a young site — not a sitemap fault).
+  When lamill's local parser and GSC disagree, GSC is right and the
+  local parser is suspect.
+- **Three duplicate sitemap parsers exist** (`_live.py`,
+  `gsc_recrawl.py`, `indexnow.py` regex) — a DRY violation that let the
+  same namespace bug live in two of them. Tracked for consolidation
+  (see `docs/bugs.md` 2026-06-15, next bug-scrub).
+- **`submit-sitemap` is idempotent; `--force` forces a re-fetch.**
+  `lamill settings gsc submit-sitemap --site <d>` skips if already
+  submitted (Google re-fetches on its own schedule); `--force`
+  deletes-then-resubmits to make Google re-crawl after a content
+  change (v41.A).
+
 ## 7. Stack baselines
 
 ### Portfolio itself

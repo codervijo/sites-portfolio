@@ -230,7 +230,13 @@ def clear_cache() -> None:
 # ---------- sitemap discovery ----------
 
 
-_SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+# Wildcard namespace, not the literal `{http://www.sitemaps.org/...}`. The
+# sitemap protocol mandates the http:// URI, but real generators vary — TanStack
+# Start emits the `https://` scheme (a *different* XML namespace by exact-string
+# compare). Google parses those fine (verified 2026-06-15: GSC reported
+# submitted=8/errors=0 for a https://-namespaced sitemap a strict parser read as
+# 0). `{*}` matches any namespace incl. none, so we match Google's leniency.
+_SITEMAP_NS = "{*}"
 
 
 def _parse_robots_sitemap_urls(robots_text: str) -> list[str]:
@@ -287,13 +293,12 @@ def _discover_sitemap_url(origin: str, *,
 
 
 def _find_loc(elem) -> str | None:
-    """Return the text of `<loc>` under `elem`, trying with and without
-    the sitemap namespace. Doesn't use `or` between Element finds —
-    ElementTree.Element is falsy when it has no children, which would
-    misfire on the text-only `<loc>` elements we're looking for."""
+    """Return the text of `<loc>` under `elem`. `_SITEMAP_NS` is the `{*}`
+    wildcard, which matches `<loc>` in any namespace *and* no namespace, so a
+    single find covers every case. (`is None` rather than truthiness —
+    ElementTree.Element is falsy when childless, which would misfire on the
+    text-only `<loc>` elements we want.)"""
     loc = elem.find(f"{_SITEMAP_NS}loc")
-    if loc is None:
-        loc = elem.find("loc")
     if loc is None or not loc.text:
         return None
     return loc.text.strip()
@@ -312,16 +317,16 @@ def _extract_sitemap_locs(xml_text: str) -> tuple[list[str], list[str]]:
     except ET.ParseError:
         return [], []
     tag = root.tag
-    # Try with and without the namespace prefix for the child elements.
+    # `_SITEMAP_NS` is the `{*}` wildcard — matches the child elements in any
+    # namespace (http://, the non-standard https://, or none), so one findall
+    # each. (A bare-name fallback would double-count no-namespace docs.)
     if tag.endswith("sitemapindex"):
-        for sm in (list(root.findall(f"{_SITEMAP_NS}sitemap"))
-                   + list(root.findall("sitemap"))):
+        for sm in root.findall(f"{_SITEMAP_NS}sitemap"):
             text = _find_loc(sm)
             if text:
                 nested.append(text)
     elif tag.endswith("urlset"):
-        for u in (list(root.findall(f"{_SITEMAP_NS}url"))
-                  + list(root.findall("url"))):
+        for u in root.findall(f"{_SITEMAP_NS}url"):
             text = _find_loc(u)
             if text:
                 urls.append(text)

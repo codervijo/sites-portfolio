@@ -260,6 +260,27 @@ def test_extract_sitemap_locs_returns_empty_on_invalid_xml():
     assert nested == []
 
 
+def test_extract_sitemap_locs_nonstandard_https_namespace():
+    # TanStack Start emits the `https://` scheme — a *different* XML namespace
+    # than the spec's `http://`. Google parses it fine (GSC submitted=8), so we
+    # must too. Regression for the "Sitemap 0 URLs" bug (2026-06-15).
+    xml = """<?xml version="1.0"?>
+<urlset xmlns="https://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://x.test/a</loc></url>
+  <url><loc>https://x.test/b</loc></url>
+</urlset>"""
+    urls, nested = _extract_sitemap_locs(xml)
+    assert urls == ["https://x.test/a", "https://x.test/b"]
+    assert nested == []
+
+
+def test_extract_sitemap_locs_no_namespace_not_double_counted():
+    # `{*}` matches no-namespace too — guard against the bare-fallback dupe.
+    urls, _ = _extract_sitemap_locs(
+        "<urlset><url><loc>https://x.test/a</loc></url></urlset>")
+    assert urls == ["https://x.test/a"]
+
+
 def test_get_sitemap_urls_via_robots_directive():
     """robots.txt declares Sitemap: <url>. Use it."""
     urlset = '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://x.test/a</loc></url></urlset>'

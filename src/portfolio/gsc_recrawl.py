@@ -138,7 +138,12 @@ def read_urls_from_file(path: Path) -> list[str]:
 # without a hard dependency on Task A landing first.
 
 _SITEMAP_FALLBACK_PATHS = ("/sitemap.xml", "/sitemap-index.xml", "/sitemap_index.xml")
-_SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+# `{*}` wildcard — matches <url>/<loc> in any namespace: standard `http://`,
+# the non-standard `https://` TanStack Start emits, or none. Google parses all
+# of them (verified 2026-06-15: GSC submitted=8 on a https://-namespaced sitemap
+# a strict parser read as 0), so lamill must too. NOTE: twin parser in
+# checks/seo/_live.py — same wildcard fix; consolidate someday (tracked refactor).
+_SITEMAP_NS = "{*}"
 _GOOGLEBOT_UA = (
     "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 )
@@ -170,20 +175,19 @@ def _extract_locs(xml_text: str) -> tuple[list[str], list[str]]:
         return [], []
 
     def _find_loc(elem):
+        # `{*}loc` matches any namespace incl. none — one find covers all cases.
         loc = elem.find(f"{_SITEMAP_NS}loc")
-        if loc is None:
-            loc = elem.find("loc")
         if loc is None or not loc.text:
             return None
         return loc.text.strip()
 
     if root.tag.endswith("sitemapindex"):
-        for sm in list(root.findall(f"{_SITEMAP_NS}sitemap")) + list(root.findall("sitemap")):
+        for sm in root.findall(f"{_SITEMAP_NS}sitemap"):
             text = _find_loc(sm)
             if text:
                 nested.append(text)
     elif root.tag.endswith("urlset"):
-        for u in list(root.findall(f"{_SITEMAP_NS}url")) + list(root.findall("url")):
+        for u in root.findall(f"{_SITEMAP_NS}url"):
             text = _find_loc(u)
             if text:
                 urls.append(text)

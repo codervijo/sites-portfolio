@@ -438,3 +438,20 @@ def test_fmt_dt_returns_dash_for_none():
 def test_fmt_dt_formats_utc():
     out = _fmt_dt(datetime(2026, 5, 15, 12, 34, tzinfo=timezone.utc))
     assert out == "2026-05-15 12:34 UTC"
+
+
+def test_extract_locs_nonstandard_https_namespace():
+    # Twin of checks/seo/_live.py's parser. TanStack Start emits the `https://`
+    # sitemap namespace; Google parses it (GSC submitted=8) so we must too.
+    # Regression for the "Sitemap 0 URLs" bug feeding `project seo` (2026-06-15).
+    xml = ('<urlset xmlns="https://www.sitemaps.org/schemas/sitemap/0.9">'
+           '<url><loc>https://x.test/a</loc></url>'
+           '<url><loc>https://x.test/b</loc></url></urlset>')
+    urls, _ = gsc_recrawl._extract_locs(xml)
+    assert urls == ["https://x.test/a", "https://x.test/b"]
+
+
+def test_extract_locs_no_namespace_not_double_counted():
+    urls, _ = gsc_recrawl._extract_locs(
+        "<urlset><url><loc>https://x.test/a</loc></url></urlset>")
+    assert urls == ["https://x.test/a"]

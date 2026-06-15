@@ -66,6 +66,15 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-15 — three duplicate sitemap-URL parsers (DRY violation; same bug needed fixing in two of them)
+
+- **Where** — `checks/seo/_live.py::_extract_sitemap_locs` (+ `get_sitemap_urls`), `gsc_recrawl.py::_extract_locs` (+ `fetch_sitemap_urls`), `indexnow.py::_LOC_RE` (regex). Three independent implementations of "extract `<loc>` URLs from a sitemap / sitemap-index."
+- **Actual** — the `https://`-namespace bug (see Fixed bugs, same date) existed *identically* in the two ElementTree-based parsers and had to be fixed twice; the first fix (`_live.py`) didn't address the reported symptom because `project seo` uses the *other* parser (`gsc_recrawl`). The regex one (indexnow) was incidentally immune. Consumers are split: ~10 checks (090–095/147/158/159) use `_live`'s; `seo_diagnose`/`project_seo_diagnostics`/cli use `gsc_recrawl`'s; indexnow uses its own.
+- **Severity** — `minor` (works now; risk is future drift — the next sitemap bug gets fixed in 1 of 3 places).
+- **Fix** — consolidate to a single shared sitemap parser (one util), re-point all ~13 consumers. **Deferred to the next bug-scrub session** (operator decision 2026-06-15 — re-pointing 13 consumers mid-closeout is how the next bug gets introduced).
+- **Notes** — surfaced while fixing the `https://`-namespace 0-URL bug. The duplication *is* the root cause; patching N copies is symptom treatment.
+
+
 ### 2026-06-13 — `project seo` State header ("Sitemap submitted") contradicts the GSC-diagnostics block ("none submitted")
 
 - **Repro** — `lamill project seo airsucks.com`: the v36 State header shows `Sitemap 1 URL · submitted · reachable`, but the GSC-diagnostics block just below shows `📋 Sitemaps none submitted`.
@@ -973,7 +982,16 @@ or fold in alongside v11.A's `fleet hosting` (which has the same
 
 ## Fixed bugs
 
-### 2026-06-09 — GoDaddy NS update 404s on every domain (`new deploy` Step 4 used PUT, must be PATCH) — iotbastion.com
+### 2026-06-15 — `project seo` reports "Sitemap lists only 0 URLs" on a sitemap with 8 URLs (TanStack `https://` namespace)
+
+- **Repro** — `lamill project seo airsucks.com` → State header `Sitemap 0 URLs`; Blockers: `⚠ Sitemap lists only 0 URLs`. The live sitemap has 8 `<url>` and GSC reports `submitted: 8, errors: 0`.
+- **Expected** — count the 8 URLs Google sees.
+- **Actual** — 0. Root cause: TanStack Start emits the sitemap with the **`https://`** scheme namespace (`xmlns="https://www.sitemaps.org/schemas/sitemap/0.9"`) — a *different* XML namespace (exact-string compare) than the spec's `http://`. lamill's ElementTree parsers were pinned to `{http://…}`, so `findall` matched zero `<url>`. Google is lenient and parsed all 8 (verified via the GSC Sitemaps API: `submitted: 8`); lamill was over-strict.
+- **Where** — `checks/seo/_live.py::_extract_sitemap_locs` **and** `gsc_recrawl.py::_extract_locs` (the latter is what `project seo` actually uses — see open dup-parser bug 2026-06-15).
+- **Fix** — switched both `_SITEMAP_NS` to the `{*}` wildcard (matches http/https/no-namespace), dropped the now-redundant bare-name fallbacks (they double-counted no-namespace docs). 4 regression tests added.
+- **Severity** — `major` (false blocker on every TanStack-Start site; misreports a healthy site as broken).
+- **Fixed in** — `2026-06-15` sitemap-namespace `{*}` fix (portfolio).
+- **Notes** — first fixed the wrong parser (`_live.py`) by pattern-matching instead of tracing the symptom's call path; the duplication that allowed that is logged as an open bug (same date).
 
 - **Repro** — `lamill new deploy iotbastion.com` Step 4 (registrar NS → Cloudflare): `✗ GoDaddy NS update failed: set nameservers iotbastion.com: HTTP 404 {"code":"NOT_FOUND","message":"Not Found : The requested resource was not found"}`.
 - **Expected** — Step 4 points the domain's nameservers at the CF pair (ADR-0015-idempotent), 200 on success.
