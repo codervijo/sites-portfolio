@@ -1034,7 +1034,7 @@ lamill
 │
 └── settings                                         # setup / debug
     ├── catalog {list, describe, run}                ✅ v7.A
-    ├── gsc {auth, recrawl, status}                  ✅ v7.A (+ recrawl post-v7.A)
+    ├── gsc {auth, recrawl, status, submit-sitemap}  ✅ v7.A (recrawl post-v7.A; submit-sitemap v41.A)
     ├── ga4 {auth}                                   ✅ v18.C
     ├── apikeys {list, set, delete}                  ✅ v7.A
     ├── operator {show}                              ✅ v8.D
@@ -1692,9 +1692,15 @@ surface** (joins § 2.1's two when v33.B ships).
   seam. Pick (2026-06-13) = **OpenHands** — among OSI-permissive, headless,
   container-friendly, "no-codex" options it covers the most of the six
   Claude-Code "misses" natively (real `str_replace` edit tool + JSONL events +
-  exit codes that mini-swe-agent lacks). **`auto`** policy = Claude-primary,
-  OpenHands hand-off on a hard cap (continues the in-tree partial — resume-on-cap
-  is the hand-off mechanism); `--backend {auto,claude,oss}`. **The wrapped agent
+  exit codes that mini-swe-agent lacks). **`auto`** (the default) policy =
+  Claude-primary, OpenHands hand-off on a hard cap — **both mid-run and at
+  pre-flight** (already-capped-at-start hands off immediately rather than waiting
+  out the ~5h reset); continues the in-tree partial (resume-on-cap is the hand-off
+  mechanism); `--backend {auto,claude,oss}`. Shipped in `delegate_oss.py`
+  (`OSSAgentBackend` + `OpenHandsAdapter`), wired through `run_delegate_resilient`/
+  `run_delegate_split`'s `fallback_backend_factory`; image from
+  `b2b/ai/openhands/Dockerfile` (`uv tool install openhands`, not `pip`).
+  ADR-0026. **The wrapped agent
   is swappable:** OpenHands lives behind a small **agent adapter** (install cmd ·
   headless argv · output→`StreamEvent` parser · error/exit mapping), so
   `OSSAgentBackend` is generic over it — Codex / mini-swe-agent are future
@@ -1704,7 +1710,7 @@ surface** (joins § 2.1's two when v33.B ships).
   cruder fallback viable (it only gets bounded sub-tasks). Decision record +
   the swap rationale: `docs/coding-agents-survey.md` (cross-project reference).
 
-See ADR-0023 + `docs/prd.md § v33`/`§ v37` for the full rationale.
+See ADR-0023 + ADR-0026 + `docs/prd.md § v33`/`§ v37` for the full rationale.
 
 ## 10. Implementation risks
 

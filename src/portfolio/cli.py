@@ -4545,6 +4545,14 @@ def project_delegate(
              "independently-verifiable sub-tasks that run in sequence "
              "(accumulating in the tree) — so a big job finishes in bites "
              "instead of one quota-burning marathon."),
+    backend: str = typer.Option(
+        "auto", "--backend",
+        help="Which agent backend: 'auto' (default — Claude primary, hand off "
+             "to the OpenHands/OpenAI fallback the moment Claude hits the 5h "
+             "cap), 'claude' (Claude only; waits out the cap), or 'oss' "
+             "(OpenHands/OpenAI directly — keeps Claude quota free). The OSS "
+             "backend needs the lamill-openhands image (build "
+             "b2b/ai/openhands)."),
 ) -> None:
     """Delegate an open-ended change to Claude, in a sandboxed container.
 
@@ -4626,7 +4634,35 @@ def project_delegate(
         # already killed); same debug transcript path (last attempt wins).
         return DockerBackend(domain, budget_usd=budget, debug_path=debug_path)
 
-    console.print(f"▸ delegate · [cyan]{domain}[/] — running in sandbox…")
+    # v37 — backend selection. auto = Claude primary + OpenHands fallback on a
+    # hard cap; claude = Claude only (waits out the cap); oss = OpenHands/OpenAI
+    # directly (keeps Claude quota free for interactive work).
+    backend = backend.lower()
+    if backend not in ("auto", "claude", "oss"):
+        console.print(f"[red]✗ --backend must be one of auto|claude|oss "
+                      f"(got '{backend}').[/]")
+        raise typer.Exit(2)
+
+    def _make_oss_backend():
+        from .apikeys import get_key
+        from .delegate_oss import OpenHandsAdapter, OSSAgentBackend
+        key = get_key("OPENAI_API_KEY") or ""
+        if not key:
+            raise RuntimeError(
+                "OPENAI_API_KEY not set — the OpenHands/OSS backend needs it. "
+                "Set it: `lamill settings apikeys set OPENAI_API_KEY <key>`.")
+        return OSSAgentBackend(
+            domain, OpenHandsAdapter(api_key=key), debug_path=debug_path)
+
+    if backend == "oss":
+        primary_factory, fallback_factory = _make_oss_backend, None
+    elif backend == "claude":
+        primary_factory, fallback_factory = _make_backend, None
+    else:                                   # auto
+        primary_factory, fallback_factory = _make_backend, _make_oss_backend
+
+    console.print(f"▸ delegate · [cyan]{domain}[/] — backend [cyan]{backend}[/] "
+                  f"— running in sandbox…")
     if debug_path is not None:
         console.print(f"  [dim]↷ debug transcript → {debug_path}[/]")
 
@@ -4640,7 +4676,9 @@ def project_delegate(
     # Pre-flight quota probe (host-side, best-effort) — don't bring up a doomed
     # sandbox if the cap is already exhausted. Skipped (None) on non-TTY when
     # not waiting, since fail-fast doesn't need the extra call.
-    preflight_probe = probe_quota_host if (effective_wait or is_tty) else None
+    # The host-side probe checks CLAUDE quota — irrelevant when running OSS-only.
+    preflight_probe = (None if backend == "oss"
+                       else (probe_quota_host if (effective_wait or is_tty) else None))
 
     # v33.L/v33.P — live progress + a Ctrl-C-interruptible quota countdown,
     # both driven through one rich spinner (suppressed off-TTY).
@@ -4678,19 +4716,22 @@ def project_delegate(
 
             if no_split:
                 result = run_delegate_resilient(
-                    domain, request, backend_factory=_make_backend,
+                    domain, request, backend_factory=primary_factory,
                     config=config, bounds=bounds, force=force,
                     verifier=_make_verifier(request),
                     preflight_probe=preflight_probe,
+                    fallback_backend_factory=fallback_factory,
                     on_progress=_on_progress, on_wait=_on_wait)
                 split = SplitResult(subtasks=[request], outcomes=[result])
             else:
                 # v33.Q — default: plan → run each sub-task through resume-on-cap,
-                # accumulating in the tree.
+                # accumulating in the tree. v37 — auto hands a capped sub-task to
+                # the OSS fallback.
                 split = run_delegate_split(
-                    domain, request, backend_factory=_make_backend,
+                    domain, request, backend_factory=primary_factory,
                     make_verifier=_make_verifier, config=config, bounds=bounds,
                     force=force, preflight_probe=preflight_probe,
+                    fallback_backend_factory=fallback_factory,
                     on_progress=_on_progress, on_wait=_on_wait,
                     on_subtask=_on_subtask)
     except KeyboardInterrupt:
@@ -5897,6 +5938,51 @@ def settings_gsc_status(
         gsc_compare()
     except typer.Exit:
         pass
+
+
+@settings_gsc_app.command("submit-sitemap")
+def settings_gsc_submit_sitemap(
+    site: str = typer.Option(..., "--site",
+                             help="Site domain (e.g. airsucks.com). Must be a "
+                                  "verified GSC property (sc-domain:<domain>)."),
+    force: bool = typer.Option(False, "--force",
+                               help="Force a re-fetch: delete the existing entry "
+                                    "then re-submit. Use after a deploy that "
+                                    "changed page content (e.g. enabling "
+                                    "prerendering) to nudge Google to re-crawl."),
+    url: str = typer.Option(None, "--url",
+                            help="Override the sitemap URL. Default: resolved "
+                                 "from the live robots.txt `Sitemap:` line."),
+) -> None:
+    """Submit (or re-submit) a site's sitemap to its GSC Domain property.
+
+    Idempotent by default — skips if the sitemap is already submitted (GSC
+    re-fetches submitted sitemaps on its own schedule). `--force` deletes the
+    entry then re-submits, which makes Google re-fetch immediately — handy
+    right after a content change. The sitemap URL comes from the live
+    `robots.txt` `Sitemap:` line (v32.G), not an assumed path.
+    """
+    from . import gsc_admin
+    from .gsc_admin import GSCAdminError
+    try:
+        feed = url or gsc_admin.resolve_sitemap_url(site)
+        console.print(f"[dim]sitemap:[/] {feed}  [dim]→[/] sc-domain:{site}")
+        existing = {s.get("path") for s in gsc_admin.list_sitemaps(site)}
+        if force and feed in existing:
+            gsc_admin.delete_sitemap(site, feed)
+            console.print("  [yellow]↷[/] removed existing entry (forcing re-fetch)")
+        added = gsc_admin.submit_sitemap(site, feed)
+        if added:
+            console.print(f"  [green]✓[/] submitted")
+        else:
+            console.print("  [yellow]↷[/] already submitted — GSC re-fetches on "
+                          "its own; pass [cyan]--force[/] to re-fetch now")
+    except GSCAdminError as e:
+        console.print(f"  [red]✗[/] {e}")
+        raise typer.Exit(2)
+    except Exception as e:  # noqa: BLE001 — surface any failure cleanly, not a traceback
+        console.print(f"  [red]✗[/] {type(e).__name__}: {e}")
+        raise typer.Exit(2)
 
 
 # settings apikeys — list / set / delete

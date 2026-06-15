@@ -691,10 +691,14 @@ def run_delegate(domain: str, request: str, *,
                   "claude — up to a minute)")
     backend.start(site_dir)
     emit("phase", "agent starting…")
+    # v37 — backends may supply their own stdout→StreamEvent parser (the OSS/
+    # OpenHands agent emits a different JSON than claude's stream-json). Default
+    # to the claude parser when the backend doesn't expose one.
+    _parse = getattr(backend, "parse_line", None) or parse_stream_line
     try:
         for raw in backend.stream(user_prompt, system_prompt=system_prompt):
             now = clock()
-            event = parse_stream_line(raw) if raw else None
+            event = _parse(raw) if raw else None
             if event is not None and event.kind == "tool_use" and event.fingerprint:
                 emit("action", event.fingerprint)
             if event is not None:
@@ -722,12 +726,25 @@ def run_delegate(domain: str, request: str, *,
         if status == "done":
             if not saw_result:
                 evidence = _read_backend_evidence(backend)
-                status, reason = "error", diagnose_no_result(
-                    exit_code=evidence.exit_code,
-                    stderr_tail=evidence.stderr_tail,
-                    rate_limit=last_rate_limit,
-                    api_error=last_api_error,
-                )
+                # v37 — a backend may supply an agent-specific diagnosis (the
+                # OSS/OpenHands failures differ from claude's); fall back to the
+                # generic ranked reason when it returns None.
+                reason = None
+                _bdiag = getattr(backend, "diagnose", None)
+                if callable(_bdiag):
+                    try:
+                        reason = _bdiag(exit_code=evidence.exit_code,
+                                        stderr_tail=evidence.stderr_tail)
+                    except Exception:  # noqa: BLE001 — diagnosis must not crash
+                        reason = None
+                if not reason:
+                    reason = diagnose_no_result(
+                        exit_code=evidence.exit_code,
+                        stderr_tail=evidence.stderr_tail,
+                        rate_limit=last_rate_limit,
+                        api_error=last_api_error,
+                    )
+                status = "error"
             elif result_is_error:
                 detail = f" ({last_api_error})" if last_api_error else ""
                 status, reason = "error", f"agent reported an error result{detail}"
@@ -1031,12 +1048,19 @@ def _detect_build(site_dir: Path) -> tuple[str | None, str]:
         return None, "unreadable package.json"
     if "build" not in (pkg.get("scripts") or {}):
         return None, "no build script"
-    if (site_dir / "pnpm-lock.yaml").is_file():
-        install, build, pm = "corepack pnpm install", "corepack pnpm run build", "pnpm"
-    elif (site_dir / "yarn.lock").is_file():
+    # pnpm is the fleet default — the operator runs pnpm everywhere and an
+    # `npm`/`yarn` lockfile is itself a conformance failure. Only an explicit
+    # yarn.lock opts out; the ABSENCE of any lockfile means pnpm, NOT npm.
+    # (v37.E root cause: defaulting the no-lockfile case to `npm install`
+    # silently built pnpm-only sites with the wrong package manager, which
+    # broke the verify gate for reasons unrelated to the agent's change — the
+    # agent then looped editing config to "fix" a phantom build failure until
+    # the quota window was gone. Sites in this fleet carry no committed
+    # lockfile, so this path is the common case, not the exception.)
+    if (site_dir / "yarn.lock").is_file():
         install, build, pm = "corepack yarn install", "corepack yarn run build", "yarn"
     else:
-        install, build, pm = "npm install", "npm run build", "npm"
+        install, build, pm = "corepack pnpm install", "corepack pnpm run build", "pnpm"
     env = "export COREPACK_HOME=/tmp/cc-corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0;"
     return f"{env} {install} && {build}", pm
 
@@ -1298,6 +1322,7 @@ def run_delegate_resilient(
     force: bool = False,
     verifier: "Verifier | None" = None,
     preflight_probe: "Callable[[], QuotaStatus | None] | None" = None,
+    fallback_backend_factory: "Callable[[], DelegateBackend] | None" = None,
     on_progress: "Callable[[str, str], None] | None" = None,
     on_wait: "Callable[[float, datetime | None], None] | None" = None,
     sites_root: Path | None = None,
@@ -1356,6 +1381,18 @@ def run_delegate_resilient(
             q = None
         if q and q.capped:
             until = format_local(q.resets_at)
+            # A configured fallback means "don't wait out the cap — hand off
+            # now." This fires at pre-flight too (the account is already capped
+            # before we bring up the sandbox), not just mid-run; the tree is
+            # clean here, so the fallback starts fresh (force not needed).
+            if fallback_backend_factory is not None:
+                if on_progress:
+                    on_progress("phase",
+                                "Claude rate-limited — handing off to the fallback backend")
+                return run_delegate(
+                    domain, request, backend=fallback_backend_factory(),
+                    bounds=bounds, force=force, verifier=verifier,
+                    on_progress=on_progress, sites_root=sites_root, clock=clock)
             if not config.wait:
                 return DelegateResult(
                     status="error", rate_limit={"resets_at": q.resets_at.isoformat() if q.resets_at else None},
@@ -1408,6 +1445,19 @@ def run_delegate_resilient(
             revert_tree(site_dir)
             stash_label = None
             preserved = False
+
+        # v37 — auto cap-hand-off: if a fallback backend (OSS/OpenHands) is
+        # wired, DON'T wait out the Claude cap — hand the in-tree partial to the
+        # fallback agent to continue (force), and return its result. This is the
+        # `--backend auto` path: Claude primary, OpenHands the moment it caps.
+        if fallback_backend_factory is not None:
+            if on_progress:
+                on_progress("phase", "Claude rate-limited — handing off to the "
+                                     "fallback backend")
+            return run_delegate(
+                domain, request, backend=fallback_backend_factory(),
+                bounds=bounds, force=True, verifier=verifier,
+                on_progress=on_progress, sites_root=sites_root, clock=clock)
 
         def _bail(reason_core: str, *, capped_out: bool = False) -> DelegateResult:
             backup = f", backup stash '{stash_label}'" if stash_label else ""
@@ -1585,6 +1635,7 @@ def run_delegate_split(
     force: bool = False,
     planner: "Callable[[str, str], list[str]] | None" = None,
     preflight_probe: "Callable[[], QuotaStatus | None] | None" = None,
+    fallback_backend_factory: "Callable[[], DelegateBackend] | None" = None,
     on_progress: "Callable[[str, str], None] | None" = None,
     on_wait: "Callable[[float, datetime | None], None] | None" = None,
     on_subtask: "Callable[[int, int, str], None] | None" = None,
@@ -1632,6 +1683,9 @@ def run_delegate_split(
             # Quota pre-flight only before the very first sub-task; mid-chain
             # caps are caught + resumed by the resilient loop itself.
             preflight_probe=preflight_probe if i == 0 else None,
+            # v37 — auto fallback: a sub-task that caps on Claude hands off to
+            # the OSS/OpenHands backend (per-sub-task) instead of waiting.
+            fallback_backend_factory=fallback_backend_factory,
             on_progress=on_progress, on_wait=on_wait, sites_root=sites_root,
             sleep=sleep, now_fn=now_fn, clock=clock)
 
