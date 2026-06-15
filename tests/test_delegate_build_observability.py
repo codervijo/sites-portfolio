@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from portfolio.delegate import classify_build_line, run_delegate
+from portfolio.delegate import Bounds, classify_build_line, run_delegate
 
 
 def _git(args, cwd):
@@ -103,3 +103,41 @@ def test_run_delegate_no_build_note_when_builds_pass(site):
                        sites_root=site.parent, baseline_check=False)
     assert res.status == "done"
     assert res.message == ""                      # nothing to flag
+
+
+# ---------- v37.G circuit-breaker (trips on the v37.H signal) ----------
+
+
+_OK_LINE = ('{"type":"user","message":{"content":[{"type":"tool_result",'
+            '"content":"✓ built in 1.2s"}]}}')
+
+
+def _run(site, lines, **kw):
+    return run_delegate("example.com", "do x", backend=_Backend(lines),
+                        clock=lambda: 0.0, sites_root=site.parent,
+                        baseline_check=False, **kw)
+
+
+def test_breaker_trips_on_consecutive_build_failures(site):
+    # 3 in a row → default build_fail_limit=3 → trip (4th line never reached).
+    res = _run(site, [_FAIL_LINE, _FAIL_LINE, _FAIL_LINE, _FAIL_LINE])
+    assert res.status == "build-stuck"
+    assert "stuck on the build" in res.reason
+    assert "build failed ×3" in res.message
+
+
+def test_breaker_below_limit_does_not_trip(site):
+    # 2 failures then EOF (no result) → no trip; falls to the no-result error.
+    res = _run(site, [_FAIL_LINE, _FAIL_LINE])
+    assert res.status != "build-stuck"
+
+
+def test_breaker_resets_on_a_passing_build(site):
+    # 2 fail, pass (reset), 2 fail → max consecutive = 2 < 3 → no trip.
+    res = _run(site, [_FAIL_LINE, _FAIL_LINE, _OK_LINE, _FAIL_LINE, _FAIL_LINE])
+    assert res.status != "build-stuck"
+
+
+def test_breaker_disabled_with_zero_limit(site):
+    res = _run(site, [_FAIL_LINE] * 5, bounds=Bounds(build_fail_limit=0))
+    assert res.status != "build-stuck"

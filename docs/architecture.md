@@ -1600,8 +1600,10 @@ surface** (joins § 2.1's two when v33.B ships).
   line for distinctive build success/failure signatures (works for claude's
   stream-json + OpenHands' JSONL); `run_delegate` surfaces failures **live**
   (`⚠ the agent's own build is failing ×N`) and **names them in the result**
-  `message`. Also gives the supervisor a real "not progressing" signal that
-  config-edit churn used to mask — which v37.G can trip on.
+  `message`. This also feeds the **v37.G circuit-breaker**: N consecutive build
+  failures (no passing build between; `Bounds.build_fail_limit`, default 3) trip
+  a `build-stuck` kill — a reliable "stuck on the build" signal that config-edit
+  churn used to mask from the diff-based progress oracle.
 - **Request input (v33.F, v33.K).** `request` is optional: an inline arg
   wins; otherwise it's read from stdin. On an interactive TTY the paste ends
   on a **lone `.` sentinel** (with Ctrl-D/EOF as a fallback) — v33.K, because

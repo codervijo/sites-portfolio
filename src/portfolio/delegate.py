@@ -48,6 +48,7 @@ DelegateStatus = Literal[
     "spinning",     # active but no net progress for the window — progress axis
     "timeout",      # wall-clock cap hit
     "budget",       # budget cap hit
+    "build-stuck",  # v37.G — agent's own build failed N× in a row (circuit-breaker)
     "refused",      # preflight refused (dirty tree, missing site, …) — no run
     "error",        # container/exec failure
     "verify-fail",  # agent ran, but build or `project check` regressed (v33.C)
@@ -57,7 +58,7 @@ DelegateStatus = Literal[
 
 # Supervisor kill reasons (the subset of DelegateStatus the supervisor can
 # return mid-run; `done`/`refused`/`error` are decided by the caller).
-KillReason = Literal["idle", "spinning", "timeout", "budget"]
+KillReason = Literal["idle", "spinning", "timeout", "budget", "build-stuck"]
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,11 @@ class Bounds:
     min_events_for_spin: int = 4  # need real activity before calling it spin
     novelty_floor: float = 0.5    # ≤ this fraction unique ⇒ repeating itself
     diff_epsilon: int = 0         # net new diff lines that still counts as "no progress"
+    build_fail_limit: int = 3     # v37.G — N consecutive agent-build failures
+                                  # (no passing build between) ⇒ circuit-break.
+                                  # 0 disables. The baseline gate already proved
+                                  # the env builds, so repeated failures here = a
+                                  # stuck change/approach, not the environment.
 
 
 @dataclass(frozen=True)
@@ -827,6 +833,16 @@ def run_delegate(domain: str, request: str, *,
                 build_fails += 1
                 last_build_err = _build_failure_snippet(raw)
                 emit("phase", f"⚠ the agent's own build is failing (×{build_fails})")
+                # v37.G circuit-breaker — N consecutive build failures (no passing
+                # build between) = stuck on the build. Bail now instead of burning
+                # the rest of the window. The baseline gate already proved the env
+                # builds, so repeated failures here are the change/approach.
+                if (bounds.build_fail_limit
+                        and build_fails >= bounds.build_fail_limit):
+                    emit("phase", f"✗ circuit-breaker: {build_fails} build failures "
+                                  f"in a row — bailing")
+                    status, reason = "build-stuck", _KILL_REASONS["build-stuck"]
+                    break
             elif outcome == "pass" and build_fails:
                 emit("phase", "✓ the agent's build is passing again")
                 build_fails = 0
@@ -937,6 +953,8 @@ _KILL_REASONS: dict[str, str] = {
     "spinning": "active but no net progress (spinning)",
     "timeout": "wall-clock cap reached",
     "budget": "budget cap reached",
+    "build-stuck": "the agent's own build kept failing — stuck on the build "
+                   "(baseline passed, so it's the change, not the environment)",
 }
 
 
