@@ -54,6 +54,17 @@ State = Literal["healthy", "unproven", "blocked"]
 # blocked, redirect/server error, unknown) is a discovery/index problem.
 _INDEXED_STATES = frozenset({"submitted_indexed"})
 
+# coverage_state tokens that mean "Google has NOT yet crawled this URL" —
+# the page is simply not-yet-discovered/indexed, which on a young site is
+# expected indexing lag, not a content/authority blocker. These differ
+# from a *crawled-but-declined* state (e.g. crawled_not_indexed), which IS
+# a real signal even when young. `_normalize_coverage_state` collapses GSC's
+# "URL is unknown to Google" to `url_is_unknown_to_google`.
+_UNCRAWLED_STATES = frozenset({
+    "url_is_unknown_to_google",
+    "discovered_not_indexed",
+})
+
 # Default freshness window — mirrors seo_runtime.YOUNG_SITE_THRESHOLD_DAYS.
 YOUNG_SITE_THRESHOLD_DAYS = 90
 
@@ -85,6 +96,20 @@ class IndexInsight:
     @property
     def is_indexed(self) -> bool:
         return (self.coverage_state or "") in _INDEXED_STATES
+
+    @property
+    def is_uncrawled(self) -> bool:
+        """True when Google hasn't crawled this URL yet — an explicit
+        not-yet-crawled coverage token, OR no `last_crawl_at` recorded.
+        A *crawled-but-declined* page (e.g. `crawled_not_indexed`, which
+        always carries a crawl timestamp) is NOT uncrawled — it's a real
+        content/authority signal that should surface even on a young site.
+        """
+        if (self.coverage_state or "") in _UNCRAWLED_STATES:
+            return True
+        # No crawl timestamp at all → Google has never fetched it (lag),
+        # unless GSC already reports it indexed (defensive).
+        return not self.last_crawl_at and not self.is_indexed
 
 
 @dataclass
@@ -372,13 +397,33 @@ def compute_state(
     homes = _homepage_urls(origin)
     blockers: list[Blocker] = []
 
+    # Freshness window — within it, *not-yet-crawled* coverage is expected
+    # indexing lag, not a content/authority blocker (a young site that
+    # happens to have cached "URL is unknown to Google" data must NOT grade
+    # worse than an identical young site with no inspection data at all).
+    young = site_age_days is not None and site_age_days < young_threshold_days
+
     # --- index state (the headline) ---
     for ins in index_insights:
         if ins.is_indexed:
             continue
         is_home = ins.url.rstrip("/") + "/" in {h.rstrip("/") + "/" for h in homes}
         label = ins.coverage_label or ins.coverage_state or "not indexed"
-        if is_home:
+        # A young site's not-yet-crawled URLs are expected lag — soften to
+        # an info "indexing pending" rather than a state-defining ⛔/⚠. A
+        # *crawled-but-declined* page (has a crawl timestamp) still surfaces
+        # even when young: that's a real content/authority signal.
+        if young and ins.is_uncrawled:
+            blockers.append(Blocker(
+                kind="warn",
+                title=f'{"Homepage" if is_home else ins.url} indexing pending '
+                      f'("{label}", GSC)',
+                detail="Google hasn't crawled/indexed this URL yet. On a site "
+                       "this new that's expected discovery lag, not a blocker.",
+                next_action="Give it time; ensure it's in the sitemap and "
+                            "linked from the homepage. Re-check after ~30 days.",
+            ))
+        elif is_home:
             blockers.append(Blocker(
                 kind="blocker",
                 title=f'Homepage "{label}" (GSC)',
@@ -452,7 +497,6 @@ def compute_state(
         ))
 
     # --- derive state ---
-    young = site_age_days is not None and site_age_days < young_threshold_days
     has_hard = any(b.kind == "blocker" for b in blockers)
     if impressions and impressions > 0:
         state: State = "healthy"

@@ -458,8 +458,16 @@ def render_dashboard(rows: list[DashRow], freshness: dict, *,
     t = Table(box=None, padding=(0, 1), show_header=True,
               title=f"[bold]fleet dashboard · scope={scope} · {len(rows)} domains · sort={sort_key}[/]",
               title_justify="left")
+    # Size the Domain column to the longest domain in the data so Rich
+    # never squeezes/truncates it (`hyb…`, `air…`) when the terminal is
+    # narrow and the many trailing metric columns compete for width.
+    # `no_wrap` + an explicit `width` keep full domains rendering even
+    # off-TTY / at standard COLUMNS; the metric columns flex instead.
+    domain_width = max((len(r.domain) for r in rows), default=6)
+    domain_width = max(domain_width, len("Domain"))
+
     t.add_column("")              # rollup dot
-    t.add_column("Domain")
+    t.add_column("Domain", no_wrap=True, width=domain_width)
     t.add_column("Live", justify="center")
     t.add_column("HTTP", justify="right")
     t.add_column("Git", justify="center")

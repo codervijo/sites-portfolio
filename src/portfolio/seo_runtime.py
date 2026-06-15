@@ -715,6 +715,26 @@ def _live_domains_from_snapshot(snapshot: dict) -> list[str]:
     return sorted(seen.keys())
 
 
+def _snapshot_scope_split(snapshot: dict) -> tuple[int, int, int]:
+    """Return (total, probed, excluded) domain counts for a check snapshot.
+
+    `probed` is the count of unique live-site/forwarder domains (the set
+    `fleet seo` actually probes); `total` is every unique domain in the
+    snapshot regardless of classification; `excluded = total - probed`
+    (parked / dead / error / ssl-broken — classifications SEO can't grade).
+
+    Used by `fleet seo` to surface why its domain count is smaller than
+    `fleet domains`' fleet total."""
+    all_domains: set[str] = set()
+    for r in snapshot.get("results", []):
+        domain = r.get("domain", "").lower()
+        if domain:
+            all_domains.add(domain)
+    probed = len(_live_domains_from_snapshot(snapshot))
+    total = len(all_domains)
+    return total, probed, total - probed
+
+
 def run_seo(
     domains: list[str],
     *,

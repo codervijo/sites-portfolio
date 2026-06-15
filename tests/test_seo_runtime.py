@@ -10,6 +10,7 @@ import pytest
 from portfolio.seo_runtime import (
     SEORow,
     _live_domains_from_snapshot,
+    _snapshot_scope_split,
     _parse_robots_sitemaps,
     _robots_intent_from_body,
     overall_status,
@@ -900,6 +901,39 @@ def test_live_domains_dedupes_bare_and_www():
         {"domain": "x.com", "variant": "www", "classification": "live-site"},
     ]}
     assert _live_domains_from_snapshot(snap) == ["x.com"]
+
+
+def test_snapshot_scope_split_counts_excluded():
+    # 4 unique fleet domains; only live-site + forwarder are probed by SEO,
+    # so dead + parked are the excluded gap that fleet seo surfaces.
+    snap = {"results": [
+        {"domain": "alive.com", "variant": "bare", "classification": "live-site"},
+        {"domain": "redirect.com", "variant": "bare", "classification": "forwarder"},
+        {"domain": "dead.com", "variant": "bare", "classification": "dead"},
+        {"domain": "parked.com", "variant": "bare", "classification": "parked"},
+    ]}
+    total, probed, excluded = _snapshot_scope_split(snap)
+    assert (total, probed, excluded) == (4, 2, 2)
+
+
+def test_snapshot_scope_split_dedupes_variants_in_total():
+    # bare + www of the same domain count once in both total and probed —
+    # the fleet total must not double-count www variants.
+    snap = {"results": [
+        {"domain": "x.com", "variant": "bare", "classification": "live-site"},
+        {"domain": "x.com", "variant": "www", "classification": "live-site"},
+        {"domain": "err.com", "variant": "bare", "classification": "error"},
+    ]}
+    total, probed, excluded = _snapshot_scope_split(snap)
+    assert (total, probed, excluded) == (2, 1, 1)
+
+
+def test_snapshot_scope_split_no_exclusions_when_all_live():
+    snap = {"results": [
+        {"domain": "a.com", "variant": "bare", "classification": "live-site"},
+        {"domain": "b.com", "variant": "bare", "classification": "forwarder"},
+    ]}
+    assert _snapshot_scope_split(snap) == (2, 2, 0)
 
 
 # ---------- sort ----------

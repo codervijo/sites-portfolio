@@ -83,6 +83,60 @@ def test_unproven_when_young_zero_traffic_nothing_wrong():
     assert blockers == []
 
 
+def test_young_unknown_to_google_is_softened_not_blocked():
+    """A <90d site whose cached inspection says "URL is unknown to Google"
+    (not-yet-crawled lag) must NOT grade ⛔ blocked — it should soften to
+    the same gentle young/unproven verdict as a young site with no
+    inspection data at all. Two young sites can't get opposite verdicts
+    over a non-substantive cached-coverage difference."""
+    insights = [IndexInsight(
+        url="https://young.com/",
+        coverage_state="url_is_unknown_to_google",
+        coverage_label="URL is unknown to Google",
+        verdict="NEUTRAL", last_crawl_at=None)]
+    state, blockers = compute_state(
+        origin="https://young.com",
+        impressions=0, site_age_days=20,
+        index_insights=insights, sitemap_audit=None)
+    assert state != "blocked"
+    assert all(b.kind != "blocker" for b in blockers)
+    assert any("indexing pending" in b.title for b in blockers)
+
+
+def test_old_unknown_to_google_still_flagged():
+    """The SAME unknown-coverage homepage on an OLD site (past the freshness
+    window) is unchanged: the silence past the window is still a ⛔ blocker."""
+    insights = [IndexInsight(
+        url="https://old.com/",
+        coverage_state="url_is_unknown_to_google",
+        coverage_label="URL is unknown to Google",
+        verdict="NEUTRAL", last_crawl_at=None)]
+    state, blockers = compute_state(
+        origin="https://old.com",
+        impressions=0, site_age_days=300,
+        index_insights=insights, sitemap_audit=None)
+    assert state == "blocked"
+    assert any(b.kind == "blocker" for b in blockers)
+
+
+def test_young_crawled_but_declined_homepage_still_surfaces():
+    """The crawled-but-declined distinction is preserved: a young homepage
+    that GSC *crawled* and declined to index (a real content/authority
+    signal — it carries a crawl timestamp) STILL surfaces as a ⛔ blocker
+    even within the freshness window."""
+    insights = [IndexInsight(
+        url="https://young.com/",
+        coverage_state="crawled_not_indexed",
+        coverage_label="Crawled - currently not indexed",
+        verdict="NEUTRAL", last_crawl_at="2026-04-12T00:17:25+00:00")]
+    state, blockers = compute_state(
+        origin="https://young.com",
+        impressions=0, site_age_days=20,
+        index_insights=insights, sitemap_audit=None)
+    assert state == "blocked"
+    assert any("Homepage" in b.title and b.kind == "blocker" for b in blockers)
+
+
 def test_old_site_zero_traffic_no_detected_blocker_is_blocked():
     """Silence past the freshness window IS the blocker."""
     state, blockers = compute_state(

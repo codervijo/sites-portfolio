@@ -3,11 +3,16 @@ helpers; the integration paths (snapshot reads + build_status) are
 covered by the existing seo_cache + project_status tests."""
 from __future__ import annotations
 
+from io import StringIO
+
+from rich.console import Console
+
 from portfolio.dashboard import (
     DashRow,
     _git_dot,
     _live_dot,
     _rollup,
+    render_dashboard,
     sort_rows,
 )
 
@@ -104,3 +109,31 @@ def test_sort_by_age_newest_first_missing_last():
     ]
     out = sort_rows(rows, "age")
     assert [r.domain for r in out] == ["fresh", "medium", "old", "none"]
+
+
+def test_domain_column_not_truncated_on_narrow_terminal():
+    """Regression (bug 2026-05-19): the Domain column must render full
+    domain names even at a standard/narrow terminal width — no `air…`
+    / `hyb…` truncation. Renders to a constrained Console and asserts
+    each full domain string survives in the output."""
+    domains = [
+        "hybridautopart.com",
+        "iotbastion.com",
+        "airsucks.com",
+        "streamsgalaxy.com",
+    ]
+    rows = [DashRow(domain=d, rollup_dot="🟢") for d in domains]
+    buf = StringIO()
+    # width=100 mirrors a standard terminal; the many metric columns
+    # used to win the squeeze and truncate Domain.
+    console = Console(file=buf, width=100, force_terminal=False)
+    render_dashboard(rows, {"scope": "wip"}, sort_key="name", console=console)
+    out = buf.getvalue()
+    # Each full domain must survive — Domain column is sized to the
+    # longest domain and never squeezed. (Metric-column headers may
+    # still abbreviate; that's the intended tradeoff — Domain wins.)
+    for d in domains:
+        assert d in out, f"{d!r} truncated in dashboard output:\n{out}"
+        assert d[:-1] + "…" not in out, (
+            f"{d!r} appears ellipsis-truncated in output:\n{out}"
+        )

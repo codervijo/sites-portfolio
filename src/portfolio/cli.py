@@ -312,7 +312,12 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
         rows_from_snapshot,
         save_snapshot as seo_save_snapshot,
     )
-    from .seo_runtime import _live_domains_from_snapshot, run_seo, sort_rows
+    from .seo_runtime import (
+        _live_domains_from_snapshot,
+        _snapshot_scope_split,
+        run_seo,
+        sort_rows,
+    )
     from .suggest import load_env
 
     if sort_by not in ("domain", "impressions", "clicks", "position", "ctr"):
@@ -353,11 +358,20 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
             console.print(f"[green]✓[/] live classification: {snap_path.name} · "
                           f"{live_prog.elapsed:.0f}s")
 
-        domains = _live_domains_from_snapshot(load_snapshot(snap_path))
+        snap = load_snapshot(snap_path)
+        domains = _live_domains_from_snapshot(snap)
         if not domains:
             console.print(f"[yellow]No live-site/forwarder domains in {snap_path.name}.[/]")
             raise typer.Exit(1)
-        console.print(f"[dim]Snapshot: {snap_path.name} · {len(domains)} live-site/forwarder domains[/]")
+        total, probed, excluded = _snapshot_scope_split(snap)
+        excluded_note = (
+            f" ({excluded} parked/dead/error excluded from {total} fleet)"
+            if excluded else ""
+        )
+        console.print(
+            f"[dim]Snapshot: {snap_path.name} · {probed} live-site/forwarder "
+            f"domains probed{excluded_note}[/]"
+        )
         cache_eligible = True
 
     # Cache hit path: read from data/seo/<latest>.json if it covers every
