@@ -1580,6 +1580,18 @@ surface** (joins § 2.1's two when v33.B ships).
   containerized invocation rather than a host spawn. Lives in
   `src/portfolio/delegate.py` (`DockerBackend` + `run_delegate`); CLI verb
   `project delegate` in `cli.py`.
+- **Baseline-build gate (v37.E).** Before the agent runs, `run_delegate`
+  builds the **pristine** tree in the sandbox (same cmd as the verify gate via
+  `_detect_build`). A failure means the *environment* is broken (wrong package
+  manager, missing dep, bad config) — not the agent's change — so it bails with
+  the real build error (`reason="baseline-build-failed"`) instead of letting
+  the agent loop "fixing" a build that was never going to pass (the airsucks
+  5-hour burn). Gated on a clean tree (`changed_files` empty) so it runs only
+  on the first attempt; resumes (partial in tree) + later split sub-tasks skip
+  it. `--no-baseline` opts out. Pairs with the `_detect_build`→pnpm default
+  (the actual root cause: defaulting the no-lockfile case to npm built
+  pnpm-only sites with the wrong PM, breaking the verify gate independent of
+  the agent).
 - **Request input (v33.F, v33.K).** `request` is optional: an inline arg
   wins; otherwise it's read from stdin. On an interactive TTY the paste ends
   on a **lone `.` sentinel** (with Ctrl-D/EOF as a fallback) — v33.K, because

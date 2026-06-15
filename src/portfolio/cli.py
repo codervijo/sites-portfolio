@@ -4553,6 +4553,12 @@ def project_delegate(
              "(OpenHands/OpenAI directly — keeps Claude quota free). The OSS "
              "backend needs the lamill-openhands image (build "
              "b2b/ai/openhands)."),
+    no_baseline: bool = typer.Option(
+        False, "--no-baseline",
+        help="Skip the pre-flight baseline build. By default delegate builds "
+             "the pristine tree first and bails if it fails (a broken "
+             "environment, not the agent's fault) — pass this to skip that "
+             "when you trust the env and want to save the ~1-2 min."),
 ) -> None:
     """Delegate an open-ended change to Claude, in a sandboxed container.
 
@@ -4721,7 +4727,8 @@ def project_delegate(
                     verifier=_make_verifier(request),
                     preflight_probe=preflight_probe,
                     fallback_backend_factory=fallback_factory,
-                    on_progress=_on_progress, on_wait=_on_wait)
+                    on_progress=_on_progress, on_wait=_on_wait,
+                    baseline_check=not no_baseline)
                 split = SplitResult(subtasks=[request], outcomes=[result])
             else:
                 # v33.Q — default: plan → run each sub-task through resume-on-cap,
@@ -4733,7 +4740,7 @@ def project_delegate(
                     force=force, preflight_probe=preflight_probe,
                     fallback_backend_factory=fallback_factory,
                     on_progress=_on_progress, on_wait=_on_wait,
-                    on_subtask=_on_subtask)
+                    on_subtask=_on_subtask, baseline_check=not no_baseline)
     except KeyboardInterrupt:
         # v33.P resume — don't hard-discard the agent's partial on abort either;
         # keep it in the tree (consistent with resume-on-cap) and tell the

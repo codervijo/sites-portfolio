@@ -639,6 +639,31 @@ def changed_files(site_dir: Path) -> list[str]:
     return names
 
 
+def _baseline_build(backend: "DelegateBackend", site_dir: Path,
+                    emit: "Callable[[str, str], None]") -> tuple[bool, str]:
+    """v37.E — build the PRISTINE tree before the agent runs, in the same
+    sandbox + with the same command as the verify gate (`_detect_build`).
+
+    A failure here means the sandbox ENVIRONMENT is broken (wrong package
+    manager, missing dep, bad config) — not the agent's change. Without it the
+    agent sees "build failed" after its first edit, assumes its change is wrong,
+    and loops on a phantom until the quota window is gone (the airsucks 5-hour
+    burn). Returns `(ok, detail)`; `detail` is the build's output tail on
+    failure. The install caches in the container, so the later verify build's
+    install is fast — the real cost is ~one extra compile."""
+    cmd, info = _detect_build(site_dir)
+    if cmd is None:
+        return True, f"no baseline build ({info})"
+    emit("phase", "baseline build (pre-flight): confirming the site builds "
+                  "cleanly BEFORE the agent runs…")
+    rc, out = backend.exec(cmd, timeout=900)
+    if rc == 0:
+        emit("phase", "✓ baseline build OK — environment is sound")
+        return True, "baseline build OK"
+    emit("phase", "✗ baseline build FAILED — environment is broken before any change")
+    return False, (out[-700:] if out else "build failed (no output)")
+
+
 def run_delegate(domain: str, request: str, *,
                  backend: DelegateBackend,
                  bounds: Bounds | None = None,
@@ -647,7 +672,8 @@ def run_delegate(domain: str, request: str, *,
                  clock: Clock = time.monotonic,
                  diff_sampler: DiffSampler = working_tree_diff_size,
                  on_progress: "Callable[[str, str], None] | None" = None,
-                 sites_root: Path | None = None) -> DelegateResult:
+                 sites_root: Path | None = None,
+                 baseline_check: bool = True) -> DelegateResult:
     """Orchestrate one delegate run: preflight → start sandbox → supervise
     the agent stream on two axes → clean-kill → report the uncommitted diff.
 
@@ -690,6 +716,24 @@ def run_delegate(domain: str, request: str, *,
     emit("phase", "starting sandbox… (first run pulls the image + installs "
                   "claude — up to a minute)")
     backend.start(site_dir)
+    # v37.E — baseline-build gate. Build the PRISTINE tree first; if it fails,
+    # the env is broken (not the agent's change) so bail before the agent loops
+    # on a phantom. Gated on a clean tree (`changed_files` empty) so it runs
+    # only on the first attempt — resumes carry the agent's partial, and split's
+    # later sub-tasks build on prior results, neither of which is pristine.
+    if baseline_check and not changed_files(site_dir):
+        ok, detail = _baseline_build(backend, site_dir, emit)
+        if not ok:
+            backend.kill()
+            return DelegateResult(
+                status="error",
+                reason="baseline-build-failed",
+                message=(
+                    f"baseline build failed — {domain} doesn't build cleanly in "
+                    f"the sandbox BEFORE any change, so the environment is broken "
+                    f"(not the agent's fault). The agent won't run — it would loop "
+                    f"trying to 'fix' a build that was never going to pass. Fix the "
+                    f"environment, then re-run.\n\n--- build output (tail) ---\n{detail}"))
     emit("phase", "agent starting…")
     # v37 — backends may supply their own stdout→StreamEvent parser (the OSS/
     # OpenHands agent emits a different JSON than claude's stream-json). Default
@@ -1329,6 +1373,7 @@ def run_delegate_resilient(
     sleep: Callable[[float], None] = time.sleep,
     now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     clock: Clock = time.monotonic,
+    baseline_check: bool = True,
 ) -> DelegateResult:
     """Quota-aware wrapper around `run_delegate`. Pre-flight-probes the cap
     (when a probe is supplied), then runs — and on a rate-limit (pre-flight or
@@ -1392,7 +1437,8 @@ def run_delegate_resilient(
                 return run_delegate(
                     domain, request, backend=fallback_backend_factory(),
                     bounds=bounds, force=force, verifier=verifier,
-                    on_progress=on_progress, sites_root=sites_root, clock=clock)
+                    on_progress=on_progress, sites_root=sites_root, clock=clock,
+                    baseline_check=baseline_check)
             if not config.wait:
                 return DelegateResult(
                     status="error", rate_limit={"resets_at": q.resets_at.isoformat() if q.resets_at else None},
@@ -1419,7 +1465,8 @@ def run_delegate_resilient(
         result = run_delegate(
             domain, request, backend=backend_factory(),
             bounds=bounds, force=force or preserved, verifier=verifier,
-            on_progress=on_progress, sites_root=sites_root, clock=clock)
+            on_progress=on_progress, sites_root=sites_root, clock=clock,
+            baseline_check=baseline_check)
         q = result_quota(result)
         if q is None:
             return result                       # not a cap — done (good or bad)
@@ -1644,6 +1691,7 @@ def run_delegate_split(
     now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     clock: Clock = time.monotonic,
     max_resplit_depth: int = 1,
+    baseline_check: bool = True,
 ) -> SplitResult:
     """Plan the request into sub-tasks, then run each through
     `run_delegate_resilient` in order, **accumulating in the working tree**
@@ -1687,7 +1735,7 @@ def run_delegate_split(
             # the OSS/OpenHands backend (per-sub-task) instead of waiting.
             fallback_backend_factory=fallback_backend_factory,
             on_progress=on_progress, on_wait=on_wait, sites_root=sites_root,
-            sleep=sleep, now_fn=now_fn, clock=clock)
+            sleep=sleep, now_fn=now_fn, clock=clock, baseline_check=baseline_check)
 
         if res.status != "done" and res.capped_out and depth < max_resplit_depth:
             pieces = plan_fn(domain, sub)
