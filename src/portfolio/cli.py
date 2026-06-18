@@ -129,7 +129,7 @@ def check_seo(
     Reads from `data/seo/<latest>.json` by default if it covers every
     domain in scope. `--refresh` forces a fresh probe and overwrites
     today's cache file. `--domain <one>` always probes fresh. `since`
-    (e.g. "7d"/"28d") appends a Δ column on the fleet path — empty == off.
+    (e.g. "30d"/"7d"/"28d") appends a Δ column on the fleet path — empty == off.
     """
     target = _resolve_domain_repo_synonyms(domain, repo)
     _run_check_seo_mode(days=days, only_domain=target, sort_by=sort_by,
@@ -246,11 +246,11 @@ def _seo_snapshot_needs_refresh(snap_scope: str | None, only: str) -> bool:
     return False
 
 
-_SINCE_ALLOWED = {7: "7d", 28: "28d"}
+_SINCE_ALLOWED = {7: "7d", 28: "28d", 30: "30d"}
 
 
 def _parse_since(since: str) -> int | None:
-    """`"7d"`/`"28d"` → 7/28. Empty/None → None (Δ off). Anything else exits."""
+    """`"7d"`/`"28d"`/`"30d"` → 7/28/30. Empty/None → None (Δ off). Anything else exits."""
     if not since:
         return None
     s = since.strip().lower()
@@ -5532,9 +5532,11 @@ def fleet_seo(
     sort_by: str = typer.Option("impressions", "--sort"),
     refresh: bool = typer.Option(False, "--refresh"),
     since: str = typer.Option(
-        "7d", "--since",
-        help="Δ baseline window: 7d (default) or 28d. Appends a Δ pos/imp "
-             "column vs the nearest snapshot on-or-before today−N days.",
+        "30d", "--since",
+        help="Δ baseline window: 30d (default), or 7d / 28d. Drives both the "
+             "Δ pos/imp column and the '· new' flag (a domain absent from the "
+             "baseline that far back shows '· new'), vs the nearest snapshot "
+             "on-or-before today−N days.",
     ),
     detail: bool = typer.Option(
         False, "--detail",
