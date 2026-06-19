@@ -4645,6 +4645,7 @@ def project_delegate(
     debug_path = None
     if debug:
         from datetime import datetime
+        from pathlib import Path
         dbg_dir = Path.home() / "lamill" / "delegate-debug"
         dbg_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
