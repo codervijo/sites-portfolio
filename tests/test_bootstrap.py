@@ -117,17 +117,32 @@ def test_template_path_growth_log_is_self_sustaining(tmp_path):
 
 
 def test_template_path_seo_files_present(tmp_path):
+    # Default stack is astro: @astrojs/sitemap emits sitemap-index.xml at build,
+    # so the repo ships NO static public/sitemap.xml (a stub would shadow it).
     bootstrap("flow.dev", sites_root=tmp_path)
     project = tmp_path / "flow.dev"
-    for rel in ("public/robots.txt", "public/sitemap.xml", "public/favicon.svg",
+    for rel in ("public/robots.txt", "public/favicon.svg",
                 "vitest.config.js", "src/__tests__/smoke.test.js"):
         assert (project / rel).exists(), f"missing {rel}"
-    # robots references the sitemap URL
-    assert "Sitemap: https://flow.dev/sitemap.xml" in (project / "public" / "robots.txt").read_text()
-    # sitemap is valid-looking XML with the home page
+    # No stub sitemap for astro — @astrojs/sitemap owns it.
+    assert not (project / "public" / "sitemap.xml").exists(), \
+        "astro must not ship a stub public/sitemap.xml (it shadows @astrojs/sitemap)"
+    # robots points at the @astrojs/sitemap output, not the (absent) stub.
+    robots = (project / "public" / "robots.txt").read_text()
+    assert "Sitemap: https://flow.dev/sitemap-index.xml" in robots
+    assert "@astrojs/sitemap" in (project / "astro.config.mjs").read_text()
+
+
+def test_template_path_vite_ships_sitemap_stub_and_robots(tmp_path):
+    # Vite has no @astrojs/sitemap; scripts/generate-sitemap.mjs writes
+    # dist/sitemap.xml at build, with public/sitemap.xml as a pre-build stub.
+    bootstrap("flow.dev", stack="vite", sites_root=tmp_path)
+    project = tmp_path / "flow.dev"
+    assert (project / "public" / "sitemap.xml").exists()
+    assert (project / "scripts" / "generate-sitemap.mjs").exists()
     sitemap = (project / "public" / "sitemap.xml").read_text()
-    assert "https://flow.dev/" in sitemap
-    assert "<urlset" in sitemap
+    assert "https://flow.dev/" in sitemap and "<urlset" in sitemap
+    assert "Sitemap: https://flow.dev/sitemap.xml" in (project / "public" / "robots.txt").read_text()
 
 
 def test_template_path_vite_index_has_meta_tags_and_jsonld(tmp_path):

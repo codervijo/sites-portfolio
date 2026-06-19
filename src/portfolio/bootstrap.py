@@ -997,20 +997,27 @@ def _favicon_svg(domain: str) -> str:
 # ---- SEO + test scaffolding ----
 
 
-def _robots_txt(domain: str) -> str:
+def _robots_txt(domain: str, stack: str) -> str:
+    # Astro uses @astrojs/sitemap, which emits sitemap-index.xml (NOT /sitemap.xml);
+    # Vite uses scripts/generate-sitemap.mjs, which emits dist/sitemap.xml. Point
+    # robots at whichever this stack actually produces, or Google fetches a 404.
+    sitemap = "sitemap-index.xml" if stack == "astro" else "sitemap.xml"
     return f"""User-agent: *
 Allow: /
 
-Sitemap: https://{domain}/sitemap.xml
+Sitemap: https://{domain}/{sitemap}
 """
 
 
 def _sitemap_xml(domain: str, today_iso: str) -> str:
+    # Vite-only pre-build placeholder — scripts/generate-sitemap.mjs overwrites
+    # dist/sitemap.xml on build. Astro never ships this (it would shadow
+    # @astrojs/sitemap's sitemap-index.xml); see SEO_FILES vs VITE_FILES.
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Stub sitemap. v3.B will replace this with a build-time generator that
-  scans routes/pages. Until then, it lists just the home page so Google
-  can discover the site at all.
+  Pre-build placeholder; the build's generate-sitemap.mjs replaces this with a
+  full route scan. Lists just the home page so Google can discover the site
+  before the first build runs.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
@@ -1293,9 +1300,11 @@ COMMON_FILES = [
     (".github/workflows/ci.yml", "ci_workflow"),   # CHECK_024
 ]
 
+# NOTE: public/sitemap.xml is intentionally NOT here — it's stack-specific.
+# Astro emits sitemap-index.xml via @astrojs/sitemap (a stub would shadow it);
+# Vite ships the stub as a pre-build placeholder (see VITE_FILES).
 SEO_FILES = [
     ("public/robots.txt", "robots"),
-    ("public/sitemap.xml", "sitemap"),
     ("public/favicon.svg", "favicon_svg"),
     ("vitest.config.js", "vitest_config"),
     ("src/__tests__/smoke.test.js", "smoke_test"),
@@ -1314,6 +1323,7 @@ VITE_FILES = [
     ("index.html", "vite_index_html"),
     ("src/main.jsx", "vite_main"),
     ("src/App.jsx", "vite_app"),
+    ("public/sitemap.xml", "sitemap"),
     ("scripts/generate-sitemap.mjs", "vite_sitemap_script"),
     ("src/__tests__/seo.test.js", "seo_test_vite"),
 ]
@@ -1376,7 +1386,7 @@ def _render(key: str, domain: str, stack: str, topic: str, today: str,
     if key == "vite_app":
         return _vite_app_jsx()
     if key == "robots":
-        return _robots_txt(domain)
+        return _robots_txt(domain, stack)
     if key == "sitemap":
         return _sitemap_xml(domain, today)
     if key == "favicon_svg":
