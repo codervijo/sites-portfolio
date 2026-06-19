@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +42,24 @@ def generate_key() -> str:
 
 def key_file_path(repo: Path, key: str) -> Path:
     return repo / KEY_DIR / f"{key}.txt"
+
+
+def _git_track(repo: Path, paths: list[Path]) -> None:
+    """Best-effort `git add` of freshly provisioned files. The IndexNow key
+    lives at public/<key>.txt and MUST be committed → deployed, or the engines
+    fetch the SPA/HTML catch-all instead of the key and verification fails (the
+    site silently can't use IndexNow). Left untracked, this hash-named file is
+    trivial to miss at commit time, so stage it at provision time. No-op outside
+    a git repo / on git error — provisioning must not hinge on git succeeding."""
+    if not paths:
+        return
+    try:
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "--", *[str(p) for p in paths]],
+            check=False, capture_output=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def is_provisioned(repo: Path) -> bool:
@@ -81,6 +100,8 @@ def provision(repo: Path) -> tuple[str, list[Path]]:
         )
         written.append(repo / lamill_toml.LAMILL_TOML_FILENAME)
 
+    # Track what we wrote so the key file can't linger untracked → undeployed.
+    _git_track(repo, written)
     return key, written
 
 
