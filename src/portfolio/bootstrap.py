@@ -785,6 +785,11 @@ def _astro_index(domain: str) -> str:
 const site = "https://{domain}";
 const title = "{domain}";
 const description = "<fill in: 1-2 sentence value prop for SEO description>";
+// Canonical MUST match the served URL incl. trailing slash (trailingSlash:
+// 'always' in astro.config.mjs). For a sub-page, derive it the same way:
+//   const canonical = `${{site}}/<route>/`;   // e.g. `${{site}}/about/`
+// A no-slash canonical 308-redirects and breaks indexing (CHECK_161).
+const canonical = `${{site}}/`;
 ---
 <!doctype html>
 <html lang="en">
@@ -793,14 +798,14 @@ const description = "<fill in: 1-2 sentence value prop for SEO description>";
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{{title}}</title>
     <meta name="description" content={{description}} />
-    <link rel="canonical" href={{site}} />
+    <link rel="canonical" href={{canonical}} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content={{title}} />
     <meta property="og:description" content={{description}} />
-    <meta property="og:url" content={{site}} />
+    <meta property="og:url" content={{canonical}} />
     <meta property="og:site_name" content="{domain}" />
 
     <!-- Twitter card -->
@@ -1119,6 +1124,13 @@ import sitemap from '@astrojs/sitemap';
 
 export default defineConfig({{
   site: 'https://{domain}',
+  // trailingSlash: 'always' — directory format serves /<page>/ and
+  // @astrojs/sitemap lists /<page>/, so a page's <link rel="canonical">
+  // MUST also end in a slash. A canonical of /<page> (no slash) 308-redirects
+  // to /<page>/ — Google then can't settle on a canonical and the page comes
+  // back "URL is unknown to Google". Make it explicit so every page's
+  // canonical matches its served URL. Enforced by CHECK_161.
+  trailingSlash: 'always',
   integrations: [sitemap()],
   output: 'static',
 }});
