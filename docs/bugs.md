@@ -66,6 +66,25 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-19 — CF purge-by-URL doesn't evict a DYNAMIC-pinned stale object (earnlog /sitemap.xml)
+- **Repro** — `lamill project fix earnlog.xyz --rule CHECK_057 --apply`: reports the purge sent, but `curl -sI https://earnlog.xyz/sitemap.xml` still returns the removed stub (200, body has `<!-- Stub sitemap`, `age` keeps climbing). Cache-busted (`?cb=…`) the same path returns **404** — so origin is correct; only the edge copy is stale.
+- **Expected** — `cloudflare.purge_files(zone, ["https://earnlog.xyz/sitemap.xml"])` evicts the cached object; the next fetch re-pulls from origin (404).
+- **Actual** — the CF API returns success but the object survives (it was a static `public/sitemap.xml` served with `cache-control: public, s-maxage=604800`; removed in the sitemap sweep + redeployed, but the 7-day edge copy persists). Purge-by-file isn't matching the cached key.
+- **Where** — `cloudflare.py::purge_files` (the `POST /zones/{id}/purge_cache {"files":[…]}` call) vs CF Pages asset caching. Possibly needs purge-by-prefix / purge_everything, or the cache key includes a variant the file URL doesn't match.
+- **Severity** — `minor` for earnlog itself (nothing references `/sitemap.xml`; robots + GSC use `sitemap-index.xml`; self-expires <7d) — but the *purge mechanism* being unreliable is `major` for trust in CHECK_057 remediation. Bug 1 below makes the failure at least honest.
+- **Fix** — investigate CF purge semantics for Pages static assets (purge_everything fallback? prefix purge? verify the exact cache key). **Deferred** — needs CF-side care, not a blind change.
+- **Notes** — surfaced 2026-06-19 chasing the earnlog edge-cache focus signal. Bug 2 (verify false-positive) is fixed; this (eviction) is the deeper one.
+
+
+### 2026-06-19 — CHECK_057 purge fix false-reports "fixed" when a stale path survives as DYNAMIC
+- **Repro** — same as above; before the fix, `project fix … --rule CHECK_057 --apply` printed `✓ purged 1 path(s)` even though `/sitemap.xml` was still the stale stub at the edge.
+- **Expected** — if a path is still stale after the purge, report `error`, not `fixed`.
+- **Actual** — the post-purge verify computed `still_stale` but then only errored on the subset whose `cf-cache-status` was `HIT`/`REVALIDATED`. A stale object served as `DYNAMIC` (the earnlog case) slipped through ⇒ false `fixed`.
+- **Where** — `checks/deploy/check_057_cf_edge_cache_fresh.py::_apply_purge`, the verify block (~L308–321).
+- **Severity** — `major` (the remediation silently lied; masks Bug 1 fleet-wide).
+- **Fix** — **Fixed in** — `<this commit>` — error on `still_stale` (the same `_stale_paths` criterion used pre-purge), not the narrower HIT/REVALIDATED filter; message now names each surviving path + its cache-status. Regression test: `tests/test_check_057_purge_verify.py`.
+
+
 ### 2026-06-19 — sub-page canonical 308-redirects to its own served URL; "unknown to Google"; no check catches it
 - **Repro** — `curl -sI https://earnlog.xyz/calculator` → `308 → /calculator/`; the served `/calculator/` page declares `<link rel="canonical" href="https://earnlog.xyz/calculator">` (no slash). GSC URL-inspect each sub-page → "URL is unknown to Google" while the homepage is "Submitted and indexed".
 - **Expected** — a page's `<link rel="canonical">` is its own final (200, non-redirecting) URL, matching what the sitemap lists.

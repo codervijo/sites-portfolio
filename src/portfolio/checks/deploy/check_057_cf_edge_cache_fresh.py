@@ -305,18 +305,28 @@ def _apply_purge(project_dir: Path, dry_run: bool, assume_yes: bool) -> FixResul
             files_touched=[],
         )
 
-    # Verify: re-probe the same paths. CF normally flips HIT→MISS
-    # immediately after a successful purge — if any are still HIT on a
-    # stale path the purge didn't take.
+    # Verify: re-probe the same paths. A successful purge makes the edge
+    # re-fetch from origin, so a still-stale path means the purge didn't take.
+    # Use the SAME staleness criterion as pre-purge (`_stale_paths`) — NOT a
+    # narrower HIT/REVALIDATED filter. A stale object can be served as
+    # `cf-cache-status: DYNAMIC` (e.g. a removed static file pinned by a long
+    # `s-maxage`), and the old HIT-only check let those slip through → the fix
+    # false-reported "fixed" while the stale content persisted (bugs.md
+    # 2026-06-19). Report the surviving paths with their cache-status.
     after = _run_probes(project_dir, domain)
     still_stale = _stale_paths(after)
-    still_hit = [r for r in still_stale
-                 if (r.get("cf_cache_status") or "").upper() in ("HIT", "REVALIDATED")]
-    if still_hit:
+    if still_stale:
+        detail = ", ".join(
+            f"{r['path']} (cache={r.get('cf_cache_status') or '?'})"
+            for r in still_stale
+        )
         return FixResult(
             status="error",
-            summary=f"purge sent but {len(still_hit)} path(s) still HIT: "
-                    f"{', '.join(r['path'] for r in still_hit)}",
+            summary=f"purge sent but {len(still_stale)} path(s) still stale at "
+                    f"edge: {detail}. CF purge-by-URL can lag a few seconds — "
+                    f"re-run to retry (idempotent). If it persists, the cached "
+                    f"key isn't matching the purge (purge the zone, or check the "
+                    f"object's s-maxage / CF Pages asset caching).",
             files_touched=[],
         )
 
