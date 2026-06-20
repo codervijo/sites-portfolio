@@ -414,7 +414,7 @@ def test_apply_purge_returns_error_when_reprobe_still_hits(tmp_path, monkeypatch
 
     out = mod._apply_purge(repo, dry_run=False, assume_yes=False)
     assert out.status == "error"
-    assert "still HIT" in out.summary
+    assert "still stale" in out.summary
 
 
 def test_apply_purge_fixed_when_reprobe_clean(tmp_path, monkeypatch):
