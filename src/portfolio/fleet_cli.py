@@ -259,6 +259,81 @@ def focus(
             f"(edit [cyan]\\[fleet] dark_sites[/] in config.toml to change)[/]"
         )
 
+    # Indexing-funnel section: where each site sits in GSC's discovery →
+    # index pipeline, read from the per-domain GSC cache (never a live
+    # fetch — same never-block contract as the rest of focus).
+    _render_index_funnel()
+
+
+# GSC coverage_state → (sort key, label, color). Lower sort key = earlier in
+# the funnel = more stuck. The healthy terminal stage ("indexed") sorts last
+# and is collapsed to a count; the earlier stages are the actionable ones.
+_FUNNEL_STAGES = {
+    "URL is unknown to Google":           (0, "① unknown — never discovered", "red"),
+    "Discovered - currently not indexed": (1, "② discovered — not yet crawled", "yellow"),
+    "Crawled - currently not indexed":    (2, "③ crawled — Google declined to index", "yellow"),
+    "Page with redirect":                 (3, "⚠ redirect — not a final URL", "yellow"),
+    "Submitted and indexed":              (5, "④ indexed", "green"),
+}
+_FUNNEL_OTHER = (4, "⚠ other — see coverage_state", "yellow")
+
+
+def _render_index_funnel() -> None:
+    """Append the GSC indexing-funnel breakdown below the focus list.
+
+    Reads only `data/gsc/<domain>/<latest>.json` (the cached URL-inspection
+    snapshot written by `gsc recrawl`). Buckets each site's homepage by
+    `coverage_state`; stuck stages list site names, the healthy indexed
+    stage collapses to a count. Silent no-op when no GSC cache exists yet.
+    """
+    import json
+    from .gsc import GSC_DIR
+
+    if not GSC_DIR.exists():
+        return
+    # bucket[label] = (sortkey, color, [domains])
+    buckets: dict[str, tuple[int, str, list[str]]] = {}
+    oldest = None
+    for ddir in sorted(GSC_DIR.glob("*/")):
+        if not ddir.is_dir():
+            continue
+        domain = ddir.name
+        snaps = sorted(ddir.glob("*.json"))
+        if not snaps:
+            continue
+        try:
+            data = json.loads(snaps[-1].read_text())
+        except (OSError, ValueError):
+            continue
+        insp = data.get("v16c_inspections") or []
+        home = next((i for i in insp
+                     if i.get("url", "").rstrip("/").endswith(domain)), None) \
+            or (insp[0] if insp else None)
+        if not home:
+            continue
+        cov = home.get("coverage_state") or "URL is unknown to Google"
+        sort, label, color = _FUNNEL_STAGES.get(cov, (_FUNNEL_OTHER[0], _FUNNEL_OTHER[1], "yellow"))
+        buckets.setdefault(label, (sort, color, []))[2].append(domain)
+        snap_date = snaps[-1].stem
+        oldest = snap_date if oldest is None else min(oldest, snap_date)
+
+    if not buckets:
+        return
+    console.print(
+        "\n[bold]Indexing funnel[/] [dim](GSC coverage_state from cache"
+        + (f", oldest {oldest}" if oldest else "")
+        + "; refresh: [cyan]lamill settings gsc recrawl --site <d>[/])[/]"
+    )
+    for label, (_sort, color, doms) in sorted(buckets.items(), key=lambda kv: kv[1][0]):
+        doms = sorted(doms)
+        # Healthy terminal stage: collapse to a count. Stuck stages: name them.
+        if label.startswith("④"):
+            names = f"[dim]{len(doms)} site(s)[/]"
+        else:
+            shown = ", ".join(doms[:6])
+            names = shown + (f" [dim]+{len(doms) - 6} more[/]" if len(doms) > 6 else "")
+        console.print(f"  [{color}]{label:<42}[/] [bold]{len(doms):>2}[/]  {names}")
+
 
 # info_drift — kept as implementation for `fleet drift`.
 def info_drift() -> None:
