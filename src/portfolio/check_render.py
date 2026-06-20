@@ -530,6 +530,9 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
     t.add_column("HTTP")
     t.add_column("Robots", justify="center")
     t.add_column("Sitemap", justify="center")
+    # Page-URL count in the served sitemap (recursed one level into a
+    # sitemapindex). "—" when no sitemap / not probed.
+    t.add_column("Pages", justify="right")
     t.add_column("GSC", justify="center")
     # GSC sitemap cell — merges presence (submitted or not) with per-sitemap
     # processing health (errors / warnings from GSC's Sitemaps API). 🔴 = GSC
@@ -567,6 +570,9 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
             http_cell,
             s["robots"],
             s["sitemap"],
+            (str(row.sitemap_url_count)
+             if getattr(row, "sitemap_url_count", None) is not None
+             else "[dim]—[/]"),
             s["gsc"],
             gsc_sitemap_cell(row),
             last_crawl_by_domain.get(row.domain.lower(), "[dim]—[/]"),

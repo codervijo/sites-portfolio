@@ -85,6 +85,9 @@ class SEORow:
     # to surface non-default paths (e.g. /sitemap-index.xml). None when
     # no sitemap was found OR the probe was skipped.
     sitemap_url: str | None = None
+    # Count of <loc> page URLs in the served sitemap (recursing one level
+    # into a <sitemapindex>). None when no sitemap / probe skipped.
+    sitemap_url_count: int | None = None
 
     # Crawler intent declared in robots.txt. "dark" means the site is
     # deliberately blocked from crawlers (members-only, staging, etc.) —
@@ -192,6 +195,27 @@ def _parse_robots_sitemaps(body: str) -> list[str]:
     return urls
 
 
+def _count_sitemap_urls(xml: str, client) -> int:
+    """Count <loc> page URLs in a sitemap. If it's a <sitemapindex>, recurse
+    one level into each child sitemap and sum. Best-effort: a child fetch that
+    fails contributes 0. Regex-based (no XML dep) — sitemaps are flat + simple.
+    """
+    import re
+
+    locs = re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", xml, re.I)
+    if not re.search(r"<sitemapindex", xml, re.I):
+        return len(locs)            # a urlset: each <loc> is a page
+    total = 0                       # a sitemapindex: each <loc> is a child sitemap
+    for child in locs[:50]:         # bound the fan-out
+        try:
+            r = client.get(child)
+            if r.status_code == 200:
+                total += len(re.findall(r"<loc>\s*[^<\s]+\s*</loc>", r.text, re.I))
+        except Exception:
+            continue
+    return total
+
+
 def probe_http(domain: str, *, timeout: float = HTTP_TIMEOUT,
                client: httpx.Client | None = None) -> dict[str, Any]:
     """Fetch the root + /robots.txt, then probe for the sitemap. Returns a
@@ -208,7 +232,7 @@ def probe_http(domain: str, *, timeout: float = HTTP_TIMEOUT,
     out: dict[str, Any] = {
         "status": None, "error": None, "hsts": None,
         "robots_served": None, "sitemap_served": None,
-        "sitemap_url": None, "robots_intent": None,
+        "sitemap_url": None, "sitemap_url_count": None, "robots_intent": None,
     }
     own_client = client is None
     if client is None:
@@ -261,6 +285,7 @@ def probe_http(domain: str, *, timeout: float = HTTP_TIMEOUT,
             if s.status_code == 200:
                 out["sitemap_served"] = True
                 out["sitemap_url"] = str(s.url)
+                out["sitemap_url_count"] = _count_sitemap_urls(s.text, client)
                 break
     finally:
         if own_client:
@@ -777,6 +802,7 @@ def run_seo(
         row.robots_served = http["robots_served"]
         row.sitemap_served = http["sitemap_served"]
         row.sitemap_url = http.get("sitemap_url")
+        row.sitemap_url_count = http.get("sitemap_url_count")
         row.robots_intent = http.get("robots_intent")
 
         local_service = None
