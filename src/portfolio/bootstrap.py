@@ -1523,6 +1523,19 @@ CF_HEADERS_TEMPLATE = """/assets/*
 /*.html
   Cache-Control: public, max-age=0, must-revalidate
 
+# SEO files: short cache + revalidate. Without an explicit rule they fall under
+# `/*` (no Cache-Control) and inherit CF's long default — so a changed or
+# removed robots/sitemap gets pinned in the CF Pages asset cache for days, which
+# the purge API can't evict (CHECK_057). Keep them always-revalidating.
+/robots.txt
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sitemap.xml
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sitemap-*.xml
+  Cache-Control: public, max-age=0, must-revalidate
+
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY

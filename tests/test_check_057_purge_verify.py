@@ -11,11 +11,14 @@ import portfolio.checks.deploy.check_057_cf_edge_cache_fresh as mod
 
 
 def _stale_row(path="/sitemap.xml", cache="DYNAMIC"):
-    # 200 served, not in dist, not a SPA fallback → _stale_paths flags it.
+    # 200 served, not in dist, not a SPA fallback, and actually edge-cached
+    # (age > 0) → _stale_paths flags it. age is what distinguishes a genuinely
+    # cached-stale object from a fresh DYNAMIC pass-through.
     return {
         "path": path, "url": f"https://x.test{path}", "status": 200,
         "cf_cache_status": cache, "content_type": "application/xml",
-        "etag": None, "error": None, "is_critical": True, "in_dist": False,
+        "etag": None, "age": 109000, "cache_control": "public, s-maxage=604800",
+        "error": None, "is_critical": True, "in_dist": False,
     }
 
 

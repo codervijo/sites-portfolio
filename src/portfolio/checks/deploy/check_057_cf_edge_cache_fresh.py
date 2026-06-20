@@ -77,9 +77,10 @@ def _probe_one(client: httpx.Client, domain: str, path: str) -> dict[str, Any]:
     except httpx.HTTPError as e:
         return {"path": path, "url": url, "status": None,
                 "cf_cache_status": None, "content_type": None,
-                "etag": None,
+                "etag": None, "age": None, "cache_control": "",
                 "error": f"{type(e).__name__}: {e}"}
     raw_ct = resp.headers.get("content-type") or ""
+    age_raw = (resp.headers.get("age") or "").strip()
     return {
         "path": path,
         "url": url,
@@ -87,6 +88,10 @@ def _probe_one(client: httpx.Client, domain: str, path: str) -> dict[str, Any]:
         "cf_cache_status": resp.headers.get("cf-cache-status"),
         "content_type": raw_ct.split(";")[0].strip().lower(),
         "etag": resp.headers.get("etag"),
+        # `age` > 0 means the edge served a copy that's been sitting in cache
+        # for that many seconds (vs fetching fresh from origin this request).
+        "age": int(age_raw) if age_raw.isdigit() else None,
+        "cache_control": (resp.headers.get("cache-control") or "").lower(),
         "error": None,
     }
 
@@ -148,12 +153,36 @@ def _is_spa_fallback(row: dict[str, Any]) -> bool:
     return ct.startswith("text/html")
 
 
+# cf-cache-status values that mean "served from the CF zone/CDN cache" — these
+# are evictable by the purge_cache API.
+_ZONE_CACHED_STATUSES = ("HIT", "REVALIDATED", "EXPIRED", "STALE", "UPDATING")
+
+
+def _is_edge_cached(row: dict[str, Any]) -> bool:
+    """True when the edge served a CACHED copy (vs fetching fresh from origin
+    this request). A 200 that's `DYNAMIC`/`MISS` with no `age` reflects origin's
+    current truth — it can't be stale-cached, so it's not a CHECK_057 concern
+    (this is what kept airsucks's fresh `/robots.txt` + `/sitemap.xml`, served
+    `max-age=0, DYNAMIC`, from being false-flagged)."""
+    if (row.get("cf_cache_status") or "").upper() in _ZONE_CACHED_STATUSES:
+        return True
+    return (row.get("age") or 0) > 0
+
+
+def _is_zone_purgeable(row: dict[str, Any]) -> bool:
+    """True when the stale copy lives in the CF zone/CDN cache (purge_cache can
+    evict it). A stale 200 served `DYNAMIC` but with a large `age` is the CF
+    Pages asset cache — pinned by the asset's `s-maxage`, NOT evictable by the
+    zone purge API (confirmed 2026-06-20: purge_files + purge_everything both
+    no-op'd on earnlog /sitemap.xml). Those expire on their own."""
+    return (row.get("cf_cache_status") or "").upper() in _ZONE_CACHED_STATUSES
+
+
 def _stale_paths(rows: list[dict[str, Any]], *, critical_only: bool = False
                  ) -> list[dict[str, Any]]:
-    """Filter probe rows for stale-cached entries (200 served + not in
-    dist + not a SPA-fallback synthesized response). `critical_only=
-    True` limits to critical paths — used by the check's fail verdict;
-    the fix purges any stale path (critical or not)."""
+    """Filter probe rows for stale-cached entries: 200 served + not in dist +
+    not a SPA-fallback + actually served from cache (`_is_edge_cached`).
+    `critical_only=True` limits to critical paths — used by the fail verdict."""
     out = []
     for r in rows:
         if r.get("status") != 200:
@@ -161,6 +190,8 @@ def _stale_paths(rows: list[dict[str, Any]], *, critical_only: bool = False
         if r.get("in_dist"):
             continue
         if _is_spa_fallback(r):
+            continue
+        if not _is_edge_cached(r):
             continue
         if critical_only and not r.get("is_critical"):
             continue
@@ -211,10 +242,24 @@ def run(repo_path: str) -> CheckResult:
 
     stale_critical = _stale_paths(rows, critical_only=True)
     if stale_critical:
+        purgeable = [r for r in stale_critical if _is_zone_purgeable(r)]
+        if purgeable:
+            # Zone/CDN-cached → the purge API can evict it. Actionable fail.
+            return CheckResult(
+                status="fail",
+                message=f"stale at edge: {_format_stale_summary(stale_critical)} "
+                        f"— run 'portfolio project fix <domain> --apply' to purge",
+            )
+        # Only CF Pages-pinned (DYNAMIC + age): the zone purge API can't evict
+        # these (see _is_zone_purgeable). Warn, not fail — they expire as the
+        # asset's s-maxage runs out. Prevent recurrence with a short
+        # Cache-Control for these files in public/_headers.
         return CheckResult(
-            status="fail",
-            message=f"stale at edge: {_format_stale_summary(stale_critical)} "
-                    f"— run 'portfolio project fix <domain> --apply' to purge",
+            status="warn",
+            message=f"stale in CF Pages cache (not zone-purgeable): "
+                    f"{_format_stale_summary(stale_critical)} — expires as the "
+                    f"asset's s-maxage runs out; for SEO files add a short "
+                    f"Cache-Control via public/_headers so changes don't pin.",
         )
 
     stale_any = _stale_paths(rows)
