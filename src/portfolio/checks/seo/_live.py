@@ -222,6 +222,32 @@ def fetch_response_status(url: str, *,
             client.close()
 
 
+def fetch_status_no_redirect(url: str, *,
+                             client: httpx.Client | None = None) -> int:
+    """Return the raw HTTP status for `url` WITHOUT following redirects, so a
+    3xx is reported as 3xx (not the final 200). Used to detect a canonical
+    that points at a redirecting URL (CHECK_161). GET, not HEAD — some CDNs
+    mishandle HEAD. Raises LiveFetchError on transport failure / 5xx.
+    """
+    own_client = client is None
+    if client is None:
+        client = httpx.Client(
+            timeout=HTTP_TIMEOUT, follow_redirects=False,
+            headers={"User-Agent": GOOGLEBOT_UA},
+        )
+    try:
+        try:
+            resp = client.get(url)
+        except httpx.HTTPError as e:
+            raise LiveFetchError(f"{type(e).__name__}: {e}") from e
+        if resp.status_code >= 500:
+            raise LiveFetchError(f"HTTP {resp.status_code}")
+        return resp.status_code
+    finally:
+        if own_client:
+            client.close()
+
+
 def clear_cache() -> None:
     """Reset the per-process fetch cache. Tests call this between cases."""
     _FETCH_CACHE.clear()

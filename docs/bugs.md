@@ -66,6 +66,16 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-19 — sub-page canonical 308-redirects to its own served URL; "unknown to Google"; no check catches it
+- **Repro** — `curl -sI https://earnlog.xyz/calculator` → `308 → /calculator/`; the served `/calculator/` page declares `<link rel="canonical" href="https://earnlog.xyz/calculator">` (no slash). GSC URL-inspect each sub-page → "URL is unknown to Google" while the homepage is "Submitted and indexed".
+- **Expected** — a page's `<link rel="canonical">` is its own final (200, non-redirecting) URL, matching what the sitemap lists.
+- **Actual** — Astro's directory format serves `/calculator/` and `@astrojs/sitemap` lists `/calculator/`, but the canonical declares `/calculator`, which 308-redirects back to `/calculator/`. A canonical pointing at a redirecting URL is an indexing-blocker — exactly the sub-pages with the contradiction are "unknown to Google". Confirmed on **donready.xyz** (per-page hardcoded `const url = ${site}/page`) and **earnlog.xyz** (shared `Layout.astro` `${site}${path}`); both scaffolded by `portfolio new bootstrap` ⇒ likely a **bootstrap-template defect**, fleet-wide on multi-page Astro sites (cf. the low index ratios: civictools 1/10, calcengine 2/10, voltloop 2/10…).
+- **Where** — gap: **no conformance check** validates this. `CHECK_158 canonical-host-is-apex` fetches every sitemap URL and reads each canonical but checks only the *host* (apex vs www) — it passes our case because the host is correct; the *path/trailing-slash* redirect goes unchecked. Bootstrap source: `bootstrap.py` Astro template canonical generation. Per-site source: each site's `Layout.astro` / page `const url`.
+- **Severity** — `major` (silently blocks indexing of every non-home page on affected sites; the fleet's biggest green-but-dead driver).
+- **Fix** — (1) add a high-severity check: for each live sitemap URL, the page's `<link rel="canonical">` must resolve 200 (not 3xx) — i.e. equal its own final URL. (2) fix the bootstrap template so new Astro sites emit trailing-slash canonicals. (3) sweep existing multi-page Astro sites. donready + earnlog already fixed per-site (`0e07f83`, `2f1d285`).
+- **Notes** — same trailing-slash class as the airsucks/whizgraphs canonical fixes. The check is being added now (operator request, high severity).
+
+
 ### 2026-06-15 — three duplicate sitemap-URL parsers (DRY violation; same bug needed fixing in two of them)
 
 - **Where** — `checks/seo/_live.py::_extract_sitemap_locs` (+ `get_sitemap_urls`), `gsc_recrawl.py::_extract_locs` (+ `fetch_sitemap_urls`), `indexnow.py::_LOC_RE` (regex). Three independent implementations of "extract `<loc>` URLs from a sitemap / sitemap-index."
