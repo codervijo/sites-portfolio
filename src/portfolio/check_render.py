@@ -461,12 +461,46 @@ def _fmt_delta_metric(delta, *, kind: str) -> str:
     return _fmt_delta_part(delta.imp_delta, delta.imp_flat, kind="imp")
 
 
+def _last_crawl_by_domain() -> dict[str, str]:
+    """domain → homepage last_crawl_time (YYYY-MM-DD) from the per-domain GSC
+    URL-inspection cache (data/gsc/<domain>/<latest>.json). Cache-only, no live
+    fetch. Missing / never-crawled domains are simply absent from the map."""
+    import json
+
+    from .gsc import GSC_DIR
+
+    out: dict[str, str] = {}
+    if not GSC_DIR.exists():
+        return out
+    for ddir in GSC_DIR.glob("*/"):
+        if not ddir.is_dir():
+            continue
+        snaps = sorted(ddir.glob("*.json"))
+        if not snaps:
+            continue
+        try:
+            data = json.loads(snaps[-1].read_text())
+        except (OSError, ValueError):
+            continue
+        insp = data.get("v16c_inspections") or []
+        home = next((i for i in insp
+                     if i.get("url", "").rstrip("/").endswith(ddir.name)), None) \
+            or (insp[0] if insp else None)
+        lc = (home or {}).get("last_crawl_time")
+        if lc:
+            out[ddir.name.lower()] = lc[:10]
+    return out
+
+
 def _render_seo_table(rows: list, *, days: int, sort_by: str,
                       deltas: dict | None = None,
                       delta_meta=None) -> None:
     from .dashboard import _site_age_days
     from .data import load_domains
     from .seo_runtime import gsc_sitemap_cell, overall_status, row_statuses
+
+    # Last-crawl date per domain, joined from the GSC inspection cache.
+    last_crawl_by_domain = _last_crawl_by_domain()
 
     # P4 — build domain → site_age_days map for age-aware grading.
     # `overall_status` masks imp + pos cells for sites <90d old so the
@@ -502,6 +536,9 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
     # reported errors on a submitted sitemap ("Sitemap could not be read"),
     # 🟡 = warnings, 🟢 = submitted and clean, ❌ = none submitted, ⚪ = no data.
     t.add_column("GSC sm", justify="center")
+    # Last-crawl date (homepage) from the GSC inspection cache — "—" when the
+    # domain has no cached inspection / was never crawled.
+    t.add_column("Last crawl", justify="right")
     # v40 — Δ vs an earlier snapshot, each metric's delta sitting right
     # beside its value (Imp│ΔImp … Pos│ΔPos). Only present when the caller
     # paired a baseline; sort + the value columns are untouched.
@@ -532,6 +569,7 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
             s["sitemap"],
             s["gsc"],
             gsc_sitemap_cell(row),
+            last_crawl_by_domain.get(row.domain.lower(), "[dim]—[/]"),
         ]
         cells.append(_color_value(s["imp"], _fmt_int(row.gsc_impressions)))
         if show_delta:
