@@ -66,6 +66,35 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-24 — `new deploy` pre-flight prints `✓ GitHub auth via token` then dies one line later on a cryptic raw-401 owner lookup
+
+- **Repro** — with a stale/revoked `GITHUB_TOKEN` in `portfolio.env` (and no `gh` CLI installed):
+    ```
+    lamill new deploy bppvcoach.com --yes
+    ```
+- **Expected** — the `GitHub auth via token` pre-flight check should validate that the token actually *works* before printing `✓`. If the token is expired/revoked, fail there with a plain-language remediation, e.g. `✗ GitHub token rejected (401 Bad credentials) — it is expired or revoked. Set a fresh PAT: lamill settings apikeys set GITHUB_TOKEN <pat>`. The `✓`/`✗` lines should never contradict each other one line apart.
+- **Actual** — pre-flight step 0 prints:
+    ```
+      ✓ GitHub auth via token
+      ✗ Could not resolve GitHub owner: GET /user → HTTP 401: {
+      "message": "Bad credentials", ...
+      }
+    ```
+  The `✓` asserts auth is OK when only token *presence* was checked; the *first real validation* is the very next step, which dumps a raw GitHub JSON 401 body. Contradictory + cryptic, and there's no remediation hint at the failure site.
+- **Where** — `src/portfolio/gh_repo.py`. `auth_path()` / `ensure_auth()` (lines 83–111) only test that `GITHUB_TOKEN` is present/non-empty — that's what the `✓ GitHub auth via token` line reflects. Validity is first exercised in `_detect_owner_via_token()` (lines 126–146), where a non-200 raises `GhApiError(f"GET /user → HTTP {r.status_code}: {r.text[:200]}")` — the raw-JSON message the operator saw. Root cause: the token path has no validity probe, unlike the CF path which already does one (`cloudflare.py:363` — `GET /user/tokens/verify`, "pre-flight probe to catch under-scoped CF tokens").
+- **Fix (guess)** — fold a real probe into the auth pre-flight: in `ensure_auth()` (or a new `verify_token()`), when path == "token", call `GET /user` and treat 401/403 as auth failure, mapping it to a typed `GhAuthError` with the `lamill settings apikeys set GITHUB_TOKEN <pat>` remediation (mirroring `gh_repo.py:106-109`). Only print `✓ GitHub auth via token` after that probe passes. Parse the 401 body to distinguish *expired/revoked* (Bad credentials) from *under-scoped* (403 + `X-Accepted-OAuth-Scopes`) so the message names the right remedy. Same treatment for the `gh-cli` path via `gh api user`.
+- **Severity** — minor (UX/error-quality; not data-loss). The pre-flight *does* fail before any write step, so no half-created GH/CF state — but the misleading `✓` + raw-JSON `✗` cost operator time diagnosing.
+- **Fixed (working tree, pending commit)** — `gh_repo.py`: `_detect_owner_via_token()` now maps 401/403 to a typed `GhAuthError` via `_token_auth_error()`, which parses the body + `X-{Accepted-,}OAuth-Scopes` headers to name the cause (expired/revoked vs under-scoped) and appends the `lamill settings apikeys set GITHUB_TOKEN <pat>` remediation; the `gh`-CLI path gets the same via `_looks_like_gh_auth_failure()`. `cli.py` pre-flight now resolves the owner *as* the credential probe, so `✓ GitHub auth via {path}` prints only after the token is proven valid (no more contradictory ✓-then-✗). Tests: `test_gh_repo.py` updated (401 → `GhAuthError`) + 3 added (remediation text, 403 scope-naming, 500-stays-`GhApiError`); 62 + 38 deploy tests green. Verified live against the editable-installed `lamill` with a simulated 401.
+
+### 2026-06-22 — `fleet seo` can't answer "did Google re-crawl after my last update?" — push date isn't shown next to Last crawl
+- **Repro** — `lamill fleet seo --refresh`: the table shows a `Last crawl` column (homepage `last_crawl_time` from the GSC inspection cache) but no "when did I last push/update this site" column. To compare you have to run `lamill fleet dashboard` separately (which has the `Last` commit-age column but *not* `Last crawl`) and do the mental math across two commands.
+- **Expected** — one glance answers "is my latest content stale in Google's index?" — i.e. did I push *after* Google last crawled.
+- **Actual** — the two halves live on two different commands; neither surface shows both side by side.
+- **Where** — `check_render.py::_render_seo_table` (renders `fleet seo`). `_last_crawl_by_domain()` already supplies Google's side; the missing half is a per-domain last-commit date from `sites/<domain>/` (local git, mirrors `project.fetch_last_commit`).
+- **Severity** — `minor` (feature request / missing column; no incorrect output).
+- **Fix** — add an `Updated` column right after `Last crawl` on the `fleet seo` table showing the last local-commit date, with a 🔄 flag (predicate `_is_stale_in_index`) + footer tally. Source = last *commit* (free, local, no network); true `pushed_at` deferred unless commit-vs-push drift becomes real friction. Flag fires when pushed content likely runs ahead of Google's index, across two cases: (a) crawl date present and push newer; (b) **never crawled** (`Last crawl —`) + pushed + no indexing signal. The "—" dash is ambiguous (never-crawled vs homepage-inspection-not-cached), so the no-crawl branch is gated on `indexed = impressions > 0` — heavily-indexed sites with a cache gap (hybridautopart, 22,990 imp) are NOT flagged. **Dark sites** (`robots_intent == "dark"`, e.g. csinorcal.church) are never flagged — intentionally not indexed. Sites with no local repo (carrepairsite — no `Updated` date) have nothing to compare. **Fixed in** `<this commit>`.
+
+
 ### 2026-06-19 — CF purge-by-URL doesn't evict a DYNAMIC-pinned stale object (earnlog /sitemap.xml)
 - **Repro** — `lamill project fix earnlog.xyz --rule CHECK_057 --apply`: reports the purge sent, but `curl -sI https://earnlog.xyz/sitemap.xml` still returns the removed stub (200, body has `<!-- Stub sitemap`, `age` keeps climbing). Cache-busted (`?cb=…`) the same path returns **404** — so origin is correct; only the edge copy is stale.
 - **Expected** — `cloudflare.purge_files(zone, ["https://earnlog.xyz/sitemap.xml"])` evicts the cached object; the next fetch re-pulls from origin (404).

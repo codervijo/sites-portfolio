@@ -65,12 +65,53 @@ def test_detect_owner_via_token_happy(monkeypatch):
     assert detect_gh_owner() == "codervijo"
 
 
-def test_detect_owner_via_token_401(monkeypatch):
+def test_detect_owner_via_token_401_raises_auth_error(monkeypatch):
+    """A 401 on GET /user is an auth failure (expired/revoked token),
+    NOT a generic API error — it must raise GhAuthError naming the
+    cause, so the deploy pre-flight fails fast with a clear message
+    instead of dumping a raw 401 body (docs/bugs.md 2026-06-24)."""
     monkeypatch.setattr("portfolio.gh_repo.get_key",
                         lambda k: "bad" if k == "GITHUB_TOKEN" else "")
     monkeypatch.setattr(httpx, "get",
-                        lambda url, **kw: httpx.Response(401, text="bad creds"))
-    with pytest.raises(GhApiError, match="HTTP 401"):
+                        lambda url, **kw: httpx.Response(
+                            401, json={"message": "Bad credentials"}))
+    with pytest.raises(GhAuthError, match="expired"):
+        detect_gh_owner()
+
+
+def test_detect_owner_via_token_401_message_has_remediation(monkeypatch):
+    """The auth error must carry the self-serve fix command."""
+    monkeypatch.setattr("portfolio.gh_repo.get_key",
+                        lambda k: "bad" if k == "GITHUB_TOKEN" else "")
+    monkeypatch.setattr(httpx, "get",
+                        lambda url, **kw: httpx.Response(
+                            401, json={"message": "Bad credentials"}))
+    with pytest.raises(GhAuthError) as exc:
+        detect_gh_owner()
+    assert "lamill settings apikeys set GITHUB_TOKEN" in str(exc.value)
+
+
+def test_detect_owner_via_token_403_underscoped_names_scopes(monkeypatch):
+    """A 403 means the token is valid but under-scoped — the message
+    should name the missing scope, not just say 'Forbidden'."""
+    monkeypatch.setattr("portfolio.gh_repo.get_key",
+                        lambda k: "ghp_xxx" if k == "GITHUB_TOKEN" else "")
+    monkeypatch.setattr(httpx, "get",
+                        lambda url, **kw: httpx.Response(
+                            403, json={"message": "Forbidden"},
+                            headers={"X-Accepted-OAuth-Scopes": "repo",
+                                     "X-OAuth-Scopes": "read:user"}))
+    with pytest.raises(GhAuthError, match="repo"):
+        detect_gh_owner()
+
+
+def test_detect_owner_via_token_500_still_api_error(monkeypatch):
+    """Non-auth non-200s stay GhApiError (we only special-case 401/403)."""
+    monkeypatch.setattr("portfolio.gh_repo.get_key",
+                        lambda k: "ghp_xxx" if k == "GITHUB_TOKEN" else "")
+    monkeypatch.setattr(httpx, "get",
+                        lambda url, **kw: httpx.Response(500, text="boom"))
+    with pytest.raises(GhApiError, match="HTTP 500"):
         detect_gh_owner()
 
 

@@ -2032,7 +2032,24 @@ def _deploy_cf_unified(
             "GITHUB_TOKEN <pat>`, or install gh + `gh auth login`.[/]"
         )
         raise typer.Exit(2)
+    # Validate the credential before claiming auth is OK. Resolving the
+    # owner hits GET /user (token) or `gh api user` (cli), so a stale or
+    # revoked token fails HERE — with a remediation hint — instead of one
+    # line later with a contradictory ✓ + raw 401 body. See docs/bugs.md
+    # (2026-06-24 entry).
+    if not gh_owner:
+        try:
+            gh_owner = detect_gh_owner()
+        except GhAuthError as e:
+            console.print(
+                f"  [red]✗[/] GitHub auth via {gh_auth} failed:\n  [dim]{e}[/]"
+            )
+            raise typer.Exit(2)
+        except GhError as e:
+            console.print(f"  [red]✗[/] Could not resolve GitHub owner: {e}")
+            raise typer.Exit(2)
     console.print(f"  [green]✓[/] GitHub auth via {gh_auth}")
+    console.print(f"  [green]✓[/] GitHub owner: [cyan]{gh_owner}[/]")
 
     pb_key = (apikeys.get_key("PORKBUN_API_KEY") or "").strip()
     pb_secret = (apikeys.get_key("PORKBUN_SECRET_API_KEY") or "").strip()
@@ -2053,14 +2070,6 @@ def _deploy_cf_unified(
     gd_secret = (apikeys.get_key("GODADDY_API_SECRET") or "").strip()
     godaddy_creds = bool(gd_key and gd_secret)
 
-    # Resolve owner (token path or gh CLI).
-    if not gh_owner:
-        try:
-            gh_owner = detect_gh_owner()
-        except (GhAuthError, GhError) as e:
-            console.print(f"  [red]✗[/] Could not resolve GitHub owner: {e}")
-            raise typer.Exit(2)
-    console.print(f"  [green]✓[/] GitHub owner: [cyan]{gh_owner}[/]")
     console.print(f"  [green]✓[/] CF project slug: [cyan]{slug}[/]")
 
     # 2026-05-27 — slug-mismatch fix. When the operator's local

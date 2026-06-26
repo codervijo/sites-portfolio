@@ -123,6 +123,54 @@ def detect_gh_owner() -> str:
     return _detect_owner_via_cli()
 
 
+# Remediation appended to every GitHub auth failure so the operator
+# sees the fix command at the point of failure (not just in the docs).
+_TOKEN_REMEDIATION = (
+    "Set a fresh PAT (classic, scope `repo`):\n"
+    "    lamill settings apikeys set GITHUB_TOKEN <pat>\n"
+    "  New token → https://github.com/settings/tokens/new?scopes=repo"
+)
+
+
+def _token_auth_error(r: httpx.Response) -> GhAuthError:
+    """Map a 401/403 on the GitHub REST API to a typed, operator-
+    readable auth error. Parses the response body + scope headers to
+    name the *actual* cause — expired/revoked (401) vs under-scoped
+    (403) — rather than dumping raw JSON (global rule: disambiguate
+    HTTP errors by response body, attach the fix command)."""
+    try:
+        gh_msg = (r.json().get("message") or "").strip()
+    except ValueError:
+        gh_msg = r.text[:120].strip()
+    if r.status_code == 401:
+        cause = (
+            f"GitHub rejected the token (401: {gh_msg or 'Bad credentials'}) "
+            "— it is expired, revoked, or wrong."
+        )
+    else:  # 403
+        need = (r.headers.get("X-Accepted-OAuth-Scopes") or "").strip()
+        have = (r.headers.get("X-OAuth-Scopes") or "").strip()
+        scope_hint = (
+            f" Token scopes [{have or 'none'}] are missing required [{need}]."
+            if need else ""
+        )
+        cause = f"GitHub refused the token (403: {gh_msg or 'Forbidden'})." + scope_hint
+    return GhAuthError(f"{cause}\n  {_TOKEN_REMEDIATION}")
+
+
+def _looks_like_gh_auth_failure(stderr: str) -> bool:
+    """True when `gh` CLI stderr indicates an auth problem (not just any
+    non-zero exit) so we can route it to GhAuthError with remediation."""
+    s = stderr.lower()
+    return any(
+        m in s
+        for m in (
+            "http 401", "bad credentials", "gh auth login",
+            "requires authentication", "not logged in",
+        )
+    )
+
+
 def _detect_owner_via_token() -> str:
     token = (get_key("GITHUB_TOKEN") or "").strip()
     try:
@@ -133,6 +181,10 @@ def _detect_owner_via_token() -> str:
         )
     except httpx.HTTPError as e:
         raise GhApiError(f"GET /user failed: {type(e).__name__}: {e}") from e
+    if r.status_code in (401, 403):
+        # Auth failure, not a generic API error — surface as GhAuthError so
+        # the pre-flight fails with a remediation instead of a raw 401 dump.
+        raise _token_auth_error(r)
     if r.status_code != 200:
         raise GhApiError(
             f"GET /user → HTTP {r.status_code}: {r.text[:200]}"
@@ -155,8 +207,15 @@ def _detect_owner_via_cli() -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
         raise GhCliError(f"gh api user failed: {type(e).__name__}: {e}") from e
     if proc.returncode != 0:
+        stderr = proc.stderr.strip()
+        if _looks_like_gh_auth_failure(stderr):
+            raise GhAuthError(
+                f"`gh` CLI is not authenticated ({stderr[:160]}).\n"
+                "  Run `gh auth login`, or set a token instead:\n"
+                "    lamill settings apikeys set GITHUB_TOKEN <pat>"
+            )
         raise GhCliError(
-            f"gh api user → exit {proc.returncode}: {proc.stderr.strip()[:200]}"
+            f"gh api user → exit {proc.returncode}: {stderr[:200]}"
         )
     login = proc.stdout.strip()
     if not login:
