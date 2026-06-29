@@ -66,6 +66,39 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-06-29 — SEO head checks (title / meta-description / OG / twitter) are blind to SSR-head stacks (TanStack Start / Astro / Next), so placeholder metadata ships undetected
+
+- **Repro** — a TanStack Start site (no static `index.html`; head defined in code via a route `head()` / `createRootRoute`). `lamill.io` shipped with the Lovable scaffold's placeholder head — `title: "Lovable App"`, `description: "Lovable Generated Project"`, `author: "Lovable"`, `twitter:site: "@Lovable"`. Run:
+    ```
+    lamill project check lamill.io
+    ```
+- **Expected** — the title / meta-description / OG / twitter checks evaluate the head the site *actually serves*, regardless of stack, and flag `title = "Lovable App"` as a missing/placeholder title.
+- **Actual** — `CHECK_070` (has-title), `CHECK_071` (meta-description), `CHECK_076` (OG), `CHECK_077` (twitter-card) read **`index.html` on disk only**. A TanStack Start app has no `index.html` (head lives in `src/routes/__root.tsx`), so these checks either skip or pass-by-absence — the `Lovable App` title and `@Lovable` handle sailed through `project check` and only surfaced by eyeball. Same blind spot would hit Astro/Next in-code heads.
+- **Where** — `src/portfolio/checks/seo/check_070_has_title.py`, `check_071_…`, `check_076_…`, `check_077_…` — all static `index.html` readers. The framework has no notion of "head lives in code" for SSR stacks. (`lamill.toml [stack].framework` *does* record `tanstack-start`, so the stack is knowable.)
+- **Fix (guess)** — two complementary moves: (a) **partially addressed now** by the new `CHECK_081` (no-placeholder-metadata), which **source-scans** `src/**` + `index.html` + `package.json` for known AI-builder placeholder markers (Lovable App / Generated Project / @Lovable / lovable-tagger) — stack-agnostic, so it catches the in-code head that 070/071 miss; (b) **still open** — the generic presence/quality checks (070/071/076/077) should, for SSR-head stacks, either parse the route `head()` source or (better) assert against the *live rendered* `<head>` (the `_live.py` probe already fetches HTML — extend it to the in-code-head stacks). Until (b), 070/071 give false confidence on TanStack/Astro/Next sites.
+- **Severity** — major. Silent false-pass on a core branding/SEO gate for an entire class of stacks (every SSR-head site in the fleet). A literal `Lovable App` browser-tab title reaching production is the failure mode.
+
+### 2026-06-26 — `project seo` reports `sitemap · reachable · 0 URLs` when /sitemap.xml actually serves HTML (SPA/catch-all fallback) — misdiagnoses cause, gives wrong remediation
+
+- **Repro** — deploy a site whose `/sitemap.xml` route isn't emitted by the build, so the host's catch-all returns `index.html` with `200 text/html` (e.g. bppvcoach.com, Astro/SPA). Then:
+    ```
+    lamill project seo bppvcoach.com
+    ```
+- **Expected** — lamill detects the body is **not XML** (Content-Type `text/html`, body starts `<!DOCTYPE html>`, root tag `html` not `urlset`/`sitemapindex`) and reports the *real* cause: "sitemap.xml is serving HTML, not XML — likely an SPA/catch-all fallback; the `/sitemap.xml` route isn't in the build." It should distinguish **"0 URLs because the response isn't a sitemap at all"** from **"0 URLs in an otherwise-valid empty `<urlset>`"**, and the remediation should be "fix the build to emit a real sitemap.xml," not "add routes to the sitemap."
+- **Actual** — the probe line says `Sitemap 0 URLs · submitted · reachable` and the Blockers section emits:
+    ```
+    ⚠ Sitemap lists only 0 URLs
+      The site's other routes are undiscoverable — they aren't in the sitemap.
+      → Add every indexable route to the sitemap.
+    ```
+  Wrong remediation — there *is* no sitemap to add routes to; the file is the homepage HTML. lamill calls a 200-HTML body "reachable" with "0 URLs," silently swallowing the parse failure. (Note the internal contradiction: the **GSC Sitemaps** sub-panel in the *same* run correctly shows `✗ ERROR … 1 error(s)`, because Google's parser rejected the HTML — but lamill's own HTTP-side probe reports "reachable.")
+- **Where** — `src/portfolio/gsc_recrawl.py`:
+  - `_extract_locs()` (167–175) does `ET.fromstring(xml_text)` and on `ET.ParseError` **`return [], []`** — so an HTML body (which fails XML parse) is indistinguishable from a valid-but-empty `<urlset>`. The failure is swallowed with no signal to the caller.
+  - `fetch_sitemap_urls()` (197–256) accepts **any `status_code == 200`** candidate as "the sitemap" (215, 227) with no `Content-Type` check and no body sniff, then counts locs from whatever came back.
+  - The misleading "reachable / 0 URLs" status + the "Sitemap lists only 0 URLs" blocker are rendered in `src/portfolio/project_seo_diagnostics.py` (sitemap fetch ~247–250; blocker/hint generation in `_generate_hints` ~318) off that empty result.
+- **Fix (guess)** — at fetch time, reject a non-sitemap response *before* treating it as empty: skip/raise when `Content-Type` is `text/html` or the body doesn't start with `<?xml`/`<urlset`/`<sitemapindex` (after BOM/whitespace strip). Have `_extract_locs` (or a wrapper) distinguish three outcomes — *valid sitemap with N URLs*, *valid-but-empty sitemap*, *not XML / HTML fallback* — and propagate the third as a typed condition so `project_seo_diagnostics` can render the accurate blocker ("/sitemap.xml serves HTML, not XML — route missing from build; re-deploy with a real sitemap") instead of "add routes." Keeps parity with the GSC-side ERROR the same run already surfaces.
+- **Severity** — major. The site genuinely earns no traffic (real blocker), but lamill misdiagnoses *why* and points the operator at the wrong fix ("add routes" vs. "your build isn't emitting sitemap.xml"), which costs real debugging time on a common deploy failure mode. (Underlying site-side issue — bppvcoach.com's build not emitting `/sitemap.xml` — is separate from this diagnostic gap.)
+
 ### 2026-06-24 — `new deploy` pre-flight prints `✓ GitHub auth via token` then dies one line later on a cryptic raw-401 owner lookup
 
 - **Repro** — with a stale/revoked `GITHUB_TOKEN` in `portfolio.env` (and no `gh` CLI installed):
