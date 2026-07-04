@@ -159,13 +159,96 @@ def _synthesize_head_from_source(repo_path: str) -> str | None:
     return f"<!doctype html><html><head>\n{head}\n</head><body></body></html>"
 
 
+# --- Astro static head resolution (docs/bugs.md 2026-07-03) ----------------
+# Astro pages write `<title>{title}</title>` (interpolating a frontmatter
+# const) and delegate <html>/<head> to an imported layout. Reading the raw
+# .astro made 070/071/073/074 false-fail (literal `{title}`, no <html>).
+# Resolve statically: substitute frontmatter consts into head expressions and
+# merge the imported layout's head.
+_ASTRO_CONST_RE = re.compile(
+    r"""^\s*const\s+(\w+)\s*=\s*(['"`])(.*?)\2\s*;?\s*$""", re.M
+)
+_ASTRO_LAYOUT_IMPORT_RE = re.compile(
+    r"""import\s+\w+\s+from\s+['"]([^'"]*[Ll]ayout[^'"]*\.astro)['"]"""
+)
+
+
+def _astro_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """Split an .astro file into ({const: string_value}, body-after-fence)."""
+    if not text.startswith("---"):
+        return {}, text
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}, text
+    fm, body = text[3:end], text[end + 4:]
+    consts = {m.group(1): m.group(3) for m in _ASTRO_CONST_RE.finditer(fm)}
+    return consts, body
+
+
+def _resolve_astro_exprs(body: str, consts: dict[str, str]) -> str:
+    """`attr={const}` -> `attr="value"` and bare `{const}` -> `value` for the
+    string consts we know. Unknown expressions are left untouched."""
+    def attr(m):
+        v = consts.get(m.group(1))
+        return f'="{v}"' if v is not None else m.group(0)
+
+    def txt(m):
+        v = consts.get(m.group(1))
+        return v if v is not None else m.group(0)
+
+    body = re.sub(r"=\{(\w+)\}", attr, body)
+    return re.sub(r"\{(\w+)\}", txt, body)
+
+
+def _astro_layout_head(page_path: Path, text: str, _depth: int = 0) -> str:
+    """Head/HTML contributed by an imported Astro layout (which holds <html>,
+    <head>, base meta). Follows the layout chain, depth-capped."""
+    if _depth > 3:
+        return ""
+    m = _ASTRO_LAYOUT_IMPORT_RE.search(text)
+    if not m:
+        return ""
+    layout_path = (page_path.parent / m.group(1)).resolve()
+    if not layout_path.is_file():
+        return ""
+    try:
+        ltext = layout_path.read_text(errors="replace")
+    except OSError:
+        return ""
+    lconsts, lbody = _astro_frontmatter(ltext)
+    parent = _astro_layout_head(layout_path, ltext, _depth + 1)
+    return parent + "\n" + _resolve_astro_exprs(lbody, lconsts)
+
+
+def _resolve_astro_head(page_path: Path, text: str) -> str | None:
+    """Best-effort rendered-head reconstruction for an Astro page: frontmatter
+    const substitution + merged layout head. None if no head tags surface."""
+    consts, body = _astro_frontmatter(text)
+    body = _resolve_astro_exprs(body, consts)
+    blob = _astro_layout_head(page_path, text) + "\n" + body
+    if not re.search(r"<(title|meta|html)\b", blob, re.I):
+        return None
+    return f"<!doctype html>\n{blob}"
+
+
 def _read_head_html(repo_path: str) -> str | None:
-    """Head HTML for the SEO meta checks. Prefers a static index
-    (index.html / index.astro); falls back to synthesizing the head from
-    in-code definitions for SSR-head stacks (TanStack Start / Astro /
-    Next). Closes the blind spot where those stacks false-passed the
-    title/meta checks (docs/bugs.md 2026-06-29)."""
-    html = _read_index_html(repo_path)
-    if html is not None:
-        return html
-    return _synthesize_head_from_source(repo_path)
+    """Head HTML for the SEO meta checks. Prefers a static index — resolving
+    Astro pages (frontmatter `{const}` + imported layout head) so the checks
+    see the *rendered* head, not literal `{title}` — and falls back to
+    synthesizing a head from in-code definitions for SSR-head stacks
+    (TanStack Start / Next). docs/bugs.md 2026-06-29 + 2026-07-03."""
+    base = Path(repo_path)
+    for rel in _HTML_CANDIDATE_PATHS:
+        p = base / rel
+        if not p.is_file():
+            continue
+        try:
+            text = p.read_text(errors="replace")
+        except OSError:
+            continue
+        if p.suffix == ".astro":
+            resolved = _resolve_astro_head(p, text)
+            if resolved is not None:
+                return resolved
+        return text
+    return _synthesize_head_from_source(str(base))
