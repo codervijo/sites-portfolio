@@ -1750,6 +1750,28 @@ def new_trends(
     _render_trends(payload, console=console)
 
 
+@new_app.command("work")
+def new_work(
+    domain: str = typer.Argument(..., help="Domain of a shipped site to link from lamill.io (e.g. drdebug.dev)"),
+    title: str = typer.Option("", "--title", help="Display title (default: the slug)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be written, without writing"),
+) -> None:
+    """Add a lamill.io /work entry linking to <domain> (studio hub).
+
+    Writes `sites/lamill.io/src/content/work/<slug>.ts` as a DRAFT (hidden
+    from the public listing + sitemap until you fill it in and set
+    status:"published"), left UNCOMMITTED for review. Idempotent — skips if
+    the entry already exists. This also runs automatically at the end of
+    `lamill new deploy`; use this to backfill existing sites.
+    """
+    from .lamill_io_work import add_work_entry
+    res = add_work_entry(domain, title=title or None, dry_run=dry_run)
+    icon = "[yellow]↷[/]" if res.status in ("dry-run", "no-lamill-io", "exists") else "[green]✓[/]"
+    console.print(f"  {icon} {res.message}")
+    if res.status == "created" and res.path is not None:
+        console.print(f"  [dim]{res.path}[/]")
+
+
 @new_app.command("deploy")
 def new_deploy(
     domain: str = typer.Argument(..., help="Domain whose sites/<domain>/ project to deploy (e.g. kwizicle.com)"),
@@ -2959,8 +2981,11 @@ def _deploy_cf_unified(
     # --- Step 10: IndexNow ping (v30.D) — soft-fail, ledger-gated ---------
     _deploy_step10_indexnow(domain=domain, project_dir=project_dir, dry_run=dry_run)
 
+    # --- Step 11: link the new site from lamill.io (studio hub) -----------
+    _deploy_step11_lamill_io_work(domain=domain, dry_run=dry_run)
+
     console.print(
-        f"\n[green]Deploy complete.[/] [dim]All 10 steps ran. "
+        f"\n[green]Deploy complete.[/] [dim]All 11 steps ran. "
         f"https://{domain}/ should resolve once DNS + SSL settle "
         f"(5-30 min from NS update).[/]"
     )
@@ -2997,6 +3022,28 @@ def _deploy_cf_unified(
             f"[red]✗[/] GSC: {gsc_status[len('failed:'):]}"
         )
     console.print("")
+
+
+def _deploy_step11_lamill_io_work(*, domain: str, dry_run: bool) -> None:
+    """Link the freshly-deployed site from the lamill.io studio hub. Writes a
+    DRAFT `work/<slug>.ts` (hidden until reviewed), left UNCOMMITTED in the
+    lamill.io repo. Soft-fail + idempotent — never blocks a deploy; silent
+    no-op when lamill.io isn't present or the entry already exists. The site
+    itself (`domain`) is skipped so lamill.io doesn't add a card for itself."""
+    console.print(f"\n[bold]11. Link from lamill.io[/] [dim]({domain})[/]")
+    if domain == "lamill.io":
+        console.print("  [dim]↷ site is lamill.io itself — skipped[/]")
+        return
+    try:
+        from .lamill_io_work import add_work_entry
+        res = add_work_entry(domain, dry_run=dry_run)
+    except Exception as e:  # never let hub-linking abort a successful deploy
+        console.print(f"  [yellow]↷[/] lamill.io link skipped ({type(e).__name__}: {e})")
+        return
+    icon = "[yellow]↷[/]" if res.status in ("dry-run", "no-lamill-io", "exists") else "[green]✓[/]"
+    console.print(f"  {icon} {res.message}")
+    if res.status == "created" and res.path is not None:
+        console.print(f"  [dim]{res.path} — commit in lamill.io when ready[/]")
 
 
 def _deploy_step10_indexnow(*, domain: str, project_dir, dry_run: bool) -> None:
