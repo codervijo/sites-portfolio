@@ -66,6 +66,15 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-07-03 — `fleet seo` "Last crawl" column is stale (read from a cache `--refresh` never updates)
+
+- **Repro** — `lamill fleet seo --refresh`, then compare the "Last crawl" column to GSC / a live URL inspection.
+- **Expected** — with `--refresh`, "Last crawl" reflects Google's actual latest crawl.
+- **Actual** — stale by days. isitholiday.today showed `2026-06-29` while live GSC URL-Inspection said `2026-07-03`; drdebug.dev showed blank though Google had crawled it (`2026-07-01`). Root cause: `_last_crawl_by_domain()` (`check_render.py`) reads `last_crawl_time` from the **per-domain URL-Inspection cache** `data/gsc/<domain>/<latest>.json`, which is only written by `project seo <domain> --refresh` (one domain at a time). `fleet seo --refresh` refreshes the impressions snapshot (`data/seo/`) but never touches that cache — so "Last crawl" is frozen at whenever each domain was last individually inspected, and domains never inspected show blank. Same class as the 2026-07-03 freshness-header bug: two GSC data paths, `--refresh` only touched one.
+- **Fixed** — `fleet seo` now fetches the homepage `last_crawl_time` **live** as part of the probe so it rides `--refresh`: new `probe_gsc_last_crawl()` (`seo_runtime.py`) does a homepage URL-Inspection per domain (soft-fail, +~8s over the fleet), stored on `SEORow.gsc_last_crawl` and carried in the SEO snapshot. The renderer prefers `row.gsc_last_crawl`, falling back to the old cache only for pre-field snapshots. (Impl note: the coverage map yields `{'siteUrl': …}` dicts, not strings — the property picker must extract `siteUrl` or every inspection silently returns `None`.) Verified live: isitholiday `2026-07-03`, drdebug `2026-07-01`; 568 seo/render tests green.
+
+
+
 ### 2026-07-03 — `fleet seo` labels the roster/classification date as "Snapshot:", making fresh GSC numbers look week-old ("refresh isn't working")
 
 - **Repro** — with a stale `data/checks/<date>.json` (classification not re-run recently) but a same-day GSC fetch:

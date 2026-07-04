@@ -64,6 +64,11 @@ class SEORow:
     gsc_impressions: int | None = None
     gsc_ctr: float | None = None           # 0.0 - 1.0
     gsc_position: float | None = None
+    # Homepage last_crawl_time (YYYY-MM-DD) from a LIVE GSC URL-Inspection
+    # call — so `fleet seo --refresh` reflects Google's actual latest crawl
+    # instead of the stale per-domain data/gsc/ cache. None = auth-skipped /
+    # not-in-gsc / never crawled / probe error. docs/bugs.md 2026-07-03.
+    gsc_last_crawl: str | None = None
     gsc_sitemap_count: int | None = None   # number of sitemaps submitted
 
     # Per-sitemap processing status from GSC's `sitemaps().list()` response.
@@ -760,6 +765,34 @@ def _snapshot_scope_split(snapshot: dict) -> tuple[int, int, int]:
     return total, probed, total - probed
 
 
+def probe_gsc_last_crawl(domain: str, *, gsc_service=None, coverage=None,
+                         auth_skipped: bool = False) -> str | None:
+    """Homepage `last_crawl_time` (YYYY-MM-DD) via a LIVE GSC URL-Inspection
+    call, so `fleet seo --refresh` reflects Google's actual latest crawl
+    rather than the stale per-domain data/gsc/ cache. Soft — returns None on
+    auth-skip / not-in-GSC / never-crawled / any API error (never raises)."""
+    if auth_skipped or gsc_service is None:
+        return None
+    props = (coverage or {}).get(domain, [])
+    # coverage values are dicts ({'siteUrl': 'sc-domain:…', 'permissionLevel':
+    # …}); pull the siteUrl string. Tolerate a bare string too.
+    site_urls = [
+        (p.get("siteUrl") if isinstance(p, dict) else p) for p in props
+    ]
+    site_urls = [s for s in site_urls if s]
+    if not site_urls:
+        return None
+    # Prefer the sc-domain property (mirrors find_gsc_property's preference).
+    prop = next((s for s in site_urls if s.startswith("sc-domain:")), site_urls[0])
+    try:
+        from .gsc_recrawl import inspect_one_url
+        insp = inspect_one_url(gsc_service, prop, f"https://{domain}/")
+        lc = getattr(insp, "last_crawl_time", None)
+        return str(lc)[:10] if lc else None
+    except Exception:
+        return None
+
+
 def run_seo(
     domains: list[str],
     *,
@@ -824,6 +857,12 @@ def run_seo(
         row.gsc_sitemap_warnings = gsc_data.get("sitemap_warnings")
         row.gsc_sitemap_pending = gsc_data.get("sitemap_pending")
         row.gsc_sitemap_details = gsc_data.get("sitemap_details")
+        # Live homepage crawl-time so --refresh reflects Google's real latest
+        # crawl (not the stale per-domain cache). docs/bugs.md 2026-07-03.
+        row.gsc_last_crawl = probe_gsc_last_crawl(
+            domain, gsc_service=local_service, coverage=gsc_coverage,
+            auth_skipped=auth_skipped,
+        )
 
         crux = probe_crux(domain, crux_api_key)
         row.crux_status = crux["status"]

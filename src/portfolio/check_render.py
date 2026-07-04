@@ -492,6 +492,69 @@ def _last_crawl_by_domain() -> dict[str, str]:
     return out
 
 
+def _last_update_by_domain() -> dict[str, str]:
+    """domain → last local-commit date (YYYY-MM-DD) in sites/<domain>/.
+
+    Local git only — no network. This is "when did I last update the
+    site," the other half of the freshness story that pairs with
+    `_last_crawl_by_domain()` ("when did Google last read it"). We use
+    last *commit* as a free, no-network proxy for "last pushed": the
+    operator pushes right after committing, so the dates track closely.
+    Domains without a sites/ dir or git repo are simply absent.
+    """
+    from .project import SITES_ROOT, fetch_last_commit
+
+    out: dict[str, str] = {}
+    if not SITES_ROOT.exists():
+        return out
+    for ddir in SITES_ROOT.glob("*/"):
+        if not ddir.is_dir():
+            continue
+        last = fetch_last_commit(ddir)
+        date_iso = (last or {}).get("date")
+        if date_iso:
+            out[ddir.name.lower()] = date_iso[:10]
+    return out
+
+
+def _is_stale_in_index(update_date: str | None, crawl_date: str | None,
+                       *, is_dark: bool, indexed: bool) -> bool:
+    """True when the site's pushed content likely runs ahead of Google's
+    index — the condition the `Updated` 🔄 flag marks.
+
+    Three branches:
+      - No local push date, or the site is deliberately dark (robots
+        blocks crawlers) → never stale-flag. Dark sites aren't meant to
+        be indexed; flagging them is noise.
+      - Google has a crawl date → stale iff the push is newer. ISO
+        YYYY-MM-DD strings compare lexically, so `>` is a correct date
+        comparison.
+      - Google has *no* crawl date (`—`) → ambiguous: it means either
+        "never crawled" OR "homepage inspection just isn't cached" on a
+        site Google clearly does crawl. Gate on `indexed` (any GSC
+        impressions): treat as stale only when there's no indexing
+        signal, so a heavily-indexed site with a cache gap (e.g.
+        hybridautopart) isn't false-flagged.
+    """
+    if not update_date or is_dark:
+        return False
+    if crawl_date is None:
+        return not indexed
+    return update_date > crawl_date
+
+
+def _update_crawl_gap_cell(update_date: str | None, crawl_date: str | None,
+                           *, is_dark: bool = False, indexed: bool = False) -> str:
+    """Render the `Updated` cell: the last-commit date, plus a 🔄 flag
+    when the push likely runs ahead of Google's index (see
+    `_is_stale_in_index`). `—` when there's no local commit date."""
+    if not update_date:
+        return "[dim]—[/]"
+    if _is_stale_in_index(update_date, crawl_date, is_dark=is_dark, indexed=indexed):
+        return f"{update_date} [yellow]🔄[/]"
+    return update_date
+
+
 def _render_seo_table(rows: list, *, days: int, sort_by: str,
                       deltas: dict | None = None,
                       delta_meta=None) -> None:
@@ -499,8 +562,18 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
     from .data import load_domains
     from .seo_runtime import gsc_sitemap_cell, overall_status, row_statuses
 
-    # Last-crawl date per domain, joined from the GSC inspection cache.
+    # Last-crawl date per domain. Prefer the fresh value carried in the
+    # (refreshed) SEO snapshot row — `fleet seo --refresh` fetches it live —
+    # and fall back to the per-domain GSC cache only for older snapshots that
+    # predate `gsc_last_crawl`. docs/bugs.md 2026-07-03.
     last_crawl_by_domain = _last_crawl_by_domain()
+
+    def _last_crawl(row) -> str | None:
+        return getattr(row, "gsc_last_crawl", None) or \
+            last_crawl_by_domain.get(row.domain.lower())
+    # Last-update (local commit) date per domain — the "did Google re-crawl
+    # since I last pushed?" comparison sits right beside Last crawl.
+    last_update_by_domain = _last_update_by_domain()
 
     # P4 — build domain → site_age_days map for age-aware grading.
     # `overall_status` masks imp + pos cells for sites <90d old so the
@@ -542,6 +615,10 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
     # Last-crawl date (homepage) from the GSC inspection cache — "—" when the
     # domain has no cached inspection / was never crawled.
     t.add_column("Last crawl", justify="right")
+    # Last local-commit date (proxy for "last pushed"). 🔄 when newer than
+    # Last crawl → pushed since Google last read the site (may be stale in
+    # the index). "—" when no sites/<domain>/ git repo.
+    t.add_column("Updated", justify="right")
     # v40 — Δ vs an earlier snapshot, each metric's delta sitting right
     # beside its value (Imp│ΔImp … Pos│ΔPos). Only present when the caller
     # paired a baseline; sort + the value columns are untouched.
@@ -575,7 +652,13 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
              else "[dim]—[/]"),
             s["gsc"],
             gsc_sitemap_cell(row),
-            last_crawl_by_domain.get(row.domain.lower(), "[dim]—[/]"),
+            (_last_crawl(row) or "[dim]—[/]"),
+            _update_crawl_gap_cell(
+                last_update_by_domain.get(row.domain.lower()),
+                _last_crawl(row),
+                is_dark=getattr(row, "robots_intent", None) == "dark",
+                indexed=(row.gsc_impressions or 0) > 0,
+            ),
         ]
         cells.append(_color_value(s["imp"], _fmt_int(row.gsc_impressions)))
         if show_delta:
@@ -640,6 +723,27 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
             f"[dim]❌ {len(missing_sm)} site(s) in GSC with no sitemap submitted "
             f"({sample}{more}) — submit at search.google.com/search-console "
             f"→ Sitemaps.[/]"
+        )
+
+    # 🔄 — sites whose pushed content likely runs ahead of Google's index
+    # (pushed since the last crawl, or pushed + never crawled + no indexing
+    # signal). Same predicate as the per-row 🔄 flag, summarized.
+    stale = [
+        r.domain for r in rows
+        if _is_stale_in_index(
+            last_update_by_domain.get(r.domain.lower()),
+            _last_crawl(r),
+            is_dark=getattr(r, "robots_intent", None) == "dark",
+            indexed=(r.gsc_impressions or 0) > 0,
+        )
+    ]
+    if stale:
+        sample = ", ".join(stale[:3])
+        more = f" + {len(stale) - 3} more" if len(stale) > 3 else ""
+        console.print(
+            f"[dim]🔄 {len(stale)} site(s) with content newer than Google's last "
+            f"crawl, or not yet crawled ({sample}{more}) — may be stale/absent in "
+            f"the index; request indexing in Search Console if it matters.[/]"
         )
 
     # Call out sites where GSC reported errors on a SUBMITTED sitemap —
