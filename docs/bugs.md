@@ -66,6 +66,17 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-07-03 — static SEO head checks false-fail on Astro pages (layout + `{title}` expression) — parse raw source, not rendered head
+
+- **Repro** — `lamill project check donready.xyz` (Astro; pages do `import Base from "../layouts/Base.astro"` and `<title>{title}</title>` with `title` in frontmatter; `<html>` lives in the layout).
+- **Expected** — checks reflect the rendered/live head. The live page is well-formed: title `FIGS vs Mandala Scrubs… | DonReady`, `<html lang="en">`, viewport, good meta description, JSON-LD all present.
+- **Actual** — 7 false failures: `CHECK_070` reports `title = '{title}'` (7 chars — the *literal* template expression), `CHECK_074` "no `<html>` tag" (it's in the Base layout, not the page file), and `CHECK_073` viewport / `CHECK_075` robots / `CHECK_076` og / `CHECK_079` json-ld all false-fail — because the static checks read the raw `src/pages/index.astro` and parse `{expr}` literally + never follow the layout. Actively misled a debugging session: the operator thought the rewritten page was broken (it was fine); the *real* issue was `CHECK_095` (FAQ answers only in JSON-LD, not visible HTML).
+- **Where** — `checks/seo/check_070…_079`, `_read_index_html`/`_read_head_html` in `checks/seo/__init__.py`. Related to the 2026-06-29 SSR-head fix but **not covered**: `_read_head_html` only *synthesizes* when no static index exists; when `src/pages/index.astro` is present it's read and parsed raw, so `<title>{title}</title>` → literal `{title}` and layout-delegated `<html>`/meta go unseen.
+- **Fix (guess)** — for Astro (and any layout+expression stack), resolve the head from the **rendered/live** HTML (the `_live.py` probe already fetches it — reuse for 070/071/073/074/075/076/079), or at minimum resolve `<title>{const}</title>` against the frontmatter and follow `import … from "…/layouts/…"` to include the layout's `<html>`/meta. Until then these checks give false failures on any Astro page using a layout + interpolation.
+- **Severity** — major. False-fails a whole class of Astro pages on core SEO gates and misleads operators into "fixing" well-formed pages.
+
+
+
 ### 2026-07-03 — `fleet seo` "Last crawl" column is stale (read from a cache `--refresh` never updates)
 
 - **Repro** — `lamill fleet seo --refresh`, then compare the "Last crawl" column to GSC / a live URL inspection.
