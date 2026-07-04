@@ -301,24 +301,151 @@ def _resolve_astro_head(page_path: Path, text: str) -> str | None:
     return f"<!doctype html>\n{blob}"
 
 
+# --- vite-react-ssg / React head-component resolution (docs/bugs.md 2026-07-03)
+# Sites where index.html is a bare mount shell and the head is a React
+# component using vite-react-ssg's <Head> — e.g. `<Seo title=… description=…
+# jsonLd={[…]} />`. Reconstruct title/meta/JSON-LD from the homepage usage +
+# the head component's tag structure.
+
+def _safe_read(p: Path) -> str:
+    try:
+        return p.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def _iter_tsx(base: Path, subdirs: tuple[str, ...]):
+    for sub in subdirs:
+        d = base / sub
+        if not d.is_dir():
+            continue
+        for p in sorted(d.rglob("*.tsx")) + sorted(d.rglob("*.jsx")):
+            if "node_modules" not in p.parts:
+                yield p
+
+
+def _react_head_template(base: Path) -> str:
+    """Inner `<Head>…</Head>` of a vite-react-ssg head component, or ''."""
+    for p in _iter_tsx(base, ("src/components", "src")):
+        t = _safe_read(p)
+        if "vite-react-ssg" in t and "<Head>" in t:
+            m = re.search(r"<Head>(.*?)</Head>", t, re.S)
+            if m:
+                return m.group(1)
+    return ""
+
+
+def _homepage_seo_usage(base: Path) -> str | None:
+    """Source of the page whose `<Seo …/>` feeds the homepage head. Prefers a
+    page with `path="/"` or an index/home filename."""
+    best, best_score = None, -1
+    for p in _iter_tsx(base, ("src/pages", "src/routes")):
+        t = _safe_read(p)
+        if not re.search(r'\btitle\s*=\s*["\']', t):
+            continue
+        if "Seo" not in t and "Head" not in t:
+            continue
+        score = (2 if re.search(r'\bpath\s*=\s*["\']/["\']', t) else 0)
+        score += (1 if p.stem.lower() in ("index", "home") else 0)
+        if score > best_score:
+            best, best_score = t, score
+    return best
+
+
+def _jsx_seo_props(text: str) -> dict[str, str]:
+    """title=/description= string props from the component tag bearing title=."""
+    seg = text
+    for m in re.finditer(r"<[A-Z]\w*\b(.*?)/>", text, re.S):
+        if re.search(r'\btitle\s*=\s*["\']', m.group(1)):
+            seg = m.group(1)
+            break
+    out: dict[str, str] = {}
+    for key in ("title", "description"):
+        m = re.search(rf'\b{key}\s*=\s*["\']([^"\']+)["\']', seg)
+        if m:
+            out[key] = m.group(1)
+    return out
+
+
+def _react_prop_jsonld(usage: str) -> list[str]:
+    """JSON-LD from a `jsonLd={[constA, constB]}` prop — resolve each const's
+    @type. docs/bugs.md 2026-07-03."""
+    m = re.search(r"\bjsonLd\s*=\s*\{", usage)
+    if not m:
+        return []
+    block = _extract_balanced(usage, m.end() - 1)
+    if not block:
+        return []
+    scripts: list[str] = []
+    for name in dict.fromkeys(re.findall(r"[A-Za-z_]\w*", block)):
+        obj = _astro_const_object(usage, name)
+        if obj:
+            for t in _ASTRO_JSONLD_TYPE_RE.findall(obj):
+                scripts.append(
+                    '<script type="application/ld+json">'
+                    f'{{"@context":"https://schema.org","@type":"{t}"}}</script>')
+    return scripts
+
+
+def _react_ssg_head(repo_path: str) -> str | None:
+    """Reconstruct the head for a vite-react-ssg site whose index.html is a
+    bare shell: title/description from the homepage `<Seo>` props, og/twitter
+    tags from the head component's structure (values filled where known,
+    present-placeholder otherwise), and JSON-LD from the jsonLd prop consts."""
+    base = Path(repo_path)
+    usage = _homepage_seo_usage(base)
+    if usage is None:
+        return None
+    props = _jsx_seo_props(usage)
+    title, desc = props.get("title"), props.get("description")
+    jsonld = _react_prop_jsonld(usage)
+    if not (title or desc or jsonld):
+        return None
+    tags: list[str] = []
+    if title:
+        tags.append(f"<title>{title}</title>")
+    if desc:
+        tags.append(f'<meta name="description" content="{desc}">')
+    keys = (set(re.findall(r'property="(og:[\w:]+)"', _react_head_template(base)))
+            | set(re.findall(r'name="(twitter:[\w:]+)"', _react_head_template(base))))
+    for k in sorted(keys):
+        attr = "property" if k.startswith("og:") else "name"
+        if k.endswith("title"):
+            v = title or "…"
+        elif k.endswith("description"):
+            v = desc or "…"
+        elif k == "og:type":
+            v = "website"
+        elif k == "twitter:card":
+            v = "summary"
+        else:
+            v = "…"          # og:url / og:image — present placeholder
+        tags.append(f'<meta {attr}="{k}" content="{v}">')
+    tags.extend(jsonld)
+    return "\n".join(tags)
+
+
 def _read_head_html(repo_path: str) -> str | None:
     """Head HTML for the SEO meta checks. Prefers a static index — resolving
-    Astro pages (frontmatter `{const}` + imported layout head) so the checks
-    see the *rendered* head, not literal `{title}` — and falls back to
-    synthesizing a head from in-code definitions for SSR-head stacks
+    Astro pages (frontmatter `{const}` + imported layout head) and merging a
+    reconstructed head for bare vite-react-ssg shells (`<Seo>`/`<Head>`) — and
+    falls back to synthesizing from in-code definitions for SSR-head stacks
     (TanStack Start / Next). docs/bugs.md 2026-06-29 + 2026-07-03."""
     base = Path(repo_path)
     for rel in _HTML_CANDIDATE_PATHS:
         p = base / rel
         if not p.is_file():
             continue
-        try:
-            text = p.read_text(errors="replace")
-        except OSError:
-            continue
+        text = _safe_read(p)
         if p.suffix == ".astro":
             resolved = _resolve_astro_head(p, text)
             if resolved is not None:
                 return resolved
+            return text
+        # Bare mount shell (no <title>): merge in the React/SSG component head.
+        if "<title" not in text.lower():
+            extra = _react_ssg_head(str(base))
+            if extra:
+                return text + "\n" + extra
         return text
     return _synthesize_head_from_source(str(base))

@@ -138,3 +138,62 @@ def test_check_079_accepts_org_subtype(tmp_path):
         '<title>X</title>'
     )
     assert run_079(str(tmp_path)).status == "pass"
+
+
+# ---- vite-react-ssg: bare index.html shell + <Seo> component (isitholiday) ----
+
+def _vite_ssg_project(tmp_path):
+    (tmp_path / "package.json").write_text('{"dependencies":{"vite-react-ssg":"^0.7"}}')
+    (tmp_path / "index.html").write_text(
+        '<!doctype html><html lang="en"><head><meta charset="utf-8" />'
+        '<meta name="viewport" content="width=device-width, initial-scale=1" />'
+        '</head><body><div id="root"></div></body></html>'
+    )
+    comp = tmp_path / "src" / "components"
+    comp.mkdir(parents=True)
+    (comp / "Seo.tsx").write_text(
+        'import { Head } from "vite-react-ssg";\n'
+        'export default function Seo({ title, description, jsonLd }) {\n'
+        '  return (\n    <Head>\n'
+        '      <title>{title}</title>\n'
+        '      <meta name="description" content={description} />\n'
+        '      <meta property="og:title" content={title} />\n'
+        '      <meta property="og:description" content={description} />\n'
+        '      <meta property="og:type" content="website" />\n'
+        '      <meta property="og:url" content={url} />\n'
+        '      <meta property="og:image" content={ogImage} />\n'
+        '      <meta name="twitter:card" content="summary" />\n'
+        '    </Head>\n  );\n}\n'
+    )
+    pages = tmp_path / "src" / "pages"
+    pages.mkdir(parents=True)
+    (pages / "Index.tsx").write_text(
+        'const orgSchema = { "@context": "https://schema.org", '
+        '"@type": "Organization", name: "X" };\n'
+        'export default function Index() {\n  return (\n    <>\n'
+        '      <Seo\n'
+        '        title="Is Today a Holiday? — isitholiday.today"\n'
+        '        description="Instant answer: is today a public, bank, or school '
+        'holiday in your country or state, plus the next upcoming holiday nearby."\n'
+        '        path="/"\n'
+        '        jsonLd={[orgSchema]}\n'
+        '      />\n    </>\n  );\n}\n'
+    )
+    return str(tmp_path)
+
+
+def test_vite_ssg_title_from_seo_prop(tmp_path):
+    r = run_070(_vite_ssg_project(tmp_path))
+    assert r.status == "pass"
+    assert "isitholiday" in r.message and "{title}" not in r.message
+
+
+def test_vite_ssg_meta_description(tmp_path):
+    assert run_071(_vite_ssg_project(tmp_path)).status == "pass"
+
+
+def test_vite_ssg_og_and_jsonld_reconstructed(tmp_path):
+    from portfolio.checks.seo.check_076_has_open_graph import run as run_076
+    proj = _vite_ssg_project(tmp_path)
+    assert run_076(proj).status == "pass"          # all 5 OG present
+    assert run_079(proj).status == "pass"          # Organization from jsonLd prop
