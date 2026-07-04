@@ -368,9 +368,15 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
             f" ({excluded} parked/dead/error excluded from {total} fleet)"
             if excluded else ""
         )
+        # This is the CLASSIFICATION/roster snapshot (which domains are
+        # live-site/forwarder), NOT the GSC-data date — labelling it
+        # "Snapshot:" made operators read the whole view as stale when the
+        # numbers below are freshly fetched. GSC-data freshness is printed
+        # separately (see "GSC data:" lines). docs/bugs.md 2026-07-03.
         console.print(
-            f"[dim]Snapshot: {snap_path.name} · {probed} live-site/forwarder "
-            f"domains probed{excluded_note}[/]"
+            f"[dim]Roster: {snap_path.name} · {probed} live-site/forwarder "
+            f"domains{excluded_note} — classification only; "
+            f"run `fleet domains` to refresh.[/]"
         )
         cache_eligible = True
 
@@ -384,7 +390,8 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
             cached_domains = {r.domain for r in cached_rows}
             if cached_domains.issuperset(domains):
                 console.print(
-                    f"[dim]Reading cache: {cache_path.name} (use --refresh to re-fetch)[/]"
+                    f"[green]GSC data:[/] {cache_path.name} "
+                    f"[dim](cached · {days}d window; --refresh to re-fetch)[/]"
                 )
                 rows = [r for r in cached_rows if r.domain in set(domains)]
                 rows = sort_rows(rows, sort_by)
@@ -408,7 +415,8 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
     fresh_path = None
     if cache_eligible:
         fresh_path = seo_save_snapshot(rows, days=days)
-        console.print(f"[dim]Cached: {fresh_path.name}[/]")
+        console.print(f"[green]GSC data:[/] {fresh_path.name} "
+                      f"[dim](fresh · {days}d window)[/]")
 
     rows = sort_rows(rows, sort_by)
     # Δ only on the fleet path (a single --domain run has no current

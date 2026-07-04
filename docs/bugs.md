@@ -66,6 +66,19 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-07-03 — `fleet seo` labels the roster/classification date as "Snapshot:", making fresh GSC numbers look week-old ("refresh isn't working")
+
+- **Repro** — with a stale `data/checks/<date>.json` (classification not re-run recently) but a same-day GSC fetch:
+    ```
+    lamill fleet seo --refresh
+    ```
+- **Expected** — the prominent freshness line reflects the **GSC-data** date (what `--refresh` just fetched). Operator can tell at a glance the numbers are current.
+- **Actual** — header printed `Snapshot: 2026-06-26.json · 46 live-site/forwarder domains probed`, with the real GSC-data date buried as `Cached: 2026-07-03.json`. `2026-06-26.json` is the **classification/roster** snapshot (which domains are live-site/forwarder), a week stale because `fleet domains` hadn't re-run — but it *reads* as "the whole table is from June 26." Operator concluded `--refresh` wasn't pulling fresh numbers. It was: every displayed impression matched `data/seo/2026-07-03.json` (that day's fetch), not the 06-26 snapshot (verified: washcalc 601 vs 720, cottagefoodmap 114 vs 46, isitholiday 38 vs 37, etc.). Pure labelling bug — right data, misleading header. Third fleet-seo reporting confusion in this vein.
+- **Where** — `src/portfolio/cli.py`, `_run_check_seo_mode`: line ~372 printed `Snapshot: {snap_path.name}` where `snap_path` is the *checks* (roster) snapshot; the GSC-data date came from `fresh_path`/`cache_path` (~411/~387) under the low-key `Cached:` / `Reading cache:` labels.
+- **Fixed** — roster line relabelled `Roster: … — classification only; run \`fleet domains\` to refresh`; the GSC-data date is now printed prominently as `GSC data: <date> (fresh · Nd window)` (or `(cached · …)` on the no-refresh path). Data freshness is now the answer to "is this current?", not the roster date.
+
+
+
 ### 2026-06-29 — SEO head checks (title / meta-description / OG / twitter) are blind to SSR-head stacks (TanStack Start / Astro / Next), so placeholder metadata ships undetected
 
 - **Repro** — a TanStack Start site (no static `index.html`; head defined in code via a route `head()` / `createRootRoute`). `lamill.io` shipped with the Lovable scaffold's placeholder head — `title: "Lovable App"`, `description: "Lovable Generated Project"`, `author: "Lovable"`, `twitter:site: "@Lovable"`. Run:
