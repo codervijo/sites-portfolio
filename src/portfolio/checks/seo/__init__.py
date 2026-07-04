@@ -152,6 +152,7 @@ def _synthesize_head_from_source(repo_path: str) -> str | None:
         js = _synth_head_from_js(text)                      # JS object literals
         if js:
             fragments.append(js)
+        fragments.extend(_jsonld_scripts(text))             # framework JSON-LD idioms
 
     head = "\n".join(f for f in fragments if f.strip())
     if not head.strip():
@@ -220,13 +221,82 @@ def _astro_layout_head(page_path: Path, text: str, _depth: int = 0) -> str:
     return parent + "\n" + _resolve_astro_exprs(lbody, lconsts)
 
 
+_ASTRO_JSONLD_TYPE_RE = re.compile(r"""["']@type["']\s*:\s*["']([A-Za-z]+)["']""")
+
+
+def _extract_balanced(text: str, start: int) -> str | None:
+    """Return the balanced `{…}` / `[…]` substring beginning at `start`."""
+    open_c = text[start]
+    close_c = {"{": "}", "[": "]"}.get(open_c)
+    if close_c is None:
+        return None
+    depth = 0
+    for j in range(start, len(text)):
+        if text[j] == open_c:
+            depth += 1
+        elif text[j] == close_c:
+            depth -= 1
+            if depth == 0:
+                return text[start:j + 1]
+    return None
+
+
+def _astro_const_object(text: str, name: str) -> str | None:
+    m = re.search(rf"\bconst\s+{re.escape(name)}\s*=\s*[\{{\[]", text)
+    return _extract_balanced(text, m.end() - 1) if m else None
+
+
+# Framework idioms that hide JSON-LD from a raw-source parse: Astro's
+# `set:html={JSON.stringify(…)}` and TanStack/unhead's `"script:ld+json": …`.
+_JSONLD_ANCHORS = (
+    re.compile(r"set:html=\{\s*JSON\.stringify\("),
+    re.compile(r"""["']script:ld\+json["']\s*:\s*"""),
+)
+
+
+def _jsonld_arg_object(text: str, i: int) -> str | None:
+    """From index `i` (start of a JSON-LD argument), return the balanced
+    object/array literal — inline, or resolved from a `const NAME = …`."""
+    while i < len(text) and text[i] in " \t\r\n":
+        i += 1
+    if i >= len(text):
+        return None
+    if text[i] in "{[":
+        return _extract_balanced(text, i)
+    nm = re.match(r"\w+", text[i:])
+    return _astro_const_object(text, nm.group(0)) if nm else None
+
+
+def _jsonld_scripts(text: str) -> list[str]:
+    """Emit parseable ld+json <script>s capturing the @type(s) declared via
+    the framework idioms above (inline object/array OR a const), which are
+    unparseable in raw source — so the JSON-LD checks can see the type.
+    docs/bugs.md 2026-07-03."""
+    scripts: list[str] = []
+    for anchor in _JSONLD_ANCHORS:
+        for m in anchor.finditer(text):
+            obj = _jsonld_arg_object(text, m.end())
+            if not obj:
+                continue
+            for t in _ASTRO_JSONLD_TYPE_RE.findall(obj):
+                scripts.append(
+                    '<script type="application/ld+json">'
+                    f'{{"@context":"https://schema.org","@type":"{t}"}}</script>'
+                )
+    return scripts
+
+
 def _resolve_astro_head(page_path: Path, text: str) -> str | None:
     """Best-effort rendered-head reconstruction for an Astro page: frontmatter
-    const substitution + merged layout head. None if no head tags surface."""
+    const substitution + merged layout head + JSON-LD from the `set:html`
+    idiom. None if no head tags surface. Clean synthesized scripts are placed
+    before the raw body so bs4 parses them even if the original malformed
+    `set:html` tag confuses the parser."""
     consts, body = _astro_frontmatter(text)
     body = _resolve_astro_exprs(body, consts)
-    blob = _astro_layout_head(page_path, text) + "\n" + body
-    if not re.search(r"<(title|meta|html)\b", blob, re.I):
+    jsonld = "\n".join(_jsonld_scripts(text))
+    blob = _astro_layout_head(page_path, text) + "\n" + jsonld + "\n" + body
+    if not re.search(r"<(title|meta|html|script)\b", blob, re.I):
         return None
     return f"<!doctype html>\n{blob}"
 

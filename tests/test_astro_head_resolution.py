@@ -12,6 +12,8 @@ from portfolio.checks.seo.check_070_has_title import run as run_070
 from portfolio.checks.seo.check_071_has_meta_description import run as run_071
 from portfolio.checks.seo.check_073_has_viewport import run as run_073
 from portfolio.checks.seo.check_074_has_html_lang import run as run_074
+from portfolio.checks.seo.check_079_json_ld_org_or_website import run as run_079
+from portfolio.checks.seo import _jsonld_scripts
 
 _BASE_ASTRO = """---
 const brand = "DonReady";
@@ -86,3 +88,53 @@ def test_plain_index_html_unaffected(tmp_path):
     (tmp_path / "package.json").write_text('{"name": "x"}')
     (tmp_path / "index.html").write_text("<title>Plain Vite Title Here OK</title>")
     assert "Plain Vite Title" in _read_head_html(str(tmp_path))
+
+
+# ---- JSON-LD via framework idioms (CHECK_079, docs/bugs.md 2026-07-03) ----
+
+def test_jsonld_astro_sethtml_inline_graph():
+    """Astro `set:html={JSON.stringify({@graph:[Org, WebSite]})}` — inline."""
+    src = (
+        '<script type="application/ld+json" set:html={JSON.stringify({'
+        '"@context":"https://schema.org","@graph":['
+        '{"@type":"Organization","name":"X"},'
+        '{"@type":"WebSite","url":"https://x/"}]})} />'
+    )
+    scripts = " ".join(_jsonld_scripts(src))
+    assert '"@type":"Organization"' in scripts
+    assert '"@type":"WebSite"' in scripts
+
+
+def test_jsonld_tanstack_script_ldjson_const():
+    """TanStack `"script:ld+json": constName` where const is an object."""
+    src = (
+        'const homeJsonLd = { "@context": "https://schema.org", '
+        '"@type": "ProfessionalService", name: "LaMill" };\n'
+        'meta: [{ "script:ld+json": homeJsonLd }]'
+    )
+    scripts = " ".join(_jsonld_scripts(src))
+    assert '"@type":"ProfessionalService"' in scripts
+
+
+def test_check_079_astro_inline_org(tmp_path):
+    (tmp_path / "package.json").write_text('{"name": "x"}')
+    pages = tmp_path / "src" / "pages"
+    pages.mkdir(parents=True)
+    (pages / "index.astro").write_text(
+        '---\nconst site = "https://x";\n---\n'
+        '<script type="application/ld+json" set:html={JSON.stringify({'
+        '"@context":"https://schema.org","@type":"Organization","name":"X"})} />'
+        '<title>X</title>'
+    )
+    assert run_079(str(tmp_path)).status == "pass"
+
+
+def test_check_079_accepts_org_subtype(tmp_path):
+    """ProfessionalService / LocalBusiness etc. satisfy 'has an org entity'."""
+    (tmp_path / "package.json").write_text('{"name": "x"}')
+    (tmp_path / "index.html").write_text(
+        '<script type="application/ld+json">'
+        '{"@context":"https://schema.org","@type":"ProfessionalService"}</script>'
+        '<title>X</title>'
+    )
+    assert run_079(str(tmp_path)).status == "pass"
