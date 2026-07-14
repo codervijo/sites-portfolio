@@ -676,8 +676,9 @@ def gsc_sitemap_cell(row: SEORow) -> str:
 _OVERALL_RANK = {_GREEN: 0, _YELLOW: 1, _ORANGE: 2, _RED: 3, _GREY: -1}
 
 # Only true SEO signals contribute to the row's overall status.
-# HSTS is a security signal (belongs in `check --security` / `--live`); HTTP
-# is observed for context but failures cascade naturally into robots/sitemap
+# HSTS is a security signal (belongs in `check --security` / `--live`); a
+# *hard* HTTP error (unreachable — no status) is handled directly in
+# overall_status above, while non-2xx statuses cascade into robots/sitemap
 # reds; CrUX field-data tiering is a separate dimension shown beside but not
 # folded into the SEO overall. `gsc` (in-GSC vs not-in-GSC) IS a real SEO
 # signal — a site missing from Search Console is invisible to Google.
@@ -711,6 +712,15 @@ def overall_status(row: SEORow, *, site_age_days: int | None = None,
     """
     if row.robots_intent == "dark":
         return _DARK
+    # A hard HTTP error (no status at all — connect/TLS/DNS failure) means the
+    # site is unreachable. It must dominate the grade and is NOT maskable by the
+    # young-site rule: an unreachable site is never "green." This can't be left
+    # to cascade through robots/sitemap because on a connect-level failure
+    # probe_http returns early with those as None → they render ⚪ grey, not 🔴,
+    # so nothing else in _OVERALL_KEYS would carry the outage. (donready.xyz
+    # incident: TLS WRONG_VERSION_NUMBER graded 🟢 while HTTPS was fully down.)
+    if row.http_status is None and row.http_error:
+        return _RED
     statuses = row_statuses(row)
     if (site_age_days is not None
             and site_age_days < young_threshold_days):

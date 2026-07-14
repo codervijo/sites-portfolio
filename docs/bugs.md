@@ -66,6 +66,52 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### 2026-07-13 — `fleet seo` grades a fully-unreachable site 🟢 green (hard HTTP error not folded into the overall grade)
+
+- **Repro** — `lamill fleet seo --refresh` with donready.xyz's HTTPS down. Row: `🟢 donready.xyz  🔴 err  ⚪ robots  ⚪ sitemap  … 🟢 gsc  🟢 gsc-sm`. Leftmost overall grade is 🟢 **green** while the HTTP probe hard-errors.
+- **Expected** — a site whose HTTP probe hard-fails (unreachable — no status at all) grades 🔴. An unreachable site is never "green," regardless of age or GSC state.
+- **Actual** — graded 🟢 green while the HTTP probe hard-errored: `ConnectError: [SSL: WRONG_VERSION_NUMBER]` (port 443 answering in plaintext, not TLS) — confirmed independently via curl (`error:0A00010B:SSL routines::wrong version number`), openssl `s_client`, and `check.py`'s own fetch path (classifies `ssl-broken`). Whatever the *cause* of the unreachability, a hard HTTP error must never grade green — that's the tool bug fixed here. **(NB: the unreachability itself turned out to be an ISP-side block, NOT a real outage — see the diagnosis note below. But the grading bug is real regardless: any hard-unreachable site was being waved through green.)**
+- **Root cause** — `overall_status` (`seo_runtime.py`) rolls up only `_OVERALL_KEYS = (imp, pos, robots, sitemap, gsc, gsc_sitemap_health)`; HTTP is deliberately excluded on the documented assumption that *"HTTP failures cascade naturally into robots/sitemap reds."* That assumption breaks for **connection-level** failures: when the root GET raises, `probe_http` returns early with `robots_served=None` / `sitemap_served=None`, which render **⚪ grey, not 🔴** — so they don't cascade. Combined with young-site masking greying out `imp`+`pos`, the only surviving signals were `gsc`🟢 + `gsc_sitemap_health`🟢 → overall 🟢. The one signal that proves the site is down (the HTTP error) wasn't in the rollup at all.
+- **Where** — `src/portfolio/seo_runtime.py::overall_status` (rollup); `probe_http` early-return on `httpx.HTTPError` leaves robots/sitemap `None`; render at `check_render.py:641` shows `🔴 err`.
+- **Fixed** — `overall_status` now returns 🔴 directly when `row.http_status is None and row.http_error` (hard-unreachable), **before** young-site masking — an unreachable site can't be masked green. Non-hard HTTP states (3xx/4xx/5xx *responses*) still cascade as before; `test_overall_status_ignores_http_status` (500 = reachable server) is intentionally preserved. Regression test `test_overall_status_red_when_http_unreachable` added; 91 seo_runtime tests + 98 grade/overall/seo tests green.
+- **Diagnosis note — the `🔴 err` is an ISP-side false positive, NOT a Cloudflare/site outage.** Chased the "CF side" first; it's not CF. Cloudflare Pages deploy is green, DNS points at Cloudflare correctly, and sibling sites on the identical setup (airsucks.com, boxchive.com) serve HTTPS 200 from the same machine. donready.xyz alone is intercepted: `curl http://donready.xyz:443/` returns `302 → https://block.charter-prod.hosted.cujo.io/warn.html?url=…` on **both :80 and :443**. That's **Charter/Spectrum "Security Shield" (CUJO)** transparently blocking the domain on the operator's local network and injecting a plaintext-HTTP block page on :443 — hence `WRONG_VERSION_NUMBER` for any TLS client. Almost certainly a newly-registered-`.xyz` reputation quarantine. **The site is up for the rest of the world; it only reads as down from behind Spectrum's filter.** Remediation is ISP-side (allow-list donready.xyz in the My Spectrum app → Security Shield, or wait for the domain's reputation to clear) — nothing to change in Cloudflare or the site. Verify externally via phone-on-cellular or an off-network uptime checker.
+- **Consequence for the tool** — as long as `lamill` runs from behind this ISP filter, donready.xyz will (correctly, post-fix) show `🔴 err`, but that red is a **local-network artifact**, not a real outage. Not worth special-casing in code; noting so future-me doesn't re-chase it as a Cloudflare problem.
+- **Severity** — major (the grading bug). A green all-clear on a hard-unreachable site is the worst failure mode for a health dashboard. The donready trigger specifically was an ISP block (benign, external), but the masking bug it exposed was real.
+
+
+### 2026-07-13 — `fleet seo` "Last crawl" flickers to "—" between runs (live inspection soft-None + schema-mismatched cache fallback)
+
+- **Repro** — two `lamill fleet seo --refresh` runs ~35 min apart. hybridautopart.com "Last crawl" = `2026-07-11` in run 1, `—` in run 2. Value is non-deterministic across runs for the same domain.
+- **Expected** — "Last crawl" is stable: if the live inspection call doesn't return a value this run, fall back to the last known cached crawl date rather than blanking to "—" (which reads as "never crawled").
+- **Actual** — the column blanks. Two compounding causes:
+    1. `--refresh` sets `row.gsc_last_crawl` from `probe_gsc_last_crawl()` — a single **live** GSC URL-Inspection call that is *soft* (returns `None` on any API error / quota / rate-limit, never raises). hybridautopart is the highest-volume domain and the first row probed, so a transient None here is plausible run-to-run.
+    2. The render's cache fallback — `_last_crawl(row)` = `row.gsc_last_crawl or last_crawl_by_domain.get(domain)` — is meant to floor this. But `_last_crawl_by_domain()` (`check_render.py:464`) reads `data["v16c_inspections"][].last_crawl_time`, while hybridautopart's **latest** cache snapshot (`data/gsc/hybridautopart.com/2026-06-06.json`) predates that schema and stores `coverage[].last_crawl_at`. So hybridautopart is **absent from the fallback map** (confirmed: map has 33 entries, hybridautopart not among them) — the floor is empty and the column goes to "—".
+- **Where** — `src/portfolio/seo_runtime.py::probe_gsc_last_crawl` (soft-None, no cache floor of its own); `src/portfolio/check_render.py::_last_crawl_by_domain` (reads only the `v16c_inspections` schema; blind to older `coverage[].last_crawl_at` snapshots). Adjacent to the 2026-07-03 "Last crawl stale cache" entry but a distinct failure (flicker, not staleness).
+- **Severity** — minor (cosmetic-ish but misleading — "—" reads as "never crawled" on a site Google crawls regularly). **Logged only; not fixed** per operator ("to log for now"). Likely fix: have `_last_crawl_by_domain` also parse the older `coverage[].last_crawl_at` schema, and/or floor `probe_gsc_last_crawl`'s live None against the cached value inside `run_seo`.
+
+
+### 2026-07-09 — `project seo <slug>` doesn't normalize arg to full domain → false "not registered / sitemap unreachable" + pollutes data/gsc/
+
+- **Repro** — `lamill project seo calcengine` (project slug `calcengine` ≠ domain `calcengine.site`).
+- **Expected** — resolve `calcengine` → `calcengine.site`, then use that domain for the GSC property lookup, the sitemap host, and the snapshot path.
+- **Actual** — the bare slug `calcengine` is used throughout, so every downstream step keys off the wrong identifier:
+    - GSC lookup finds no property → snapshot `"not_registered": true`, `"property_url": ""` — **false**: `sc-domain:calcengine.site` exists (siteOwner) and the homepage is `submitted_indexed`.
+    - Sitemap probe hits `https://calcengine/sitemap_index.xml` (TLD dropped) → ConnectError → false "⛔ Sitemap unreachable" blocker.
+    - Writes a bogus snapshot to `data/gsc/calcengine/2026-07-09.json` alongside the real `data/gsc/calcengine.site/` history.
+  Net: the whole "blocked / earning no traffic" screen is a false alarm; the site is healthy. Verified by contrasting the two snapshots (bogus `domain:"calcengine"` empty vs real `domain:"calcengine.site"` `submitted_indexed`).
+- **Where (guess)** — `project seo` dispatch (`project.py` ~410 "seo" subcommand) passes `resolve_project().matched` (the slug) un-normalized into `seo_diagnose.py` / `project_seo_diagnostics.py` / `gsc_recrawl.py`, which build the GSC property key, sitemap URL, and `data/gsc/<key>/` path from it. `fleet seo` / `gsc sync` are immune because they iterate the GSC property list (full domains).
+- **Severity** — major. Inverts the diagnosis (reports a healthy, indexed site as blocked), burns debugging time, and pollutes `data/gsc/`. Bites any site whose project slug ≠ full domain.
+
+
+### 2026-07-09 — `project seo` live sitemap probe guesses `sitemap_index.xml` instead of reading robots.txt's declared `Sitemap:`
+
+- **Repro** — `lamill project seo calcengine.site`. Site serves `sitemap-index.xml` (hyphen), declared in robots.txt; lamill probes `sitemap_index.xml` (underscore).
+- **Expected** — read the `Sitemap:` URL from `/robots.txt` (`https://calcengine.site/sitemap-index.xml`) and probe that.
+- **Actual** — probes a guessed/hardcoded `sitemap_index.xml` filename → 404 → would false-report "sitemap unreachable / 0 URLs" even against the correct host. GSC itself holds the correct hyphenated sitemap (status OK, last downloaded 2026-06-13), so this is purely the live HTTP probe's filename assumption. (Underscore-vs-hyphen is a real convention split across the fleet's SSG outputs.)
+- **Where (guess)** — sitemap-URL construction in `gsc_recrawl.py::fetch_sitemap_urls()` / the `project seo` live probe — hardcoded filename candidates rather than parsing robots.txt's `Sitemap:` directive. Same fetch path as the 2026-06-26 "sitemap serves HTML" bug.
+- **Severity** — major. False "unreachable" on sites whose sitemap is fine but named per the hyphen convention; masks real sitemap health.
+
+
 ### 2026-07-03 — static SEO head checks false-fail on Astro pages (layout + `{title}` expression) — parse raw source, not rendered head
 
 - **Repro** — `lamill project check donready.xyz` (Astro; pages do `import Base from "../layouts/Base.astro"` and `<title>{title}</title>` with `title` in frontmatter; `<html>` lives in the layout).

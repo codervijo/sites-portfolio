@@ -568,6 +568,26 @@ def test_overall_status_ignores_http_status():
     assert overall_status(row) == "🟢"
 
 
+def test_overall_status_red_when_http_unreachable():
+    """A hard HTTP error (no status — connect/TLS/DNS failure) means the site
+    is unreachable and must grade 🔴, even when it's young and GSC is green.
+
+    Regression for the donready.xyz incident: TLS WRONG_VERSION_NUMBER made the
+    root GET raise, so probe_http returned early with robots/sitemap=None (→ ⚪,
+    not 🔴). With imp/pos age-masked, the only surviving signals were gsc 🟢 +
+    gsc_sitemap_health 🟢, so a fully-down site graded 🟢 green. It must not."""
+    row = SEORow(
+        domain="donready.xyz",
+        http_status=None,
+        http_error="ConnectError: [SSL: WRONG_VERSION_NUMBER] wrong version number",
+        robots_served=None, sitemap_served=None,
+        gsc_status="ok", gsc_sitemap_count=1,
+        gsc_impressions=0, gsc_position=None,
+    )
+    assert overall_status(row, site_age_days=5) == "🔴"   # young: still red — unreachable
+    assert overall_status(row) == "🔴"                    # no age: red
+
+
 def test_overall_status_ignores_crux():
     """CrUX field data is reported but doesn't drive SEO row color."""
     row = SEORow(domain="x",
