@@ -76,6 +76,15 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### BUG-086 · 2026-07-13 — todo: each site's `AI_AGENTS.md` should document the shared builder mechanism
+
+- **Ask** — every `sites/<domain>/AI_AGENTS.md` should note the **same builder mechanism** the fleet uses, so an agent picking up any site knows how it builds without rediscovering it per-repo.
+- **The mechanism to document** — sites do **not** build standalone: each site's `Makefile` delegates to the parent builder at `~/work/projects/builder/` via `$(MAKE) -C ..` (enforced by `CHECK_012`), and the build runs **inside Docker via `make buildsh`** — never invoke `pnpm` directly from a host shell. Today this convention lives only in `docs/CLAUDE.md` (portfolio repo) + operator memory; it's absent from the per-site agent briefs, so an agent working inside `sites/<domain>/` doesn't see it.
+- **Why** — recurring friction: agents (and future-me) reach for `pnpm build` / bespoke per-site build logic because the site's own `AI_AGENTS.md` says nothing about the parent-builder + Docker pattern.
+- **Likely delivery (not designed yet)** — fits the check+fix shape: a new `CHECK_xxx` that verifies each site's `AI_AGENTS.md` contains a builder-mechanism section, a `fleet fix` backfill that injects the canonical blurb, and inclusion in the `new bootstrap` `AI_AGENTS.md` template so new sites are born conformant (per the "new check must also shape new-project creation" rule). Canonical wording is one shared string, mirroring `CHECK_012`'s Makefile-delegation language.
+- **Severity** — minor (feature/todo — no incorrect output today; it's a missing-convention-doc gap). Not a bug in existing behavior.
+
+
 ### BUG-085 · 2026-07-13 — `fleet seo` grades a fully-unreachable site 🟢 green (hard HTTP error not folded into the overall grade)
 
 - **Repro** — `lamill fleet seo --refresh` with donready.xyz's HTTPS down. Row: `🟢 donready.xyz  🔴 err  ⚪ robots  ⚪ sitemap  … 🟢 gsc  🟢 gsc-sm`. Leftmost overall grade is 🟢 **green** while the HTTP probe hard-errors.
