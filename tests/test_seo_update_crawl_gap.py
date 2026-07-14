@@ -81,3 +81,56 @@ def test_last_update_by_domain_reads_commit_date(tmp_path, monkeypatch):
 
     out = check_render._last_update_by_domain()
     assert out == {"example.com": "2026-06-20"}
+
+
+# --- BUG-084: Last-crawl cache floor reads both GSC cache schemas -----------
+
+def test_home_crawl_from_items_picks_homepage_across_schemas():
+    from portfolio.check_render import _home_crawl_from_items
+    # Newer schema: v16c_inspections[].last_crawl_time. Homepage preferred over
+    # a deeper URL even when the deeper one is listed first.
+    v16c = [
+        {"url": "https://x.com/blog/", "last_crawl_time": "2026-05-01T00:00:00Z"},
+        {"url": "https://x.com/", "last_crawl_time": "2026-07-11T09:00:00Z"},
+    ]
+    assert _home_crawl_from_items(v16c, "last_crawl_time", "x.com") == "2026-07-11"
+    # Older schema: coverage[].last_crawl_at.
+    cov = [{"url": "https://x.com/", "last_crawl_at": "2026-06-04T04:52:14+00:00"}]
+    assert _home_crawl_from_items(cov, "last_crawl_at", "x.com") == "2026-06-04"
+    # Empty / missing field → None.
+    assert _home_crawl_from_items([], "last_crawl_time", "x.com") is None
+    assert _home_crawl_from_items([{"url": "https://x.com/"}], "last_crawl_at", "x.com") is None
+
+
+def test_last_crawl_by_domain_covers_legacy_coverage_schema(tmp_path, monkeypatch):
+    """Regression for BUG-084: a domain whose latest cache snapshot predates the
+    `v16c_inspections` schema (stores `coverage[].last_crawl_at` instead) must
+    still get a fallback floor, so `--refresh` doesn't blank Last-crawl to "—"
+    when the live inspection call returns None."""
+    import json
+
+    gsc_dir = tmp_path / "gsc"
+    # Legacy-schema domain (the hybridautopart case): coverage[].last_crawl_at.
+    legacy = gsc_dir / "hybridautopart.com"
+    legacy.mkdir(parents=True)
+    (legacy / "2026-06-06.json").write_text(json.dumps({
+        "coverage": [
+            {"url": "https://hybridautopart.com/", "last_crawl_at": "2026-06-04T04:52:14+00:00"},
+            {"url": "https://hybridautopart.com/blog/", "last_crawl_at": "2026-05-29T00:00:00Z"},
+        ],
+    }))
+    # Newer-schema domain still resolves: v16c_inspections[].last_crawl_time.
+    modern = gsc_dir / "threadradar.xyz"
+    modern.mkdir(parents=True)
+    (modern / "2026-07-03.json").write_text(json.dumps({
+        "v16c_inspections": [
+            {"url": "https://threadradar.xyz/", "last_crawl_time": "2026-07-03T00:00:00Z"},
+        ],
+    }))
+
+    import portfolio.gsc as gsc
+    monkeypatch.setattr(gsc, "GSC_DIR", gsc_dir)
+
+    out = check_render._last_crawl_by_domain()
+    assert out["hybridautopart.com"] == "2026-06-04"   # was absent before the fix
+    assert out["threadradar.xyz"] == "2026-07-03"

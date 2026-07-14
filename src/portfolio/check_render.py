@@ -461,10 +461,30 @@ def _fmt_delta_metric(delta, *, kind: str) -> str:
     return _fmt_delta_part(delta.imp_delta, delta.imp_flat, kind="imp")
 
 
+def _home_crawl_from_items(items: list, field: str, domain: str) -> str | None:
+    """Pull the homepage crawl date (YYYY-MM-DD) from a list of GSC inspection
+    entries. Prefers the entry whose URL is the apex homepage; falls back to the
+    first entry. Returns None when the list is empty or the field is absent."""
+    if not items:
+        return None
+    home = next((i for i in items
+                 if i.get("url", "").rstrip("/").endswith(domain)), None) \
+        or items[0]
+    lc = home.get(field)
+    return lc[:10] if lc else None
+
+
 def _last_crawl_by_domain() -> dict[str, str]:
-    """domain → homepage last_crawl_time (YYYY-MM-DD) from the per-domain GSC
+    """domain → homepage last_crawl (YYYY-MM-DD) from the per-domain GSC
     URL-inspection cache (data/gsc/<domain>/<latest>.json). Cache-only, no live
-    fetch. Missing / never-crawled domains are simply absent from the map."""
+    fetch. Missing / never-crawled domains are simply absent from the map.
+
+    Reads BOTH cache schemas so every cached domain has a fallback floor
+    (BUG-084): the newer `v16c_inspections[].last_crawl_time` shape and the
+    older `coverage[].last_crawl_at` shape. Snapshots predating the v16c schema
+    (e.g. a domain not re-`gsc sync`ed since) were previously invisible here, so
+    `fleet seo --refresh` blanked their Last-crawl to "—" whenever the live
+    inspection call transiently returned None."""
     import json
 
     from .gsc import GSC_DIR
@@ -482,13 +502,13 @@ def _last_crawl_by_domain() -> dict[str, str]:
             data = json.loads(snaps[-1].read_text())
         except (OSError, ValueError):
             continue
-        insp = data.get("v16c_inspections") or []
-        home = next((i for i in insp
-                     if i.get("url", "").rstrip("/").endswith(ddir.name)), None) \
-            or (insp[0] if insp else None)
-        lc = (home or {}).get("last_crawl_time")
+        lc = _home_crawl_from_items(
+            data.get("v16c_inspections") or [], "last_crawl_time", ddir.name,
+        ) or _home_crawl_from_items(
+            data.get("coverage") or [], "last_crawl_at", ddir.name,
+        )
         if lc:
-            out[ddir.name.lower()] = lc[:10]
+            out[ddir.name.lower()] = lc
     return out
 
 
