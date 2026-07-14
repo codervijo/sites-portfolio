@@ -9,7 +9,8 @@ Claude-maintained entries.
    structure required. Examples: "found a bug: X command shows N
    but Y shows M", "this thing is slow", "the help text for `foo`
    is wrong."
-2. **Claude writes up the structured entry here.** Investigates
+2. **Claude writes up the structured entry here.** Assigns the next
+   `BUG-NNN` ID (highest existing + 1; see § Entry shape). Investigates
    enough to fill Repro / Expected / Actual / Where / Severity /
    Notes. Asks the operator if anything is ambiguous, but doesn't
    block on a perfect repro — captures what's known and proceeds.
@@ -33,14 +34,23 @@ It's a maintained journal — same shape relationship as
 
 ## Entry shape
 
-One bug per dated H3 entry. Heading:
+One bug per H3 entry, carrying a stable `BUG-NNN` ID. Heading:
 
 ```
-### YYYY-MM-DD — <one-line headline>
+### BUG-NNN · YYYY-MM-DD — <one-line headline>
 ```
 
-Add a sequence suffix on same-day collisions:
-`### 2026-05-18 — second-bug` / `### 2026-05-18 — third-bug`.
+**IDs are stable and never renumbered** — same rule as ADRs. `BUG-NNN`
+is the permanent reference for a bug; cite it in commits, chat, and
+cross-links (`see BUG-047`). The ID stays with the bug when it moves
+from `## Open bugs` to `## Fixed bugs`, so IDs are interleaved with
+dates in both sections rather than contiguous — that's expected.
+
+**Assigning the next ID:** new bugs get `max(existing) + 1`. Scan for
+the highest `BUG-NNN` in the file (currently the top of `## Open bugs`,
+since newest = highest) and increment. Three-digit zero-pad (`BUG-086`).
+The date still rides along after the ID; same-day collisions are
+disambiguated by the ID, so no letter/word suffix is needed.
 
 Body fields, in this order (skip what isn't useful):
 
@@ -66,7 +76,7 @@ when applicable. Don't delete.
 ## Open bugs
 
 
-### 2026-07-13 — `fleet seo` grades a fully-unreachable site 🟢 green (hard HTTP error not folded into the overall grade)
+### BUG-085 · 2026-07-13 — `fleet seo` grades a fully-unreachable site 🟢 green (hard HTTP error not folded into the overall grade)
 
 - **Repro** — `lamill fleet seo --refresh` with donready.xyz's HTTPS down. Row: `🟢 donready.xyz  🔴 err  ⚪ robots  ⚪ sitemap  … 🟢 gsc  🟢 gsc-sm`. Leftmost overall grade is 🟢 **green** while the HTTP probe hard-errors.
 - **Expected** — a site whose HTTP probe hard-fails (unreachable — no status at all) grades 🔴. An unreachable site is never "green," regardless of age or GSC state.
@@ -79,7 +89,7 @@ when applicable. Don't delete.
 - **Severity** — major (the grading bug). A green all-clear on a hard-unreachable site is the worst failure mode for a health dashboard. The donready trigger specifically was an ISP block (benign, external), but the masking bug it exposed was real.
 
 
-### 2026-07-13 — `fleet seo` "Last crawl" flickers to "—" between runs (live inspection soft-None + schema-mismatched cache fallback)
+### BUG-084 · 2026-07-13 — `fleet seo` "Last crawl" flickers to "—" between runs (live inspection soft-None + schema-mismatched cache fallback)
 
 - **Repro** — two `lamill fleet seo --refresh` runs ~35 min apart. hybridautopart.com "Last crawl" = `2026-07-11` in run 1, `—` in run 2. Value is non-deterministic across runs for the same domain.
 - **Expected** — "Last crawl" is stable: if the live inspection call doesn't return a value this run, fall back to the last known cached crawl date rather than blanking to "—" (which reads as "never crawled").
@@ -90,7 +100,7 @@ when applicable. Don't delete.
 - **Severity** — minor (cosmetic-ish but misleading — "—" reads as "never crawled" on a site Google crawls regularly). **Logged only; not fixed** per operator ("to log for now"). Likely fix: have `_last_crawl_by_domain` also parse the older `coverage[].last_crawl_at` schema, and/or floor `probe_gsc_last_crawl`'s live None against the cached value inside `run_seo`.
 
 
-### 2026-07-09 — `project seo <slug>` doesn't normalize arg to full domain → false "not registered / sitemap unreachable" + pollutes data/gsc/
+### BUG-083 · 2026-07-09 — `project seo <slug>` doesn't normalize arg to full domain → false "not registered / sitemap unreachable" + pollutes data/gsc/
 
 - **Repro** — `lamill project seo calcengine` (project slug `calcengine` ≠ domain `calcengine.site`).
 - **Expected** — resolve `calcengine` → `calcengine.site`, then use that domain for the GSC property lookup, the sitemap host, and the snapshot path.
@@ -103,7 +113,7 @@ when applicable. Don't delete.
 - **Severity** — major. Inverts the diagnosis (reports a healthy, indexed site as blocked), burns debugging time, and pollutes `data/gsc/`. Bites any site whose project slug ≠ full domain.
 
 
-### 2026-07-09 — `project seo` live sitemap probe guesses `sitemap_index.xml` instead of reading robots.txt's declared `Sitemap:`
+### BUG-082 · 2026-07-09 — `project seo` live sitemap probe guesses `sitemap_index.xml` instead of reading robots.txt's declared `Sitemap:`
 
 - **Repro** — `lamill project seo calcengine.site`. Site serves `sitemap-index.xml` (hyphen), declared in robots.txt; lamill probes `sitemap_index.xml` (underscore).
 - **Expected** — read the `Sitemap:` URL from `/robots.txt` (`https://calcengine.site/sitemap-index.xml`) and probe that.
@@ -112,7 +122,7 @@ when applicable. Don't delete.
 - **Severity** — major. False "unreachable" on sites whose sitemap is fine but named per the hyphen convention; masks real sitemap health.
 
 
-### 2026-07-03 — static SEO head checks false-fail on Astro pages (layout + `{title}` expression) — parse raw source, not rendered head
+### BUG-081 · 2026-07-03 — static SEO head checks false-fail on Astro pages (layout + `{title}` expression) — parse raw source, not rendered head
 
 - **Repro** — `lamill project check donready.xyz` (Astro; pages do `import Base from "../layouts/Base.astro"` and `<title>{title}</title>` with `title` in frontmatter; `<html>` lives in the layout).
 - **Expected** — checks reflect the rendered/live head. The live page is well-formed: title `FIGS vs Mandala Scrubs… | DonReady`, `<html lang="en">`, viewport, good meta description, JSON-LD all present.
@@ -125,7 +135,7 @@ when applicable. Don't delete.
 
 
 
-### 2026-07-03 — `fleet seo` "Last crawl" column is stale (read from a cache `--refresh` never updates)
+### BUG-080 · 2026-07-03 — `fleet seo` "Last crawl" column is stale (read from a cache `--refresh` never updates)
 
 - **Repro** — `lamill fleet seo --refresh`, then compare the "Last crawl" column to GSC / a live URL inspection.
 - **Expected** — with `--refresh`, "Last crawl" reflects Google's actual latest crawl.
@@ -134,7 +144,7 @@ when applicable. Don't delete.
 
 
 
-### 2026-07-03 — `fleet seo` labels the roster/classification date as "Snapshot:", making fresh GSC numbers look week-old ("refresh isn't working")
+### BUG-079 · 2026-07-03 — `fleet seo` labels the roster/classification date as "Snapshot:", making fresh GSC numbers look week-old ("refresh isn't working")
 
 - **Repro** — with a stale `data/checks/<date>.json` (classification not re-run recently) but a same-day GSC fetch:
     ```
@@ -147,7 +157,7 @@ when applicable. Don't delete.
 
 
 
-### 2026-06-29 — SEO head checks (title / meta-description / OG / twitter) are blind to SSR-head stacks (TanStack Start / Astro / Next), so placeholder metadata ships undetected
+### BUG-078 · 2026-06-29 — SEO head checks (title / meta-description / OG / twitter) are blind to SSR-head stacks (TanStack Start / Astro / Next), so placeholder metadata ships undetected
 
 - **Repro** — a TanStack Start site (no static `index.html`; head defined in code via a route `head()` / `createRootRoute`). `lamill.io` shipped with the Lovable scaffold's placeholder head — `title: "Lovable App"`, `description: "Lovable Generated Project"`, `author: "Lovable"`, `twitter:site: "@Lovable"`. Run:
     ```
@@ -160,7 +170,7 @@ when applicable. Don't delete.
 - **Verified** — on real lamill.io the four checks flipped from all-`skipped` to evaluating: CHECK_070 `pass` (found the homepage title), CHECK_071 `warn` (99-char description — genuinely short), CHECK_076 `warn` (`og:url` missing) — real gaps that were previously invisible. 16 new tests (`test_ssr_head_resolution.py`) + 604 seo/check regression tests green.
 - **Severity** — major (now resolved). Was a silent false-pass on a core branding/SEO gate for every SSR-head site in the fleet.
 
-### 2026-06-26 — `project seo` reports `sitemap · reachable · 0 URLs` when /sitemap.xml actually serves HTML (SPA/catch-all fallback) — misdiagnoses cause, gives wrong remediation
+### BUG-077 · 2026-06-26 — `project seo` reports `sitemap · reachable · 0 URLs` when /sitemap.xml actually serves HTML (SPA/catch-all fallback) — misdiagnoses cause, gives wrong remediation
 
 - **Repro** — deploy a site whose `/sitemap.xml` route isn't emitted by the build, so the host's catch-all returns `index.html` with `200 text/html` (e.g. bppvcoach.com, Astro/SPA). Then:
     ```
@@ -181,7 +191,7 @@ when applicable. Don't delete.
 - **Fix (guess)** — at fetch time, reject a non-sitemap response *before* treating it as empty: skip/raise when `Content-Type` is `text/html` or the body doesn't start with `<?xml`/`<urlset`/`<sitemapindex` (after BOM/whitespace strip). Have `_extract_locs` (or a wrapper) distinguish three outcomes — *valid sitemap with N URLs*, *valid-but-empty sitemap*, *not XML / HTML fallback* — and propagate the third as a typed condition so `project_seo_diagnostics` can render the accurate blocker ("/sitemap.xml serves HTML, not XML — route missing from build; re-deploy with a real sitemap") instead of "add routes." Keeps parity with the GSC-side ERROR the same run already surfaces.
 - **Severity** — major. The site genuinely earns no traffic (real blocker), but lamill misdiagnoses *why* and points the operator at the wrong fix ("add routes" vs. "your build isn't emitting sitemap.xml"), which costs real debugging time on a common deploy failure mode. (Underlying site-side issue — bppvcoach.com's build not emitting `/sitemap.xml` — is separate from this diagnostic gap.)
 
-### 2026-06-24 — `new deploy` pre-flight prints `✓ GitHub auth via token` then dies one line later on a cryptic raw-401 owner lookup
+### BUG-076 · 2026-06-24 — `new deploy` pre-flight prints `✓ GitHub auth via token` then dies one line later on a cryptic raw-401 owner lookup
 
 - **Repro** — with a stale/revoked `GITHUB_TOKEN` in `portfolio.env` (and no `gh` CLI installed):
     ```
@@ -201,7 +211,7 @@ when applicable. Don't delete.
 - **Severity** — minor (UX/error-quality; not data-loss). The pre-flight *does* fail before any write step, so no half-created GH/CF state — but the misleading `✓` + raw-JSON `✗` cost operator time diagnosing.
 - **Fixed (working tree, pending commit)** — `gh_repo.py`: `_detect_owner_via_token()` now maps 401/403 to a typed `GhAuthError` via `_token_auth_error()`, which parses the body + `X-{Accepted-,}OAuth-Scopes` headers to name the cause (expired/revoked vs under-scoped) and appends the `lamill settings apikeys set GITHUB_TOKEN <pat>` remediation; the `gh`-CLI path gets the same via `_looks_like_gh_auth_failure()`. `cli.py` pre-flight now resolves the owner *as* the credential probe, so `✓ GitHub auth via {path}` prints only after the token is proven valid (no more contradictory ✓-then-✗). Tests: `test_gh_repo.py` updated (401 → `GhAuthError`) + 3 added (remediation text, 403 scope-naming, 500-stays-`GhApiError`); 62 + 38 deploy tests green. Verified live against the editable-installed `lamill` with a simulated 401.
 
-### 2026-06-22 — `fleet seo` can't answer "did Google re-crawl after my last update?" — push date isn't shown next to Last crawl
+### BUG-075 · 2026-06-22 — `fleet seo` can't answer "did Google re-crawl after my last update?" — push date isn't shown next to Last crawl
 - **Repro** — `lamill fleet seo --refresh`: the table shows a `Last crawl` column (homepage `last_crawl_time` from the GSC inspection cache) but no "when did I last push/update this site" column. To compare you have to run `lamill fleet dashboard` separately (which has the `Last` commit-age column but *not* `Last crawl`) and do the mental math across two commands.
 - **Expected** — one glance answers "is my latest content stale in Google's index?" — i.e. did I push *after* Google last crawled.
 - **Actual** — the two halves live on two different commands; neither surface shows both side by side.
@@ -210,7 +220,7 @@ when applicable. Don't delete.
 - **Fix** — add an `Updated` column right after `Last crawl` on the `fleet seo` table showing the last local-commit date, with a 🔄 flag (predicate `_is_stale_in_index`) + footer tally. Source = last *commit* (free, local, no network); true `pushed_at` deferred unless commit-vs-push drift becomes real friction. Flag fires when pushed content likely runs ahead of Google's index, across two cases: (a) crawl date present and push newer; (b) **never crawled** (`Last crawl —`) + pushed + no indexing signal. The "—" dash is ambiguous (never-crawled vs homepage-inspection-not-cached), so the no-crawl branch is gated on `indexed = impressions > 0` — heavily-indexed sites with a cache gap (hybridautopart, 22,990 imp) are NOT flagged. **Dark sites** (`robots_intent == "dark"`, e.g. csinorcal.church) are never flagged — intentionally not indexed. Sites with no local repo (carrepairsite — no `Updated` date) have nothing to compare. **Fixed in** `<this commit>`.
 
 
-### 2026-06-19 — CF purge-by-URL doesn't evict a DYNAMIC-pinned stale object (earnlog /sitemap.xml)
+### BUG-074 · 2026-06-19 — CF purge-by-URL doesn't evict a DYNAMIC-pinned stale object (earnlog /sitemap.xml)
 - **Repro** — `lamill project fix earnlog.xyz --rule CHECK_057 --apply`: reports the purge sent, but `curl -sI https://earnlog.xyz/sitemap.xml` still returns the removed stub (200, body has `<!-- Stub sitemap`, `age` keeps climbing). Cache-busted (`?cb=…`) the same path returns **404** — so origin is correct; only the edge copy is stale.
 - **Expected** — `cloudflare.purge_files(zone, ["https://earnlog.xyz/sitemap.xml"])` evicts the cached object; the next fetch re-pulls from origin (404).
 - **Actual** — the CF API returns success but the object survives (it was a static `public/sitemap.xml` served with `cache-control: public, s-maxage=604800`; removed in the sitemap sweep + redeployed, but the 7-day edge copy persists). Purge-by-file isn't matching the cached key.
@@ -220,7 +230,7 @@ when applicable. Don't delete.
 - **Notes** — surfaced 2026-06-19, root-caused + fixed 2026-06-20. Bug 1 (verify false-positive, `8b5f62e`) made the failure honest; this fixed detection + prevention. Residual: existing deployed sites still have the old `/*`-no-cache `_headers` until refreshed.
 
 
-### 2026-06-19 — CHECK_057 purge fix false-reports "fixed" when a stale path survives as DYNAMIC
+### BUG-073 · 2026-06-19 — CHECK_057 purge fix false-reports "fixed" when a stale path survives as DYNAMIC
 - **Repro** — same as above; before the fix, `project fix … --rule CHECK_057 --apply` printed `✓ purged 1 path(s)` even though `/sitemap.xml` was still the stale stub at the edge.
 - **Expected** — if a path is still stale after the purge, report `error`, not `fixed`.
 - **Actual** — the post-purge verify computed `still_stale` but then only errored on the subset whose `cf-cache-status` was `HIT`/`REVALIDATED`. A stale object served as `DYNAMIC` (the earnlog case) slipped through ⇒ false `fixed`.
@@ -229,7 +239,7 @@ when applicable. Don't delete.
 - **Fix** — **Fixed in** — `<this commit>` — error on `still_stale` (the same `_stale_paths` criterion used pre-purge), not the narrower HIT/REVALIDATED filter; message now names each surviving path + its cache-status. Regression test: `tests/test_check_057_purge_verify.py`.
 
 
-### 2026-06-19 — sub-page canonical 308-redirects to its own served URL; "unknown to Google"; no check catches it
+### BUG-072 · 2026-06-19 — sub-page canonical 308-redirects to its own served URL; "unknown to Google"; no check catches it
 - **Repro** — `curl -sI https://earnlog.xyz/calculator` → `308 → /calculator/`; the served `/calculator/` page declares `<link rel="canonical" href="https://earnlog.xyz/calculator">` (no slash). GSC URL-inspect each sub-page → "URL is unknown to Google" while the homepage is "Submitted and indexed".
 - **Expected** — a page's `<link rel="canonical">` is its own final (200, non-redirecting) URL, matching what the sitemap lists.
 - **Actual** — Astro's directory format serves `/calculator/` and `@astrojs/sitemap` lists `/calculator/`, but the canonical declares `/calculator`, which 308-redirects back to `/calculator/`. A canonical pointing at a redirecting URL is an indexing-blocker — exactly the sub-pages with the contradiction are "unknown to Google". Confirmed on **donready.xyz** (per-page hardcoded `const url = ${site}/page`) and **earnlog.xyz** (shared `Layout.astro` `${site}${path}`); both scaffolded by `portfolio new bootstrap` ⇒ likely a **bootstrap-template defect**, fleet-wide on multi-page Astro sites (cf. the low index ratios: civictools 1/10, calcengine 2/10, voltloop 2/10…).
@@ -239,7 +249,7 @@ when applicable. Don't delete.
 - **Notes** — same trailing-slash class as the airsucks/whizgraphs canonical fixes. The check is being added now (operator request, high severity).
 
 
-### 2026-06-15 — three duplicate sitemap-URL parsers (DRY violation; same bug needed fixing in two of them)
+### BUG-071 · 2026-06-15 — three duplicate sitemap-URL parsers (DRY violation; same bug needed fixing in two of them)
 
 - **Where** — `checks/seo/_live.py::_extract_sitemap_locs` (+ `get_sitemap_urls`), `gsc_recrawl.py::_extract_locs` (+ `fetch_sitemap_urls`), `indexnow.py::_LOC_RE` (regex). Three independent implementations of "extract `<loc>` URLs from a sitemap / sitemap-index."
 - **Actual** — the `https://`-namespace bug (see Fixed bugs, same date) existed *identically* in the two ElementTree-based parsers and had to be fixed twice; the first fix (`_live.py`) didn't address the reported symptom because `project seo` uses the *other* parser (`gsc_recrawl`). The regex one (indexnow) was incidentally immune. Consumers are split: ~10 checks (090–095/147/158/159) use `_live`'s; `seo_diagnose`/`project_seo_diagnostics`/cli use `gsc_recrawl`'s; indexnow uses its own.
@@ -248,7 +258,7 @@ when applicable. Don't delete.
 - **Notes** — surfaced while fixing the `https://`-namespace 0-URL bug. The duplication *is* the root cause; patching N copies is symptom treatment.
 
 
-### 2026-06-13 — `project seo` State header ("Sitemap submitted") contradicts the GSC-diagnostics block ("none submitted")
+### BUG-067 · 2026-06-13 — `project seo` State header ("Sitemap submitted") contradicts the GSC-diagnostics block ("none submitted")
 
 - **Repro** — `lamill project seo airsucks.com`: the v36 State header shows `Sitemap 1 URL · submitted · reachable`, but the GSC-diagnostics block just below shows `📋 Sitemaps none submitted`.
 - **Expected** — the two sitemap statements agree (and one of them is authoritative).
@@ -257,7 +267,7 @@ when applicable. Don't delete.
 - **Severity** — `minor` (cosmetic contradiction; the State header is correct). Surfaced by operator on the very-improved v36 output.
 - **Notes** — Quick fix: the empty branch should defer to the authoritative State-header Sitemap line rather than assert "none submitted". Deeper (follow-up): the v13.B per-domain cache and the fleet-seo GSC probe are two GSC reads that can disagree; real reconciliation = always source the submitted-count from one place (e.g. `gsc_sitemap_count`, or always run `build_diagnostics`'s `fetch_sitemap_details`). **Fixed (wording)** — 2026-06-13, v36 polish (see commit).
 
-### 2026-06-13 — `project delegate` dies on the 5-hour usage cap, forcing a manual run→rate-limited→discard→wait→retry loop
+### BUG-066 · 2026-06-13 — `project delegate` dies on the 5-hour usage cap, forcing a manual run→rate-limited→discard→wait→retry loop
 
 - **Repro** — `lamill project delegate <domain> "..."` when the account's 5-hour usage cap is exhausted (stream emits `rate_limit_event` `status: rejected`, `overageDisabledReason: org_level_disabled`, then no `result`).
 - **Expected** — quota-aware + self-healing: detect the cap, **wait out the reset by default** with a live spinner counting down to `resetsAt`, revert any partial diff, retry, and complete — no manual back-and-forth. `--no-wait` (or a non-TTY/CI context) restores fail-fast with the reset time + a clean tree.
@@ -267,7 +277,7 @@ when applicable. Don't delete.
 - **Notes** — Queued as the next delegate tier (**v33.P**). Six requirements per the operator spec (2026-06-13): (1) pre-flight quota probe — don't start a doomed run; (2) **wait-by-default** + `--no-wait` opt-out, bounded by `--max-wait` (6h) / `--max-retries` (2); non-TTY ⇒ behave as `--no-wait` unless explicit `--wait`; (3) live Ctrl-C-interruptible countdown spinner (`console.status`, ~1s refresh, "⠋ rate-limited — waiting for quota · resets 2:10 PM · ~14m left"), suppressed non-TTY, prints "✓ quota reset — resuming…" on reset; (4) **auto-revert before any retry** (pairs with the revert/stash-on-failure work); (5) **honesty** — can check quota to *start*, not to *finish* (the cap depletes continuously); on mid-run exhaustion, revert + wait-retry (or fail fast); optionally refuse to start below a remaining-quota threshold if `rate_limit_info` exposes it; (6) help text + failure output must note that **enabling org-level overage removes the hard stop entirely** (the real fix; wait/retry is the workaround). **DoD** — a rate-limited account, no extra flags: detect → spinner countdown → wait → revert partial → retry → complete; `--no-wait`/non-TTY ⇒ fail-fast with reset time + clean tree; Ctrl-C during the wait aborts cleanly; `--max-wait`/`--max-retries` bound it. **Dependency:** builds on the v33.O change (`2e53209`).
 - **Fixed** — 2026-06-13, v33.P. `run_delegate_resilient` + `probe_quota_host` + `revert_tree` + `quota_from_rate_limit`/`parse_resets_at` in `delegate.py`; CLI `--no-wait`/`--wait`/`--max-wait`/`--max-retries` + countdown spinner + Ctrl-C abort in `project_delegate`. 11 unit tests (pure loop; injected sleep/now/backend) incl. the DoD detect→revert→wait→retry→complete path + non-TTY/`--no-wait` fail-fast + bounds. **Live-validation pending** (real-cap end-to-end is operator-machine-only).
 
-### 2026-06-13 — `project seo <domain>` GSC-diagnostics block is contradictory + value-free on fresh/young sites (airsucks.com)
+### BUG-065 · 2026-06-13 — `project seo <domain>` GSC-diagnostics block is contradictory + value-free on fresh/young sites (airsucks.com)
 
 - **Repro** — `lamill project seo airsucks.com` (young site <90d, 0 imp; GSC diagnostics cached `2026-06-12.json`).
 - **Expected** — the diagnostics block either agrees with the 1-row table or stays quiet; for a freshly-deployed site with no GSC sitemap yet, say something actionable ("not yet submitted to GSC — run `project sitemap resubmit`" / "indexing pending, deployed Nd ago") rather than emitting bare negative states.
@@ -289,7 +299,7 @@ when applicable. Don't delete.
   5. **No Blockers section** — the command must end with a prioritized, explicit list of every detected problem + next action (even when unfixable), e.g. ⛔ homepage Crawled–not-indexed (content/authority, not technical); ⚠ sitemap lists 1 URL; ⚠ sitemap not submitted → submit `https://airsucks.com/sitemap-index.xml`; ⚠ `[content]` unconfigured. **Never end on 🟢 when this list is non-empty.**
   - **DoD** — `project seo airsucks.com` no longer reports green: State = `blocked`, an Index cell "Crawled – not indexed", a Sitemap cell "1 URL · not submitted", and a Blockers section with the real problems + next actions. Test: a young site with 0 imp + not-indexed homepage + 1-URL sitemap surfaces ≥3 blockers and does NOT grade green.
 
-### 2026-06-06 — `project delegate` reports `✓ agent finished` on a no-op/failed in-container run (false-green)
+### BUG-064 · 2026-06-06 — `project delegate` reports `✓ agent finished` on a no-op/failed in-container run (false-green)
 
 - **Repro** — `uv run portfolio project delegate dearreels.com "create DELEGATE_SMOKE.md …" --yes --force --budget 0.50` (live smoke test, v33.B).
 - **Expected** — either the file is created (✓), or the run is reported as failed/no-op (`✗`/`↷`).
@@ -300,7 +310,7 @@ when applicable. Don't delete.
 - **Root cause (confirmed live)** — two issues: (1) the container ran as **root**, and claude refuses `--dangerously-skip-permissions` as root → it exited immediately ($0.00, no work); (2) only `~/.claude` (dir) was mounted, not `~/.claude.json` (the auth/config file) → "config file not found." Fix: mount both at a non-root `HOME=/cc` and run the claude exec as the **host user** (`--user uid:gid`). Honesty layer added independently: `run_delegate` now requires a non-error terminal `result` event for `done` (no result ⇒ `error`).
 - **Fixed in** — v33.B (host-user exec + both `~/.claude` + `~/.claude.json` mounts + result-event honesty); live-validated 2026-06-06 (file actually created, honest `✓`).
 
-### 2026-06-06 — pre-existing test failure: `test_check_143_deploy_drift::test_fail_when_declared_vercel_but_actual_is_wordpress`
+### BUG-063 · 2026-06-06 — pre-existing test failure: `test_check_143_deploy_drift::test_fail_when_declared_vercel_but_actual_is_wordpress`
 
 - **Repro** — `uv run pytest tests/checks/test_check_143_deploy_drift.py::test_fail_when_declared_vercel_but_actual_is_wordpress`.
 - **Expected** — assertion passes (severity `fail`).
@@ -310,7 +320,7 @@ when applicable. Don't delete.
 - **Notes** — Surfaced while running the full suite during v33.B. Decide whether the check's `warn`-for-this-case is correct (→ update the test) or the test is (→ fix the check).
 - **Reconfirmed 2026-06-12** — still fails on a clean tree (verified by stashing unrelated WIP). Precise case: the fixture row is `classification="error", status=500` with a WordPress `<meta generator>` in the body excerpt. The check warn-skips before the WP→`hostgator` fingerprint wins, so genuine drift on an *erroring* WP page is masked (declared `vercel` never gets flagged). Likely fix-or-spec call: should an error/non-200 live row still surface the WP fingerprint (→ `fail`), or is warn-skip-on-error intentional (→ update the test)? The iotnews.today canonical case is exactly a 500-serving WP page, which argues for `fail`.
 
-### 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
+### BUG-042 · 2026-05-25 — feature request: `lamill project sitemap resubmit <domain>` verb
 
 **Motivation**
 
@@ -348,7 +358,7 @@ New verb under `project sitemap` namespace (parallel to `project seo` / `project
 - If the rendering-bug fix lands first, the typical operator workflow becomes: `project seo` shows PENDING → wait or resubmit. If the pending state takes too long, this verb is the resolution. Natural pairing.
 
 
-### 2026-05-25 — fleetwide canonical-redirect audit (v26.A scoping baseline) — 29 of 35 probed sites non-conforming
+### BUG-041 · 2026-05-25 — fleetwide canonical-redirect audit (v26.A scoping baseline) — 29 of 35 probed sites non-conforming
 
 **Trigger**
 
@@ -428,7 +438,7 @@ Platform dashboards (Vercel for Bucket A/B; Cloudflare for Bucket D; HostGator/`
 - Bucket E sites need separate triage (likely DNS / cert / DNS-only-no-deploy) — outside this entry's scope.
 
 
-### 2026-05-25 — homeloom.app apex→www redirect is 307 (temporary), blocks Google indexation; fleetwide canonical-redirect standard needed
+### BUG-040 · 2026-05-25 — homeloom.app apex→www redirect is 307 (temporary), blocks Google indexation; fleetwide canonical-redirect standard needed
 
 **Repro**
 
@@ -494,7 +504,7 @@ Adopt this convention across all `sites/<domain>/` projects:
 A single check would have flagged homeloom.app in `fleet seo` and could prevent the next inversion. Not in scope to ship as part of this bug fix — log as `for-seo-check-improvements.md` follow-up and resurface when the operator wants a v(N).X bundle.
 
 
-### 2026-05-23 — Step 5.5 reports `↷ probe failed` on CF-managed read-only DNS records
+### BUG-036 · 2026-05-23 — Step 5.5 reports `↷ probe failed` on CF-managed read-only DNS records
 
 **Repro**
 
@@ -562,7 +572,7 @@ is actually in a correct state.
   phases.
 
 
-### 2026-05-20 — `make deps` hits pnpm store version mismatch on new-domain builds
+### BUG-029 · 2026-05-20 — `make deps` hits pnpm store version mismatch on new-domain builds
 
 **Repro**
 
@@ -649,7 +659,7 @@ bootstrap template.
 
 ---
 
-### 2026-05-20 — `new bootstrap` should ask whether the frontend is already designed
+### BUG-028 · 2026-05-20 — `new bootstrap` should ask whether the frontend is already designed
 
 **Repro**
 
@@ -718,7 +728,7 @@ commit.
 ---
 
 
-### 2026-05-20 — `new bootstrap` prompts don't validate input format
+### BUG-027 · 2026-05-20 — `new bootstrap` prompts don't validate input format
 
 **Repro**
 
@@ -764,7 +774,7 @@ prompt UX in bootstrap needs hardening" theme.
 
 ---
 
-### 2026-05-20 — `project check` groups `warn` results inconsistently across the rendered sections
+### BUG-026 · 2026-05-20 — `project check` groups `warn` results inconsistently across the rendered sections
 
 **Repro**
 
@@ -826,7 +836,7 @@ all current warns + future warns consistently.
 
 ---
 
-### 2026-05-18 — `settings deploy set` fails for sites/ dirs missing from portfolio.json
+### BUG-005 · 2026-05-18 — `settings deploy set` fails for sites/ dirs missing from portfolio.json
 
 **Repro**
     # Site has sites/<domain>/ directory but no entry in portfolio.json:
@@ -872,7 +882,7 @@ might be the right behavior; just needs a clearer error.
 
 ---
 
-### 2026-05-18 — `settings deploy set` doesn't auto-populate `custom_domains` from dir name
+### BUG-004 · 2026-05-18 — `settings deploy set` doesn't auto-populate `custom_domains` from dir name
 
 **Repro**
     uv run lamill settings deploy set <domain> cf-pages --non-interactive
@@ -914,7 +924,7 @@ by the migration sweep. Fix is ~15 min: in `set_deploy()`, when
 
 ---
 
-### 2026-05-19 — `fleet hosting` walkers miss ~9 fleet sites declared as `vercel` / `cf-*` *(diagnosed: data-quality, not walker bug — partial wontfix)*
+### BUG-013 · 2026-05-19 — `fleet hosting` walkers miss ~9 fleet sites declared as `vercel` / `cf-*` *(diagnosed: data-quality, not walker bug — partial wontfix)*
 
 **Repro**
     lamill fleet hosting --refresh
@@ -978,7 +988,7 @@ synthesized row).
 
 ---
 
-### 2026-05-19 — HG walker `install_path` empty for every row despite addon-domain doc-roots existing
+### BUG-012 · 2026-05-19 — HG walker `install_path` empty for every row despite addon-domain doc-roots existing
 
 **Repro**
     lamill fleet hosting --refresh
@@ -1023,7 +1033,7 @@ curl -s -H "Authorization: cpanel ${USER}:${TOKEN}" \
 
 ---
 
-### 2026-05-19 — HG walker reports no `wp_version` for any row (WP detection blind)
+### BUG-011 · 2026-05-19 — HG walker reports no `wp_version` for any row (WP detection blind)
 
 **Repro**
     lamill fleet hosting --refresh
@@ -1076,23 +1086,23 @@ with installations → option 2 (field-name mismatch, fix walker).
 
 ## Fixed bugs
 
-### 2026-06-15 — `project seo` over-harsh ⛔ "blocked" verdict on young (<90d) sites
+### BUG-070 · 2026-06-15 — `project seo` over-harsh ⛔ "blocked" verdict on young (<90d) sites
 
 - Within the freshness window, coverage "unknown to Google" states are now softened to `⚠ indexing pending` (expected indexing lag) instead of driving the ⛔ "blocked" verdict; *crawled-but-declined* still surfaces as ⛔ (a real content/authority signal). cricketfansite.com now reads "🌱 unproven"; airsucks stays ⛔ honestly (its homepage is genuinely crawled-but-declined). Validated live on both young sites. **Fixed in** — `3da6dad` (2026-06-15 parallel bug-sweep). [`seo_diagnose.py`]
 
-### 2026-06-15 — retired obsolete `CHECK_144 has-version-stamp` + `CHECK_146 last-build-success`
+### BUG-069 · 2026-06-15 — retired obsolete `CHECK_144 has-version-stamp` + `CHECK_146 last-build-success`
 
 - Both checked the abandoned `/version.json` convention (0/39 sites served it; v41.B moved deploy-freshness to the CF deployments API in `CHECK_145`). Deleted both checks + their tests; grep confirmed no dangling refs; `version_stamp.py` kept (still used by cli/hosting). **Fixed in** — `3da6dad`. [`checks/deploy/`]
 
-### 2026-05-19 — `fleet dashboard` truncated every cell on a standard terminal
+### BUG-010 · 2026-05-19 — `fleet dashboard` truncated every cell on a standard terminal
 
 - The Domain column is now sized to the longest domain (`no_wrap`) so domains render in full instead of `air…`/`hyb…`; the metric columns flex/abbreviate instead. **Fixed in** — `3da6dad`. [`dashboard.py`]
 
-### 2026-05-18 — `fleet seo` vs `fleet domains` showed different counts
+### BUG-003 · 2026-05-18 — `fleet seo` vs `fleet domains` showed different counts
 
 - Diagnosed as a legitimate scope difference (fleet seo probes live-site/forwarder only). Reconciled in the `fleet seo` footer: `N live-site/forwarder domains probed (K parked/dead/error excluded from M fleet)`. **Fixed in** — `3da6dad`. [`cli.py`, `seo_runtime.py`]
 
-### 2026-06-15 — `project seo` reports "Sitemap lists only 0 URLs" on a sitemap with 8 URLs (TanStack `https://` namespace)
+### BUG-068 · 2026-06-15 — `project seo` reports "Sitemap lists only 0 URLs" on a sitemap with 8 URLs (TanStack `https://` namespace)
 
 - **Repro** — `lamill project seo airsucks.com` → State header `Sitemap 0 URLs`; Blockers: `⚠ Sitemap lists only 0 URLs`. The live sitemap has 8 `<url>` and GSC reports `submitted: 8, errors: 0`.
 - **Expected** — count the 8 URLs Google sees.
@@ -1111,7 +1121,7 @@ with installations → option 2 (field-name mismatch, fix walker).
 - **Notes** — Root cause: GoDaddy updates the domain resource via **PATCH** (the DomainUpdate body carries `nameServers`); there is no PUT. The bug shipped green because `test_set_nameservers_puts_expected_body` asserted `method == "PUT"` against an httpx `MockTransport` that accepts any verb — the test validated the wrong method instead of catching it. Fix: `PUT` → `PATCH`; test renamed → asserts `PATCH` (regression guard). Recorded as v31.E.
 - **Validated** — code now sends PATCH (GoDaddy's documented update method); **needs live validation** on a real GoDaddy domain whose NS still needs changing — the mock confirms lamill *sends* PATCH, not that GoDaddy *accepts* it. Suite-green (8 godaddy-ns tests).
 
-### 2026-06-06 — `new deploy` Step 9 runs GSC verify/sitemap against un-propagated DNS + false-greens a deferred sitemap as "submitted" (mathbloom.xyz)
+### BUG-062 · 2026-06-06 — `new deploy` Step 9 runs GSC verify/sitemap against un-propagated DNS + false-greens a deferred sitemap as "submitted" (mathbloom.xyz)
 
 - **Repro** — `lamill new deploy mathbloom.xyz` (no `--watch`) right after the Step 4 NS cutover, before delegation propagated (Step 8: `↷ no DNS answer yet`). Step 9 ran anyway.
 - **Expected** — Step 9 (GSC verify + sitemap) needs the deploy reachable; on un-propagated DNS it should defer (transient `↷`) and let the idempotent re-run complete it (ADR-0015). Nothing should be reported submitted that wasn't (ADR-0022 honesty).
@@ -1121,7 +1131,7 @@ with installations → option 2 (field-name mismatch, fix walker).
 - **Notes** — Fix: `_deploy_step8_live_probe` now returns the liveness bool; Step 9 is gated on a confirmed-live apex on *both* the `--watch` (`watch_result == "live"`) and no-watch (Step 8 probe) paths → `↷ deferred` instead of running. `_deploy_step9_gsc` returns distinct `created:sitemap_deferred` / `already-registered:sitemap_deferred` statuses, and the summary renders them as `↷ … sitemap deferred — re-run once live` (no "submitted" claim). Also dropped a dead `skipped:watch_` summary branch. 6 tests (4 Step-8 gate + 2 updated deferred-status asserts); deploy/gsc nets green (530). Surfaced during the v35.A audit / mathbloom.xyz deploy.
 - **Validated** — needs operator validation against a real fresh deploy (re-run after propagation should flip the deferred sitemap to submitted). Suite-green only so far.
 
-### 2026-06-06 — `new deploy` crashes with a raw `httpx.ReadTimeout` traceback when CF Pages-project create times out
+### BUG-061 · 2026-06-06 — `new deploy` crashes with a raw `httpx.ReadTimeout` traceback when CF Pages-project create times out
 
 - **Repro** — `lamill new deploy retouchlint.com --yes --watch`; Step 5 (`create_pages_project_with_git`) POST to `/accounts/{id}/pages/projects` hit a read timeout.
 - **Expected** — a network timeout on a CF call is transient → report `↷` + re-run (ADR-0015), not a crash.
@@ -1131,7 +1141,7 @@ with installations → option 2 (field-name mismatch, fix walker).
 - **Notes** — Fix: new `CloudflareTransientError(CloudflareAPIError)`; the create-POST catches `httpx.TimeoutException`/`TransportError` → raises it, with a longer 60s POST timeout (Pages create legitimately exceeds the 15s default); Step 5 catches the transient variant first and reports `↷` + re-run guidance (no misleading "GitHub App not connected" block). 2 regression tests.
 - **Validated** — operator re-ran `new deploy retouchlint.com --yes --watch` 2026-06-06: all 10 steps completed (Step 5 created the Pages project, build success, HTTP 200).
 
-### 2026-06-05 — hand-edits to the generated `data/portfolio.json` (mark-for-deletion, autorenew-off) are silently reverted by the next `fleet sync` refresh (iotnews.today, nosapta.com)
+### BUG-060 · 2026-06-05 — hand-edits to the generated `data/portfolio.json` (mark-for-deletion, autorenew-off) are silently reverted by the next `fleet sync` refresh (iotnews.today, nosapta.com)
 
 **Repro** — `a08eb1b` marked `iotnews.today` `auto_renew On→Off` + `category "Next session"→"To be deleted immediately"` by editing `data/portfolio.json`. A 2026-06-05 refresh (`cleanup()`, `generated_at` → `2026-06-05T10:04`) regenerated the file and **reverted both fields** back to `On` / `"Next session"`; the revert is uncommitted in the tree. `nosapta.com`'s intended deletion edit was lost the same way (now shows `My brand` / `On`).
 
@@ -1147,7 +1157,7 @@ with installations → option 2 (field-name mismatch, fix walker).
 
 **Fixed in** — durability resolved without the drafted overrides layer (**v34 dropped 2026-06-06** after audit): (1) **`auto_renew`** is now registrar-API truth — **v31** `fleet sync --refresh` pulls GoDaddy `auto_renew` (live-validated `Off` for iotnews/nosapta); the "GoDaddy has no API" premise in *Actual*/*Root cause* above was wrong (see ADR-0021). (2) **`category`** always had a durable home in `plan.md` (re-derived by `cleanup()` every run); the real defect was `plan.md`'s **false "deprecated — editing has no effect" banner**, which sent edits to the generated `portfolio.json`. Banner corrected + `iotnews.today`/`NOSAPTA.COM` moved to `### To be deleted immediately` (2026-06-06). **Accepted limitation:** the `🔴` health-view alarm on intentionally-dying domains stays (v34.C dropped) — cosmetic; the `dark_sites` suppression is the template if it ever earns a fix. See `docs/prd.md § v34`. Related: 2026-05-19 thoralox.com entry.
 
-### 2026-06-05 — `new deploy` submits `/sitemap.xml` to GSC, but `@astrojs/sitemap` emits `/sitemap-index.xml` → fleet-wide GSC "sitemap parse errors" (drdebug.dev, mdburst.com)
+### BUG-059 · 2026-06-05 — `new deploy` submits `/sitemap.xml` to GSC, but `@astrojs/sitemap` emits `/sitemap-index.xml` → fleet-wide GSC "sitemap parse errors" (drdebug.dev, mdburst.com)
 
 **Repro** — `lamill fleet focus` shows `drdebug.dev` + `mdburst.com` as `🔴 GSC: sitemap parse errors (1)`.
 
@@ -1169,7 +1179,7 @@ with installations → option 2 (field-name mismatch, fix walker).
 
 **Fixed in** — `6127262` (v32.G — `resolve_sitemap_url` reads the robots.txt `Sitemap:` line; `delete_sitemap` clears stale entries).
 
-### 2026-06-05 — `new deploy` Step 4 trusts Porkbun's `getNs` API over real delegation → reports NS cutover done while the domain is still on Porkbun NS (mdburst.com)
+### BUG-058 · 2026-06-05 — `new deploy` Step 4 trusts Porkbun's `getNs` API over real delegation → reports NS cutover done while the domain is still on Porkbun NS (mdburst.com)
 
 **Repro** — `lamill new deploy mdburst.com --watch --yes` (cf-pages). Step 4 printed:
 ```
@@ -1202,7 +1212,7 @@ $ dig +short mdburst.com A
 
 **Fixed in** — `ab37c41` (v32.C — Step 4 reports real `dig NS` delegation vs the registrar API) + `d625335` (v32.D — detect/clear the Porkbun URL Forwarding that pinned NS, the root cause).
 
-### 2026-06-05 — `new deploy` live probe + `--watch` follow an off-domain 302 to a parking host and report it as `200 OK · fully live` (mdburst.com)
+### BUG-057 · 2026-06-05 — `new deploy` live probe + `--watch` follow an off-domain 302 to a parking host and report it as `200 OK · fully live` (mdburst.com)
 
 **Repro** — same run (`lamill new deploy mdburst.com --watch --yes`). The watch loop and Step 8 printed:
 ```
@@ -1232,7 +1242,7 @@ content-length: 142
 
 **Fixed in** — `ab37c41` (v32.B — `_probe_apex_live` classifies the followed-redirect final host; a forwarded/parked apex is not-live; `l.ink` added to `PARKED_HOST_SUFFIXES`).
 
-### 2026-05-31 — `new deploy` builds the apex CNAME from `{slug}.pages.dev`, but CF can assign a suffixed project subdomain → permanent `1014` (scopeguard.xyz)
+### BUG-056 · 2026-05-31 — `new deploy` builds the apex CNAME from `{slug}.pages.dev`, but CF can assign a suffixed project subdomain → permanent `1014` (scopeguard.xyz)
 
 **Repro** — `lamill new deploy scopeguard.xyz` (cf-pages). Pipeline reached `zone=active build=success` but the live probe returned `403` with body `error code: 1014` ("CNAME Cross-User Banned"), and `--watch` timed out after 30 min still at `live=403`. The Pages custom domain sat at `status=pending` forever.
 
@@ -1264,7 +1274,7 @@ content-length: 142
 
 **Fixed in** — `d373077` (v32.E — `_resolve_pages_subdomain` re-fetches the authoritative `*.pages.dev`) + `279e350` (v32.F — `pending_verification` state + `--repair` re-points the CNAME and re-verifies).
 
-### 2026-05-30 — legacy `lamill.toml` write paths full-rewrite and drop `[content]` + comments
+### BUG-055 · 2026-05-30 — legacy `lamill.toml` write paths full-rewrite and drop `[content]` + comments
 
 **Repro** — Run a CLI command that writes `lamill.toml` via `lamill_toml.write()` on a site that has a hand-authored `[content]` block (every site does as of the 2026-05-30 fleet migration). `write()` re-serializes the whole file from the parsed `LamillToml` struct; `to_dict` only emits tables it knows, so `[content]` (and any unknown table) is **dropped** along with all inline comments + ordering.
 
@@ -1276,7 +1286,7 @@ content-length: 142
 **Fixed in** — v27.J (2026-05-31). Added a generic surgical `lamill_toml_edit.set_table(repo, name, body|None)` upsert (replace/insert/remove one flat top-level table, byte-preserving the rest). `set_deploy` now upserts only `[deploy]` / `[hosting]` on an existing file (full `write()` reserved for new files); the other two paths keep `write()` since they only ever create new files. 5 tests; suite green. Per ADR-0018, all CLI `lamill.toml` mutations are now upserts.
 
 
-### 2026-05-29 — `fleet focus` ignores `[fleet] dark_sites`; csinorcal.church + virtually.co.in surface despite operator-declared exclusion
+### BUG-054 · 2026-05-29 — `fleet focus` ignores `[fleet] dark_sites`; csinorcal.church + virtually.co.in surface despite operator-declared exclusion
 
 **Repro** — Add `virtually.co.in` to `[fleet] dark_sites` in
 `~/.config/portfolio/config.toml`. Run `lamill fleet focus --all`.
@@ -1314,7 +1324,7 @@ config.toml to change)`.
 
 **Fixed in** — `5c9f8fc` (fleet focus dark_sites filter)
 
-### 2026-05-29 — `new bootstrap` smart-paste mis-routes when the pasted reply has bare-label headers (numbers stripped by markdown copy)
+### BUG-053 · 2026-05-29 — `new bootstrap` smart-paste mis-routes when the pasted reply has bare-label headers (numbers stripped by markdown copy)
 
 **Repro**
 
@@ -1359,7 +1369,7 @@ copy-from-rendered-markdown path).
 
 **Fixed in** — `561bf28` (bare-label smart-paste + code-block template tune)
 
-### 2026-05-28 — `new bootstrap` smart-paste mis-routes every section when the pasted LLM reply uses blank-line section separators
+### BUG-052 · 2026-05-28 — `new bootstrap` smart-paste mis-routes every section when the pasted LLM reply uses blank-line section separators
 
 **Repro**
 
@@ -1401,7 +1411,7 @@ whole multi-section reply → finish with Ctrl-D."
 
 **Fixed in** — `c08231d` (new bootstrap smart-paste mis-route + paste-first UX)
 
-### 2026-05-28 — `new bootstrap` smart-paste positional fallback mis-routes a single section whose content is a numbered list
+### BUG-051 · 2026-05-28 — `new bootstrap` smart-paste positional fallback mis-routes a single section whose content is a numbered list
 
 **Repro** — At `[2/9] Summary`, paste a single section whose body is a
 numbered list of ≥4 items preceded by a prose line, e.g. `The site
@@ -1427,7 +1437,7 @@ unaffected.
 
 **Fixed in** — `c08231d` (new bootstrap smart-paste mis-route + paste-first UX)
 
-### 2026-05-28 — `new domain` option 1 row picker rejects full domain names and gives cryptic TLD hint
+### BUG-050 · 2026-05-28 — `new domain` option 1 row picker rejects full domain names and gives cryptic TLD hint
 
 **Repro**
 
@@ -1447,7 +1457,7 @@ unaffected.
 
 ---
 
-### 2026-05-28 — `fleet seo` results table should order domains alphabetically (not impressions-desc) by default
+### BUG-049 · 2026-05-28 — `fleet seo` results table should order domains alphabetically (not impressions-desc) by default
 
 `fleet seo` sorted its results table by GSC impressions descending — for a mostly-young/zero-impression fleet, that buried most domains in an undifferentiated block and the operator couldn't locate a domain by name.
 
@@ -1466,7 +1476,7 @@ unaffected.
 
 ---
 
-### 2026-05-25 — `project seo` renders pending sitemap re-fetches as `✗ ERROR` (red) when they should be `↷ PENDING` (yellow)
+### BUG-039 · 2026-05-25 — `project seo` renders pending sitemap re-fetches as `✗ ERROR` (red) when they should be `↷ PENDING` (yellow)
 
 When GSC is mid-refetch (`isPending: true`), the error count is from the PRIOR fetch and may clear on the next download — but `_sitemap_status` checked `errors > 0` before `is_pending`, so the boxchive.com sitemap rendered red `✗ ERROR` and sent the operator chasing a stale error.
 
@@ -1480,7 +1490,7 @@ When GSC is mid-refetch (`isPending: true`), the error count is from the PRIOR f
 
 ---
 
-### 2026-05-25 — `project seo` sitemap line renders `"N error(s)  ·  N error(s)"` (duplicate count from two render paths)
+### BUG-038 · 2026-05-25 — `project seo` sitemap line renders `"N error(s)  ·  N error(s)"` (duplicate count from two render paths)
 
 The sitemap tail-bits builder appended both `f"{errs} error(s)"` and `error_summary` (which also starts with `"N error(s)"`), so the count rendered twice.
 
@@ -1490,7 +1500,7 @@ The sitemap tail-bits builder appended both `f"{errs} error(s)"` and `error_summ
 
 ---
 
-### 2026-05-20 — v13.B `project seo` GSC diagnostics — 3 rendering/classification issues
+### BUG-025 · 2026-05-20 — v13.B `project seo` GSC diagnostics — 3 rendering/classification issues
 
 Three defects on the v13.B per-project GSC diagnostics surface, surfaced together on a healthy `hybridautopart.com` run.
 
@@ -1506,7 +1516,7 @@ Three defects on the v13.B per-project GSC diagnostics surface, surfaced togethe
 
 ---
 
-### 2026-05-20 — `new bootstrap` prompt layout makes Audience/ICP visually confusable
+### BUG-024 · 2026-05-20 — `new bootstrap` prompt layout makes Audience/ICP visually confusable
 
 In the operator's test session, the ICP content got typed into the Audience prompt: the multi-line ICP description rendered immediately after the Audience input with no boundary, so the eye read the ICP description as extra context for the Audience question. Two sections got mis-routed (saved wrong + left the correct slots empty).
 
@@ -1524,7 +1534,7 @@ Combines options 1 (saved-as echo) + 4 (numbering) from the original write-up. A
 
 ---
 
-### 2026-05-20 — `new bootstrap` should generate a copy-paste LLM prompt first
+### BUG-023 · 2026-05-20 — `new bootstrap` should generate a copy-paste LLM prompt first
 
 Bootstrap fired the 6 content prompts (Summary / Audience / ICP / Goals / Content strategy / Growth hypothesis) cold — the operator had to compose each freehand or shuttle to ChatGPT manually, one prompt at a time. The original test session showed two sections answered with the *next* section's content because composing in-prompt without context is error-prone.
 
@@ -1538,7 +1548,7 @@ New `_render_llm_prompt_template(domain, topic, ...)` in `cli.py`, printed right
 
 ---
 
-### 2026-05-25 — `new bootstrap` smart-paste misses positional-numbered LLM responses (numbers map to prompt order, not labels)
+### BUG-037 · 2026-05-25 — `new bootstrap` smart-paste misses positional-numbered LLM responses (numbers map to prompt order, not labels)
 
 Operator pastes an LLM response that answers the 9 numbered prompts by reprinting just the digit + content (`2. <summary>` / `3. <audience>` / …) with no header label. Pre-fix, the header-based parser found 0 canonical sections, `len(sections) < 3` returned None, and the whole blob landed in Summary while prompts 3-9 fired empty.
 
@@ -1548,7 +1558,7 @@ Operator pastes an LLM response that answers the 9 numbered prompts by reprintin
 
 ---
 
-### 2026-05-28 — `new domain` Step 1 brand-collision check (gpt-5-mini) false-negatives same-category niche competitors
+### BUG-048 · 2026-05-28 — `new domain` Step 1 brand-collision check (gpt-5-mini) false-negatives same-category niche competitors
 
 **Repro**
 
@@ -1589,7 +1599,7 @@ Step 1/6 — Brand collision check  (gpt-5-mini)
 
 ---
 
-### 2026-05-27 — `fleet fix` auto-toggled `always_use_https` on csinorcal.church (dark sites had no first-class config classification)
+### BUG-047 · 2026-05-27 — `fleet fix` auto-toggled `always_use_https` on csinorcal.church (dark sites had no first-class config classification)
 
 **Repro (today's incident)**
 
@@ -1630,7 +1640,7 @@ The write was probably safe (HTTPS-on for an internal site is fine in 99% of cas
 
 ---
 
-### 2026-05-27 — `settings cloudflare check-token` returns ✓ when token lacks Cache Purge / Zone Settings:Edit (only DNS:Edit was probed per zone)
+### BUG-046 · 2026-05-27 — `settings cloudflare check-token` returns ✓ when token lacks Cache Purge / Zone Settings:Edit (only DNS:Edit was probed per zone)
 
 **Repro (pre-fix)**
 
@@ -1670,7 +1680,7 @@ The diagnostic reported ✓; CHECK_057's purge_files call immediately 401'd beca
 
 ---
 
-### 2026-05-27 — CHECK_057 false-fails non-HTML paths served by CF's SPA-fallback handler (originally diagnosed as origin-orphans)
+### BUG-045 · 2026-05-27 — CHECK_057 false-fails non-HTML paths served by CF's SPA-fallback handler (originally diagnosed as origin-orphans)
 
 **Repro**
 
@@ -1722,7 +1732,7 @@ Conservative: a missing content-type (older test fixtures, network errors) does 
 
 ---
 
-### 2026-05-27 — `new deploy` fails Step 2 when local origin uses `<domain>` form (e.g. `kwizicle.com`) but slug derivation produces `<short>` form (`kwizicle`)
+### BUG-044 · 2026-05-27 — `new deploy` fails Step 2 when local origin uses `<domain>` form (e.g. `kwizicle.com`) but slug derivation produces `<short>` form (`kwizicle`)
 
 **Repro**
 
@@ -1764,7 +1774,7 @@ Added `read_local_origin()` + `parse_github_remote()` helpers in `gh_repo.py`. I
 
 ---
 
-### 2026-05-26 — CHECK_150 fixer post-write verification races CF edge propagation
+### BUG-043 · 2026-05-26 — CHECK_150 fixer post-write verification races CF edge propagation
 
 **Repro**
 
@@ -1804,7 +1814,7 @@ Tests updated to monkeypatch `time.sleep` so they don't actually wait; new test 
 **Fixed in** — same-commit (2026-05-26; the v26.C polish commit that immediately follows the v26.C ship commit `d0ee313`).
 
 
-### 2026-05-22 PM — Step 5.5 false-flags legitimate DNS records as conflicts on re-deploy
+### BUG-035 · 2026-05-22 PM — Step 5.5 false-flags legitimate DNS records as conflicts on re-deploy
 
 **Repro**
 
@@ -1868,7 +1878,7 @@ integration test which isn't currently in the suite).
 
 ---
 
-### 2026-05-22 PM — Step 5.5 403 hint doesn't show the actual records that need deletion
+### BUG-034 · 2026-05-22 PM — Step 5.5 403 hint doesn't show the actual records that need deletion
 
 **Repro**
 
@@ -1935,7 +1945,7 @@ stays at 2620/1 skip.
 
 ---
 
-### 2026-05-22 PM — v15.S `pnpm-workspace.yaml` format silently broken under pnpm v11.1.3
+### BUG-033 · 2026-05-22 PM — v15.S `pnpm-workspace.yaml` format silently broken under pnpm v11.1.3
 
 **Repro**
 
@@ -2021,7 +2031,7 @@ Suite 2618 → 2620.
 
 ---
 
-### 2026-05-22 PM — `lamill new trends` (no topic) — feature withdrawn after Google API surface dried up
+### BUG-032 · 2026-05-22 PM — `lamill new trends` (no topic) — feature withdrawn after Google API surface dried up
 
 **Repro** (three iterations, three different endpoints):
 
@@ -2091,7 +2101,7 @@ gained: substantial — captured here for future archeology.
 
 ---
 
-### 2026-05-22 — `lamill new trends <topic>` on HTTP 429 surfaces a cryptic error with no recovery hint
+### BUG-031 · 2026-05-22 — `lamill new trends <topic>` on HTTP 429 surfaces a cryptic error with no recovery hint
 
 **Repro**
 
@@ -2124,7 +2134,7 @@ working.
 
 ---
 
-### 2026-05-22 — `lamill new trends <topic>` raises `ModuleNotFoundError: No module named 'pytrends'` when running outside the `uv` venv
+### BUG-030 · 2026-05-22 — `lamill new trends <topic>` raises `ModuleNotFoundError: No module named 'pytrends'` when running outside the `uv` venv
 
 **Repro**
 
@@ -2150,7 +2160,7 @@ prefix) and exits 3 — no stack trace reaches the operator.
 
 ---
 
-### 2026-05-20 — tech-debt audit pass
+### BUG-022 · 2026-05-20 — tech-debt audit pass
 
 **Expected**
 A deliberate pass over the codebase to identify what's worth
@@ -2184,7 +2194,7 @@ tech-debt enforcement on portfolio itself — never new `CHECK_NNN`.
 
 ---
 
-### 2026-05-20 — Deploy Step 5.5 (DNS purge) continues on auth failure instead of pausing for manual cleanup
+### BUG-021 · 2026-05-20 — Deploy Step 5.5 (DNS purge) continues on auth failure instead of pausing for manual cleanup
 
 **Repro**
 `uv run lamill new deploy <domain> --yes` on a second-attempt deploy
@@ -2222,7 +2232,7 @@ the well-tested Step 6 403 pattern.
 
 ---
 
-### 2026-05-20 — `project check` deploy summary line shows wrong platform for cf-workers sites
+### BUG-020 · 2026-05-20 — `project check` deploy summary line shows wrong platform for cf-workers sites
 
 **Repro**
 
@@ -2255,7 +2265,7 @@ fallthrough, malformed-toml fallthrough, none-falls-through). Suite
 
 ---
 
-### 2026-05-19 — HG-extra `disk N MB` is account-level total, looks per-domain
+### BUG-009 · 2026-05-19 — HG-extra `disk N MB` is account-level total, looks per-domain
 
 **Repro**
     lamill fleet hosting --refresh
@@ -2283,7 +2293,7 @@ footer absent without HG disk data). Suite 2505 → 2507.
 
 ---
 
-### 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
+### BUG-002 · 2026-05-18 — `domain suggest` menu has letter-keyed option `s` between numbered 7 and 8
 
 **Repro**
     uv run lamill domain suggest <topic>
@@ -2307,7 +2317,7 @@ stays at 2505 / 1 skip.
 
 ---
 
-### 2026-05-20 — Bootstrap's `package.json` template ships deprecated pnpm field
+### BUG-019 · 2026-05-20 — Bootstrap's `package.json` template ships deprecated pnpm field
 
 **Repro**
 
@@ -2366,7 +2376,7 @@ transition has been deprecating/relocating various
 
 ---
 
-### 2026-05-20 — All `new` commands leave residue when they fail mid-flight
+### BUG-018 · 2026-05-20 — All `new` commands leave residue when they fail mid-flight
 
 **Repro**
 
@@ -2456,7 +2466,7 @@ Tier candidate: v15.K (after wrap) or fold into v17.
 
 ---
 
-### 2026-05-20 — `new bootstrap` doesn't prompt for Lovable's GitHub repo URL
+### BUG-017 · 2026-05-20 — `new bootstrap` doesn't prompt for Lovable's GitHub repo URL
 
 **Repro**
 
@@ -2522,7 +2532,7 @@ benefit).
 
 ---
 
-### 2026-05-20 — `new bootstrap` doesn't list all prompts upfront
+### BUG-016 · 2026-05-20 — `new bootstrap` doesn't list all prompts upfront
 
 **Repro**
 
@@ -2567,7 +2577,7 @@ prepare paragraph-length answers in advance.
 
 ---
 
-### 2026-05-20 — `new bootstrap` prompt input overflow (multi-paragraph paste leaks to shell)
+### BUG-015 · 2026-05-20 — `new bootstrap` prompt input overflow (multi-paragraph paste leaks to shell)
 
 **Repro**
 
@@ -2634,7 +2644,7 @@ flags (`--summary "..."` / `--growth-hypothesis "..."`).
 
 ---
 
-### 2026-05-20 — `new bootstrap` accepts unregistered/typo'd domains silently
+### BUG-014 · 2026-05-20 — `new bootstrap` accepts unregistered/typo'd domains silently
 
 **Repro**
 
@@ -2680,7 +2690,7 @@ actually present in `data/domains/`.
 
 ---
 
-### 2026-05-19 — `fleet hosting` table has no summary footer
+### BUG-008 · 2026-05-19 — `fleet hosting` table has no summary footer
 
 **Repro**
     lamill fleet hosting --refresh
@@ -2706,7 +2716,7 @@ appear when non-zero.
 
 ---
 
-### 2026-05-19 — `lamill fleet hosting --provider=X` with 0 matches says only "No hosting rows."
+### BUG-007 · 2026-05-19 — `lamill fleet hosting --provider=X` with 0 matches says only "No hosting rows."
 
 **Repro**
     lamill fleet hosting --provider=cloudflare-pages --refresh
@@ -2731,7 +2741,7 @@ When walker genuinely returned 0 rows, message stays
 
 ---
 
-### 2026-05-19 — `HG-extra` column always rendered, even when no HG rows
+### BUG-006 · 2026-05-19 — `HG-extra` column always rendered, even when no HG rows
 
 **Repro**
     lamill fleet hosting --refresh  (with 0 HG rows)
@@ -2751,7 +2761,7 @@ priority cascade.
 
 ---
 
-### 2026-05-18 — `test_serp_fetch.py` not isolated from real `data/serp/_quota.json`
+### BUG-001 · 2026-05-18 — `test_serp_fetch.py` not isolated from real `data/serp/_quota.json`
 
 **Repro**
     # With data/serp/_quota.json at queries_used == limit (250/250):
