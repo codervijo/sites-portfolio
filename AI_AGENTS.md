@@ -81,6 +81,13 @@ The convention is enforced across all `sites/*` projects (see CHECK_013).
 - **`vN`** — major capability tier (SemVer-MAJOR semantics).
 - **`vN.X`** — phase letter within a tier (A, B, C, ...). Each phase
   is a shippable slice.
+- **`vN.A` is always the planning / decisions-lock phase.** Every tier
+  opens with its `.A` phase reserved for kickoff — locking the design
+  decisions, scope, schema/API shape, and any ADR — *before* any
+  implementation. Build work starts at `.B`. Never put build work in
+  `.A`; if a tier's first instinct is code, its planning still gets its
+  own `.A` row above it. (This is why shipped tiers read `vN.A —
+  Kickoff / decisions lock` throughout `docs/prd.md`.)
 
 **Two levels only. Never `vN.X.Y`.** When follow-up work emerges inside
 an existing tier, push subsequent phase letters down to make room.

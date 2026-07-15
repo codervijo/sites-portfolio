@@ -2520,6 +2520,28 @@ The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead
 - Whether `rank` is a stored composite or an alias-of-aliases (union of `crawl`+`ship`+`apex`+`discover`+`content`).
 - Phasing (no `#### Phases` table yet — deliberately).
 
+### v45 — manage client-owned domains (client owns only the domain; operator runs everything else) *(planned — 2026-07-15)*
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v45.A | ☐ | **Kickoff / decisions lock.** Lock model (A) (client owns only the domain; operator runs everything else under their own accounts); the `owner`/`client` field + `portfolio.json` v1→v2 schema-bump shape; **the v45.C ingress mechanism** — `domain add --client <name> <domain>` verb (reuses the `append_domain_row` seam) *vs.* a separate client-domains source file the sync merges; the registrar-truth suppression posture; and whether the schema bump + new domain-source path warrants an **ADR**. |
+| v45.B | ☐ | **`owner`/`client` field on the `Domain` model + `portfolio.json` schema bump (v1→v2).** New optional field; empty = operator's own (backward-compatible: missing → self). `data.py:21-44` + `schema_version`. Pure data-model add; no behavior change on its own. |
+| v45.C | ☐ | **Client-domain ingress that survives `fleet sync`.** Client domains aren't in any operator registrar CSV, so `cleanup()` must ingest + **preserve** them instead of dropping them as "not in any CSV" (the way it already preserves `launched`/`domain_created`). Mechanism locked in v45.A. |
+| v45.D | ☐ | **Registrar-truth gap handling.** Client domains → `registrar="other"`; `expires`/`auto_renew` unknown (operator holds no registrar API for the client's account). Suppress expiry/renewal warnings for `owner≠operator` (mirror the existing `auto_renew=off` mute) so client domains don't false-alarm the health views. |
+| v45.E | ☐ | **Reporting: `owner` as a grouping/filter axis.** Surface `owner` alongside `category` in `fleet` / `info` / `dashboard` (group-by / filter-by client). Read-only display; no new mutation surface. |
+
+#### Design notes
+
+**Decision (2026-07-15): model (A) — client owns *only* the domain; the operator runs everything else** (Cloudflare, GSC, GA4, GitHub, build/deploy) under the operator's own accounts, at least for v1 ("until we hit reality"). The client points their domain's nameservers at the operator's Cloudflare; from there the zone lives in the operator's CF account and the entire deploy + checks stack works unchanged.
+
+**Why this is cheap.** A full single-owner blast-radius sweep (2026-07-15) found all seven integration areas — domain model, registrar creds, Cloudflare, GSC+GA4, GitHub/deploy, fleet/reporting, config/creds — are HIGH-coupled to one owner. But that coupling splits in two: **credential/identity gaps** (registrar/CF/GSC/GA4/GitHub are each a single global account) and **data-model/display gaps** (no `owner` field; reporting groups only by `category`). Model (A) touches **only the data-model + display half** — the credential half stays exactly as-is because everything runs under the operator's accounts. So this tier is a field + an ingress path + a reporting axis, not a credentials refactor.
+
+**Explicitly OUT of scope for v1 (model (B)).** Any client who keeps their domain/DNS on their *own* Cloudflare, or their GSC property under their *own* Google identity, or wants their repo in their *own* GitHub — that's model (B), a multi-account credential refactor across all five integrations (the only existing multi-account precedent is HostGator's `*_<ACCOUNT_ID>` suffix scheme; GitHub doesn't even support org repos today, `gh_repo.py`). Deferred until reality forces it.
+
+**The load-bearing open item is the v45.C ingress mechanism** (locked in v45.A) — how a client domain enters `portfolio.json` and survives the CSV-rebuild sync. Everything else is genuinely a light add.
+
 ## 8. Open questions
 
 Append-only log. Questions get answered (with date) but never
