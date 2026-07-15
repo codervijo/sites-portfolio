@@ -2482,6 +2482,44 @@ The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead
 - The append-only growth primitive + GSC baseline/delta (reuse `gsc_rollup.domain_queries`).
 - Phasing (no `#### Phases` table yet — deliberately).
 
+### v44 — check-bundle aliases: `project <alias>` themed check groups, prioritized for SEO ranking *(design forming — 2026-07-15)*
+
+#### Design notes
+
+**The idea.** `lamill project <alias> <domain>` runs a **curated subset** of the check catalog instead of the whole thing (`project check` = everything). Aliases are named by the *question you're asking about the site* (`crawl`, `discover`, `tech`, …), cutting across the code-level categories (`seo` / `deploy` / `stack` / `git` / `scaffold` / `content`).
+
+**Scope (locked 2026-07-15).** Project-scope, **read-only**. **No `fleet <alias>`** variants and **no `--fix` / apply** variants for these aliases — they're a fast lens onto the existing checks, not a new mutation surface. (The underlying checks remain fixable through the existing `project fix` / `fleet fix`; the *aliases* just don't get those variants.)
+
+**Mechanism (locked 2026-07-15).** A **`tags` list on each check** in its registry metadata (e.g. `tags = ["crawl", "apex", "discover"]`); an alias resolves to "all checks carrying that tag." A check can carry **multiple tags** (e.g. `canonical_host_is_apex` is in `apex`, `crawl`, *and* `discover`). One source of truth; aliases are thin filters over the existing registry (same shape as the current `--only` selection). No parallel catalog.
+
+**North star: SEO rankings.** Everything is organized to optimize for ranking, so the aliases form a **priority ladder** — closest-to-ranking first — not a flat list. Read top-to-bottom as "most directly moves rankings" → "least."
+
+- **`rank`** *(master)* — "Am I optimized to rank?" Runs the ranking-critical checks from L1 + L2 in one shot. The north-star command.
+
+- **L1 · Gates whether you rank at all** (fail → you can't rank, period):
+  - **`crawl`** — reachable + indexable; not crawled/indexed = invisible = zero ranking. `has_robots_txt`, `robots_mentions_sitemap`, `has_sitemap_xml`, `has_meta_robots`, `canonical_resolves_200`, `apex_canonical_redirect`, `url_indexed`, `index_regression`, `live_sitemap_fetches`.
+  - **`ship`** — latest code actually live; failed deploy / broken URL = Google sees stale-or-nothing = ranking decays. `deploy_fresh`, `deploy_drift`, `deploy_target_uniqueness`, `cf_edge_cache_fresh`, `wrangler_*`, `vercel_config_sane`, `live_final_url_matches_domain`, `last_deploy_date`.
+  - **`apex`** — single canonical host; split apex/www = ranking signal divided across duplicates. `apex_canonical_redirect`, `canonical_host_is_apex`, `sitemap_host_is_apex`, `gsc_sitemap_host_is_apex`, `canonical_resolves_200`.
+
+- **L2 · Determines *where* you rank** (relevance + presentation):
+  - **`discover`** — relevance match + SERP click-through + rich results. `has_title`, `has_meta_description`, `has_canonical`, `has_open_graph`, `has_twitter_card`, `has_json_ld`, `json_ld_org_or_website`, `no_placeholder_metadata`, `has_favicon`, `live_jsonld_parses`.
+  - **`content`** — topical strength. `content_plan_json`, `content_derivable`, `no_placeholder_metadata`, `live_faq_answers_in_html`, `seo_pipeline_prompt`.
+  - **`index`** — faster (re)indexing after changes. `url_indexed`, `index_regression`, `indexnow_key_present`, `indexnow_submitted`, `gsc_sitemap_host_is_apex`.
+
+- **L3 · Sustains ranking** (technical + measurement health):
+  - **`tech`** — prevents stale-site decay + render correctness. `vite_version_ok`, `astro_version_ok`, `build_dev_scripts`, `has_pnpm_lock`, `no_package_lock` / `no_bun_lockb` / `no_yarn_lock`, `stack_drift`, `has_tsconfig`, `gitignore_covers_build_output`.
+  - **`social`** — amplification + measurement. `has_open_graph`, `has_twitter_card`, `has_favicon`, `has_analytics`, `ga4_id_well_formed`, `ga4_script_src_google`.
+
+- **L0 · Off-ladder — kept, but *not* ranking levers** (honest labeling):
+  - **`repo`** — `own_git_repo`, `clean_working_tree`, `on_main_branch`, `last_commit_30d`, `has_ci_workflow`, `git_remote_name_matches_domain`, `dir_matches_portfolio_entry`.
+  - **`docs`** — `has_readme`, `has_ai_agents_md`, `ai_agents_*`, `has_docs_{prd,claude,prompts,growth}`, `*_sections`, `claude_md_heading_hygiene`.
+
+**Still open — do NOT treat as decided:**
+- The full per-check `tags` assignment (the example checks above are indicative, not the final mapping — every check in the catalog needs its tags reviewed).
+- Whether the ladder levels (L1/L2/L3) are themselves surfaced (e.g. a tag / a grouped render order in output) or are just prd organizing framing.
+- Whether `rank` is a stored composite or an alias-of-aliases (union of `crawl`+`ship`+`apex`+`discover`+`content`).
+- Phasing (no `#### Phases` table yet — deliberately).
+
 ## 8. Open questions
 
 Append-only log. Questions get answered (with date) but never
