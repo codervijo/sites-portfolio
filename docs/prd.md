@@ -2467,6 +2467,16 @@ The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead
 
 ### v42 — `project growth <domain>`: one command for a site's content + growth *(design forming — 2026-07-14)*
 
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v42.A | ☐ | **Kickoff / decisions lock.** Lock: the no-flag read view (identity block + growth log layout); the write-flag surface (`--set`/`--clear`/`--derive` → `[content]`; `--log`/`--review`/`--edit` → `docs/growth.md`); content-first phasing; the `set_field(table,key,value)` write primitive shape (must preserve the `#` guidance comments — doesn't exist yet); the append-only `docs/growth.md` schema + primitive; whether the content↔growth linkage (derive→offer growth entry; review-shipped→promote learning into `[content]`) is in v1 or deferred; and the ADR need (the `set_field` write-surface may warrant one). |
+| v42.B | ☐ | **Content half — read view + `set_field` primitive + `--set`/`--clear`.** Solves the blank-page pain: read identity (Set/Empty groups, `n/8 set`) + surgical field writes that preserve `#` comments (`lamill_toml_edit.py`). |
+| v42.C | ☐ | **`--derive` — draft blank `[content]` fields from the site's brief.** Expose `content_derive.py` (v29.D / ADR-0019) to existing sites; never clobber set fields. The "kills daunting" lever; ~47 blank sites. |
+| v42.D | ☐ | **Growth half — read view + `docs/growth.md` append-only primitive.** Dated H2 entries, active/shipped lifecycle, review dates; `--log`/`--edit`. |
+| v42.E | ☐ | **Growth KPI + linkage.** GSC baseline at `--log`, delta at `--review` (reuse `gsc_rollup.domain_queries`) + the content↔growth handoffs. |
+
 #### Design notes
 
 **Founding pain.** The operator has never completed a `[content]` block by hand across the fleet — the **blank-page problem** (staring at ~8 empty identity fields is daunting; hand-writing TOML is error-prone). ~47 sites sit with blank `[content]`.
@@ -2480,9 +2490,19 @@ The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead
 - The write-flag surface for each half.
 - The `--derive` content-draft lever (reuse `content_derive.py`, v29.D / ADR-0019 — today it only runs at `new bootstrap`; exposing it to existing sites is what kills "daunting").
 - The append-only growth primitive + GSC baseline/delta (reuse `gsc_rollup.domain_queries`).
-- Phasing (no `#### Phases` table yet — deliberately).
+
+(These open items are the **v42.A** decisions-lock agenda — see Phases above. Build phases B–E are provisional until v42.A locks them.)
 
 ### v44 — check-bundle aliases: `project <alias>` themed check groups, prioritized for SEO ranking *(design forming — 2026-07-15)*
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v44.A | ☐ | **Kickoff / decisions lock.** Lock: the `tags` registry-metadata shape + how an alias resolves to "checks tagged X" (thin filter over the existing registry, `--only`-style); the `project <alias> <domain>` CLI dispatch; whether the L1/L2/L3 ranking levels are *surfaced* (a tag / grouped render order) or stay prd-only framing; whether `rank` is a stored composite or an alias-of-aliases (`crawl`+`ship`+`apex`+`discover`+`content`); and ownership of the canonical alias→tag mapping (per-check review). |
+| v44.B | ☐ | **Tags infrastructure.** Add a `tags` list to check registry metadata + the alias→tag resolver + `project <alias>` CLI dispatch. No new checks; a pure selection layer over the existing catalog. |
+| v44.C | ☐ | **Tag the core ranking bundles.** Assign `crawl` / `ship` / `apex` / `discover` across the ~90 checks (L1 + L2 essentials); ship these aliases first. |
+| v44.D | ☐ | **Remaining bundles + `rank` master.** `tech` / `social` / `index` / `content` / `repo` / `docs` tags + the `rank` composite per the v44.A decision. |
 
 #### Design notes
 
@@ -2518,7 +2538,8 @@ The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead
 - The full per-check `tags` assignment (the example checks above are indicative, not the final mapping — every check in the catalog needs its tags reviewed).
 - Whether the ladder levels (L1/L2/L3) are themselves surfaced (e.g. a tag / a grouped render order in output) or are just prd organizing framing.
 - Whether `rank` is a stored composite or an alias-of-aliases (union of `crawl`+`ship`+`apex`+`discover`+`content`).
-- Phasing (no `#### Phases` table yet — deliberately).
+
+(These open items are the **v44.A** decisions-lock agenda — see Phases above. Build phases B–D are provisional until v44.A locks them.)
 
 ### v45 — manage client-owned domains (client owns only the domain; operator runs everything else) *(planned — 2026-07-15)*
 
