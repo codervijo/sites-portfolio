@@ -2465,6 +2465,23 @@ expose `--backend-model`. (d) ADR scope.
 
 The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead build token → wrong worker name → source-rebundle deploy config → pnpm strict-resolution) and **no lamill check noticed** — because lamill models the *repo* (static checks) and the *live site* (SEO probes), but never the *deploy pipeline*. A failed build leaves the old deploy serving, so every live check stays green. The only build-status code is the one-shot poll inside `new deploy`/`--watch` (Pages-only). The fix is a standing *deploy-freshness* oracle: "did the latest commit actually ship?" Built on the existing version-stamp convention (don't proliferate checks), not a parallel mechanism. See also the airsucks Worker→Pages migration (2026-06-14) that consolidated the fleet onto cf-pages, removing the lone-Worker blind spot.
 
+### v42 — `project growth <domain>`: one command for a site's content + growth *(design forming — 2026-07-14)*
+
+#### Design notes
+
+**Founding pain.** The operator has never completed a `[content]` block by hand across the fleet — the **blank-page problem** (staring at ~8 empty identity fields is daunting; hand-writing TOML is error-prone). ~47 sites sit with blank `[content]`.
+
+**Resolution (2026-07-14).** A **single command — `project growth <domain>` — covers both** the `[content]` identity block and the growth experiment log. *Not* two sibling commands (`project content` / `project growth`); *not* a new umbrella command (`project site` / `brief` — explicitly rejected). One command, named `growth`.
+
+**The load-bearing principle: content is a seed to growth.** The `[content]` identity block (site_type, primary_keyword, secondary_keywords, icp, urgency_trigger, penalty, tone, law) is the site's *current growth hypothesis* — what it claims to be and who it serves. The growth log (`docs/growth.md`) is the running record of testing and evolving that hypothesis. So content is **not a peer of growth** to be managed by a separate command — it is the seed / current state that growth grows from. That is why one command named `growth` subsumes both: you open a site's *growth*, and its *identity* is the root the record grows from. (Bootstrap already seeds both from one sit-down, which is the same relationship viewed at creation time.)
+
+**Still open — do NOT treat as decided (elicit before structuring):**
+- The no-flag read view — how identity and the experiment log are laid out together.
+- The write-flag surface for each half.
+- The `--derive` content-draft lever (reuse `content_derive.py`, v29.D / ADR-0019 — today it only runs at `new bootstrap`; exposing it to existing sites is what kills "daunting").
+- The append-only growth primitive + GSC baseline/delta (reuse `gsc_rollup.domain_queries`).
+- Phasing (no `#### Phases` table yet — deliberately).
+
 ## 8. Open questions
 
 Append-only log. Questions get answered (with date) but never
