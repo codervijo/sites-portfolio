@@ -76,6 +76,20 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### BUG-087 · 2026-07-15 — fleet CF sites are apex-only (no www DNS) → `www.<domain>` doesn't resolve or redirect; consider mandating www→apex
+
+- **Repro** — latest `fleet check` snapshot (`data/checks/2026-07-07.json`): **34 of 51 domains** are bare-apex live but their `www` variant is `dead`/`ssl-broken`/absent (33 `www dead` + 3 `ssl-broken`; only 15 have a working www). `www.<domain>` returns NXDOMAIN for most of the fleet.
+- **Expected (proposed)** — under apex-canonical, `www.<domain>` should **resolve and permanently (301/308) redirect to the apex**, so www visitors/inbound links land on the canonical host and link equity consolidates. Absent-www ≠ apex-canonical; it's just broken-www.
+- **Actual** — www simply doesn't exist for ~2/3 of the fleet: a user (or inbound link, or email tooling) hitting `www.` gets NXDOMAIN, not a redirect. The fleet is also **inconsistent** (34 apex-only vs 15 with www).
+- **⚠ Interacts with a LOCKED decision** — this is a *posture change*, not just a fix. `CHECK_150 apex-canonical-redirect` (`checks/seo/check_150_apex_canonical_redirect.py`) **currently treats "no www (NXDOMAIN/connrefused) = pass"** by design — its docstring calls apex-only "the common case for CF Pages sites without a www DNS record." Mandating www→apex reverses that allowance. So doing this "for everything" needs:
+    1. An **ADR-level decision** to tighten the `🔒 apex-canonical` locked shape (`docs/CLAUDE.md`) from "www optional/absent OK" to "www required, 301/308→apex."
+    2. `CHECK_150` change: no-www `pass` → `fail`/`warn`.
+    3. Per the touch-list rule, **`new deploy` must create the www record/redirect** for new sites so they're born conformant (not just backfill existing ones).
+- **Fix options (all outward-facing infra on live sites — need explicit go + idempotent rollout; do NOT auto-run)** — (a) bulk CF script over the ~34 zones: add `www` (CNAME→apex or as a second Pages custom domain) + a redirect rule `www→apex`; (b) a lamill fixer (`fleet fix`-style backfill) so it's repeatable; (c) manual by Claude via the CF API. Note the donready.xyz case (BUG-085) shows www-dead also creates probe noise/false "site down" signals, so cleanup has a secondary payoff.
+- **Where** — Cloudflare DNS + redirect config per zone (`cloudflare.py`); `CHECK_150` (`checks/seo/check_150_apex_canonical_redirect.py`); `new deploy` pipeline (`cli.py _deploy_cf_unified`); locked shape in `docs/CLAUDE.md § 🔒 Apex-canonical`.
+- **Severity** — minor (apex works today; this is SEO/UX polish + consistency), but **fleet-wide and posture-changing** — treat the "should www be mandatory?" call as the real decision before any rollout.
+
+
 ### BUG-086 · 2026-07-13 — todo: each site's `AI_AGENTS.md` should document the shared builder mechanism
 
 - **Ask** — every `sites/<domain>/AI_AGENTS.md` should note the **same builder mechanism** the fleet uses, so an agent picking up any site knows how it builds without rediscovering it per-repo.
