@@ -314,21 +314,35 @@ def _stub_cloudflare(monkeypatch, *,
                      zone_id="ZONE123",
                      current_setting="off",
                      patch_raises=None,
-                     post_write_http_status=308):
-    """Patch the cloudflare.* calls + the post-write http probe to
-    cover one CF branch scenario per test.
+                     post_write_http_status=308,
+                     apex_status=200,
+                     www_dns_present=True,
+                     www_redirect_present=True,
+                     www_probe_status=301):
+    """Patch the cloudflare.* calls + the HTTP probes to cover one CF branch
+    scenario per test.
 
-    `post_write_http_status` can be a single int (returned for every
+    `post_write_http_status` can be a single int (returned for every http
     probe attempt) or a list of ints (returned in sequence — last value
-    repeats once the list is exhausted). The list form simulates CF
-    edge propagation: e.g. `[200, 200, 308]` flips to redirect on the
-    3rd attempt."""
+    repeats once the list is exhausted). The list form simulates CF edge
+    propagation: e.g. `[200, 200, 308]` flips to redirect on the 3rd attempt.
+
+    v46.C: the CF branch is now the combined canonicalizer. Defaults stub an
+    apex-live (200) site with www→apex already in place, so the HTTPS-focused
+    tests see the www half as `nothing-to-do` and their assertions still hold.
+    `_probe_status(url)` routes by host: apex vs `www.` vs `http://`."""
     import portfolio.cloudflare as cf
 
     monkeypatch.setattr(cf, "resolve_zone_id",
                         lambda d, client=None: zone_id)
     monkeypatch.setattr(cf, "get_zone_setting",
                         lambda zid, sid, client=None: current_setting)
+    monkeypatch.setattr(cf, "www_dns_present",
+                        lambda zid, apex, client=None: www_dns_present)
+    monkeypatch.setattr(cf, "www_redirect_present",
+                        lambda zid, apex, client=None: www_redirect_present)
+    monkeypatch.setattr(cf, "ensure_www_redirects_to_apex",
+                        lambda zid, apex, **k: cf.WwwProvision(True, True))
 
     def fake_set(zid, sid, val, client=None):
         if patch_raises is not None:
@@ -349,6 +363,14 @@ def _stub_cloudflare(monkeypatch, *,
     else:
         monkeypatch.setattr(mod, "_http_status",
                             lambda domain: post_write_http_status)
+
+    # `_probe_status(url)` handles the apex-live guard (https://apex/) and the
+    # www verify (https://www.apex/); route by the URL it's given.
+    def fake_probe_status(url):
+        if url.startswith("https://www."):
+            return www_probe_status
+        return apex_status
+    monkeypatch.setattr(mod, "_probe_status", fake_probe_status)
 
     # No-op sleep so backoff-poll tests don't actually wait.
     monkeypatch.setattr(mod.time, "sleep", lambda s: None)
@@ -377,6 +399,10 @@ def test_fix_cf_dry_run_returns_would_fix(tmp_path, monkeypatch):
     monkeypatch.setattr(cf, "resolve_zone_id", lambda d, client=None: "Z")
     monkeypatch.setattr(cf, "get_zone_setting",
                         lambda z, s, client=None: "off")
+    # www already conformant + apex live, so only the HTTPS half drives.
+    monkeypatch.setattr(cf, "www_dns_present", lambda z, a, client=None: True)
+    monkeypatch.setattr(cf, "www_redirect_present", lambda z, a, client=None: True)
+    monkeypatch.setattr(mod, "_probe_status", lambda url: 200)
     result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
     assert result.status == "would-fix"
     assert "would set always_use_https" in result.summary
@@ -469,6 +495,7 @@ def test_fix_cf_missing_credentials_returns_actionable_error(tmp_path, monkeypat
     def raise_missing(d, client=None):
         raise cf.MissingCredentialsError("CF_API_TOKEN not set")
     monkeypatch.setattr(cf, "resolve_zone_id", raise_missing)
+    monkeypatch.setattr(mod, "_probe_status", lambda url: 200)  # apex live
     result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
     assert result.status == "error"
     assert "CF_API_TOKEN" in result.summary
@@ -484,10 +511,133 @@ def test_fix_cf_zone_resolution_api_error_returns_error(tmp_path, monkeypatch):
     def raise_api(d, client=None):
         raise cf.CloudflareAPIError("zone not in account")
     monkeypatch.setattr(cf, "resolve_zone_id", raise_api)
+    monkeypatch.setattr(mod, "_probe_status", lambda url: 200)  # apex live
     result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
     assert result.status == "error"
     assert "resolve zone failed" in result.summary
     assert "check-token" in result.summary
+
+
+# ---------- CF branch: v46.C www→apex provisioning + apex-live guard ----------
+
+
+def test_fix_cf_www_missing_provisions_and_verifies(tmp_path, monkeypatch):
+    """https already on, www absent → provisions www; verify shows 301 → fixed."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, current_setting="on",
+                     www_dns_present=False, www_redirect_present=False,
+                     www_probe_status=301)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert "provisioned" in result.summary
+    assert "https://www.example.com/ now returns 301" in result.summary
+
+
+def test_fix_cf_www_missing_dry_run_lists_actions(tmp_path, monkeypatch):
+    """Dry-run names both missing pieces; no provisioning call fires."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    import portfolio.cloudflare as cf
+    _stub_cloudflare(monkeypatch, current_setting="on",
+                     www_dns_present=False, www_redirect_present=False)
+    monkeypatch.setattr(cf, "ensure_www_redirects_to_apex",
+                        lambda *a, **k: pytest.fail("provisioned in dry-run!"))
+    result = mod.fix_tier_1.apply(site, dry_run=True, assume_yes=False)
+    assert result.status == "would-fix"
+    assert "proxied www CNAME→apex" in result.summary
+    assert "www→apex 301 redirect rule" in result.summary
+
+
+def test_fix_cf_apex_not_live_skips_quietly(tmp_path, monkeypatch):
+    """apex 404 (parked/broken) → nothing-to-do; www never touched even
+    though https is off + www absent (the apex-live scope guard)."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    import portfolio.cloudflare as cf
+    _stub_cloudflare(monkeypatch, apex_status=404, current_setting="off",
+                     www_dns_present=False, www_redirect_present=False)
+    monkeypatch.setattr(cf, "set_zone_setting",
+                        lambda *a, **k: pytest.fail("touched a non-live apex!"))
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "nothing-to-do"
+    assert "not a live 200" in result.summary
+    assert "404" in result.summary
+
+
+def test_fix_cf_apex_unreachable_skips(tmp_path, monkeypatch):
+    """apex probe returns None (unreachable) → skip, worded 'unreachable'."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, apex_status=None, current_setting="off",
+                     www_dns_present=False, www_redirect_present=False)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "nothing-to-do"
+    assert "unreachable" in result.summary
+
+
+def test_fix_cf_www_scope_gap_returns_error_with_hint(tmp_path, monkeypatch):
+    """Reading the redirect ruleset 403s (token lacks Dynamic-Redirect edit)
+    → error naming the exact scope + the api-tokens URL."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    import portfolio.cloudflare as cf
+    _stub_cloudflare(monkeypatch, current_setting="on")
+
+    def raise_403(z, a, client=None):
+        raise cf.CloudflareAPIError("GET dynamic_redirect entrypoint → HTTP 403")
+    monkeypatch.setattr(cf, "www_redirect_present", raise_403)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "error"
+    assert "Dynamic Redirect: Edit" in result.summary
+    assert "api-tokens" in result.summary
+
+
+def test_fix_cf_combined_https_and_www_both_fixed(tmp_path, monkeypatch):
+    """https off AND www absent → both remediated; merged summary carries
+    both halves and the status is fixed."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, current_setting="off",
+                     post_write_http_status=308,
+                     www_dns_present=False, www_redirect_present=False,
+                     www_probe_status=301)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert "now returns 308" in result.summary       # HTTPS half
+    assert "provisioned" in result.summary            # www half
+
+
+def test_fix_cf_www_provisioned_but_still_200_returns_error(tmp_path, monkeypatch):
+    """Write succeeded but www stays 200 across the backoff window → error."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, current_setting="on",
+                     www_dns_present=False, www_redirect_present=False,
+                     www_probe_status=200)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "error"
+    assert "still returns 200" in result.summary
+
+
+def test_fix_cf_www_provisioned_probe_unreachable_marks_fixed(tmp_path, monkeypatch):
+    """Write succeeded but the www probe is unreachable → fixed + verify hint."""
+    site = tmp_path / "example.com"
+    site.mkdir()
+    _write_lamill_toml(site, "cf-pages")
+    _stub_cloudflare(monkeypatch, current_setting="on",
+                     www_dns_present=False, www_redirect_present=False,
+                     www_probe_status=None)
+    result = mod.fix_tier_1.apply(site, dry_run=False, assume_yes=False)
+    assert result.status == "fixed"
+    assert "verify" in result.summary.lower()
 
 
 def test_fix_tier_1_metadata():

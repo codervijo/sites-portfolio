@@ -1395,6 +1395,223 @@ def delete_dns_record(
         )
 
 
+# ============================================================================
+# v46.B — www→apex redirect provisioning (ADR-0027)
+# ============================================================================
+#
+# Apex is canonical; `www` must resolve and permanently (301) redirect to it.
+# Two idempotent pieces per zone:
+#   1. a *proxied* `www` CNAME → apex, so CF's edge terminates the request.
+#      (An un-proxied record would let www serve the apex site as a second
+#      200 — the exact "second canonical" failure mode on 4 fleet sites.)
+#   2. a Single Redirect rule in the zone's `http_request_dynamic_redirect`
+#      entrypoint ruleset: host == www.<apex> → https://<apex><path>, 301,
+#      preserving the query string.
+#
+# Both are GET-then-PUT / probe-then-write, so re-running is a clean no-op —
+# `ensure_www_redirects_to_apex` is what the CHECK_150 fixer (v46.C) and the
+# deploy pipeline (v46.D) both call.
+#
+# Scope note: the redirect half needs the **Zone → Dynamic Redirect (Rulesets)
+# Edit** permission on top of DNS:Edit. Without it the ruleset endpoints 403;
+# the fixer maps that to an actionable scope hint (see CHECK_150), it is not a
+# code bug. Confirmed live 2026-07-17: the current token reads DNS/zones/page-
+# rules fine but 403s on the dynamic_redirect entrypoint.
+
+_DYNAMIC_REDIRECT_PHASE = "http_request_dynamic_redirect"
+# Description marker on rules we author, so a re-run recognizes its own rule.
+_WWW_REDIRECT_MARKER = "lamill:www-to-apex"
+
+
+def www_redirect_rule(apex: str, *, status_code: int = 301) -> dict:
+    """Build the Single Redirect rule dict for `www.<apex>` → `https://<apex>`.
+
+    Pure — no I/O. `preserve_query_string` keeps `?utm=…` across the redirect;
+    `concat("https://<apex>", http.request.uri.path)` preserves the path. The
+    description carries `_WWW_REDIRECT_MARKER` so `ensure_www_redirect` can
+    recognize a rule it previously wrote.
+    """
+    return {
+        "action": "redirect",
+        "action_parameters": {
+            "from_value": {
+                "status_code": status_code,
+                "target_url": {
+                    "expression": f'concat("https://{apex}", http.request.uri.path)',
+                },
+                "preserve_query_string": True,
+            },
+        },
+        "expression": f'(http.host eq "www.{apex}")',
+        "description": f"{_WWW_REDIRECT_MARKER}:{apex}",
+        "enabled": True,
+    }
+
+
+def _rule_redirects_www_to_apex(rule: dict, apex: str) -> bool:
+    """True if `rule` is an enabled redirect sending `www.<apex>` to the apex —
+    whether lamill authored it (marker) or it was made in the dashboard
+    (behavioural match on host + target). Lets the already-conformant zones
+    report 'nothing to do' instead of appending a duplicate rule."""
+    if rule.get("action") != "redirect" or not rule.get("enabled", True):
+        return False
+    desc = rule.get("description") or ""
+    if desc.startswith(_WWW_REDIRECT_MARKER):
+        return True
+    expr = (rule.get("expression") or "").lower()
+    if f"www.{apex}".lower() not in expr:
+        return False
+    from_value = (rule.get("action_parameters") or {}).get("from_value") or {}
+    target = (from_value.get("target_url") or {})
+    target_expr = target.get("expression") if isinstance(target, dict) else target
+    return apex.lower() in str(target_expr or "").lower()
+
+
+def get_dynamic_redirect_rules(
+    zone_id: str, *, client: httpx.Client | None = None,
+) -> list[dict]:
+    """Return the rules in the zone's dynamic-redirect entrypoint ruleset.
+
+    A zone with no such ruleset yet answers `404` → treated as no rules (`[]`),
+    not an error (the first `put_dynamic_redirect_rules` creates it). Raises
+    `CloudflareAPIError` on any other non-200 — including the `403` a token
+    without the Dynamic-Redirect scope returns."""
+    with _httpapi.managed_client(client, _client) as c:
+        resp = c.get(
+            f"/zones/{zone_id}/rulesets/phases/{_DYNAMIC_REDIRECT_PHASE}/entrypoint"
+        )
+    if resp.status_code == 404:
+        return []
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"GET dynamic_redirect entrypoint → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"dynamic_redirect entrypoint success=false: {body.get('errors')}"
+        )
+    return list((body.get("result") or {}).get("rules") or [])
+
+
+def put_dynamic_redirect_rules(
+    zone_id: str, rules: list[dict], *, client: httpx.Client | None = None,
+) -> None:
+    """Replace the rules in the zone's dynamic-redirect entrypoint ruleset
+    (creating the entrypoint if the zone has none).
+
+    CF replaces the *entire* rule set on PUT, so callers MUST pass the existing
+    rules plus their addition — never a bare `[new_rule]` (that would wipe the
+    operator's other redirects). `ensure_www_redirect` does this merge."""
+    with _httpapi.managed_client(client, _client) as c:
+        resp = c.put(
+            f"/zones/{zone_id}/rulesets/phases/{_DYNAMIC_REDIRECT_PHASE}/entrypoint",
+            json={"rules": rules},
+        )
+    if resp.status_code != 200:
+        raise CloudflareAPIError(
+            f"PUT dynamic_redirect entrypoint → HTTP {resp.status_code}: "
+            f"{resp.text[:300]}"
+        )
+    body = resp.json()
+    if not body.get("success"):
+        raise CloudflareAPIError(
+            f"dynamic_redirect entrypoint write success=false: {body.get('errors')}"
+        )
+
+
+def ensure_www_dns_record(
+    zone_id: str, apex: str, *, client: httpx.Client | None = None,
+) -> bool:
+    """Ensure a proxied `www.<apex>` CNAME → apex exists.
+
+    Returns `True` if it created the record, `False` if a `www` record was
+    already present. Idempotent: an existing `www` record (of any type) is
+    left untouched — the redirect rule canonicalizes regardless, and we don't
+    churn records the operator may have set deliberately."""
+    www = f"www.{apex}".lower()
+    for rec in list_dns_records(zone_id, client=client):
+        if rec.name.lower() == www:
+            return False
+    create_dns_record(
+        zone_id, type="CNAME", name=f"www.{apex}", content=apex,
+        proxied=True, client=client,
+    )
+    return True
+
+
+def ensure_www_redirect(
+    zone_id: str, apex: str, *, status_code: int = 301,
+    client: httpx.Client | None = None,
+) -> bool:
+    """Ensure a Single Redirect rule sends `www.<apex>` → `https://<apex>`.
+
+    GET-then-PUT idempotent merge: keeps every existing rule, appends ours
+    only when no rule already redirects www→apex. Returns `True` if it wrote a
+    new rule, `False` if a conformant one was already present."""
+    rules = get_dynamic_redirect_rules(zone_id, client=client)
+    if any(_rule_redirects_www_to_apex(r, apex) for r in rules):
+        return False
+    put_dynamic_redirect_rules(
+        zone_id,
+        rules + [www_redirect_rule(apex, status_code=status_code)],
+        client=client,
+    )
+    return True
+
+
+def www_dns_present(
+    zone_id: str, apex: str, *, client: httpx.Client | None = None,
+) -> bool:
+    """Read-only: is there any `www.<apex>` DNS record in the zone? Used by
+    the CHECK_150 fixer's dry-run detection (no write)."""
+    www = f"www.{apex}".lower()
+    return any(
+        r.name.lower() == www for r in list_dns_records(zone_id, client=client)
+    )
+
+
+def www_redirect_present(
+    zone_id: str, apex: str, *, client: httpx.Client | None = None,
+) -> bool:
+    """Read-only: does a rule already redirect `www.<apex>` → apex? Used by
+    the CHECK_150 fixer's dry-run detection. Raises `CloudflareAPIError` on the
+    403 a token without the Dynamic-Redirect scope returns — callers surface
+    that as an actionable hint rather than a silent false."""
+    rules = get_dynamic_redirect_rules(zone_id, client=client)
+    return any(_rule_redirects_www_to_apex(r, apex) for r in rules)
+
+
+@dataclass
+class WwwProvision:
+    """What `ensure_www_redirects_to_apex` changed on a zone."""
+    dns_created: bool
+    rule_created: bool
+
+    @property
+    def changed(self) -> bool:
+        return self.dns_created or self.rule_created
+
+
+def ensure_www_redirects_to_apex(
+    zone_id: str, apex: str, *, status_code: int = 301,
+    client: httpx.Client | None = None,
+) -> WwwProvision:
+    """Idempotently make `www.<apex>` resolve (proxied CNAME→apex) and 301 to
+    the apex (Single Redirect rule). The single entry point the CHECK_150 fixer
+    and the deploy pipeline both call.
+
+    Safe to re-run — each half is a no-op when already present. Raises
+    `CloudflareAPIError` on API failure; the rulesets half 403s without the
+    Dynamic-Redirect edit scope, which callers surface as an actionable hint."""
+    dns_created = ensure_www_dns_record(zone_id, apex, client=client)
+    rule_created = ensure_www_redirect(
+        zone_id, apex, status_code=status_code, client=client
+    )
+    return WwwProvision(dns_created=dns_created, rule_created=rule_created)
+
+
 @dataclass(frozen=True)
 class ZoneWriteProbe:
     """v25.B — result of a zone-level DNS:Edit probe.

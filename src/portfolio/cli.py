@@ -1915,6 +1915,59 @@ def new_deploy(
 # Pages-API + git-integration handles both unified.
 
 
+def _deploy_step_www_redirect(domain: str, zone_id: str, *, dry_run: bool) -> None:
+    """Step 6.7 — provision `www` → apex redirect so new sites are born
+    CHECK_150-conformant (ADR-0027, v46.D).
+
+    A proxied `www` CNAME → apex plus a zone-level Single Redirect rule
+    (`www.<domain>` → `https://<domain>`, 301). Idempotent — the underlying
+    `cloudflare.ensure_www_redirects_to_apex` probes before writing, so a
+    re-run is a clean no-op. Zone-level, so it covers both Pages and Workers.
+
+    **Non-load-bearing:** the apex is already live without it (www is SEO/UX
+    polish), so any failure — including the `403` a token lacking the
+    Dynamic-Redirect edit scope returns — soft-fails `↷` with an actionable
+    hint and never blocks the deploy (ADR-0015 soft-fail posture)."""
+    from . import cloudflare
+
+    console.print(
+        f"\n[bold]6.7 www → apex redirect[/] "
+        f"[dim](www.{domain} → https://{domain}, 301)[/]"
+    )
+    if dry_run:
+        console.print(
+            "  [dim]would: ensure proxied CNAME www→apex + www→apex 301 "
+            "redirect rule[/]"
+        )
+        return
+    try:
+        prov = cloudflare.ensure_www_redirects_to_apex(zone_id, domain)
+    except cloudflare.CloudflareAPIError as e:
+        console.print(
+            f"  [yellow]↷[/] www→apex not provisioned (continuing — apex is "
+            f"live; www is SEO/UX polish): {e}"
+        )
+        console.print(
+            "  [dim]If that was a 403, the CF token needs [cyan]Zone → "
+            "Dynamic Redirect: Edit[/] (Rulesets). Add at "
+            "https://dash.cloudflare.com/profile/api-tokens, then re-run "
+            f"(idempotent) or `lamill project fix {domain}`.[/]"
+        )
+        return
+    bits = []
+    if prov.dns_created:
+        bits.append("created proxied CNAME www→apex")
+    if prov.rule_created:
+        bits.append("added www→apex 301 rule")
+    if bits:
+        console.print(f"  [green]✓[/] {'; '.join(bits)}")
+    else:
+        console.print(
+            "  [green]✓[/] www→apex already in place, skipping "
+            "[dim](idempotent re-run)[/]"
+        )
+
+
 def _deploy_cf_unified(
     *,
     domain: str,
@@ -2817,6 +2870,18 @@ def _deploy_cf_unified(
                         f"(proxied) [dim](one-shot at attach; CF webhook "
                         f"handles future routing)[/]"
                     )
+
+    # --- Step 6.7: www → apex redirect (v46.D, ADR-0027) -------------------
+    # Born-conformant: every new CF site gets www resolving + 301→apex, the
+    # same shape the CHECK_150 fixer backfills onto existing sites. Zone-level
+    # (Pages + Workers). `zone.zone_id` is only read on the real path — the
+    # dry-run branch inside the helper never touches it.
+    if not skip_pages:
+        _deploy_step_www_redirect(
+            domain,
+            zone.zone_id if not dry_run else "",
+            dry_run=dry_run,
+        )
 
     # --- Step 6.6: Repair stuck custom domain (v32.F, --repair only) --------
     if repair and not dry_run:

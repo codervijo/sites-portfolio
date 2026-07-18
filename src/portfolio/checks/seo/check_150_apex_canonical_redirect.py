@@ -346,6 +346,161 @@ def _apply_cf_always_use_https(
     )
 
 
+# v46.C — the CF token needs Dynamic-Redirect (Rulesets) edit on top of
+# DNS:Edit + Zone Settings:Edit to create the www→apex redirect rule. Without
+# it the ruleset endpoints 403; surface an actionable hint, not a raw error.
+_RULESETS_SCOPE_HINT = (
+    "  The CF token needs Zone → Dynamic Redirect: Edit (Rulesets). Add it at "
+    "https://dash.cloudflare.com/profile/api-tokens (edit the lamill token → "
+    "add permission), then re-run."
+)
+
+
+def _apply_cf_www(domain: str, *, dry_run: bool) -> FixResult:
+    """Ensure `www.<domain>` resolves + 301s to the apex (ADR-0027).
+
+    Two idempotent pieces via `cloudflare.ensure_www_redirects_to_apex`: a
+    proxied `www` CNAME → apex and a Single Redirect rule. Probes presence
+    first (dry-run reports what's missing); verifies by re-probing
+    `https://www.<domain>/` for a 301/308 with the same backoff the HTTPS
+    branch uses (CF edges take 5-30s to serve a new rule)."""
+    from ... import cloudflare
+
+    try:
+        zone_id = cloudflare.resolve_zone_id(domain)
+    except cloudflare.MissingCredentialsError as e:
+        return FixResult(
+            status="error",
+            summary=f"CF token missing: {e}\n"
+                    "  Set via `lamill settings apikeys set CF_API_TOKEN ...`.",
+            files_touched=[],
+        )
+    except cloudflare.CloudflareAPIError as e:
+        return FixResult(
+            status="error",
+            summary=f"resolve zone failed: {e}\n"
+                    "  Diagnose: `lamill settings cloudflare check-token`.",
+            files_touched=[],
+        )
+
+    try:
+        dns_ok = cloudflare.www_dns_present(zone_id, domain)
+        rule_ok = cloudflare.www_redirect_present(zone_id, domain)
+    except cloudflare.CloudflareAPIError as e:
+        return FixResult(
+            status="error",
+            summary=f"read www→apex state failed: {e}\n{_RULESETS_SCOPE_HINT}",
+            files_touched=[],
+        )
+
+    if dns_ok and rule_ok:
+        return FixResult(
+            status="nothing-to-do",
+            summary=f"www→apex already in place (zone {zone_id[:8]}…)",
+            files_touched=[],
+        )
+
+    missing = []
+    if not dns_ok:
+        missing.append("proxied www CNAME→apex")
+    if not rule_ok:
+        missing.append("www→apex 301 redirect rule")
+    missing_text = " + ".join(missing)
+
+    if dry_run:
+        return FixResult(
+            status="would-fix",
+            summary=f"would add {missing_text} (zone {zone_id[:8]}…)",
+            files_touched=[],
+        )
+
+    try:
+        cloudflare.ensure_www_redirects_to_apex(zone_id, domain)
+    except cloudflare.CloudflareAPIError as e:
+        return FixResult(
+            status="error",
+            summary=f"www→apex provisioning failed: {e}\n{_RULESETS_SCOPE_HINT}",
+            files_touched=[],
+        )
+
+    # Verify with the same backoff as the HTTPS branch — the edge needs a
+    # moment to start serving the redirect after the ruleset write.
+    last: int | None = None
+    for attempt in range(_FIX_VERIFY_ATTEMPTS):
+        last = _probe_status(f"https://www.{domain}/")
+        if last in _PERMANENT_REDIRECTS:
+            return FixResult(
+                status="fixed",
+                summary=f"provisioned {missing_text}; https://www.{domain}/ "
+                        f"now returns {last}",
+                files_touched=[],
+            )
+        if attempt < _FIX_VERIFY_ATTEMPTS - 1:
+            time.sleep(_FIX_VERIFY_INTERVAL_S)
+
+    if last is None:
+        return FixResult(
+            status="fixed",
+            summary=f"provisioned {missing_text} (post-write probe unreachable "
+                    f"after {_FIX_VERIFY_ATTEMPTS} attempts; verify with "
+                    f"`curl -sI https://www.{domain}/`)",
+            files_touched=[],
+        )
+    return FixResult(
+        status="error",
+        summary=f"provisioned {missing_text} but https://www.{domain}/ still "
+                f"returns {last} after "
+                f"{_FIX_VERIFY_ATTEMPTS}×{_FIX_VERIFY_INTERVAL_S:.0f}s probes. "
+                f"Check for a conflicting redirect rule or stuck cache.",
+        files_touched=[],
+    )
+
+
+# Merge order for the combined CF fixer — worst status wins so a partial
+# failure never reads as success. error > fixed > would-fix > manual >
+# nothing-to-do.
+_MERGE_PRECEDENCE = ("error", "fixed", "would-fix", "manual", "nothing-to-do")
+
+
+def _merge_fix_results(parts: list[FixResult]) -> FixResult:
+    """Combine the HTTPS-toggle and www→apex sub-fixer results into the one
+    FixResult `fix_tier_1` returns. Concatenates summaries; picks the status
+    by `_MERGE_PRECEDENCE` (any error dominates; else any fixed; etc.)."""
+    summary = "; ".join(p.summary for p in parts if p.summary)
+    files = [f for p in parts for f in p.files_touched]
+    statuses = {p.status for p in parts}
+    for status in _MERGE_PRECEDENCE:
+        if status in statuses:
+            return FixResult(status=status, summary=summary, files_touched=files)
+    return FixResult(status="nothing-to-do", summary=summary, files_touched=files)
+
+
+def _apply_cf_canonical(domain: str, *, dry_run: bool) -> FixResult:
+    """CF branch of the CHECK_150 fixer (cf-pages + cf-workers).
+
+    Canonicalizes the whole chain: http→https (`always_use_https`) AND
+    www→apex (proxied CNAME + 301 redirect rule, ADR-0027). Both are
+    idempotent; the combined result is the two sub-fixers merged.
+
+    **Scope guard:** only fires where the apex is a live 200 — if there's no
+    served apex there's nothing to canonicalize to, so parked/broken apexes
+    (e.g. the excluded outliers) skip quietly. Fleet-level parked/dark/archived
+    exclusions are handled upstream by `fleet fix`; this is the per-site
+    self-grounding guard."""
+    apex_status = _probe_status(f"https://{domain}/")
+    if apex_status != 200:
+        shown = apex_status if apex_status is not None else "unreachable"
+        return FixResult(
+            status="nothing-to-do",
+            summary=f"apex https://{domain}/ is {shown} (not a live 200) — "
+                    "nothing to canonicalize; skipping",
+            files_touched=[],
+        )
+    https_res = _apply_cf_always_use_https(domain, dry_run=dry_run)
+    www_res = _apply_cf_www(domain, dry_run=dry_run)
+    return _merge_fix_results([https_res, www_res])
+
+
 # Manual-fix hints per platform — surfaced when the fixer dispatcher
 # can't run an automated fix for this platform (v26.E lands HostGator).
 _MANUAL_HINTS: dict[str, str] = {
@@ -557,7 +712,7 @@ def _apply_canonical_redirect_fix(
         )
 
     if platform in ("cf-pages", "cf-workers"):
-        return _apply_cf_always_use_https(domain, dry_run=dry_run)
+        return _apply_cf_canonical(domain, dry_run=dry_run)
 
     if platform == "vercel":
         return _apply_vercel_canonical_redirect(domain, dry_run=dry_run)

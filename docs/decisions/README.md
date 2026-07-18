@@ -39,6 +39,7 @@ trade-offs were, and what the consequences are.
 | 0024 | Provider HTTP clients share one lifecycle helper + one transient/permanent error taxonomy (`_httpapi`) | Accepted | — |
 | 0025 | lamill is the producer of the GSC Exchange v1 file contract (`sites/<domain>/.lamill/gsc.json`; lamill writes, rankmill reads) | Accepted | — |
 | 0026 | `project delegate` gets a second, provider-pluggable backend: OpenHands/OpenAI takes over when Claude hits the 5h cap (extends 0023) | Accepted | — |
+| 0027 | Apex stays canonical, but `www` is required and permanently redirects to it (tightens the doc-only apex-canonical lock; no more absent-www) | Accepted | — |
 
 ## When to write an ADR
 
