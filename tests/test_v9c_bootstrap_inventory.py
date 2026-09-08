@@ -183,7 +183,7 @@ def test_resolve_inventory_existing_row_short_circuits(monkeypatch, tmp_path):
         domain="foo.dev", registered=None, registrar="",
         non_interactive=False,
     )
-    assert decision == {"action": "exists"}
+    assert decision == {"action": "exists", "owner": "lamill"}
 
 
 def test_resolve_inventory_both_flags_no_prompt(monkeypatch, tmp_path):
@@ -196,7 +196,8 @@ def test_resolve_inventory_both_flags_no_prompt(monkeypatch, tmp_path):
         non_interactive=False,
     )
     assert decision == {"action": "append", "registered": True,
-                        "registrar": "porkbun"}
+                        "registrar": "porkbun",
+                        "owner": "lamill"}
 
 
 def test_resolve_inventory_unknown_registrar_exits(monkeypatch, tmp_path):
@@ -218,7 +219,7 @@ def test_resolve_inventory_non_interactive_no_flag_skips(monkeypatch, tmp_path):
         domain="new.dev", registered=None, registrar="",
         non_interactive=True,
     )
-    assert decision == {"action": "skip"}
+    assert decision == {"action": "skip", "owner": "lamill"}
 
 
 def test_resolve_inventory_non_interactive_with_flag_defaults_registrar(monkeypatch, tmp_path):
@@ -231,7 +232,8 @@ def test_resolve_inventory_non_interactive_with_flag_defaults_registrar(monkeypa
         non_interactive=True,
     )
     assert decision == {"action": "append", "registered": True,
-                        "registrar": "porkbun"}
+                        "registrar": "porkbun",
+                        "owner": "lamill"}
 
 
 def test_resolve_inventory_interactive_yes_porkbun(monkeypatch, tmp_path):
@@ -244,7 +246,8 @@ def test_resolve_inventory_interactive_yes_porkbun(monkeypatch, tmp_path):
         non_interactive=False,
     )
     assert decision == {"action": "append", "registered": True,
-                        "registrar": "porkbun"}
+                        "registrar": "porkbun",
+                        "owner": "lamill"}
 
 
 def test_resolve_inventory_interactive_no_response_means_yes(monkeypatch, tmp_path):
@@ -270,7 +273,8 @@ def test_resolve_inventory_interactive_no(monkeypatch, tmp_path):
         non_interactive=False,
     )
     assert decision == {"action": "append", "registered": False,
-                        "registrar": "porkbun"}
+                        "registrar": "porkbun",
+                        "owner": "lamill"}
 
 
 def test_resolve_inventory_interactive_invalid_registrar_falls_back(monkeypatch, tmp_path):
@@ -289,7 +293,8 @@ def test_resolve_inventory_interactive_invalid_registrar_falls_back(monkeypatch,
         non_interactive=False,
     )
     assert decision == {"action": "append", "registered": True,
-                        "registrar": "other"}
+                        "registrar": "other",
+                        "owner": "lamill"}
 
 
 # ---------- _apply_inventory_decision ----------

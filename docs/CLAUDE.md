@@ -7,7 +7,16 @@ that aren't obvious from the code or git history.
 ## Project
 
 `portfolio` is a Python+uv CLI for managing a personal domain portfolio
-plus a sibling `sites/<domain>/` workspace. It does three big things:
+plus a sibling `sites/<domain>/` workspace — and, since v45, agency-client
+sites alongside the operator's own. Sites are told apart by the `owner`
+field on each domain: `"lamill"` (the default, and every pre-v45 row)
+means the operator holds the domain; any other value names an agency
+client who owns **only** the domain, with the operator running the code,
+deploy, hosting, Cloudflare, GSC, GA4, and GitHub under their own
+accounts. Client sites are ordinary fleet members — every check, fixer,
+and probe applies unchanged. **A missing or blank `owner` always reads as
+`"lamill"`; no CLI may fail or crash on its absence** (operator rule,
+2026-09-08). It does three big things:
 
   1. Domain lifecycle — `domain suggest` (brainstorm + price/availability
      + interactive shortlist + decision aid + register via Porkbun).

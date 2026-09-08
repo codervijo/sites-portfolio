@@ -232,8 +232,15 @@ def _normalize_coverage_state(raw: str | None) -> str | None:
     return re.sub(r"[^a-z0-9]+", "_", key).strip("_")
 
 
+# URL Inspection daily quota per token, as recorded when v13.B shipped.
+# Used only to size the `--all` cost estimate (v45.E) — never enforced
+# here; Google is the authority and will 429 if it disagrees.
+URL_INSPECTION_DAILY_QUOTA = 200
+
+
 def fetch_coverage_details(service, property_url: str, *,
-                           top_n: int = 10) -> list[CoverageDetail]:
+                           top_n: int | None = 10,
+                           progress_callback=None) -> list[CoverageDetail]:
     """Pick the top-N URLs from the property's live sitemap and
     call `urlInspection.index.inspect` for each. Returns one
     `CoverageDetail` per URL.
@@ -241,6 +248,11 @@ def fetch_coverage_details(service, property_url: str, *,
     `top_n=10` matches v16.D's planned default (also caps URL
     Inspection daily-quota burn — 200 calls/day per token; 10
     per project keeps the per-domain footprint small).
+
+    **`top_n=None` (v45.E) inspects every sitemap URL** — the
+    `project seo --all` path. The cap exists for a real reason, so
+    `--all` opts out of it knowingly (with a cost estimate and a
+    confirm at the CLI layer) rather than the cap being removed.
     """
     origin = _origin_from_property(property_url)
     try:
@@ -251,7 +263,14 @@ def fetch_coverage_details(service, property_url: str, *,
         return []
 
     details: list[CoverageDetail] = []
-    for u in urls[:top_n]:
+    # `urls[:None]` is the whole list — the no-cap path needs no branch.
+    targets = urls[:top_n]
+    # v45.E — one URL Inspection round-trip each; an uncapped run on a
+    # 100+ URL sitemap takes minutes, so the caller gets a progress
+    # signal rather than a silent wait.
+    for i, u in enumerate(targets, 1):
+        if progress_callback is not None:
+            progress_callback(i, len(targets), u)
         ui: UrlInspection = inspect_one_url(service, property_url, u)
         details.append(CoverageDetail(
             url=u,
@@ -349,8 +368,9 @@ def _generate_hints(domain: str, sitemaps: list[SitemapDetail],
 # ---------- orchestrator ----------
 
 
-def build_diagnostics(domain: str, *, top_n: int = 10,
-                      service=None) -> ProjectSeoDiagnostics:
+def build_diagnostics(domain: str, *, top_n: int | None = 10,
+                      service=None,
+                      progress_callback=None) -> ProjectSeoDiagnostics:
     """End-to-end orchestration of v13.B diagnostics for one domain.
 
     Returns a `ProjectSeoDiagnostics` with `not_registered=True`
@@ -383,7 +403,8 @@ def build_diagnostics(domain: str, *, top_n: int = 10,
         )
 
     sitemaps = fetch_sitemap_details(service, property_url)
-    coverage = fetch_coverage_details(service, property_url, top_n=top_n)
+    coverage = fetch_coverage_details(service, property_url, top_n=top_n,
+                                      progress_callback=progress_callback)
     hints = _generate_hints(domain.lower(), sitemaps, coverage)
 
     return ProjectSeoDiagnostics(

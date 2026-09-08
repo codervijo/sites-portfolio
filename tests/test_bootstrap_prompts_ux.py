@@ -388,7 +388,8 @@ def test_registrar_prompt_accepts_canonical_value(monkeypatch, tmp_path):
         non_interactive=False,
     )
     assert decision == {"action": "append", "registered": True,
-                        "registrar": "porkbun"}
+                        "registrar": "porkbun",
+                        "owner": "lamill"}
 
 
 def test_registrar_prompt_case_insensitive(monkeypatch, tmp_path):
@@ -414,7 +415,8 @@ def test_registrar_prompt_retries_on_invalid_then_accepts(monkeypatch, tmp_path)
         non_interactive=False,
     )
     assert decision == {"action": "append", "registered": True,
-                        "registrar": "porkbun"}
+                        "registrar": "porkbun",
+                        "owner": "lamill"}
 
 
 def test_registrar_prompt_three_invalid_falls_back_to_other(monkeypatch, tmp_path):
@@ -428,7 +430,8 @@ def test_registrar_prompt_three_invalid_falls_back_to_other(monkeypatch, tmp_pat
         non_interactive=False,
     )
     assert decision == {"action": "append", "registered": True,
-                        "registrar": "other"}
+                        "registrar": "other",
+                        "owner": "lamill"}
 
 
 def test_registrar_prompt_accepts_other_explicitly(monkeypatch, tmp_path):

@@ -14,8 +14,39 @@ PLAN_MD = ROOT / "plan.md"
 REGISTRAR_GODADDY = "godaddy"
 REGISTRAR_NAMECHEAP = "namecheap"
 REGISTRAR_PORKBUN = "porkbun"
+# v45.D — client-owned domains carry no operator registrar credential,
+# so registrar truth is unavailable for them.
+REGISTRAR_OTHER = "other"
 
-PORTFOLIO_SCHEMA_VERSION = 1
+# v45.B — `owner` sentinel for the operator's own sites. Any other
+# value names an agency client. Absent/blank normalizes to this, so no
+# migration is needed and no consumer can trip over a missing field.
+OWNER_SELF = "lamill"
+
+# v45.D — the fourth sync source. Operator-authored roster of
+# client-owned domains (`domain,owner,category`); hand-edited, or
+# appended by `new bootstrap --owner`. Client domains appear in no
+# registrar CSV, and `cleanup()` deletes anything absent from a
+# source — so they are made a source rather than a preserve-exception.
+CLIENTS_CSV = DOMAINS_DIR / "clients.csv"
+
+# v45.B — bumped for the `owner` field. Nothing reads this value today
+# (it is written for the record); the field itself is backward-
+# compatible in both directions, so the bump is documentary.
+PORTFOLIO_SCHEMA_VERSION = 2
+
+
+def normalize_owner(value: str | None) -> str:
+    """v45.B — coerce any owner value to a usable string.
+
+    Blank, whitespace-only, `None`, or a non-string all normalize to
+    `OWNER_SELF`. **Never raises** — a missing or malformed `owner`
+    must never fail or crash a CLI, so every read path funnels through
+    here rather than touching the raw value.
+    """
+    if not isinstance(value, str):
+        return OWNER_SELF
+    return value.strip() or OWNER_SELF
 
 
 @dataclass
@@ -42,12 +73,25 @@ class Domain:
     # Global RDAP creation_date — when the domain was first registered
     # by *anyone*. Populated by `fleet sync --refresh-rdap`.
     domain_created: date | None = None
+    # v45.B — who owns the *domain*. `OWNER_SELF` ("lamill") = one of
+    # the operator's own sites; any other string names an agency client
+    # whose site the operator builds/deploys/hosts but whose domain
+    # they don't hold. Defaults to self, so every pre-v45 row and every
+    # registrar-CSV row is correctly self-owned without a migration.
+    owner: str = OWNER_SELF
 
     @property
     def days_to_expire(self) -> int | None:
         if self.expires is None:
             return None
         return (self.expires - date.today()).days
+
+    @property
+    def is_client(self) -> bool:
+        """v45.B — True when this domain belongs to an agency client
+        rather than to the operator. Tolerates a blank/missing owner
+        (reads as self-owned)."""
+        return normalize_owner(self.owner) != OWNER_SELF
 
     @property
     def site_age_days(self) -> int | None:
@@ -204,6 +248,84 @@ def _load_porkbun(path: Path) -> list[Domain]:
     return out
 
 
+def _load_clients(path: Path | None = None) -> list[Domain]:
+    """v45.D — load the client-domain roster (`data/domains/clients.csv`).
+
+    The fourth sync source. Unlike the three registrar CSVs this one is
+    operator-authored, not an API/dashboard export: the operator *is*
+    the source of truth for who their clients are. Columns:
+
+        domain,owner,category
+
+    `domain` (alias: `name`) is the only required column. A blank or
+    missing `owner` normalizes to `OWNER_SELF` rather than erroring —
+    a malformed roster must never crash a CLI. `category` is optional.
+
+    Everything else stays *derived*, never stored here: `registrar` is
+    `REGISTRAR_OTHER` (the operator holds no registrar credential for a
+    client's account), `expires`/`domain_created` come from RDAP, and
+    `launched` from first-commit inference. Keeping derived truth out
+    of the roster is what keeps the file readable at a glance.
+
+    Returns `[]` for an absent, unreadable, or malformed file — this is
+    a best-effort read by design.
+    """
+    path = path or CLIENTS_CSV
+    if not path.exists():
+        return []
+    out: list[Domain] = []
+    try:
+        with path.open(newline="") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                if not r:
+                    continue
+                raw = r.get("domain") or r.get("name") or ""
+                name = raw.strip().lower()
+                if not name or name.startswith("#"):
+                    continue
+                category = (r.get("category") or "").strip() or None
+                tld = "." + name.rsplit(".", 1)[-1] if "." in name else ""
+                out.append(
+                    Domain(
+                        name=name,
+                        registrar=REGISTRAR_OTHER,
+                        tld=tld,
+                        expires=None,
+                        auto_renew="",
+                        status="Active",
+                        category=category,
+                        owner=normalize_owner(r.get("owner")),
+                    )
+                )
+    except (OSError, csv.Error, UnicodeDecodeError):
+        return []
+    return out
+
+
+def _merge_clients(domains: list[Domain], clients: list[Domain]) -> list[Domain]:
+    """v45.D — fold the client roster into the registrar-derived rows.
+
+    A roster entry for a domain that is *also* in an operator registrar
+    CSV isn't an error: it's the operator having registered a domain on
+    a client's behalf. In that case the registrar row wins on every
+    registrar-truth field (it has API truth) and the roster contributes
+    only `owner` — plus `category` when the registrar row has none.
+    Otherwise the roster row is appended as a new domain.
+    """
+    by_name = {d.name: d for d in domains}
+    for c in clients:
+        existing = by_name.get(c.name)
+        if existing is None:
+            domains.append(c)
+            by_name[c.name] = c
+            continue
+        existing.owner = c.owner
+        if c.category and not existing.category:
+            existing.category = c.category
+    return domains
+
+
 def _load_from_registrars() -> list[Domain]:
     out: list[Domain] = []
     godaddy = DOMAINS_DIR / "godaddy.csv"
@@ -215,7 +337,9 @@ def _load_from_registrars() -> list[Domain]:
         out.extend(_load_namecheap(namecheap))
     if porkbun.exists():
         out.extend(_load_porkbun(porkbun))
-    return out
+    # v45.D — fourth source. Merged last so an operator-registered
+    # client domain keeps its registrar truth and gains only `owner`.
+    return _merge_clients(out, _load_clients())
 
 
 def _load_legacy_plan_md(path: Path | None = None) -> dict[str, str]:
@@ -242,6 +366,10 @@ def _apply_classification(domains: list[Domain], plan: dict[str, str]) -> tuple[
     """Apply classification rules and return (domains_with_category, uncategorized_names)."""
     uncategorized: list[str] = []
     for d in domains:
+        # v45.D — a category supplied by a source (clients.csv) is
+        # already authoritative; don't re-derive or blank it.
+        if d.category:
+            continue
         if d.registrar in (REGISTRAR_NAMECHEAP, REGISTRAR_PORKBUN):
             d.category = "Under build"
         elif d.name in plan:
@@ -286,6 +414,9 @@ def _domain_from_jsonable(r: dict) -> Domain:
         transfer_locked=r.get("transfer_locked"),
         launched=_d(r.get("launched")),
         domain_created=_d(r.get("domain_created")),
+        # v45.B — absent/blank → OWNER_SELF. Every pre-v45
+        # portfolio.json parses unchanged; no migration.
+        owner=normalize_owner(r.get("owner")),
     )
 
 
@@ -442,6 +573,69 @@ def append_domain_row(
     tmp = PORTFOLIO_JSON.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, indent=2) + "\n")
     tmp.replace(PORTFOLIO_JSON)
+    return "added"
+
+
+def append_client_row(
+    *,
+    name: str,
+    owner: str,
+    category: str | None = None,
+    path: Path | None = None,
+) -> str:
+    """v45.D — append a row to `data/domains/clients.csv`, the client
+    roster. Idempotent; creates the file (with header) when absent.
+
+    This is the write half of the fourth sync source, and the reason
+    `new bootstrap --owner` does NOT reuse `append_domain_row`: that
+    one writes straight into `portfolio.json`, and `cleanup()` deletes
+    any row not backed by a source on the next `fleet sync`. Writing
+    the roster instead makes the row durable by construction.
+
+    Only the operator-authored facts are written — `domain`, `owner`,
+    `category`. Derived truth (registrar / expiry / RDAP dates /
+    launch date) is never written back here.
+
+    Returns:
+      "added"   — new row appended
+      "exists"  — a row for `name` is already present; no change
+      "skipped" — `owner` normalizes to OWNER_SELF (not a client), or
+                  `name` is blank; nothing written
+    """
+    path = path or CLIENTS_CSV
+    name = (name or "").strip().lower()
+    owner = normalize_owner(owner)
+    if not name or owner == OWNER_SELF:
+        return "skipped"
+
+    header = ["domain", "owner", "category"]
+    rows: list[dict] = []
+    if path.exists():
+        try:
+            with path.open(newline="") as f:
+                rows = [r for r in csv.DictReader(f) if r]
+        except (OSError, csv.Error, UnicodeDecodeError):
+            rows = []
+        for r in rows:
+            existing = (r.get("domain") or r.get("name") or "").strip().lower()
+            if existing == name:
+                return "exists"
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=header)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow({
+                "domain": (r.get("domain") or r.get("name") or "").strip().lower(),
+                "owner": normalize_owner(r.get("owner")),
+                "category": (r.get("category") or "").strip(),
+            })
+        writer.writerow({
+            "domain": name, "owner": owner, "category": (category or "").strip(),
+        })
+    tmp.replace(path)
     return "added"
 
 

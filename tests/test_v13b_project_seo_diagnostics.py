@@ -367,7 +367,7 @@ def test_build_diagnostics_registered_path(monkeypatch):
     )
     monkeypatch.setattr(
         project_seo_diagnostics, "fetch_coverage_details",
-        lambda service, property_url, top_n=10: [
+        lambda service, property_url, top_n=10, progress_callback=None: [
             CoverageDetail(url="https://homeloom.app/",
                            coverage_state="submitted_indexed"),
         ],

@@ -194,9 +194,14 @@ def _extract_locs(xml_text: str) -> tuple[list[str], list[str]]:
     return urls, nested
 
 
-def fetch_sitemap_urls(origin: str, *, limit: int = 50) -> list[str]:
+def fetch_sitemap_urls(origin: str, *, limit: int | None = 50) -> list[str]:
     """Pull URLs from the live sitemap for `origin`. Raises RecrawlError
-    if no sitemap can be reached."""
+    if no sitemap can be reached.
+
+    `limit=None` (v45.E) means "every URL in the sitemap" — used by
+    `project seo --all`. The default cap stays, so no existing caller
+    changes behavior.
+    """
     import httpx
     from urllib.parse import urljoin
 
@@ -234,7 +239,8 @@ def fetch_sitemap_urls(origin: str, *, limit: int = 50) -> list[str]:
         seen: set[str] = set()
         queue = [sm_url]
         urls: list[str] = []
-        while queue and len(urls) < limit:
+        cap = float("inf") if limit is None else limit
+        while queue and len(urls) < cap:
             current = queue.pop(0)
             if current in seen:
                 continue
@@ -248,7 +254,7 @@ def fetch_sitemap_urls(origin: str, *, limit: int = 50) -> list[str]:
                 continue
             found, nested = _extract_locs(r.text)
             for u in found:
-                if len(urls) >= limit:
+                if len(urls) >= cap:
                     break
                 if u not in urls:
                     urls.append(u)

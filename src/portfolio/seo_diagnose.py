@@ -562,11 +562,16 @@ _RENDER_PROBE_CAP = 20
 
 
 def gather_seo_diagnosis(domain: str, *,
-                         render_probe_cap: int = _RENDER_PROBE_CAP) -> SeoDiagnosis:
+                         render_probe_cap: int | None = _RENDER_PROBE_CAP,
+                         progress_callback=None) -> SeoDiagnosis:
     """Assemble every signal for `domain` and compute State + Blockers.
     Each source degrades independently — a missing seo snapshot, an
     unreachable sitemap, or an absent local repo never crashes the view;
-    they just narrow what can be asserted (recorded in `notes`)."""
+    they just narrow what can be asserted (recorded in `notes`).
+
+    `render_probe_cap=None` (v45.E) probes every sitemap page URL —
+    the `project seo --all` path.
+    """
     domain = domain.lower()
     origin = f"https://{domain}"
 
@@ -586,12 +591,17 @@ def gather_seo_diagnosis(domain: str, *,
     if origin + "/" not in probe_targets and origin not in probe_targets:
         probe_targets.insert(0, origin + "/")
     probe_targets = probe_targets[:render_probe_cap]
-    for u in probe_targets:
+    # v45.E — an uncapped probe is one HTTP fetch per page; report
+    # progress so a multi-minute run isn't a silent wait.
+    for i, u in enumerate(probe_targets, 1):
+        if progress_callback is not None:
+            progress_callback(i, len(probe_targets), u)
         try:
             render_issues.append(probe_render(u))
         except Exception:  # noqa: BLE001
             pass
-    if sitemap_audit and len(sitemap_audit.page_urls) > render_probe_cap:
+    if (sitemap_audit and render_probe_cap is not None
+            and len(sitemap_audit.page_urls) > render_probe_cap):
         notes.append(f"render probe sampled {render_probe_cap}/"
                      f"{len(sitemap_audit.page_urls)} URLs")
 

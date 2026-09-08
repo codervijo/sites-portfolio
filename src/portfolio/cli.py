@@ -891,6 +891,15 @@ def new_bootstrap(
         "", "--registrar",
         help="porkbun | godaddy | namecheap | other  (skips the prompt)",
     ),
+    # v45.D — agency-client domains (operator builds/deploys/hosts;
+    # client owns the domain).
+    owner: str = typer.Option(
+        "", "--owner",
+        help="Who owns the DOMAIN. Omit (or 'lamill') for your own "
+             "sites. Any other value names an agency client and routes "
+             "the inventory row to data/domains/clients.csv instead of "
+             "portfolio.json, so `fleet sync` can't rebuild it away.",
+    ),
     # v9.D — growth-hypothesis prompt that seeds docs/growth.md.
     growth_hypothesis: str = typer.Option(
         "", "--growth-hypothesis",
@@ -1064,7 +1073,7 @@ def new_bootstrap(
     # itself happens AFTER bootstrap succeeds.)
     inventory_decision = _resolve_inventory_inputs(
         domain=domain, registered=registered, registrar=registrar,
-        non_interactive=non_interactive,
+        non_interactive=non_interactive, owner=owner,
     )
     # v9.D — growth hypothesis. Same flag-or-prompt pattern; empty
     # value renders the pre-v9.D "site scaffolded; growth log started"
@@ -1435,8 +1444,9 @@ def new_validate(
 # ---------- v13.B — per-project GSC diagnostics ----------
 
 
-def _run_project_seo_diagnostics(domain: str, *, top_n: int,
-                                 refresh: bool, console) -> None:
+def _run_project_seo_diagnostics(domain: str, *, top_n: int | None,
+                                 refresh: bool, console,
+                                 expected_urls: int = 0) -> None:
     """v13.B — load (or fetch) per-project GSC diagnostics and
     render the block. Cache-aware: reads
     `data/gsc/<domain>/<UTC-today>.json` if fresh and `--refresh`
@@ -1454,29 +1464,67 @@ def _run_project_seo_diagnostics(domain: str, *, top_n: int,
 
     # Cache lookup — when fresh and not --refresh, render from
     # cache and skip the GSC roundtrips.
+    #
+    # v45.E — freshness alone isn't enough: a snapshot is also only
+    # reusable if its SCOPE covers the request. A cache built at
+    # `--top 10` can't answer `--all`, or the run silently renders 10
+    # rows after paying for a full render probe. `expected_urls` is the
+    # sitemap size resolved by `_confirm_all_scope`; 0 means "unknown",
+    # which for an uncapped request means don't trust the cache.
     if not refresh:
         latest = latest_snapshot(domain)
         if latest is not None and not is_stale(latest):
             try:
                 cached = load_snapshot(latest)
-                console.print(
-                    f"  [dim]GSC diagnostics: cached {latest.name} "
-                    f"(use --refresh to re-fetch)[/]"
-                )
-                _render_project_seo_diagnostics(cached, console)
-                return
+                covered = len(getattr(cached, "coverage", []) or [])
+                # Unknown size (expected_urls == 0, e.g. the sitemap
+                # probe failed) means we cannot prove the cache covers
+                # the request — so --all never reuses it. Trusting it
+                # is exactly the reported bug: a 10-URL cache rendered
+                # for a 116-URL request.
+                if top_n is None and (expected_urls == 0
+                                      or covered < expected_urls):
+                    console.print(
+                        f"  [dim]cached {latest.name} covers {covered} URL(s) "
+                        f"— too few for --all; re-fetching[/]"
+                    )
+                else:
+                    console.print(
+                        f"  [dim]GSC diagnostics: cached {latest.name} "
+                        f"(use --refresh to re-fetch)[/]"
+                    )
+                    _render_project_seo_diagnostics(cached, console)
+                    return
             except (OSError, ValueError) as e:
                 console.print(
                     f"  [dim]warn: could not load cached diagnostics ({e}); "
                     f"re-fetching[/]"
                 )
 
+    scope = "every sitemap URL" if top_n is None else f"top {top_n}"
     console.print(
         f"  [cyan]Fetching GSC diagnostics ({domain})...[/] "
-        f"[dim](URL Inspection × top {top_n})[/]"
+        f"[dim](URL Inspection × {scope})[/]"
     )
     try:
-        diag = build_diagnostics(domain, top_n=top_n)
+        if top_n is None:
+            # v45.E — uncapped runs take minutes (one URL Inspection
+            # round-trip per URL), so show live progress rather than a
+            # silent wait. Capped runs are ~10 calls; no spinner needed.
+            from .console import spinner_counter
+            with spinner_counter("Inspecting URLs", expected_urls, noun="URLs") as tick:
+                diag = build_diagnostics(
+                    domain, top_n=None,
+                    progress_callback=lambda i, n, u: tick(
+                        i, n, u.rsplit("/", 2)[-2] if u.endswith("/") else
+                        u.rsplit("/", 1)[-1]),
+                )
+            console.print(
+                f"  [green]✓[/] inspected {len(diag.coverage)} URL(s) "
+                f"[dim]in {tick.elapsed:.0f}s[/]"
+            )
+        else:
+            diag = build_diagnostics(domain, top_n=top_n)
     except Exception as e:    # noqa: BLE001 — GSC / OAuth errors variety
         console.print(
             f"  [yellow]✗ Diagnostics skipped: {type(e).__name__}: {e}[/]"
@@ -4442,6 +4490,51 @@ def project_check(
     info_status(name=name, json_out=json_out)
 
 
+# v45.E — `--all` runs uncapped. Confirm above this many URLs: a full
+# run burns one URL Inspection call per URL against a daily quota, so
+# past roughly a quarter of it the operator should say yes on purpose.
+_ALL_CONFIRM_THRESHOLD = 50
+
+
+def _confirm_all_scope(domain: str, *, yes: bool, console) -> int | None:
+    """v45.E — resolve how many URLs `--all` would cover, show the cost,
+    and confirm when it's large.
+
+    Returns the URL count (0 when unknown), or `None` when the operator
+    declined — the caller then falls back to the capped path rather than
+    aborting, so a declined confirm still renders the normal view.
+    """
+    from .gsc_recrawl import fetch_sitemap_urls
+    from .project_seo_diagnostics import URL_INSPECTION_DAILY_QUOTA
+
+    try:
+        count = len(fetch_sitemap_urls(f"https://{domain}", limit=None))
+    except Exception:  # noqa: BLE001 — sizing is advisory, never fatal
+        console.print(
+            "  [yellow]↷[/] could not read the sitemap to size the run; "
+            "proceeding uncapped."
+        )
+        return 0
+    if count == 0:
+        console.print("  [yellow]↷[/] sitemap reachable but empty; "
+                      "nothing extra to inspect.")
+        return 0
+
+    pct = round(100 * count / URL_INSPECTION_DAILY_QUOTA)
+    console.print(
+        f"  [bold]--all[/]: {count} sitemap URL(s) → {count} URL Inspection "
+        f"call(s) [dim](~{pct}% of the {URL_INSPECTION_DAILY_QUOTA}/day "
+        f"quota) + {count} render probe(s)[/]"
+    )
+    if yes or count <= _ALL_CONFIRM_THRESHOLD:
+        return count
+    if not typer.confirm(f"  Inspect all {count} URLs?", default=True):
+        console.print("  [yellow]↷[/] declined — falling back to the "
+                      "capped view.")
+        return None
+    return count
+
+
 @project_app.command("seo")
 def project_seo(
     name: str = typer.Argument(..., metavar="DOMAIN",
@@ -4453,6 +4546,15 @@ def project_seo(
     top_n: int = typer.Option(10, "--top",
                               help="Top-N URLs to inspect for coverage detail "
                                    "(v13.B; caps URL Inspection quota burn)"),
+    all_urls: bool = typer.Option(
+        False, "--all",
+        help="Inspect and render-probe EVERY sitemap URL instead of the "
+             "--top N sample. Costs one URL Inspection call per URL "
+             "against a daily quota, so it prints an estimate and "
+             "confirms above 50 URLs. Overrides --top.",
+    ),
+    yes: bool = typer.Option(False, "--yes",
+                             help="Skip the --all confirmation prompt."),
 ) -> None:
     """Per-project SEO view — runtime probe + GSC diagnostics.
 
@@ -4467,6 +4569,25 @@ def project_seo(
     """
     domain = name.lower()
 
+    # v45.E — `--all` lifts BOTH caps (URL Inspection and the render
+    # probe sample); a half-lifted cap would report "all" while still
+    # sampling. Sized + confirmed before any probe runs, since the
+    # render probe is the slow half.
+    from .seo_diagnose import _RENDER_PROBE_CAP
+
+    render_cap: int | None = _RENDER_PROBE_CAP
+    url_count = 0
+    if all_urls:
+        if top_n != 10:
+            console.print("  [dim]--all overrides --top.[/]")
+        sized = _confirm_all_scope(domain, yes=yes, console=console)
+        if sized is None:
+            all_urls = False
+        else:
+            url_count = sized
+            top_n = None
+            render_cap = None
+
     # v36 — problem-surfacing diagnosis: gather every crawl/discovery/index
     # signal and compute an honest State (healthy/unproven/blocked) + a
     # prioritized Blockers list. Project-scoped — the fleet grade is untouched.
@@ -4475,7 +4596,19 @@ def project_seo(
     from .research_render import render_seo_blockers, render_seo_state_header
     diag = None
     try:
-        diag = gather_seo_diagnosis(domain)
+        if render_cap is None:
+            from .console import spinner_counter
+            with spinner_counter("Render-probing pages", url_count, noun="pages") as tick:
+                diag = gather_seo_diagnosis(
+                    domain, render_probe_cap=None,
+                    progress_callback=lambda i, n, u: tick(i, n, ""),
+                )
+            console.print(
+                f"  [green]✓[/] render-probed {diag.render_probed or 0} "
+                f"page(s) [dim]in {tick.elapsed:.0f}s[/]"
+            )
+        else:
+            diag = gather_seo_diagnosis(domain, render_probe_cap=render_cap)
     except Exception as e:    # noqa: BLE001 — diagnosis is additive, never fatal
         console.print(f"  [dim]↷ SEO diagnosis skipped: {type(e).__name__}: {e}[/]")
 
@@ -4488,8 +4621,8 @@ def project_seo(
                         sort_by=sort_by, only="wip", concurrency=20,
                         refresh=refresh)
     # v13.B diagnostics block below the header.
-    _run_project_seo_diagnostics(domain, top_n=top_n,
-                                 refresh=refresh, console=console)
+    _run_project_seo_diagnostics(domain, top_n=top_n, refresh=refresh,
+                                 console=console, expected_urls=url_count)
 
     # v36 — the Blockers section last (the whole point). Never ends on green
     # when blockers exist.

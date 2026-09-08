@@ -41,7 +41,7 @@ class _SpinnerCounter:
 
 
 @contextlib.contextmanager
-def spinner_counter(label: str, total: int):
+def spinner_counter(label: str, total: int, noun: str = "domains"):
     """Live 'spinner + counter' progress for a per-item loop — one animated
     in-place line instead of one log line per item.
 
@@ -52,10 +52,13 @@ def spinner_counter(label: str, total: int):
     Yields a `_SpinnerCounter`. The caller prints the final `✓` summary
     (it knows the result paths); read the yielded value's `.elapsed` for
     the timing.
+
+    `noun` labels what is being counted in the off-TTY notice (v45.E —
+    not every loop counts domains; `project seo --all` counts URLs).
     """
     is_tty = console.is_terminal
     if not is_tty:
-        console.print(f"[cyan]{label} ({total} domains)…[/]")
+        console.print(f"[cyan]{label} ({total} {noun})…[/]")
     status_cm = (
         console.status(f"[cyan]{label}[/]  [dim]0/{total}[/]", spinner="dots")
         if is_tty else contextlib.nullcontext()

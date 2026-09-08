@@ -282,17 +282,28 @@ _REGISTRARS = ("porkbun", "godaddy", "namecheap", "other")
 
 
 def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
-                              registrar: str, non_interactive: bool) -> dict:
+                              registrar: str, non_interactive: bool,
+                              owner: str = "") -> dict:
     """Determine whether to update portfolio.json + with what fields.
 
     Returns a dict with keys:
-      action:    "append" → call append_domain_row
+      action:    "append"        → call append_domain_row
+                 "append-client" → v45.D: call append_client_row
                  "skip"   → no inventory write (operator opted out or
                             non-interactive without explicit flag)
                  "exists" → predetermined: row already in portfolio.json
                             (idempotent re-run); informational only
       registered: bool (when action != "skip")
       registrar:  str (when action != "skip")
+      owner:      str (always; normalized, defaults to "lamill")
+
+    **v45.D — client domains take a different write path.** When
+    `owner` names an agency client (anything other than "lamill"), the
+    row goes to `data/domains/clients.csv`, NOT to portfolio.json:
+    portfolio.json is rebuilt from sources on every `fleet sync` and a
+    row with no backing source is deleted. The roster is that backing
+    source. This short-circuits before the registrar prompts — a
+    client's registrar isn't the operator's to record.
 
     Decision rules:
       - If `name` already in portfolio.json → action="exists", no prompts.
@@ -301,8 +312,14 @@ def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
         (no inventory write; operator runs cleanup later).
       - Else interactive: prompt Y/n for registration + select registrar.
     """
-    from .data import PORTFOLIO_JSON
+    from .data import PORTFOLIO_JSON, OWNER_SELF, normalize_owner
     import json as _json
+
+    owner = normalize_owner(owner)
+
+    # v45.D — client domain: roster write, no registrar prompts.
+    if owner != OWNER_SELF:
+        return {"action": "append-client", "owner": owner}
 
     # Existing-row short-circuit: skip prompts + inventory write entirely.
     if PORTFOLIO_JSON.exists():
@@ -313,7 +330,7 @@ def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
         except (OSError, _json.JSONDecodeError):
             existing = set()
         if domain.lower() in existing:
-            return {"action": "exists"}
+            return {"action": "exists", "owner": owner}
 
     # Both flags supplied → no prompts.
     if registered is not None and registrar:
@@ -324,18 +341,18 @@ def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
             )
             raise typer.Exit(2)
         return {"action": "append", "registered": registered,
-                "registrar": registrar}
+                "registrar": registrar, "owner": owner}
 
     if non_interactive:
         # No explicit flag in batch mode → skip inventory write.
         # Operator can update later via fleet cleanup or a direct edit.
         if registered is None:
-            return {"action": "skip"}
+            return {"action": "skip", "owner": owner}
         # Flag set in non-interactive mode but registrar omitted →
         # assume porkbun, the fleet default (operator policy 2026-05-29).
         # An explicit --registrar always overrides.
         return {"action": "append", "registered": registered,
-                "registrar": registrar or "porkbun"}
+                "registrar": registrar or "porkbun", "owner": owner}
 
     # Interactive path. Prompt for registration status, then registrar.
     console.print(
@@ -357,7 +374,7 @@ def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
         registrar = _prompt_registrar()
 
     return {"action": "append", "registered": registered,
-            "registrar": registrar}
+            "registrar": registrar, "owner": owner}
 
 
 def _prompt_registrar(max_attempts: int = 3) -> str:
@@ -389,6 +406,32 @@ def _apply_inventory_decision(domain: str, decision: dict) -> None:
     """Execute the resolved inventory decision. Logs the outcome so
     the operator sees what happened in the summary."""
     action = decision.get("action")
+    if action == "append-client":
+        # v45.D — client-owned domain: write the roster, not
+        # portfolio.json (which `fleet sync` would rebuild away).
+        from .data import CLIENTS_CSV, append_client_row
+
+        owner = decision.get("owner", "")
+        result = append_client_row(name=domain, owner=owner)
+        if result == "added":
+            console.print(
+                f"[green]  ✓ clients.csv: appended {domain} "
+                f"(owner={owner})[/]"
+            )
+        elif result == "exists":
+            console.print(
+                f"[dim]  clients.csv: row for {domain} already present; "
+                f"no update.[/]"
+            )
+        else:
+            console.print(
+                f"[yellow]  ↷ clients.csv: nothing written for {domain}[/]"
+            )
+        console.print(
+            f"[dim]  Run `lamill fleet sync` to fold {domain} into "
+            f"portfolio.json ({CLIENTS_CSV.name} is a sync source).[/]"
+        )
+        return
     if action == "skip":
         # Silent — non-interactive runs deliberately skipped this.
         return

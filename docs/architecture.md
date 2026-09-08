@@ -67,6 +67,7 @@ sites/portfolio/
 ├── data/
 │   ├── portfolio.json            # canonical inventory + classifications
 │   ├── domains/{godaddy,namecheap,porkbun}.csv  # per-registrar exports
+│   ├── domains/clients.csv       # v45.D client roster (4th sync source)
 │   ├── checks/<YYYY-MM-DD>.json  # one site-classification snapshot per run
 │   ├── seo/<YYYY-MM-DD>.json     # SEO probe snapshots
 │   ├── gsc/<YYYY-MM-DD>.json     # GSC totals
@@ -721,12 +722,109 @@ timestamp; skipped from rollup counts.
 
 ### Data model
 
+#### `project seo --all` (v45.E)
+
+`project seo` samples by default — `--top 10` URL Inspections and a
+20-URL render probe (`seo_diagnose._RENDER_PROBE_CAP`) — because each
+inspected URL is one GSC round-trip against a daily quota
+(`project_seo_diagnostics.URL_INSPECTION_DAILY_QUOTA` = 200) and each
+render probe is one HTTP fetch. `--all` lifts **both** caps together; a
+half-lifted cap would report "all" while still sampling.
+
+The no-cap value is `None`, threaded through
+`gsc_recrawl.fetch_sitemap_urls(limit=None)` →
+`fetch_coverage_details(top_n=None)` → `build_diagnostics(top_n=None)`
+and `seo_diagnose.gather_seo_diagnosis(render_probe_cap=None)`. Python's
+`urls[:None]` is already the whole list, so only the `len(urls) < limit`
+guards needed a branch. Every default is unchanged, so no existing
+caller shifts behavior.
+
+**The cap is opted out of, not removed.** `cli._confirm_all_scope`
+sizes the run off the live sitemap before any probe runs, prints the
+cost (URL count, share of the daily quota, render-probe count), and
+confirms above `_ALL_CONFIRM_THRESHOLD` (50); `--yes` skips the prompt.
+Declining returns `None` and the caller falls back to the capped view
+rather than aborting — a declined confirm still renders something
+useful. An unreachable or empty sitemap proceeds uncapped behind a `↷`
+rather than raising: sizing is advisory.
+
+**Cache reuse is scope-aware.** The 24h `gsc_detail_cache` snapshot was
+originally qualified on freshness alone, which let `--all` reuse a
+snapshot built at `--top 10` — the run paid for a full render probe and
+then rendered ten coverage rows. An uncapped request now reuses a
+snapshot only when `len(coverage) >= expected_urls`, and never when
+`expected_urls` is 0 (sizing failed, so coverage can't be proven).
+Capped requests are unaffected.
+
+**Progress is load-bearing here.** A 116-URL run is ~116 GSC round-trips
+plus ~116 render fetches and exceeded 10 minutes silently on the first
+live attempt. Both loops take a `progress_callback(done, total, item)`,
+driven from the CLI by `console.spinner_counter` (the v33.L hook
+pattern) with a `✓ inspected N URL(s) in Ns` line after each. Capped
+runs skip the spinner — ten calls don't need one.
+
 #### `Domain`
 
 Per-row entry in `data/portfolio.json`. Fields: `name`,
-`registrar` (godaddy/namecheap/porkbun), `category`,
+`registrar` (godaddy/namecheap/porkbun/**other**), `category`,
 `expires`, `status`, `value`, plus optional `launched`,
 `gsc_property`, `notes`. Cross-source drift detected by `fleet drift`.
+
+**`owner` (v45.B).** Who holds the *domain*. `"lamill"`
+(`data.OWNER_SELF`) = one of the operator's own sites; any other string
+names an agency client who owns only the domain while the operator runs
+code, deploy, hosting, CF, GSC, GA4 and GitHub under their own accounts.
+`Domain.is_client` is the derived predicate.
+
+Backward-compatible in both directions, so `PORTFOLIO_SCHEMA_VERSION`
+1→2 is documentary rather than a migration: `_domain_to_jsonable` is
+`asdict()` (the field serializes with no call-site change) and
+`_domain_from_jsonable` funnels the raw value through
+`data.normalize_owner()`, which maps `None`, blank, whitespace-only and
+any non-string to `OWNER_SELF` and **never raises** — a missing `owner`
+must never fail or crash a CLI (operator rule, 2026-09-08). Every read
+path uses that helper rather than touching `r["owner"]`. Nothing reads
+`schema_version` today.
+
+**Sources → `owner` (v45.D).** Rows from the three registrar CSVs are
+self-owned by dataclass default. Client rows come from
+`data/domains/clients.csv` (below) and carry the client's name.
+
+#### `data/domains/clients.csv` — the fourth sync source (v45.D)
+
+Operator-authored roster of client-owned domains. Columns:
+`domain,owner,category` — `domain` (alias `name`) required, the rest
+optional.
+
+**Why a source and not a preserve-exception.** `cleanup()` rebuilds
+`portfolio.json` from its sources on every `fleet sync` and carries
+forward only `launched`/`domain_created`, so any row without a backing
+source is deleted on the next run. Client domains appear in no registrar
+export, so they are made a source — `_load_from_registrars()` reads the
+roster after the three CSVs and `_merge_clients()` folds it in. A roster
+entry matching an existing registrar row (the operator registered the
+domain on the client's behalf) does **not** override registrar truth: it
+contributes `owner`, plus `category` when the registrar row has none.
+
+**Roster holds declarations only; everything else stays derived** —
+`registrar` = `REGISTRAR_OTHER` (no operator credential covers a
+client's registrar account), `expires`/`domain_created` from RDAP,
+`launched` from first-commit inference. Derived truth is never written
+back, which is what keeps the file readable at a glance.
+`_apply_classification` skips any domain whose `category` a source
+already supplied.
+
+The reader is best-effort by design: an absent, unreadable, or malformed
+file yields `[]` rather than an exception.
+
+**Writer:** `data.append_client_row()` — atomic, idempotent, creates the
+file with its header when absent, and returns `"skipped"` for a
+self-owned or blank domain. Driven by `new bootstrap --owner "<client>"`
+(`bootstrap_cli._resolve_inventory_inputs` → action `append-client`),
+which short-circuits *before* the registrar prompts — a client's
+registrar isn't the operator's to record. That path deliberately does
+not reuse `append_domain_row()`, which writes into `portfolio.json` and
+would be rebuilt away on the next sync.
 
 #### `CheckResult` (`checks/result.py`)
 
@@ -1238,7 +1336,7 @@ this was paid for in real debugging (2026-06-15).
 | `cli.py` | `typer` app — top-level commands + namespace wiring | `app` (entry point) |
 | `project.py` | `project check` / `project fix` runner | `run_checks`, `apply_fixes` |
 | `check.py` | Site classification (live-site / forwarder / parked / archived) | `classify_domain` |
-| `data.py` | Multi-registrar CSV adapters + `portfolio.json` IO | `load_inventory`, `rebuild_portfolio_json` |
+| `data.py` | Multi-registrar CSV adapters + `portfolio.json` IO. **v45.B/D**: `owner` on `Domain` (+ `is_client`), `normalize_owner()` (never raises; blank/missing → `OWNER_SELF`), and the `clients.csv` fourth source (`_load_clients` / `_merge_clients` / `append_client_row`) | `load_inventory`, `rebuild_portfolio_json`, `normalize_owner`, `append_client_row`, `OWNER_SELF` |
 | `bootstrap.py` | `new bootstrap <domain>` write surface | `bootstrap_domain` |
 | `bootstrap.py` (v29.D) | After collecting the AI_AGENTS sections, calls `content_derive.derive_content(operator_inputs, api_key=)` and seeds `lamill.toml [content]` from the result (ADR-0019). The "Fill in [content]" starter todo is gated on `_content_blanks` (the 7 content fields minus optional `law`); a fully-derived block ships todo-free. `BootstrapResult.content_seeded` carries the seeded field names for the CLI summary. | `_bootstrap_inner`, `bootstrap_starter_todos` |
 | `deploy.py` | `new deploy` (GitHub repo + CF Pages project) | `deploy_domain` |

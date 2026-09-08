@@ -27,6 +27,30 @@ each one is in its lifecycle. portfolio is the single place to:
 3. **Manage the domain portfolio itself** — categorize, track
    expirations across multiple registrars (GoDaddy, Namecheap,
    Porkbun), cross-reference with Google Search Console.
+
+**Two populations, one fleet (v45).** The sites lamill manages are of
+two kinds, distinguished by the `owner` field on each domain
+(`data/portfolio.json`):
+
+- **`owner = "lamill"` — the operator's own sites.** The default, and
+  everything the tool managed before v45. The operator holds the
+  domain *and* runs everything else.
+- **`owner = <client name>` — agency-client sites.** The client owns
+  only the domain; the operator builds, deploys, and hosts the site and
+  runs Cloudflare, GSC, GA4, and GitHub under their own accounts
+  (model (A) — see § v45). The client points their domain's
+  nameservers at the operator's Cloudflare; from there the entire
+  deploy + conformance stack applies unchanged.
+
+The distinction is deliberately thin. A client site is an ordinary
+fleet member: every check, fixer, deploy step, and SEO probe treats it
+exactly like an operator-owned one. `owner` records *who holds the
+domain*, which matters for three things only — where the inventory row
+comes from (`data/domains/clients.csv` rather than a registrar export),
+what registrar truth is available (none: no operator credential covers
+a client's registrar account), and which rollups a domain belongs in.
+A missing or blank `owner` always reads as `"lamill"`, so nothing in
+the tool can fail on its absence.
 4. **Find the right domain to register for any new idea** *(Power 1,
    v2)* — brainstorm SEO-quality candidates from a topic via OpenAI,
    score them, check availability via RDAP. Prevents bad registrations.
@@ -106,7 +130,11 @@ standards + acquisition + validation — for one operator.
 ## 4. Target user
 
 Sole user: Vijo. No multi-tenancy, no permissions, no public surface.
-CLI-only. Daily-driver workflow:
+CLI-only. **Clients are not users** — an agency client never touches
+the CLI and has no login; they own a domain and receive a site. The
+operator remains the only operator (v45 model (A)).
+
+Daily-driver workflow:
 
 - Domain ideation → `lamill new domain <topic>` (v2/v4 Power 1).
 - Niche validation → `lamill new validate <topic>` (v8 + v12).
@@ -116,6 +144,9 @@ CLI-only. Daily-driver workflow:
   `lamill project diagnose <domain>` (v7).
 - Conformance → `lamill project check <domain>`, `lamill project fix
   <domain> --apply` (v5 + v6).
+- Client onboarding → `lamill new bootstrap <domain> --owner "<client>"`
+  then `lamill new deploy <domain>`; the client sets their registrar's
+  nameservers to the operator's Cloudflare (v45).
 
 ## 5. Spec discipline
 
@@ -2541,17 +2572,19 @@ The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead
 
 (These open items are the **v44.A** decisions-lock agenda — see Phases above. Build phases B–D are provisional until v44.A locks them.)
 
-### v45 — manage client-owned domains (client owns only the domain; operator runs everything else) *(planned — 2026-07-15)*
+### v45 — manage client-owned domains (client owns only the domain; operator runs everything else) *(planned — 2026-07-15; reshaped 2026-09-08 on the first real agency client — `owner` semantics locked (`"lamill"` = own, any other string = an agency client), no-ADR decision closed, new v45.C positioning-docs phase inserted, old C/D/E pushed to D/E/F)*
 
 #### Phases
 
 | # | Status | Feature |
 |---|---|---|
-| v45.A | ☐ | **Kickoff / decisions lock.** Lock model (A) (client owns only the domain; operator runs everything else under their own accounts); the `owner`/`client` field + `portfolio.json` v1→v2 schema-bump shape; **the v45.C ingress mechanism** — `domain add --client <name> <domain>` verb (reuses the `append_domain_row` seam) *vs.* a separate client-domains source file the sync merges; the registrar-truth suppression posture; and whether the schema bump + new domain-source path warrants an **ADR**. |
-| v45.B | ☐ | **`owner`/`client` field on the `Domain` model + `portfolio.json` schema bump (v1→v2).** New optional field; empty = operator's own (backward-compatible: missing → self). `data.py:21-44` + `schema_version`. Pure data-model add; no behavior change on its own. |
-| v45.C | ☐ | **Client-domain ingress that survives `fleet sync`.** Client domains aren't in any operator registrar CSV, so `cleanup()` must ingest + **preserve** them instead of dropping them as "not in any CSV" (the way it already preserves `launched`/`domain_created`). Mechanism locked in v45.A. |
-| v45.D | ☐ | **Registrar-truth gap handling.** Client domains → `registrar="other"`; `expires`/`auto_renew` unknown (operator holds no registrar API for the client's account). Suppress expiry/renewal warnings for `owner≠operator` (mirror the existing `auto_renew=off` mute) so client domains don't false-alarm the health views. |
-| v45.E | ☐ | **Reporting: `owner` as a grouping/filter axis.** Surface `owner` alongside `category` in `fleet` / `info` / `dashboard` (group-by / filter-by client). Read-only display; no new mutation surface. |
+| v45.A | ☑ | **Kickoff / decisions lock.** *(shipped 2026-09-08 — all decisions locked; no ADR.)* Lock model (A) (client owns only the domain; operator runs everything else under their own accounts); **the `owner` field shape — locked 2026-09-08: field name `owner`, free-form string, `"lamill"` = the operator's own sites and any other value = an agency client; absent → `"lamill"` (self-backfills on the next `fleet sync`, since `cleanup()` rebuilds every row from source)**; **no ADR — locked 2026-09-08**: `PORTFOLIO_SCHEMA_VERSION` is written at `data.py:337` and read by *nothing*, so the v1→v2 bump is documentary; the field is additive-optional and ADR-0017 already carries that posture — record as a `shipping-history.md` note when the tier lands. Still open: **the v45.D ingress mechanism** — `domain add --client <name> <domain>` (reuses the `append_domain_row` seam) *vs.* a `data/domains/clients.csv` the sync merges as a fourth source; and the registrar-truth suppression posture. |
+| v45.B | ☑ | *(shipped 2026-09-08 — `owner`/`is_client`/`normalize_owner` + schema 2; 20 tests.)* **`owner` field on the `Domain` model + `portfolio.json` schema bump (v1→v2).** `owner: str = "lamill"` on the `Domain` dataclass (`data.py:21-44`) + `owner=r.get("owner") or "lamill"` in `_domain_from_jsonable` (`data.py:263`) + `PORTFOLIO_SCHEMA_VERSION = 2` (`data.py:18`). Smaller than it reads: `_domain_to_jsonable` is `asdict()` so the field serializes with no edit, and `_domain_from_jsonable` is already all-`.get()`-with-defaults, so old `portfolio.json` files parse unchanged and new ones are readable by old code. No fixer, no check, no CLI. Tests: round-trip with and without the field; absent → `"lamill"`. Pure data-model add; no behavior change on its own. |
+| v45.C | ☑ | *(shipped 2026-09-08 — `prd.md § 1/§ 4`, `AI_AGENTS.md § Summary`/`§ Raison d'être`/`§ Key files`, `docs/CLAUDE.md § Project`.)* **Docs: lamill manages the operator's own sites *and* agency-client sites.** *(new 2026-09-08 — the first real agency client.)* Positioning-only pass, no mechanism claims: the tool's stated scope has been single-owner since v1 and every purpose statement reads that way. Update `docs/prd.md § 1 Purpose` + `§ 4 Target user`, `AI_AGENTS.md § Summary` + `§ Raison d'être` (the "54 domains / 34 sibling projects / goal: 30 commercial sites" framing is all operator-owned), and `docs/CLAUDE.md § Project`. **Scope guard: this phase documents the `owner` *concept* (WHY), not the ingress *mechanism* (HOW)** — client-domain ingress isn't built until v45.D, so `architecture.md`'s mechanism sections are v45.D's to update. Documenting a capability before it ships is the drift this repo's § Spec discipline forbids. |
+| v45.D | ☑ | *(shipped 2026-09-08 — `clients.csv` fourth source + `_merge_clients` + `append_client_row` + `new bootstrap --owner`; 35 tests; full suite green except pre-existing BUG-063.)* **Client-domain ingress that survives `fleet sync` — read + write.** *(renumbered 2026-09-08; was v45.C. Mechanism locked 2026-09-08: `data/domains/clients.csv` as a fourth sync source, plus `new bootstrap --owner` as its writer.)* Client domains aren't in any operator registrar CSV, so `cleanup()` (`data.py:292`) drops them — it rebuilds `portfolio.json` from the CSVs every run and carries forward only `launched`/`domain_created`. **Read half:** `_load_from_registrars()` gains `data/domains/clients.csv` (`domain,owner,category`) as a fourth source, so client rows survive by construction rather than by a second preserve-exception. Everything else stays derived — `registrar="other"`, `expires`/`domain_created` from RDAP (v45.E), `launched` from first-commit inference; **derived truth is never written back into the roster**, which is what keeps the file readable at a glance. **Write half:** `new bootstrap --owner <client>` beside the existing `--registrar` flag (`bootstrap_cli.py:280`), routed through `_resolve_inventory_inputs` — **`owner != "lamill"` appends to `clients.csv`, not to `portfolio.json`.** That routing is the point: today the inventory step calls `append_domain_row` (`bootstrap_cli.py:402`), which writes a `portfolio.json` row that the next `fleet sync` deletes — the exact bug this phase fixes, so a client bootstrap must not use that path. Interactive prompt mirrors the existing registrar prompt; default `"lamill"`. Not an ADR-0003 concern — `data/domains/` is portfolio's own turf, not a sibling project dir. |
+| v45.E | ☑ | **`project seo <domain> --all` — inspect every page, not the top-N.** *(new + shipped 2026-09-08, operator-reported; 19 tests.)* `project seo` inspected only `--top 10` URLs (a deliberate URL-Inspection quota cap) and render-probed 20 of 116, so on a 116-URL site the operator could see the aggregate but not *which* pages were weak. `--all` lifts **both** caps — a half-lifted cap would report "all" while still sampling. Plumbed as `limit=None` / `top_n=None` / `render_probe_cap=None` through `fetch_sitemap_urls` → `fetch_coverage_details` → `build_diagnostics` and `gather_seo_diagnosis`; `urls[:None]` is already the whole list, so only the `len(urls) < limit` guards needed a branch. Defaults unchanged, so no existing caller shifts. **The cap is opted out of, not removed:** `_confirm_all_scope` sizes the run off the live sitemap, prints the cost (URL count, % of the `URL_INSPECTION_DAILY_QUOTA`=200/day, render-probe count) and confirms above 50 URLs (`--yes` skips); declining falls back to the capped view rather than aborting, and an unreachable sitemap proceeds uncapped with a `↷` rather than crashing. **Progress reporting is part of the phase, not polish** — a 116-URL run is one GSC round-trip plus one render fetch per URL and took >10 min silently in the first live attempt, so both loops take a `progress_callback` driven by `console.spinner_counter` (the v33.L pattern), with a `✓ inspected N URL(s) in Ns` line after each. **Cache reuse is scope-aware** (operator-reported same day): the 24h GSC-diagnostics cache was checked before `top_n`, so `--all` without `--refresh` paid for 116 render probes and then rendered a 10-URL coverage block from a snapshot built at `--top 10`. Freshness alone no longer qualifies a snapshot — an uncapped request reuses one only when it covers at least the sitemap's URL count, and never when that count is unknown. |
+| v45.F | ☐ | **Registrar-truth gap handling.** *(renumbered 2026-09-08 ×2; was v45.D, then v45.E)* Client domains → `registrar="other"`; `auto_renew` unknown (the operator holds no registrar API for the client's account). Suppress renewal warnings for `owner != "lamill"` (mirror the existing `auto_renew=off` mute at `focus.py:112-134`). **Expiry is the exception — fetch it, don't suppress it:** `availability.py:310 rdap_creation_date()` already walks RDAP `events` for `eventAction: "registration"`, and the same response carries `"expiration"`, so a sibling `rdap_expiry_date()` gives client-domain expiry with no registrar credential at all. A client silently letting the domain lapse is the highest-consequence failure in model (A) — blind-muting the one signal that catches it is the wrong default. |
+| v45.G | ☐ | **Reporting: `owner` as a grouping/filter axis.** *(renumbered 2026-09-08 ×2; was v45.E, then v45.F)* Surface `owner` alongside `category` in `fleet` / `info` / `dashboard` (group-by / filter-by client), and keep operator-portfolio rollups (counts, the 30-commercial-sites goal, `estimated_value`) scoped to `owner == "lamill"` so client domains don't silently inflate them. Read-only display; no new mutation surface. **Defer until a second client exists** — one client doesn't justify a reporting axis. |
 
 #### Design notes
 
@@ -2561,7 +2594,24 @@ The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead
 
 **Explicitly OUT of scope for v1 (model (B)).** Any client who keeps their domain/DNS on their *own* Cloudflare, or their GSC property under their *own* Google identity, or wants their repo in their *own* GitHub — that's model (B), a multi-account credential refactor across all five integrations (the only existing multi-account precedent is HostGator's `*_<ACCOUNT_ID>` suffix scheme; GitHub doesn't even support org repos today, `gh_repo.py`). Deferred until reality forces it.
 
-**The load-bearing open item is the v45.C ingress mechanism** (locked in v45.A) — how a client domain enters `portfolio.json` and survives the CSV-rebuild sync. Everything else is genuinely a light add.
+**`owner` value convention (locked 2026-09-08, operator).** The field is a
+free-form string, not an enum or a boolean. **`"lamill"` means the operator's
+own sites; any other value names an agency client.** Absent → `"lamill"`, which
+needs no migration: `cleanup()` rebuilds every row from source on each
+`fleet sync`, so the dataclass default stamps the whole existing fleet on the
+next run. A registry of known client names is deliberately not part of v45 —
+it can earn its keep once there is a second client.
+
+**Trigger: the first real agency client (2026-09-08).** v45 was designed
+2026-07-15 as anticipatory work; it now has an operator-felt trigger. The
+practical state without it: `new bootstrap` + `new deploy` already work on a
+client domain today (Step 4 at `cli.py:2349` soft-skips the registrar NS push
+for a registrar the operator holds no API for and prints the target NS to
+forward to the client), but the domain never enters `portfolio.json`, so
+`project check` / `fleet focus` / `fleet seo` / `fleet fix` are all blind to it.
+That gap is v45.B + v45.D; the rest of the tier is polish.
+
+**The load-bearing open item is the v45.D ingress mechanism** (locked in v45.A) — how a client domain enters `portfolio.json` and survives the CSV-rebuild sync. Everything else is genuinely a light add.
 
 ### v46 — apex-canonical, universally: `www` required and redirects to apex (no more absent-www) *(planned — 2026-07-16; from BUG-087)*
 
@@ -2591,6 +2641,74 @@ The trigger: airsucks.com sat with a **failing CF Worker build for hours** (dead
 **CF mechanism locked: per-zone Single Redirect Rule + proxied `www` DNS** (over account-level Bulk Redirect). Each zone becomes a self-contained idempotent unit for `fleet fix` and `new deploy` — one domain = one reasoning unit — mirroring how the Vercel fixer branch already provisions www→apex per-project. A fleet-global Bulk Redirect object is harder to reason about per-site and still needs the per-zone proxied `www` record anyway. `www` must be **proxied** so CF's edge terminates the request and the redirect rule fires (an un-proxied CNAME→apex would just serve the apex site as a second 200 — exactly the 4-site failure mode above).
 
 **Fix-first, enforce-last (why the flip is v46.F, not bundled with the fixer).** Flipping the check the moment the fixer lands would turn ~33 sites 🔴 before they're backfilled — red that's expected, not actionable-in-the-moment. Instead the gated backfill (v46.E) brings the fleet green first; the check tightens last (v46.F) and then only ever surfaces *genuine* residual gaps. Mirrors the fix-then-enforce posture; no surprise-red window. Secondary payoff: a redirecting `www` removes the dead-www probe-noise class (BUG-085's donready.xyz pattern).
+
+### v47 — `micros`: a category namespace for small data-driven local sites *(planned — 2026-08-18; generalized from `montereybayevents.com`; reshaped 2026-08-19 — ingestion dropped for AI generation over the delegate engine; reshaped 2026-08-22 — microtype registry restored, templates read from live pilot sites, two microtypes in scope)*
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v47.A | ☐ | **Kickoff / decisions lock.** Locked so far: `micros` as a **category-scoped** namespace + the rule that earns one; the **both-directions boundary**; `microtype` as a **top-level scalar** in `lamill.toml` and as the membership predicate; three verbs (`new` / `list` / `health` — `health` to avoid colliding with `project check`); no ingestion, no generation verb, data generated via `project delegate`; the **provenance gate**; templates **read from a live pilot site**; the microtype registry as *pointers and policies*, not implementations; two microtypes in scope (`events`, `services`). Remaining: gate strictness, staleness thresholds, the services vertical + domain. Records **ADR-0028**. |
+| v47.B | ☐ | **Membership + read surfaces.** `microtype` in `lamill_toml.py` (additive-optional per ADR-0017; top-level scalar written in the preamble, since TOML binds bare keys after a table header to that table — so it needs its own byte-preserving upsert path, not `set_table`). Membership resolution, `micros list` (all micros — microtype, rows, staleness) and `micros health <domain>` (one micro, in detail). "Last generated" derives from git — the newest commit touching the site's data files — not from a stored timestamp. |
+| v47.C | ☐ | **`micros new <domain>` — read/copy/adapt from the live pilot.** Reuses the existing `--git-url` pipeline almost wholesale: `_clone_to_genai` → `_copy_from_genai` → a Claude-subprocess adaptation pass modelled on `port_to_astro`, with a *local sibling* as the source and **region rather than stack** as the thing being adapted. Runs a **pilot-health gate first** (clean tree + build passes + `project check` clean) and refuses otherwise, mirroring delegate's dirty-tree refusal. Applies the microtype's adaptation profile: substitute domain / region / keywords, strip the pilot's own data rows, `.design/`, `.wrangler/`. Writes `microtype` on the way through. |
+| v47.D | ☐ | **Delegate micros profile + provenance gate.** No new verb: `project delegate` becomes micros-aware off `microtype` — the doctrine is injected as system-prompt guardrails, and a **fourth verify link** fires for micros runs only. Every generated row must carry a source URL fetched *during the run*, with the claim locatable in the fetched text; fields that aren't locatable come back tagged unconfirmed rather than filled; an unresolvable source fails the gate. Reuses `delegate.py`'s sandbox, two-axis supervisor, resume-on-cap, adaptive split and `DelegateBackend` seam. |
+| v47.E | ☐ | **Local-services pilot site.** **Site work, not tool work** — the one phase in this tier that builds a website rather than a feature, and it is a hard prerequisite for v47.F. Built the way `montereybayevents.com` was: `new bootstrap` + `project delegate` + human editorial, until it is genuinely good. Only then is it worth generalizing from. **Blocked on operator input: the service vertical and a domain.** |
+| v47.F | ☐ | **Register the `services` microtype.** Adaptation profile pointing at the v47.E pilot + a re-verification staleness check (a business listing does not expire the way an event does — it goes stale when the phone changes or the business closes). This is the phase that proves the seam is real rather than plausible, because it is the first time the registry carries two entries. |
+| v47.G | ☐ *(deferred 2026-08-19)* | **`micros survey --kind <kind> <scope>` — supply audit.** Source discovery, generalizing the pilot's v2.A audit. **Deferred by the operator** — the first few regions get hand-audited, which is how the pilot's own dataset was assembled. Resurface if that becomes repetitive friction. |
+
+#### Design notes
+
+**Where this comes from.** `sites/montereybayevents.com` went from `new bootstrap` to a deployed, GSC-verified, 115-URL regional events calendar in nine phases over fifteen days (v1.A–v1.I, 2026-08-03 → 2026-08-18). Roughly 20% of that was scaffold and architecture, 30% was assembling the dataset, and **~50% was editorial judgement** — an admission audit that found three "free" listings charging $40–50, two events at the wrong venue, three phases of incident-banner maintenance, one 598→1,733-word researched page. This tier mechanizes the first two thirds and is explicit that it does not reach the last third.
+
+**Why a category namespace and not the scope-first four.** The first design distributed the work across `new` / `project` / `fleet`, spending most of its risk on code every fleet site runs through and requiring a `--vertical` axis on `new bootstrap` that sat awkwardly against ADR-0013. Operator rejected that 2026-08-18. The category namespace collapses shared-code changes to **one namespace registration in `cli.py` and one scalar in `lamill_toml.py`**.
+
+**The boundary runs in both directions.** Micros verbs never touch a non-micros site; micros sites remain ordinary fleet members — `fleet check`, `fleet fix`, `CHECK_150` still cover them, and `project delegate` still operates on them, which v47.D depends on.
+
+**`microtype`, a scalar, top-level** *(operator, 2026-08-21)*.
+
+```toml
+schema = "lamill-toml-v1"
+microtype = "events"
+
+[deploy]
+...
+```
+
+Named `microtype` rather than `microsite_type` because `[content].site_type` already exists in these files and two similar keys a few lines apart — one a content descriptor, one a tooling switch — is a scanning hazard. **Non-micros never carry the field**, and that is a contract, not a default: the parser returns `None` on absence and never raises; no check warns because it is missing; absence *is* the membership answer, so micros verbs decline cleanly rather than reporting a gap; `micros list` shows only sites that set it; **there is no fleetwide backfill, ever** (this is where `microtype` differs from `[stack]`, which got a v27.C backfill — `[stack]` was universal-but-undeclared, `microtype` is a genuine minority); and `schema` stays `lamill-toml-v1` per ADR-0017. Unrecognised values are rejected at *use*, not at parse, so a typo can't make the file unparseable and break `project check` for an unrelated reason.
+
+**Data is AI-generated, not ingested and not hand-typed** *(operator, 2026-08-19)*. Feed discovery, normalize, dedupe and propose/apply are all dropped. `--pull` / `--propose` / `--apply` do not exist: the review surface is **the git diff of the CSV**, which the operator already reads before committing, and a proposals file was ceremony wrapped around a diff. Generation runs through `project delegate`, so this tier adds a profile and a gate rather than an engine.
+
+**What the delegate work teaches, and the one thing that does not transfer.** Delegate generates *code*, where a wrong answer breaks the build — loud, mechanical, catchable, which is why its three-link gate works. Data generation inverts this: **a hallucinated event builds green, passes every check, renders correctly, and ships a wrong date to someone deciding when to show up.** The pilot proved no mechanical gate catches that — the wrongly-free listings and wrong venues were found by a human reading organiser pages. So delegate's *engine* transfers wholesale and its *oracle* does not; v47.D's provenance gate stands in, on the principle that correctness cannot be asserted but **sourcing can be, mechanically**.
+
+Inherited specifics: **false-green is the recurring enemy** (BUG-064 — `✓ agent finished · $0.00` on a run that created nothing, because stream-EOF was read as success; the data analogue is that "the model returned 40 rows" must never be the success signal). **Baseline-gate before generating** (v37.E bailed on a broken environment after a five-hour burn; the analogue is probing sources first — the pilot hit `fire.ca.gov` 403-ing automated reads and BigSurKate answering one day and 403-ing the next, and generation will smoothly hallucinate around an unreachable source). **Liveness ≠ progress** (volume is the false signal — 200 events for a small town is a red flag, not a yield). **Never auto-commit; refuse on a dirty tree; end at a reviewable diff.** **Adaptive splitting** (v33.Q/R). **Map-not-slurp grounding** (v33.G). **Swappable backends** (ADR-0026).
+
+**The gate does not catch a wrong source.** The pilot's v1.I page exists because aggregators were confidently carrying prior-year dates and the most findable shuttle timetable was from 2010. Price, address and time stay human-audited for anything load-bearing.
+
+**The microtype registry, restored** *(operator, 2026-08-22)*. It was cut on 2026-08-19 as over-architecture — a `type` → template map with one entry is a dict, and designing a plugin protocol from a single example is how abstractions come out wrong. The operator then named a second, genuinely different microtype: **local services / utilities** (pressure washers and similar). That reverses the cut, and specifically because it passes the test used to justify the seam in the first place — **horizon is events-only**. A business listing has no horizon; it goes stale when the phone changes or the business closes. The types differ on more than that: a row is an occurrence vs a standing entity; the organising axis is time vs geography × service; `Event` vs `LocalBusiness`; month hubs and `/free/` vs city × service hubs and `/cost/`.
+
+**But live-read makes the registry much lighter than the version that was cut.** Under frozen templates a microtype would have owned row schema, page templates and schema.org builders as code inside lamill. Read from a live pilot, **all three live in the pilot site and lamill never holds them.** A registry entry carries only: which pilot repo to read; an adaptation profile (substitutions + strip list); a staleness check; and a generation profile (which fields must be sourced). Two of the four are thin. The registry is one of *pointers and policies*, not implementations.
+
+**Templates are read from a live pilot site** *(operator, 2026-08-22)*. `micros new` reads `sites/<pilot>/` at run time and copies-then-adapts, so new sites inherit the pilot's current thinking rather than a snapshot. Accepted costs, stated once: **the pilot becomes load-bearing infrastructure** and can no longer be experimented on freely, since a mid-refactor state would produce broken new sites — mitigated by the v47.C pilot-health gate. And adding a microtype now literally means *build one good site of that kind, then point `micros` at it*, which is why v47.E exists and why it is site work sitting inside a tool tier.
+
+**Services templates will be weaker than events' for a while**, and this is unavoidable rather than a planning error: events generalizes from nine phases of real use, services from one deliberate build. v47.F is where the seam gets tested against something real instead of imagined.
+
+**Surface.**
+
+```
+lamill micros new <domain>          read/copy/adapt from the microtype's pilot
+lamill micros list                  all micros — microtype, rows, staleness
+lamill micros health <domain>       one micro — staleness + the microtype's checks
+lamill project delegate <domain>    generation; micros-aware via `microtype` (v47.D)
+```
+
+**Still open — do NOT treat as decided:**
+- **Provenance gate strictness.** Does an unresolvable source fail the whole run, or drop the row and continue? Fail-the-run is safer; drop-and-continue is likelier to finish a 100-row generation.
+- **Staleness thresholds, per microtype.** Events: how many future-dated rows, or how many days of runway, before `micros health` warns? Services: what counts as a stale listing, and is re-verification age even measurable without re-fetching?
+- **The services vertical + domain** — blocks v47.E.
+- **Whether the adaptation pass is a plain Claude subprocess (`port_to_astro`-style) or a full delegate run.** Delegate brings supervision, resume-on-cap and splitting; a subprocess is lighter. The pilot copy is large, which argues for delegate.
+
+(These are the **v47.A** decisions-lock agenda. Build phases B–D are unblocked; E is blocked on operator input; G is deferred.)
+
 
 ## 8. Open questions
 
