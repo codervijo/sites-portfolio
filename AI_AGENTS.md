@@ -107,6 +107,39 @@ Don't introduce parallel schemes (no `0.1.0`, no `Sprint 3`, no
 `Phase 1.A`). Don't introduce three-level identifiers under any
 circumstance. The canonical statement is this section.
 
+## Git workflow
+
+**Work directly on `main`. No feature branches in this repo.**
+*(Operator rule, 2026-09-08.)*
+
+Commit each shippable phase straight to `main` and push. Don't create a
+`vN-<slug>` branch, don't open a PR against this repo, and don't stack
+work on a side branch "until the tier is done."
+
+**Why.** This is a single-operator CLI with no reviewers and no CI gate,
+so a branch buys no review and costs real friction: the 2026-09-08
+session found `v46-www-apex` carrying four unrelated features at once
+(v46 A–D shipped-but-blocked, v47 planning docs, a BUG-088 fix from
+another session, and v45), with `docs/prd.md` holding both v45 and v47
+edits — unsplittable, because a branch defers the merge until every
+tier on it is finished, and v46.E was blocked on an external
+credential. Committing to `main` per phase keeps each phase's diff
+reviewable on its own and stops a blocked tier from holding unrelated
+finished work hostage.
+
+**What this does not change.**
+- Still never `git commit` or `git push` without an explicit operator
+  ask (the global never-auto-commit rule stands).
+- Still one commit per shippable phase, not one per tier — and a phase's
+  code, tests, and doc updates land in the *same* commit (§ Canonical
+  docs).
+- Work that isn't yours (an unexplained dirty file from another
+  session) still gets its own commit rather than being folded in.
+- `docs/handoff.md` is still never committed.
+
+**Scope: this repo only.** Sibling `sites/<domain>/` projects set their
+own git conventions; nothing here applies to them.
+
 ## Raison d'être
 
 `portfolio` is the **inventory + standards enforcer** for the sites/ workspace. It exists because as the number of sibling projects under `sites/` grows, it stops being feasible to remember per-project state, deploy quirks, build conventions, or where each one is in its lifecycle. portfolio is the single place to:

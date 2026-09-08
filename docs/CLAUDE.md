@@ -71,6 +71,17 @@ uv run portfolio settings catalog list
 uv run portfolio new bootstrap <domain>
 ```
 
+## Git workflow
+
+**Work directly on `main`. No feature branches** (operator rule,
+2026-09-08). One commit per shippable phase — code + tests + doc updates
+together — pushed to `main`. No PRs against this repo, no `vN-<slug>`
+branches, no stacking work on a side branch until a tier completes.
+
+The global never-auto-commit rule still holds: commit and push only when
+the operator explicitly asks. Full rationale in
+`AI_AGENTS.md § Git workflow`.
+
 ## Conventions
 
   - **pnpm-only** for all `sites/*` projects. `package-lock.json` /
