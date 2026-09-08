@@ -76,6 +76,114 @@ when applicable. Don't delete.
 ## Open bugs
 
 
+### BUG-089 · 2026-08-03 — `new bootstrap --from-genai` fails on a git-cloned export (nested one level in `genai/<repo>/`) with a misleading "is this a real project export?" error
+
+When the operator manually clones a Lovable/GitHub export into `genai/`, git
+creates a subdirectory — the files land at `genai/<repo-name>/…`, not directly
+in `genai/`. `_copy_from_genai` requires `genai/package.json` at the top level,
+so it aborts, and the message blames the export's validity instead of the
+nesting.
+
+- **Repro** —
+  ```
+  cd sites/<domain>
+  git clone <lovable-url> genai/     # → genai/<repo-name>/package.json
+  uv run portfolio new bootstrap <domain> --from-genai
+  ```
+  (Hit live on `montereybayevents.com`, whose export cloned to
+  `genai/mccarweek-redux/`.)
+- **Expected** — bootstrap detects the single nested project dir holding
+  `package.json` and treats it as the source root (or emits an actionable
+  "flatten `genai/<repo>/` up one level" hint naming the real cause).
+- **Actual** — `_copy_from_genai` raises:
+  ```
+  genai/package.json not found — is this a real project export?
+  ```
+  The message points at export validity; the real cause is one extra directory
+  level. `detect_stack(genai_dir)` at `bootstrap.py:1978` also runs against the
+  wrong (empty-of-code) dir.
+- **Where** — `src/portfolio/bootstrap.py:1446` `_copy_from_genai` (`src =
+  project_dir / "genai"`, then the `genai/package.json` existence gate at
+  1451-1453); and the `detect_stack` call at ~1978 just above it. Note
+  `_clone_to_genai` (line 1711, the `--git-url` path) clones *into* `genai/`
+  and can produce the same nesting depending on the URL/clone form.
+- **Severity** — `minor` (one-time per site; workaround is a manual flatten),
+  but the misleading error costs debugging time and the manual-clone path is
+  the common way operators seed `genai/`.
+- **Notes** —
+  - Fix candidate: in `_copy_from_genai`, before the package.json gate, if
+    `genai/` has no top-level `package.json` **and** contains exactly one
+    child directory that *does* hold `package.json`, transparently treat that
+    subdir as the source root (and pass the same resolved dir to
+    `detect_stack`). Guard tightly (exactly one nested dir, it has
+    package.json, genai/ has none) so ambiguous layouts still error — but with
+    a hint that names the nesting.
+    - Alternatively (or additionally), improve the error to detect the nested
+    case and print the exact `mv`/flatten remediation instead of the generic
+    "real project export?" line.
+  - Manual flatten used this session (works today):
+    ```
+    cd sites/<domain>/genai/<repo>
+    shopt -s dotglob nullglob && mv -n -- * ../ && cd .. && rmdir <repo>
+    ```
+
+
+### BUG-088 · 2026-08-03 — `new domain` manual-add rejects valid domain candidates: digit-leading labels as "invalid chars", >14-char labels as "too long"
+
+The interactive "Names to add (comma-separated, no TLDs)" path silently
+rejects legitimately registrable domain candidates with misleading reasons.
+Two independent over-strict rules in `_parse_user_added_names`.
+
+- **Repro** — `lamill new domain <topic>` → validation flow → choose the
+  add-names option → enter:
+  `831events, montereybayevents, montereybaycalendar, 831calendar, 831weekend, weekendbythebay, ...`
+- **Expected** — `831events`, `831calendar`, `831weekend` accepted (labels
+  may start with a digit — RFC 1123 relaxed the letter-first rule; e.g.
+  `831events.com` is registrable). `montereybayevents` (17), `montereybaycalendar`
+  (19) accepted (DNS labels allow up to 63 chars).
+- **Actual** — all rejected:
+  ```
+  skipping 831events (invalid chars)
+  skipping montereybayevents (too long)
+  skipping montereybaycalendar (too long)
+  skipping 831calendar (invalid chars)
+  skipping 831weekend (invalid chars)
+  ```
+- **Where** — `src/portfolio/cli_domain.py:893` `_parse_user_added_names`.
+  Line 906 `re.match(r"^[a-z][a-z0-9]*$", n)` forces a letter first →
+  digit-leading labels fall to "invalid chars". Line 909 `len(n) > 14`
+  hard-caps at 14 → "too long". The docstring says this mirrors
+  `_extract_names` rules — a brandability heuristic meant for
+  auto-generated brainstorm names, wrongly applied verbatim to
+  operator-typed manual additions.
+- **Severity** — `minor` (fallback manual-add path; but the "invalid chars"
+  reason is actively misleading for a valid domain, and there's no
+  workaround short of a code edit).
+- **Notes** —
+  - Two candidate fixes: (a) relax the letter-first regex to
+    `^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$` (true DNS-label validity:
+    alnum + internal hyphens, no leading/trailing hyphen) and raise the
+    cap toward the 63-char DNS limit; or (b) trust operator-typed input
+    more than brainstorm output — validate only true DNS-label legality,
+    drop the 14-char brandability cap on the manual path. The 14-char cap
+    is a *branding* preference, not a *validity* constraint — those are
+    being conflated.
+  - Minor secondary: dedup via `seen` only covers *valid* names, so a
+    duplicate that also fails validation (the operator's doubled
+    `831events, 831events`) is listed as rejected twice.
+  - When fixed, decide whether the same relaxation should apply to
+    `_extract_names` (brainstorm output) or stay manual-add-only.
+
+**Fixed** — `_parse_user_added_names` (`cli_domain.py`) now validates true
+DNS-label legality: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` (digit-leading + internal
+hyphens OK) with a 63-char DNS limit instead of the 14-char brandability cap.
+Kept manual-add-only; `_extract_names` (brainstorm output) retains its
+heuristic. Dedup now covers rejects too (doubled entry reported once). Tests
+added in `tests/test_suggest.py` (digit-leading, internal-hyphen,
+long-descriptive, dedup-rejects); operator's exact input now parses with 0
+rejections. Not yet committed.
+
+
 ### BUG-087 · 2026-07-15 — fleet CF sites are apex-only (no www DNS) → `www.<domain>` doesn't resolve or redirect; consider mandating www→apex
 
 - **Repro** — latest `fleet check` snapshot (`data/checks/2026-07-07.json`): **34 of 51 domains** are bare-apex live but their `www` variant is `dead`/`ssl-broken`/absent (33 `www dead` + 3 `ssl-broken`; only 15 have a working www). `www.<domain>` returns NXDOMAIN for most of the fleet.

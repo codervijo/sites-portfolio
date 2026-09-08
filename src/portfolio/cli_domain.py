@@ -892,8 +892,14 @@ def _menu_add_names(rows, *, topic, openai_key, vocab_terms, tld_list,
 
 def _parse_user_added_names(raw: str) -> tuple[list[str], list[str]]:
     """Parse a comma-separated list of user-supplied names. Returns
-    (valid_names, rejected_with_reason). Each name must be alphabetic, lowercase,
-    and ≤14 chars (matching _extract_names rules)."""
+    (valid_names, rejected_with_reason).
+
+    These are operator-typed manual additions, so we validate for true DNS-label
+    legality rather than the brandability heuristic used on LLM-brainstormed
+    names (_extract_names). A label is valid when it is lowercase alnum with
+    optional internal hyphens (no leading/trailing hyphen) and ≤63 chars — so
+    digit-leading labels (`831events`) and longer descriptive labels
+    (`montereybaycalendar`) are accepted (BUG-088)."""
     valid: list[str] = []
     rejected: list[str] = []
     seen: set[str] = set()
@@ -903,15 +909,17 @@ def _parse_user_added_names(raw: str) -> tuple[list[str], list[str]]:
             continue
         # Strip optional .tld if user pasted full domains
         n = n.split(".", 1)[0]
-        if not re.match(r"^[a-z][a-z0-9]*$", n):
-            rejected.append(f"{piece.strip()} (invalid chars)")
-            continue
-        if len(n) > 14:
-            rejected.append(f"{piece.strip()} (too long)")
-            continue
+        # Dedup on the normalized label, covering rejects too, so a
+        # doubled entry (`831events, 831events`) is reported once.
         if n in seen:
             continue
         seen.add(n)
+        if not re.match(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", n):
+            rejected.append(f"{piece.strip()} (invalid chars)")
+            continue
+        if len(n) > 63:  # DNS label limit
+            rejected.append(f"{piece.strip()} (too long)")
+            continue
         valid.append(n)
     return valid, rejected
 

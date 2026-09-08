@@ -1119,11 +1119,44 @@ def test_v3d_parse_user_names_rejects_invalid_chars():
     assert any("b3-ta!" in r for r in rejected)
 
 
+def test_v3d_parse_user_names_allows_digit_leading():
+    # BUG-088: digit-leading labels are valid domains (RFC 1123).
+    from portfolio.cli import _parse_user_added_names
+    valid, rejected = _parse_user_added_names("831events, 831calendar, 831weekend")
+    assert valid == ["831events", "831calendar", "831weekend"]
+    assert rejected == []
+
+
+def test_v3d_parse_user_names_allows_internal_hyphen():
+    # BUG-088: internal hyphens are valid; leading/trailing are not.
+    from portfolio.cli import _parse_user_added_names
+    valid, rejected = _parse_user_added_names("weekend-bay, -bad, bad-")
+    assert valid == ["weekend-bay"]
+    assert any("-bad" in r for r in rejected)
+    assert any("bad-" in r for r in rejected)
+
+
+def test_v3d_parse_user_names_allows_long_descriptive():
+    # BUG-088: 14-char brandability cap was too aggressive; DNS limit is 63.
+    from portfolio.cli import _parse_user_added_names
+    valid, rejected = _parse_user_added_names("montereybayevents, montereybaycalendar")
+    assert valid == ["montereybayevents", "montereybaycalendar"]
+    assert rejected == []
+
+
 def test_v3d_parse_user_names_rejects_too_long():
     from portfolio.cli import _parse_user_added_names
-    valid, rejected = _parse_user_added_names("waytoolongbrandname, ok")
+    valid, rejected = _parse_user_added_names("a" * 64 + ", ok")
     assert "ok" in valid
-    assert any("waytoolong" in r for r in rejected)
+    assert any("too long" in r for r in rejected)
+
+
+def test_v3d_parse_user_names_dedups_rejects():
+    # BUG-088: a doubled invalid entry is reported once, not twice.
+    from portfolio.cli import _parse_user_added_names
+    valid, rejected = _parse_user_added_names("bad!, bad!, ok")
+    assert valid == ["ok"]
+    assert len([r for r in rejected if "bad!" in r]) == 1
 
 
 def test_v3d_parse_user_names_dedups():
