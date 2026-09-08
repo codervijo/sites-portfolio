@@ -165,11 +165,16 @@ def focus(
             domain_high_todos[_site_dir.name.lower()] = _high.task
 
     suppressed_young: list[str] = []
+    # v45.F — owner map so the expiry signal can name the person who can
+    # actually act on it. `Domain.owner` normalizes a blank/missing value
+    # to OWNER_SELF, so this is always populated.
+    domain_owners = {d.name.lower(): d.owner for d in all_domains}
     items = build_focus_list(
         live_snapshot=live_data,
         seo_snapshot=seo_data,
         domains_with_expiry=domains_expiry,
         domain_categories=domain_categories,
+        domain_owners=domain_owners,
         auto_renew_off=auto_renew_off,
         domain_site_age_days=domain_site_age,
         domain_check_failures=domain_check_failures,
@@ -450,24 +455,44 @@ def info_cleanup(refresh_rdap: bool = False) -> None:
     out_path, domains, uncategorized = run_cleanup()
 
     if refresh_rdap:
-        from .availability import rdap_creation_date
+        from .availability import rdap_creation_date, rdap_expiry_date
         from .data import update_domain_field
         hit = miss = 0
+        exp_hit = exp_miss = 0
         with spinner_counter("RDAP creation dates", len(domains)) as progress:
             for i, d in enumerate(domains, start=1):
                 progress(i, len(domains), d.name)
                 if d.domain_created is not None:
                     # Already cached — RDAP creation_date doesn't change. Skip.
                     hit += 1
-                    continue
-                cd = rdap_creation_date(d.name)
-                if cd is not None:
-                    update_domain_field(d.name, "domain_created", cd)
-                    hit += 1
                 else:
-                    miss += 1
+                    cd = rdap_creation_date(d.name)
+                    if cd is not None:
+                        update_domain_field(d.name, "domain_created", cd)
+                        hit += 1
+                    else:
+                        miss += 1
+                # v45.F — expiry for client-owned domains. The operator's
+                # own domains get `expires` from a registrar CSV/API; a
+                # client's registrar account is not theirs to query, so
+                # RDAP is the only source. Unlike creation_date this is
+                # re-fetched every run: expiry moves on renewal, and a
+                # stale value is worse than none for the one signal that
+                # catches a client letting the domain lapse.
+                if d.is_client:
+                    ed = rdap_expiry_date(d.name)
+                    if ed is not None:
+                        update_domain_field(d.name, "expires", ed)
+                        exp_hit += 1
+                    else:
+                        exp_miss += 1
         console.print(f"[green]✓[/] RDAP creation dates: {hit} resolved · "
                       f"{miss} unresolved · {progress.elapsed:.0f}s")
+        if exp_hit or exp_miss:
+            console.print(
+                f"[green]✓[/] RDAP expiry (client domains): {exp_hit} "
+                f"resolved · {exp_miss} unresolved"
+            )
 
     by_reg = Counter(d.registrar for d in domains)
     by_cat = Counter(d.category for d in domains if d.category)
@@ -578,7 +603,14 @@ def info_expiring(within: int = typer.Option(180, "--within", "-w", help="Days f
     t.add_column("Auto-renew")
     t.add_column("Status")
     for d in soon:
-        t.add_row(d.name, str(d.expires), str(d.days_to_expire), d.auto_renew, d.status)
+        # v45.F — a client's registrar account isn't ours to query, so
+        # auto_renew is genuinely unknown rather than empty. Say so; a
+        # blank cell reads as "off" or as a data bug.
+        auto_renew = d.auto_renew
+        if d.is_client and not (auto_renew or "").strip():
+            auto_renew = "unknown (client)"
+        t.add_row(d.name, str(d.expires), str(d.days_to_expire),
+                  auto_renew, d.status)
     console.print(t)
 
 

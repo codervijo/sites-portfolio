@@ -790,6 +790,29 @@ path uses that helper rather than touching `r["owner"]`. Nothing reads
 self-owned by dataclass default. Client rows come from
 `data/domains/clients.csv` (below) and carry the client's name.
 
+#### Registrar-truth gaps on client domains (v45.F)
+
+The operator holds no registrar credential for a client's account, so two
+fields have no registrar source: `auto_renew` (genuinely unknown —
+rendered `unknown (client)` in `fleet domains --expiring`, since a blank
+cell reads as "off") and `expires`.
+
+**Expiry is fetched, not suppressed.** `availability.rdap_expiry_date()`
+reads the RDAP `expiration` event via the shared `_rdap_event_date()`
+helper that also backs `rdap_creation_date()` — no credential needed.
+`fleet sync --refresh-rdap` fills `expires` for `owner != OWNER_SELF`
+domains only, leaving registrar truth authoritative for the operator's
+own, and **re-fetches on every run**: unlike `domain_created`, expiry
+moves on renewal, and a stale value defeats the signal.
+
+`fleet focus` keeps the ⚠️ expiry signal at `_RANK_RED` for client
+domains and changes only the action line
+(`→ client-owned (<name>) — ask them to renew`), via the new
+`domain_owners=` argument to `build_focus_list`. Callers that omit it
+are unchanged. Suppressing the signal would blind the highest-
+consequence failure in model (A): a client letting the domain lapse
+kills the site, and the operator carries the blame.
+
 #### `data/domains/clients.csv` — the fourth sync source (v45.D)
 
 Operator-authored roster of client-owned domains. Columns:

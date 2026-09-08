@@ -307,14 +307,13 @@ def rdap_check(domain: str, *, retries: int = DEFAULT_RETRIES, backoff_s: float 
     return _rdap_or_doh_fallback(domain, last_err)
 
 
-def rdap_creation_date(domain: str, *, timeout: float = RDAP_TIMEOUT) -> "date | None":
-    """Fetch the domain's RDAP `events` array and return the date associated
-    with `eventAction: "registration"`. Returns None on any error (no RDAP
-    endpoint for the TLD, network failure, missing event, malformed payload).
-
-    This is the "true" domain age — independent of which registrar I bought
-    it from. Used to soften SEO grading for newly-registered domains and
-    surface the "this domain is aged, expect ranking momentum" signal.
+def _rdap_event_date(domain: str, action: str, *,
+                     timeout: float = RDAP_TIMEOUT) -> "date | None":
+    """Fetch the domain's RDAP `events` array and return the date carried by
+    the event whose `eventAction` is `action`. Returns None on any error (no
+    RDAP endpoint for the TLD, network failure, missing event, malformed
+    payload) — every caller treats an unknown date as "not available", never
+    as an error.
     """
     from datetime import date as _date, datetime as _datetime
     tld = domain.rsplit(".", 1)[-1].lower() if "." in domain else ""
@@ -334,7 +333,7 @@ def rdap_creation_date(domain: str, *, timeout: float = RDAP_TIMEOUT) -> "date |
     except Exception:
         return None
     for event in payload.get("events", []):
-        if event.get("eventAction") == "registration":
+        if event.get("eventAction") == action:
             ed = event.get("eventDate")
             if not ed:
                 return None
@@ -347,6 +346,33 @@ def rdap_creation_date(domain: str, *, timeout: float = RDAP_TIMEOUT) -> "date |
                 except ValueError:
                     return None
     return None
+
+
+def rdap_creation_date(domain: str, *, timeout: float = RDAP_TIMEOUT) -> "date | None":
+    """The date of the RDAP `registration` event.
+
+    This is the "true" domain age — independent of which registrar I bought
+    it from. Used to soften SEO grading for newly-registered domains and
+    surface the "this domain is aged, expect ranking momentum" signal.
+    """
+    return _rdap_event_date(domain, "registration", timeout=timeout)
+
+
+def rdap_expiry_date(domain: str, *, timeout: float = RDAP_TIMEOUT) -> "date | None":
+    """The date of the RDAP `expiration` event (v45.F).
+
+    Registrar-independent expiry. This exists for **client-owned domains**:
+    the operator holds no registrar credential for a client's account, so
+    `expires` can't come from a registrar CSV or API the way it does for
+    their own domains — but RDAP publishes it for anyone who asks.
+
+    That matters because a client quietly letting their domain lapse is the
+    highest-consequence failure in the model-(A) arrangement: the site dies
+    and it looks like the operator's fault. Muting expiry for lack of
+    registrar truth would blind the one signal that catches it, so v45.F
+    fetches it instead of suppressing it.
+    """
+    return _rdap_event_date(domain, "expiration", timeout=timeout)
 
 
 def _rdap_or_doh_fallback(domain: str, rdap_err: str | None) -> AvailResult:

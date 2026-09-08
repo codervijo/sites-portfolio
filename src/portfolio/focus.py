@@ -29,6 +29,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from .data import OWNER_SELF, normalize_owner
+
 
 # Severity rank — higher = surfaces first.
 _RANK_RED = 4
@@ -66,6 +68,7 @@ def build_focus_list(
     seo_snapshot: dict | None,
     domains_with_expiry: list[tuple[str, int]],
     domain_categories: dict[str, str] | None = None,
+    domain_owners: dict[str, str] | None = None,
     auto_renew_off: set[str] | None = None,
     domain_site_age_days: dict[str, int | None] | None = None,
     domain_check_failures: dict[str, dict] | None = None,
@@ -81,6 +84,11 @@ def build_focus_list(
     `domains_with_expiry` is `[(domain, days_to_expire)]` from
     `portfolio.json`. `domain_categories` maps domain → plan category
     (lowercase keys); domains in `IGNORE_CATEGORIES` are filtered out.
+    `domain_owners` maps domain → `Domain.owner` (v45.F). Used only to
+    retarget the expiry action line for client-owned domains — the
+    operator can't renew someone else's domain, so the action becomes
+    "ask them to renew". The signal itself is never suppressed.
+
     `domain_site_age_days` maps domain → site age in days (None when
     unknown). When `include_young` is False (the default), domains
     younger than `young_threshold_days` have their 🟠/🟡 SEO signals
@@ -109,6 +117,7 @@ def build_focus_list(
     domain_check_failures = domain_check_failures or {}
     domain_high_todos = domain_high_todos or {}
     domain_categories = domain_categories or {}
+    domain_owners = {k.lower(): v for k, v in (domain_owners or {}).items()}
     auto_renew_off = {d.lower() for d in (auto_renew_off or set())}
     domain_site_age_days = domain_site_age_days or {}
     items: dict[str, FocusItem] = {}
@@ -210,9 +219,18 @@ def build_focus_list(
         if days is None:
             continue
         if days <= 30:
+            # v45.F — a client-owned domain expires just as hard, but the
+            # operator can't renew it; the action is to reach the client.
+            # The *signal* is never suppressed: a client quietly letting
+            # the domain lapse kills the site, and it's the operator who
+            # gets blamed. Only the action line changes.
+            owner = normalize_owner(domain_owners.get(d.lower()))
+            if owner != OWNER_SELF:
+                action = f"→ client-owned ({owner}) — ask them to renew"
+            else:
+                action = "→ renew at registrar before lapse"
             _add_signal(d, "⚠️", _RANK_RED,
-                        f"Expiring in {days} days",
-                        "→ renew at registrar before lapse")
+                        f"Expiring in {days} days", action)
 
     # 🟠 / 🟡 / ❌ SEO signals.
     if seo_snapshot:
