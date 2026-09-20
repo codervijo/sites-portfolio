@@ -2093,6 +2093,38 @@ candidate refactor (see §10 Research module risks — rate-limit
 handling differs by provider) but not scheduled. Trigger: a third
 LLM provider lands.
 
+### Vestigial typer defaults on de-registered command functions
+
+**Surfaced 2026-09-19** by BUG-090. When v14 folded `info list` /
+`info expiring` / `info summary` into `fleet domains`, the functions were
+de-registered as typer commands but kept their `typer.Option(...)` defaults.
+A de-registered function called as plain Python binds those defaults to
+`OptionInfo` sentinels, not values — silently, because `OptionInfo` is
+truthy, so a `if category:` guard takes the wrong branch before anything
+raises. BUG-090 fixed the two in `fleet_cli.py`.
+
+**Ten remain** (none currently bites — every call site binds its params
+explicitly, which `tests/test_fleet_domains_verbose.py` now enforces):
+
+| Function | Module |
+|---|---|
+| `check_git`, `check_seo`, `check_catalog`, `check_describe`, `check_run` | `cli.py` |
+| `gsc_auth`, `gsc_sync`, `info_status` | `cli.py` |
+| `focus`, `check_live` | `fleet_cli.py` |
+
+**Shape of the work:** strip the `typer.Option(...)` defaults to plain Python
+defaults, mirroring `info_summary` (which v14 did clean up) and the BUG-090
+fix. Each is mechanical and independent. Remove the name from
+`KNOWN_VESTIGIAL` in `tests/test_fleet_domains_verbose.py` as it's cleaned —
+`test_vestigial_ratchet_only_shrinks` fails if a name is left listed after
+cleanup, so the ratchet can only tighten.
+
+**Why it's debt, not a bug:** the sentinels are inert while callers pass
+kwargs. The hazard is a future caller adding a bare call — exactly how
+BUG-090 sat dead from v14 until someone ran the documented flag combination.
+The AST guard closes that path, so this register entry is cleanup, not
+protection.
+
 ### v35 — code-smell + tech-debt audit register (2026-06-06)
 
 Output of the v35.A audit pass (four parallel sweeps: monolith

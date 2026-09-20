@@ -590,7 +590,8 @@ def info_summary() -> None:
 
 
 # info_expiring — kept as implementation for `fleet domains --expiring`.
-def info_expiring(within: int = typer.Option(180, "--within", "-w", help="Days from today")) -> None:
+# Plain default for the same reason as `info_list` above (v14 de-registration).
+def info_expiring(within: int = 180) -> None:
     """List domains expiring within N days."""
     today = date.today()
     soon = [d for d in load_domains() if d.expires and (d.expires - today).days <= within]
@@ -657,12 +658,10 @@ def check_live(
 
 
 # info_list — kept as implementation for `fleet domains --summary --verbose`.
-def info_list(
-    grouped: bool = typer.Option(False, "--grouped", "-g",
-                                 help="Group by plan category (subsumes the old `info category` command)"),
-    category: str = typer.Option("", "--category", "-c",
-                                 help="Filter to one category by substring match (implies --grouped)"),
-) -> None:
+# De-registered as a typer command in v14 (folded into `fleet domains`), so the
+# params take plain Python defaults — a `typer.Option(...)` default here binds
+# to an `OptionInfo` sentinel when called as a function, not to the value.
+def info_list(grouped: bool = False, category: str = "") -> None:
     """List domains.
 
     Default: one flat table of every domain in the registrar CSVs.
