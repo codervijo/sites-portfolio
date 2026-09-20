@@ -1218,6 +1218,37 @@ with installations → option 2 (field-name mismatch, fix walker).
 
 ## Fixed bugs
 
+### BUG-090 · 2026-09-19 — `fleet domains --summary --verbose` crashes: `AttributeError: 'OptionInfo' object has no attribute 'lower'`
+
+- **Repro** — `lamill fleet domains --summary --verbose` (any fleet state).
+- **Expected** — the per-domain flat table rendered under the summary.
+- **Actual** — traceback at `fleet_cli.py:702`:
+  ```
+  AttributeError: 'OptionInfo' object has no attribute 'lower'
+  ```
+- **Where** — `fleet_cli.py:660` `info_list`, called bare from `cli.py:5780`
+  `fleet_domains`.
+- **Root cause** — v14 folded `info list` / `info expiring` / `info summary`
+  into `fleet domains` and de-registered all three as typer commands.
+  `info_summary` had its typer plumbing stripped; `info_list` and
+  `info_expiring` kept vestigial `typer.Option(...)` defaults. Called as a
+  plain function, those defaults bind to `OptionInfo` sentinels instead of
+  values — and a truthy `OptionInfo` in `info_list` forced `grouped = True`,
+  reaching `category.lower()`. So `--summary --verbose` had been dead since
+  v14, not newly broken. `info_expiring` carried the identical latent defect,
+  masked only because its sole call site passes `within=` explicitly.
+- **Severity** — `major` (the documented `--summary --verbose` path was
+  wholly unusable; the flat-table branch was unreachable).
+- **Fix** — plain Python defaults on both functions. Plus
+  `tests/test_fleet_domains_verbose.py`: a regression test per function, a
+  CLI-level test, and two AST guards — no bare call may leave a typer param
+  bound to an `OptionInfo`, and a pinned `KNOWN_VESTIGIAL` ratchet over the
+  10 other de-registered-but-still-decorated functions (none of which
+  currently bites; all call sites bind explicitly). Ratchet may shrink, never
+  grow; the 10 are logged in `architecture.md § Tracked refactors`.
+- **Fixed in** — `404eda1` (2026-09-19). [`fleet_cli.py`,
+  `tests/test_fleet_domains_verbose.py`, `architecture.md § Tracked refactors`]
+
 ### BUG-070 · 2026-06-15 — `project seo` over-harsh ⛔ "blocked" verdict on young (<90d) sites
 
 - Within the freshness window, coverage "unknown to Google" states are now softened to `⚠ indexing pending` (expected indexing lag) instead of driving the ⛔ "blocked" verdict; *crawled-but-declined* still surfaces as ⛔ (a real content/authority signal). cricketfansite.com now reads "🌱 unproven"; airsucks stays ⛔ honestly (its homepage is genuinely crawled-but-declined). Validated live on both young sites. **Fixed in** — `3da6dad` (2026-06-15 parallel bug-sweep). [`seo_diagnose.py`]
