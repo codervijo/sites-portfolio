@@ -75,6 +75,25 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-092 · 2026-09-30 — `settings gsc submit-sitemap` silently submits `/sitemap.xml` when the robots.txt fetch fails
+
+- **Repro** — `uv run portfolio settings gsc submit-sitemap --site retouchlint.com --force` right after a Cloudflare deploy. First run printed `sitemap: https://retouchlint.com/sitemap.xml → sc-domain:retouchlint.com  ✓ submitted`; a rerun minutes later resolved correctly to `/sitemap-index.xml`.
+- **Expected** — the URL from the live robots.txt `Sitemap:` line (`/sitemap-index.xml`), or a loud `✗`/`↷` if robots.txt can't be read.
+- **Actual** — transient fetch failure (5s timeout or HTTPError) → silent fallback to `https://<domain>/sitemap.xml`, which on Astro sites is not a sitemap. GSC ended up with a stray `/sitemap.xml` entry; `--force` also didn't remove the real entry because the resolved URL differed.
+- **Where (guess)** — `gsc_admin.resolve_sitemap_url()`: the `except httpx.HTTPError` / non-200 branches return `fallback` with no signal to the caller.
+- **Severity** — `minor` (workaround: pass `--url`).
+- **Notes** — cleaned up by hand for retouchlint.com (`delete_sitemap(... /sitemap.xml)`, resubmitted `sitemap-index.xml`). Fix idea: retry once, then raise/warn instead of falling back when the fetch itself failed; keep the fallback only for "robots.txt has no Sitemap: line".
+
+
+### BUG-091 · 2026-09-22 — `new bootstrap` Astro scaffold writes `environment: 'jsdom'` but never adds `jsdom` → `make test` fails at startup
+
+- **Repro** — bootstrap an Astro site, then `docker exec -w /usr/src/app sites1 make test proj=<domain>`.
+- **Expected** — the scaffold's own smoke + SEO tests pass on day zero.
+- **Actual** — `Error: Cannot find package 'jsdom' imported from …/vitest/dist/chunks/index.*.js` (`ERR_MODULE_NOT_FOUND`); no tests run.
+- **Where (guess)** — `src/portfolio/bootstrap.py`: `_vitest_config()` (~L1036) hardcodes `environment: 'jsdom'` for every stack; `_astro_package_json()` (~L753) has no `jsdom` devDependency (the Vite template at ~L876 does).
+- **Severity** — `minor` (build unaffected; test suite silently dead).
+- **Notes** — 17 sites still have a jsdom config with no jsdom dep (scan 2026-09-22): agesdk.dev airsucks.com boxchive.com caringbeds.com dailyring.xyz dearreels.com disclosur.dev drdebug.dev dropaudit.co dunam.co markpdf.dev mcpscan.app permittruck.xyz scopeguard.xyz threadradar.xyz vijocherian.com whizgraphs.com. montereybayevents.com and mspproof.com were fixed locally by switching to `environment: 'node'` (scaffold tests only read source files). Fix the template to `'node'` for Astro, and consider a conformance check + `project fix` for the fleet.
+
 
 ### BUG-089 · 2026-08-03 — `new bootstrap --from-genai` fails on a git-cloned export (nested one level in `genai/<repo>/`) with a misleading "is this a real project export?" error
 
