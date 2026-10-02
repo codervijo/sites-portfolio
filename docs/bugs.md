@@ -75,6 +75,20 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-096 · 2026-10-02 — `project hosting` / `project diagnose` misreport airsucks.com's deploy (stale "IN_PROGRESS" Pages deploy, "cloudflare-workers")
+
+- **Repro** — `uv run portfolio project hosting airsucks.com` and `uv run portfolio project diagnose airsucks.com`, right after a successful push-triggered deploy.
+- **Expected** — Pages project `airsucks-com` with its latest deploy: `2026-10-02T19:20 deploy success ddd0d80 production`. That's what `GET /accounts/{id}/pages/projects/airsucks-com/deployments?per_page=5` returns.
+- **Actual** —
+  - `project hosting`: `📦 Deploy · IN_PROGRESS 2026-06-17 23:58 (0y ago)`. That is a June deploy, which the API shows as `success`, plus a stale status.
+  - `project diagnose`: `Hosting provider=cloudflare-workers · project=airsucks · status=DEPLOYED · last_ok=2026-05-20`. But the account has **no** Worker named `airsucks` (`GET /workers/services/airsucks` → 404, code 10090). It also reads the repo's "intent" as Workers from `wrangler.jsonc`, even though `lamill.toml` declares `platform = "cf-pages"`.
+  - Net effect: the operator is told a fresh deploy hasn't happened, and the agent went looking for a Worker that doesn't exist.
+- **Where (guess)** —
+  - `project hosting`: probably reads a cached hosting snapshot, or `latest_deployment_status` uses a stage/status field other than `latest_stage`. The `(0y ago)` rendering also looks wrong.
+  - `diagnose.py`: hosting row comes from a stale cached inventory (`last_ok=2026-05-20`), and intent detection prefers `wrangler.jsonc` over `lamill.toml [deploy] platform`.
+- **Severity** — `major` (deploy-state misreporting sends verification work in the wrong direction).
+- **Notes** — Related: `/version.json` returned HTML on airsucks. That was a site-side bug (Pages SPA fallback plus the version-stamp plugin writing only `dist/server/version.json`), fixed in the airsucks repo 2026-10-02. The canonical `~/work/projects/builder/vite-version-stamp.ts` has the same single-`outDir` design, so other TanStack sites likely lack `dist/client/version.json`. CHECK_144/145 would flag them once this bug's freshness path is reliable.
+
 ### BUG-095 · 2026-10-02 — `project seo` flags a benign "Page with redirect" as a blocker and says to remove it from a sitemap it isn't in
 
 - **Repro** — `uv run portfolio project seo airsucks.com` while the cached `v16c_inspections` holds `https://airsucks.com/diagnose` (no slash) = `Page with redirect`.
