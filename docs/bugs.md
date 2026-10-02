@@ -75,6 +75,46 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-095 · 2026-10-02 — `project seo` flags a benign "Page with redirect" as a blocker and says to remove it from a sitemap it isn't in
+
+- **Repro** — `uv run portfolio project seo airsucks.com` while the cached `v16c_inspections` holds `https://airsucks.com/diagnose` (no slash) = `Page with redirect`.
+- **Expected** — no blocker. The no-slash URL redirects to `/diagnose/`, which is `Submitted and indexed`; the sitemap lists only the trailing-slash canonicals (airsucks `181db47`). Google is recording the redirect, which is correct behavior.
+- **Actual** — `⚠ https://airsucks.com/diagnose "Page with redirect" (GSC) — URL is known to Google but not indexed. → Improve the page or remove it from the sitemap.` Both the framing ("not indexed") and the remedy (the URL isn't in the sitemap) are wrong.
+- **Where (guess)** — `seo_diagnose.compute_state()`: every non-indexed insight that isn't the homepage falls into one generic `warn` with one generic `next_action`. It has no per-`coverage_state` handling. `fleet_cli._FUNNEL_STAGES` already treats redirects as their own stage, so the two views disagree.
+- **Severity** — `minor` (misleading remedy; it would send the operator to edit a sitemap that's already correct).
+- **Notes** — Fix shape: skip `page_with_redirect` when the URL is absent from the sitemap, or when its slash-variant/redirect target is indexed. Downgrade to an info note otherwise, unless the redirecting URL *is* in the sitemap. That case is the real bug: "sitemap lists a redirecting URL → list the final URL instead". Also give `discovered_not_indexed` its own remedy (internal links + wait), matching the GSC hint, instead of "improve the page".
+- **Planned in** — `prd.md` v36.E (fix shape above adopted as-is).
+
+### BUG-094 · 2026-10-02 — `project seo` headline says "healthy — earning traffic" at 11 impressions / 0 clicks, under a "why this site earns no traffic" Blockers banner
+
+- **Repro** — `uv run portfolio project seo airsucks.com --refresh` (GSC 28d: 11 imp, 0 clicks, pos 29.8).
+- **Expected** — the headline and the Blockers banner agree, and a site with 0 clicks isn't labeled as earning traffic.
+- **Actual** — `🟢 SEO state: healthy — earning traffic` followed by `⛔ Blockers (2 — why this site earns no traffic)`. The two lines contradict each other.
+- **Where (guess)** — `seo_diagnose.compute_state()`: `if impressions and impressions > 0: state = "healthy"`, so any single impression flips to healthy. `STATE_RENDER["healthy"]` hard-codes "earning traffic". `research_render.render_seo_blockers()` hard-codes "why this site earns no traffic" regardless of state.
+- **Severity** — `minor` (headline-honesty regression of v36's stated purpose; it makes a dead site look fine).
+- **Notes** — Fix shape needs an operator decision on the threshold: e.g. a 4th state between `unproven` and `healthy` (`indexed — impressions but no clicks`), or gate `healthy` on clicks > 0. The Blockers banner text should vary by state (`(N — what's holding traffic back)` when not `blocked`).
+- **Decision (Claude, 2026-10-02; operator may override)** — 4th State `visible` (🟡 "visible — impressions but no clicks"); `healthy` requires clicks > 0. **Planned in** — `prd.md` v36.E.
+
+### BUG-093 · 2026-10-02 — `project seo` diagnostics save overwrites today's GSC snapshot and drops `v16c_inspections` → Index headline + index blockers silently vanish
+
+- **Repro** —
+  1. `uv run portfolio project seo airsucks.com` (or `--refresh`) on a day when the 24h diagnostics cache is stale. It writes `data/gsc/airsucks.com/<today>.json`.
+  2. Run `uv run portfolio project seo airsucks.com` again.
+- **Expected** — the Index headline and index blockers reflect the freshest URL inspections. Writing the diagnostics cache never destroys inspection data.
+- **Actual** — the second run prints `Index   no cached URL inspections (run \`--refresh\`)`, and the index-derived blockers disappear (verified 2026-10-02: `read_index_insights('airsucks.com')` → 0). `data/gsc/airsucks.com/2026-10-02.json` has keys `fetched_at, domain, property_url, not_registered, sitemaps, coverage, hints` and no `v16c_inspections`. The suggested `--refresh` re-runs the same overwrite, so it can't fix it. On the *first* run, the headline + blockers came from the 11-day-old `2026-09-21.json` inspections. That's why they showed `/diagnose` (no slash, BUG-095), while the fresh coverage table in the same output didn't.
+- **Where (guess)** — two writers share the one-file-per-day snapshot with different semantics:
+  - `checks/deploy/check_147_url_indexed._save_inspections()` *merges* (load latest → set `v16c_inspections` → save).
+  - `cli.py` ~L1537 (`project seo` diagnostics) *overwrites* with `asdict(diag)`.
+  - `seo_diagnose._default_inspections_loader()` only reads `latest_snapshot()`, so once the newest file lacks the key, every older inspection is invisible.
+  - Separately, the header/blockers (`v16c_inspections`) and the coverage table (`diag.coverage`) come from two different data sources in one command.
+- **Severity** — `major` (silently removes the index signal the v36 headline exists to show; the advertised remedy makes it worse).
+- **Notes** — Root cause is the shared-file / no-merge cache contract, not this one call site. Fix shape:
+  - (a) Make `gsc_detail_cache.save_snapshot()` merge into the existing same-day file by default (sections owned per writer), so no caller can clobber another's section.
+  - (b) Have `_default_inspections_loader()` fall back to the newest snapshot that *has* `v16c_inspections`, with an age note.
+  - (c) Build the headline/blockers from the same fresh `diag.coverage` the table shows when `--refresh` fetched it.
+  - Log (a) as a tracked refactor in `docs/architecture.md`. Other `gsc_detail_cache` consumers (`gsc_rollup`, `check_155`, `fleet focus` funnel, `check_render` last-crawl floor) read `v16c_inspections` from latest the same way and are affected too.
+- **Planned in** — `prd.md` v36.D (all three of (a)–(c)). Open question for operator: escalate ahead of the active tier, or normal post-phase pickup (default).
+
 ### BUG-092 · 2026-09-30 — `settings gsc submit-sitemap` silently submits `/sitemap.xml` when the robots.txt fetch fails
 
 - **Repro** — `uv run portfolio settings gsc submit-sitemap --site retouchlint.com --force` right after a Cloudflare deploy. First run printed `sitemap: https://retouchlint.com/sitemap.xml → sc-domain:retouchlint.com  ✓ submitted`; a rerun minutes later resolved correctly to `/sitemap-index.xml`.
