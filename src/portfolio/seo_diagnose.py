@@ -162,11 +162,22 @@ def read_index_insights(
     tests; the default reads the freshest snapshot.
     """
     raw = (loader or _default_inspections_loader)(domain)
-    if not raw:
-        return []
+    return insights_from_records(raw)
+
+
+def insights_from_records(raw) -> list[IndexInsight]:
+    """Build `IndexInsight`s from either inspection shape:
+    `v16c_inspections` dicts (`check_147`: human-text `coverage_state`,
+    `last_crawl_time`, `status`) or `project seo` coverage rows
+    (`CoverageDetail` or its `asdict` form: canonical `coverage_state`,
+    `last_crawl_at`, `error`). Errored inspections are skipped."""
     out: list[IndexInsight] = []
-    for insp in raw:
-        if not isinstance(insp, dict) or insp.get("status") == "error":
+    for insp in raw or []:
+        if not isinstance(insp, dict):
+            insp = getattr(insp, "__dict__", None)
+            if not isinstance(insp, dict):
+                continue
+        if insp.get("status") == "error" or insp.get("error"):
             continue
         label = insp.get("coverage_state") or ""
         out.append(IndexInsight(
@@ -174,24 +185,31 @@ def read_index_insights(
             coverage_state=_normalize_coverage_state(label) if label else None,
             coverage_label=label,
             verdict=insp.get("verdict"),
-            last_crawl_at=insp.get("last_crawl_time"),
+            last_crawl_at=insp.get("last_crawl_at") or insp.get("last_crawl_time"),
         ))
     return out
 
 
+def latest_inspections(domain: str) -> tuple[list[dict] | None, str | None]:
+    """`v16c_inspections` from the newest snapshot that HAS them, plus
+    that snapshot's date (file stem). v36.D (BUG-093) — reading only
+    `latest_snapshot()` made every older inspection invisible as soon as
+    a newer file lacked the section."""
+    from .gsc_detail_cache import list_snapshots, load_snapshot
+    for path in list_snapshots(domain):
+        try:
+            snap = load_snapshot(path)
+        except (OSError, ValueError):
+            continue
+        insp = snap.get("v16c_inspections")
+        if isinstance(insp, list) and insp:
+            return insp, path.stem
+    return None, None
+
+
 def _default_inspections_loader(domain: str) -> list[dict] | None:
-    """Read `v16c_inspections` from the freshest per-domain snapshot.
-    Tolerant of a missing/old cache — returns None so callers degrade."""
-    from .gsc_detail_cache import latest_snapshot, load_snapshot
-    latest = latest_snapshot(domain)
-    if latest is None:
-        return None
-    try:
-        snap = load_snapshot(latest)
-    except (OSError, ValueError):
-        return None
-    insp = snap.get("v16c_inspections")
-    return insp if isinstance(insp, list) else None
+    """Tolerant of a missing/old cache — returns None so callers degrade."""
+    return latest_inspections(domain)[0]
 
 
 # ---------- sitemap audit (robots → redirects → recurse index) ----------
@@ -563,7 +581,8 @@ _RENDER_PROBE_CAP = 20
 
 def gather_seo_diagnosis(domain: str, *,
                          render_probe_cap: int | None = _RENDER_PROBE_CAP,
-                         progress_callback=None) -> SeoDiagnosis:
+                         progress_callback=None,
+                         coverage: list | None = None) -> SeoDiagnosis:
     """Assemble every signal for `domain` and compute State + Blockers.
     Each source degrades independently — a missing seo snapshot, an
     unreachable sitemap, or an absent local repo never crashes the view;
@@ -571,13 +590,30 @@ def gather_seo_diagnosis(domain: str, *,
 
     `render_probe_cap=None` (v45.E) probes every sitemap page URL —
     the `project seo --all` path.
+
+    `coverage` (v36.D) — the per-URL rows the same `project seo` run
+    renders in its Coverage table. When non-empty they are the index
+    source, so the State header, Blockers and table cannot disagree.
+    Otherwise falls back to the newest cached `v16c_inspections`.
     """
     domain = domain.lower()
     origin = f"https://{domain}"
 
     impressions, submitted_to_gsc, notes = _impressions_and_submitted(domain)
     site_age_days = _resolve_age(domain)
-    index_insights = read_index_insights(domain)
+    index_insights = insights_from_records(coverage) if coverage else []
+    if not index_insights:
+        raw, snap_date = latest_inspections(domain)
+        index_insights = insights_from_records(raw)
+        if index_insights and snap_date:
+            from datetime import date
+            try:
+                age = (date.today() - date.fromisoformat(snap_date)).days
+            except ValueError:
+                age = None
+            if age:
+                notes.append(f"↷ index state from cached inspections {age}d old "
+                             f"({snap_date}) — `--refresh` for current")
 
     sitemap_audit: SitemapAudit | None = None
     try:

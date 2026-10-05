@@ -1992,6 +1992,17 @@ provider's rows still render normally.
 Refactors recommended during design but not yet scheduled. Carried
 here so they don't get lost.
 
+### `data/gsc/<domain>/<date>.json` — one file, several writers (BUG-093)
+
+`project seo` diagnostics (`property_url/sitemaps/coverage/hints`) and
+`check_147` (`v16c_inspections`) share one snapshot per day. v36.D made
+`save_snapshot()` merge sections, which stops same-day clobbering, but
+`fetched_at` is still file-level (a `check_147` write makes stale coverage
+look fresh) and most readers (`gsc_rollup`, `check_155`, `fleet focus`
+funnel, `check_render`) read only the newest file. Target shape: per-section
+`fetched_at`, and one reader helper that finds the newest snapshot holding a
+given section (`seo_diagnose.latest_inspections` is the first instance).
+
 ### Write-call tests assert against permissive mocks (GoDaddy-class blind spot)
 
 **Surfaced 2026-06-10** by the v31.E GoDaddy bug: `set_nameservers` used

@@ -128,6 +128,7 @@ when applicable. Don't delete.
   - (c) Build the headline/blockers from the same fresh `diag.coverage` the table shows when `--refresh` fetched it.
   - Log (a) as a tracked refactor in `docs/architecture.md`. Other `gsc_detail_cache` consumers (`gsc_rollup`, `check_155`, `fleet focus` funnel, `check_render` last-crawl floor) read `v16c_inspections` from latest the same way and are affected too.
 - **Planned in** — `prd.md` v36.D (all three of (a)–(c)). Open question for operator: escalate ahead of the active tier, or normal post-phase pickup (default).
+- **Fixed** — 2026-10-05, escalated by operator after isitholiday.today showed the same split (/usa/ `submitted_indexed` in Coverage, "Soft 404" in Blockers). (a) `save_snapshot()` merges by default; (b) `latest_inspections()` falls back to the newest snapshot with `v16c_inspections` + an age note; (c) `project seo` loads/fetches coverage first and builds State/Blockers from those rows. Tests: `tests/test_v36d_gsc_cache_merge.py`.
 
 ### BUG-092 · 2026-09-30 — `settings gsc submit-sitemap` silently submits `/sitemap.xml` when the robots.txt fetch fails
 

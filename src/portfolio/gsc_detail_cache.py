@@ -51,19 +51,31 @@ def latest_snapshot(domain: str) -> Path | None:
     return files[0] if files else None
 
 
-def save_snapshot(domain: str, payload: dict) -> Path:
-    """Write the diagnostics payload to
-    `data/gsc/<domain>/<UTC-today>.json`. Same-day file is
-    overwritten — one snapshot per day per domain (matches
-    `hosting_cache` / `seo_cache` convention)."""
+def save_snapshot(domain: str, payload: dict, *, merge: bool = True) -> Path:
+    """Write `payload` to `data/gsc/<domain>/<UTC-today>.json` — one
+    snapshot per day per domain (matches `hosting_cache` / `seo_cache`).
+
+    v36.D (BUG-093) — several writers share the one file and each owns
+    its own top-level sections (`project seo` diagnostics:
+    `property_url/sitemaps/coverage/hints`; `check_147`:
+    `v16c_inspections`). By default the payload is MERGED into the
+    existing same-day file, so no writer can drop another's section.
+    `merge=False` restores the old whole-file overwrite."""
     d = _domain_dir(domain)
     d.mkdir(parents=True, exist_ok=True)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     out_path = d / f"{today}.json"
+    existing: dict = {}
+    if merge and out_path.exists():
+        try:
+            existing = load_snapshot(out_path)
+        except (OSError, ValueError):
+            existing = {}
     payload_with_meta = {
+        **existing,
+        **payload,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "domain": domain.strip().lower(),
-        **payload,
     }
     out_path.write_text(json.dumps(payload_with_meta, indent=2) + "\n")
     return out_path

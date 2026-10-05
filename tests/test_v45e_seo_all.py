@@ -138,7 +138,7 @@ def test_render_probe_note_absent_when_uncapped(monkeypatch):
     monkeypatch.setattr(seo_diagnose, "_impressions_and_submitted",
                         lambda d: (0, True, []))
     monkeypatch.setattr(seo_diagnose, "_resolve_age", lambda d: 400)
-    monkeypatch.setattr(seo_diagnose, "read_index_insights", lambda d: [])
+    monkeypatch.setattr(seo_diagnose, "latest_inspections", lambda d: (None, None))
     monkeypatch.setattr(seo_diagnose, "_content_configured", lambda d: True)
 
     diag = seo_diagnose.gather_seo_diagnosis("x.test", render_probe_cap=None)
@@ -285,7 +285,7 @@ def test_render_probe_reports_progress(monkeypatch):
     monkeypatch.setattr(seo_diagnose, "_impressions_and_submitted",
                         lambda d: (0, True, []))
     monkeypatch.setattr(seo_diagnose, "_resolve_age", lambda d: 400)
-    monkeypatch.setattr(seo_diagnose, "read_index_insights", lambda d: [])
+    monkeypatch.setattr(seo_diagnose, "latest_inspections", lambda d: (None, None))
     monkeypatch.setattr(seo_diagnose, "_content_configured", lambda d: True)
 
     seen: list[tuple[int, int]] = []

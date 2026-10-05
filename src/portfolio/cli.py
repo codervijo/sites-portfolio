@@ -1447,8 +1447,23 @@ def new_validate(
 def _run_project_seo_diagnostics(domain: str, *, top_n: int | None,
                                  refresh: bool, console,
                                  expected_urls: int = 0) -> None:
-    """v13.B — load (or fetch) per-project GSC diagnostics and
-    render the block. Cache-aware: reads
+    """v13.B — load (or fetch) per-project GSC diagnostics and render
+    the block. Thin wrapper kept for existing callers/tests; `project
+    seo` itself calls the two halves separately (v36.D) so the State
+    header + Blockers are built from the same coverage the table shows."""
+    diag = _load_project_seo_diagnostics(domain, top_n=top_n, refresh=refresh,
+                                         console=console,
+                                         expected_urls=expected_urls)
+    if diag is not None:
+        _render_project_seo_diagnostics(diag, console)
+
+
+def _load_project_seo_diagnostics(domain: str, *, top_n: int | None,
+                                  refresh: bool, console,
+                                  expected_urls: int = 0):
+    """v13.B — load (or fetch + persist) per-project GSC diagnostics.
+    Returns the cached snapshot dict or a fresh `ProjectSeoDiagnostics`
+    (the renderer reads both), or None when the fetch failed. Cache-aware: reads
     `data/gsc/<domain>/<UTC-today>.json` if fresh and `--refresh`
     wasn't set; otherwise calls `build_diagnostics()` and writes
     a new snapshot.
@@ -1493,8 +1508,7 @@ def _run_project_seo_diagnostics(domain: str, *, top_n: int | None,
                         f"  [dim]GSC diagnostics: cached {latest.name} "
                         f"(use --refresh to re-fetch)[/]"
                     )
-                    _render_project_seo_diagnostics(cached, console)
-                    return
+                    return cached
             except (OSError, ValueError) as e:
                 console.print(
                     f"  [dim]warn: could not load cached diagnostics ({e}); "
@@ -1529,7 +1543,7 @@ def _run_project_seo_diagnostics(domain: str, *, top_n: int | None,
         console.print(
             f"  [yellow]✗ Diagnostics skipped: {type(e).__name__}: {e}[/]"
         )
-        return
+        return None
 
     # Persist for cache reuse — convert dataclass to a plain dict.
     from dataclasses import asdict
@@ -1540,7 +1554,7 @@ def _run_project_seo_diagnostics(domain: str, *, top_n: int | None,
             f"  [dim]warn: could not persist diagnostics snapshot: {e}[/]"
         )
 
-    _render_project_seo_diagnostics(diag, console)
+    return diag
 
 
 # v35.F (H1) — SERP-synthesis renderers + the v13.B SEO-diagnostics
@@ -4594,6 +4608,21 @@ def project_seo(
     # Degrades gracefully (never crashes the view) if a probe/source is absent.
     from .seo_diagnose import gather_seo_diagnosis
     from .research_render import render_seo_blockers, render_seo_state_header
+
+    # v36.D (BUG-093) — load/fetch the GSC coverage FIRST, so the State
+    # header and Blockers below are computed from the exact rows the
+    # Coverage table renders. Previously the diagnosis read an older
+    # snapshot's `v16c_inspections` before this fetch ran, and the two
+    # halves of one command disagreed (isitholiday.today 2026-10-05:
+    # /usa/ "submitted_indexed" in Coverage, "Soft 404" in Blockers).
+    gsc_diag = _load_project_seo_diagnostics(domain, top_n=top_n, refresh=refresh,
+                                             console=console,
+                                             expected_urls=url_count)
+    coverage = None
+    if gsc_diag is not None:
+        coverage = (gsc_diag.get("coverage") if isinstance(gsc_diag, dict)
+                    else gsc_diag.coverage) or None
+
     diag = None
     try:
         if render_cap is None:
@@ -4602,13 +4631,15 @@ def project_seo(
                 diag = gather_seo_diagnosis(
                     domain, render_probe_cap=None,
                     progress_callback=lambda i, n, u: tick(i, n, ""),
+                    coverage=coverage,
                 )
             console.print(
                 f"  [green]✓[/] render-probed {diag.render_probed or 0} "
                 f"page(s) [dim]in {tick.elapsed:.0f}s[/]"
             )
         else:
-            diag = gather_seo_diagnosis(domain, render_probe_cap=render_cap)
+            diag = gather_seo_diagnosis(domain, render_probe_cap=render_cap,
+                                        coverage=coverage)
     except Exception as e:    # noqa: BLE001 — diagnosis is additive, never fatal
         console.print(f"  [dim]↷ SEO diagnosis skipped: {type(e).__name__}: {e}[/]")
 
@@ -4620,9 +4651,9 @@ def project_seo(
     _run_check_seo_mode(days=days, only_domain=domain,
                         sort_by=sort_by, only="wip", concurrency=20,
                         refresh=refresh)
-    # v13.B diagnostics block below the header.
-    _run_project_seo_diagnostics(domain, top_n=top_n, refresh=refresh,
-                                 console=console, expected_urls=url_count)
+    # v13.B diagnostics block below the header (loaded above).
+    if gsc_diag is not None:
+        _render_project_seo_diagnostics(gsc_diag, console)
 
     # v36 — the Blockers section last (the whole point). Never ends on green
     # when blockers exist.
