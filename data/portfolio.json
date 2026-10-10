@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "generated_at": "2026-08-07T16:55:05.618854+00:00",
+  "schema_version": 2,
+  "generated_at": "2026-10-07T18:36:14.670686+00:00",
   "domains": [
     {
       "name": "agesdk.dev",
@@ -19,7 +19,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-17",
+      "owner": "lamill"
     },
     {
       "name": "airgiveaway.com",
@@ -38,7 +39,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2008-01-15"
+      "domain_created": "2008-01-15",
+      "owner": "lamill"
     },
     {
       "name": "airplanesandcars.com",
@@ -57,7 +59,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2005-11-29"
+      "domain_created": "2005-11-29",
+      "owner": "lamill"
     },
     {
       "name": "airsucks.com",
@@ -76,7 +79,28 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": "2026-05-11",
-      "domain_created": "2008-01-15"
+      "domain_created": "2008-01-15",
+      "owner": "lamill"
+    },
+    {
+      "name": "anglicanpath.org",
+      "registrar": "porkbun",
+      "tld": ".org",
+      "expires": "2027-09-18",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-09-18",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true,
+      "launched": null,
+      "domain_created": "2026-09-18",
+      "owner": "lamill"
     },
     {
       "name": "boxchive.com",
@@ -95,7 +119,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-26",
+      "owner": "lamill"
     },
     {
       "name": "bppvcoach.com",
@@ -114,7 +139,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-25",
+      "owner": "lamill"
     },
     {
       "name": "calcengine.site",
@@ -133,7 +159,8 @@
       "privacy": true,
       "transfer_locked": null,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-04-14",
+      "owner": "lamill"
     },
     {
       "name": "caringbeds.com",
@@ -152,7 +179,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-07-06",
+      "owner": "lamill"
     },
     {
       "name": "carrepairsite.com",
@@ -171,7 +199,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2017-11-12"
+      "domain_created": "2017-11-12",
+      "owner": "lamill"
     },
     {
       "name": "civictools.app",
@@ -190,7 +219,8 @@
       "privacy": true,
       "transfer_locked": null,
       "launched": null,
-      "domain_created": "2026-04-19"
+      "domain_created": "2026-04-19",
+      "owner": "lamill"
     },
     {
       "name": "cottagefoodmap.com",
@@ -209,7 +239,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-10",
+      "owner": "lamill"
     },
     {
       "name": "cricketfansite.com",
@@ -228,7 +259,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2007-12-25"
+      "domain_created": "2007-12-25",
+      "owner": "lamill"
     },
     {
       "name": "csinorcal.church",
@@ -247,7 +279,8 @@
       "privacy": true,
       "transfer_locked": null,
       "launched": null,
-      "domain_created": "2026-04-09"
+      "domain_created": "2026-04-09",
+      "owner": "lamill"
     },
     {
       "name": "dailyring.xyz",
@@ -266,7 +299,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-29",
+      "owner": "lamill"
     },
     {
       "name": "dearreels.com",
@@ -285,7 +319,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-02",
+      "owner": "lamill"
     },
     {
       "name": "disclosur.dev",
@@ -304,7 +339,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-17",
+      "owner": "lamill"
     },
     {
       "name": "donready.xyz",
@@ -323,7 +359,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2026-05-08"
+      "domain_created": "2026-05-08",
+      "owner": "lamill"
     },
     {
       "name": "drdebug.dev",
@@ -342,7 +379,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-28",
+      "owner": "lamill"
     },
     {
       "name": "dropaudit.co",
@@ -361,7 +399,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": null,
+      "owner": "lamill"
     },
     {
       "name": "dunam.co",
@@ -380,7 +419,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": null,
+      "owner": "lamill"
     },
     {
       "name": "earnlog.xyz",
@@ -399,7 +439,28 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-17",
+      "owner": "lamill"
+    },
+    {
+      "name": "figivo.com",
+      "registrar": "porkbun",
+      "tld": ".com",
+      "expires": "2027-10-07",
+      "auto_renew": "On",
+      "status": "Active",
+      "category": "Under build",
+      "created": "2026-10-07",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
+      "forwarding_url": "",
+      "privacy": true,
+      "transfer_locked": true,
+      "launched": null,
+      "domain_created": null,
+      "owner": "lamill"
     },
     {
       "name": "homeloom.app",
@@ -418,13 +479,14 @@
       "privacy": true,
       "transfer_locked": null,
       "launched": null,
-      "domain_created": "2026-04-20"
+      "domain_created": "2026-04-20",
+      "owner": "lamill"
     },
     {
       "name": "hybridautopart.com",
       "registrar": "godaddy",
       "tld": ".COM",
-      "expires": "2026-10-03",
+      "expires": "2027-10-03",
       "auto_renew": "On",
       "status": "Active",
       "category": "SEO under way",
@@ -437,7 +499,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2017-10-03"
+      "domain_created": "2017-10-03",
+      "owner": "lamill"
     },
     {
       "name": "iotbastion.com",
@@ -456,7 +519,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2019-02-20"
+      "domain_created": "2019-02-20",
+      "owner": "lamill"
     },
     {
       "name": "iotnews.today",
@@ -475,7 +539,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2018-01-18"
+      "domain_created": "2018-01-18",
+      "owner": "lamill"
     },
     {
       "name": "isitholiday.today",
@@ -494,7 +559,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": "2026-04-20",
-      "domain_created": "2026-04-24"
+      "domain_created": "2026-04-24",
+      "owner": "lamill"
     },
     {
       "name": "itunesucks.com",
@@ -513,7 +579,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2007-12-25"
+      "domain_created": "2007-12-25",
+      "owner": "lamill"
     },
     {
       "name": "keralavotemap.site",
@@ -532,7 +599,8 @@
       "privacy": true,
       "transfer_locked": null,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-04-02",
+      "owner": "lamill"
     },
     {
       "name": "kwizicle.com",
@@ -551,13 +619,14 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2020-04-20"
+      "domain_created": "2020-04-20",
+      "owner": "lamill"
     },
     {
       "name": "lamill.io",
       "registrar": "godaddy",
       "tld": ".IO",
-      "expires": "2026-08-07",
+      "expires": "2027-08-07",
       "auto_renew": "On",
       "status": "Active",
       "category": "My brand",
@@ -570,26 +639,28 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": null,
+      "owner": "lamill"
     },
     {
-      "name": "lamill.us",
-      "registrar": "godaddy",
-      "tld": ".US",
-      "expires": "2026-08-07",
-      "auto_renew": "Off",
+      "name": "lamill.pics",
+      "registrar": "porkbun",
+      "tld": ".pics",
+      "expires": "2027-10-07",
+      "auto_renew": "On",
       "status": "Active",
-      "category": "My brand",
-      "created": "2018-08-07",
-      "renewal_price": 19.99,
-      "estimated_value": 17.0,
-      "listing_status": "Not Listed",
-      "nameservers": "ns37.domaincontrol.com ns38.domaincontrol.com",
+      "category": "Under build",
+      "created": "2026-10-07",
+      "renewal_price": null,
+      "estimated_value": null,
+      "listing_status": "",
+      "nameservers": "",
       "forwarding_url": "",
-      "privacy": null,
+      "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": null,
+      "owner": "lamill"
     },
     {
       "name": "lamillrentals.com",
@@ -608,7 +679,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2025-06-04"
+      "domain_created": "2025-06-04",
+      "owner": "lamill"
     },
     {
       "name": "linkedcsi.live",
@@ -627,7 +699,8 @@
       "privacy": true,
       "transfer_locked": null,
       "launched": null,
-      "domain_created": "2026-04-02"
+      "domain_created": "2026-04-02",
+      "owner": "lamill"
     },
     {
       "name": "macbookairfree.com",
@@ -646,7 +719,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2008-01-15"
+      "domain_created": "2008-01-15",
+      "owner": "lamill"
     },
     {
       "name": "macbookairgames.com",
@@ -665,7 +739,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2008-01-15"
+      "domain_created": "2008-01-15",
+      "owner": "lamill"
     },
     {
       "name": "marginready.com",
@@ -684,7 +759,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-28",
+      "owner": "lamill"
     },
     {
       "name": "markpdf.dev",
@@ -703,7 +779,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-08",
+      "owner": "lamill"
     },
     {
       "name": "maslist.com",
@@ -722,7 +799,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2018-03-10"
+      "domain_created": "2018-03-10",
+      "owner": "lamill"
     },
     {
       "name": "mathbloom.xyz",
@@ -741,7 +819,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-06",
+      "owner": "lamill"
     },
     {
       "name": "mcpscan.app",
@@ -760,7 +839,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-07-04",
+      "owner": "lamill"
     },
     {
       "name": "mdburst.com",
@@ -779,7 +859,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-05",
+      "owner": "lamill"
     },
     {
       "name": "meetwhen.xyz",
@@ -798,7 +879,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-03",
+      "owner": "lamill"
     },
     {
       "name": "montereybayevents.com",
@@ -817,7 +899,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-08-03",
+      "owner": "lamill"
     },
     {
       "name": "mspproof.com",
@@ -836,7 +919,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-08",
+      "owner": "lamill"
     },
     {
       "name": "navodayansonline.com",
@@ -855,7 +939,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2007-12-25"
+      "domain_created": "2007-12-25",
+      "owner": "lamill"
     },
     {
       "name": "nosapta.com",
@@ -874,7 +959,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2007-12-25"
+      "domain_created": "2007-12-25",
+      "owner": "lamill"
     },
     {
       "name": "permittruck.xyz",
@@ -893,7 +979,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-24",
+      "owner": "lamill"
     },
     {
       "name": "picsonaphone.com",
@@ -912,7 +999,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2012-03-22"
+      "domain_created": "2012-03-22",
+      "owner": "lamill"
     },
     {
       "name": "picsonphones.com",
@@ -931,7 +1019,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2012-03-22"
+      "domain_created": "2012-03-22",
+      "owner": "lamill"
     },
     {
       "name": "pqhorizon.com",
@@ -950,7 +1039,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-07-01",
+      "owner": "lamill"
     },
     {
       "name": "retouchlint.com",
@@ -969,7 +1059,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-06",
+      "owner": "lamill"
     },
     {
       "name": "scopeguard.xyz",
@@ -988,13 +1079,14 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-31",
+      "owner": "lamill"
     },
     {
       "name": "smartlyworld.com",
       "registrar": "godaddy",
       "tld": ".COM",
-      "expires": "2026-10-05",
+      "expires": "2027-10-05",
       "auto_renew": "On",
       "status": "Active",
       "category": "To be deleted immediately",
@@ -1007,7 +1099,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2017-10-06"
+      "domain_created": "2017-10-06",
+      "owner": "lamill"
     },
     {
       "name": "streamsgalaxy.com",
@@ -1026,7 +1119,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2020-11-09"
+      "domain_created": "2020-11-09",
+      "owner": "lamill"
     },
     {
       "name": "swiftly.co.in",
@@ -1045,7 +1139,8 @@
       "privacy": null,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2018-01-28"
+      "domain_created": "2018-01-28",
+      "owner": "lamill"
     },
     {
       "name": "thakilists.com",
@@ -1064,7 +1159,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2018-03-10"
+      "domain_created": "2018-03-10",
+      "owner": "lamill"
     },
     {
       "name": "thakinaam.com",
@@ -1083,7 +1179,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2007-12-25"
+      "domain_created": "2007-12-25",
+      "owner": "lamill"
     },
     {
       "name": "thakiweb.com",
@@ -1102,7 +1199,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2007-12-25"
+      "domain_created": "2007-12-25",
+      "owner": "lamill"
     },
     {
       "name": "thecherians.com",
@@ -1121,7 +1219,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-06-13",
+      "owner": "lamill"
     },
     {
       "name": "thoralox.com",
@@ -1140,7 +1239,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-05-31",
+      "owner": "lamill"
     },
     {
       "name": "threadradar.xyz",
@@ -1159,26 +1259,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
-    },
-    {
-      "name": "veezp.com",
-      "registrar": "godaddy",
-      "tld": ".COM",
-      "expires": "2026-08-15",
-      "auto_renew": "Off",
-      "status": "Active",
-      "category": "To be deleted immediately",
-      "created": "2020-08-15",
-      "renewal_price": 22.99,
-      "estimated_value": 1470.0,
-      "listing_status": "Not Listed",
-      "nameservers": "ns67.domaincontrol.com ns68.domaincontrol.com",
-      "forwarding_url": "",
-      "privacy": true,
-      "transfer_locked": true,
-      "launched": null,
-      "domain_created": "2020-08-15"
+      "domain_created": "2026-05-31",
+      "owner": "lamill"
     },
     {
       "name": "vijocherian.com",
@@ -1197,7 +1279,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2007-12-25"
+      "domain_created": "2007-12-25",
+      "owner": "lamill"
     },
     {
       "name": "virtually.co.in",
@@ -1216,7 +1299,8 @@
       "privacy": null,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2018-01-28"
+      "domain_created": "2018-01-28",
+      "owner": "lamill"
     },
     {
       "name": "voltloop.site",
@@ -1235,7 +1319,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": null
+      "domain_created": "2026-04-24",
+      "owner": "lamill"
     },
     {
       "name": "washcalc.app",
@@ -1254,13 +1339,14 @@
       "privacy": true,
       "transfer_locked": null,
       "launched": "2026-04-18",
-      "domain_created": "2026-04-20"
+      "domain_created": "2026-04-20",
+      "owner": "lamill"
     },
     {
       "name": "whizgraphs.com",
       "registrar": "godaddy",
       "tld": ".COM",
-      "expires": "2026-09-11",
+      "expires": "2027-09-11",
       "auto_renew": "On",
       "status": "Active",
       "category": "Next session",
@@ -1273,7 +1359,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2018-09-12"
+      "domain_created": "2018-09-12",
+      "owner": "lamill"
     },
     {
       "name": "winmacbookair.com",
@@ -1292,7 +1379,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2008-01-15"
+      "domain_created": "2008-01-15",
+      "owner": "lamill"
     },
     {
       "name": "yesuinnu.com",
@@ -1311,7 +1399,8 @@
       "privacy": true,
       "transfer_locked": true,
       "launched": null,
-      "domain_created": "2017-11-17"
+      "domain_created": "2017-11-17",
+      "owner": "lamill"
     }
   ]
 }
