@@ -75,16 +75,6 @@ when applicable. Don't delete.
 
 ## Open bugs
 
-### BUG-097 · 2026-10-10 — `fleet seo` silently omits domains registered after the last `data/checks/` roster snapshot (lamill.pics)
-
-- **Repro** — register a domain, `fleet sync` it into `data/portfolio.json`, then run `uv run lamill fleet seo --refresh` without running `fleet live` first. Seen 2026-10-10 with `lamill.pics` (registered 2026-10-07; newest roster `data/checks/2026-09-21.json`).
-- **Expected** — the new domain appears, or the command says the roster is older than the inventory and names the domains it is leaving out.
-- **Actual** — `lamill.pics` is absent from the table and from `data/seo/2026-10-10.json`, with no warning. It is present in `data/domains/porkbun.csv` and `data/portfolio.json` (category `Under build`), and `sites/lamill.pics/lamill.toml` is valid. `--refresh` re-fetches SEO data for the stale roster only. `figivo.com` and `anglicanpath.org` (also new in the Porkbun CSV) have the same gap.
-- **Where (guess)** — `cli._seo_snapshot_needs_refresh()` re-runs classification only when the snapshot is missing or its scope is narrower than requested; it never compares the snapshot against `portfolio.json`. The roster itself comes from the live-site/forwarder rows of the latest `data/checks/*.json` (`seo_runtime.py` ~L740).
-- **Severity** — `minor` (workaround: `uv run lamill fleet live`, then re-run).
-- **Notes** — Adjacent to BUG-079 (roster date vs GSC-data date labelling). Only the `fleet seo` path was verified; other consumers of the `data/checks/` snapshot (`fleet focus`, `fleet dashboard`) likely share it — check before fixing. Fix idea: when `portfolio.json` holds in-scope domains absent from the roster snapshot, either re-classify just those or print a `↷` line listing them with the `fleet live` hint. A domain that classifies as parked/dead is still correctly excluded from `fleet seo`.
-- **Fixed** — 2026-10-10 (uncommitted). `fleet seo` now re-runs live classification when the roster has no row for an in-scope inventory domain (`seo_runtime._roster_missing_domains`), the same path it already takes for a missing or narrower-scope roster, and names the domains that triggered it. `fleet dashboard` / `fleet focus` were checked: their `--refresh` already re-classifies, and without it they are cache-only by contract — unchanged. Tests: `tests/test_seo_runtime.py` (roster staleness).
-
 ### BUG-096 · 2026-10-02 — `project hosting` / `project diagnose` misreport airsucks.com's deploy (stale "IN_PROGRESS" Pages deploy, "cloudflare-workers")
 
 - **Repro** — `uv run portfolio project hosting airsucks.com` and `uv run portfolio project diagnose airsucks.com`, right after a successful push-triggered deploy.
@@ -1301,6 +1291,16 @@ with installations → option 2 (field-name mismatch, fix walker).
 ---
 
 ## Fixed bugs
+
+### BUG-097 · 2026-10-10 — `fleet seo` silently omits domains registered after the last `data/checks/` roster snapshot (lamill.pics)
+
+- **Repro** — register a domain, `fleet sync` it into `data/portfolio.json`, then run `uv run lamill fleet seo --refresh` without running `fleet live` first. Seen 2026-10-10 with `lamill.pics` (registered 2026-10-07; newest roster `data/checks/2026-09-21.json`).
+- **Expected** — the new domain appears, or the command says the roster is older than the inventory and names the domains it is leaving out.
+- **Actual** — `lamill.pics` is absent from the table and from `data/seo/2026-10-10.json`, with no warning. It is present in `data/domains/porkbun.csv` and `data/portfolio.json` (category `Under build`), and `sites/lamill.pics/lamill.toml` is valid. `--refresh` re-fetches SEO data for the stale roster only. `figivo.com` and `anglicanpath.org` (also new in the Porkbun CSV) have the same gap.
+- **Where (guess)** — `cli._seo_snapshot_needs_refresh()` re-runs classification only when the snapshot is missing or its scope is narrower than requested; it never compares the snapshot against `portfolio.json`. The roster itself comes from the live-site/forwarder rows of the latest `data/checks/*.json` (`seo_runtime.py` ~L740).
+- **Severity** — `minor` (workaround: `uv run lamill fleet live`, then re-run).
+- **Notes** — Adjacent to BUG-079 (roster date vs GSC-data date labelling). Only the `fleet seo` path was verified; other consumers of the `data/checks/` snapshot (`fleet focus`, `fleet dashboard`) likely share it — check before fixing. Fix idea: when `portfolio.json` holds in-scope domains absent from the roster snapshot, either re-classify just those or print a `↷` line listing them with the `fleet live` hint. A domain that classifies as parked/dead is still correctly excluded from `fleet seo`.
+**Fixed in** — `7bbfcb9` (2026-10-10). `fleet seo` now re-runs live classification when the roster has no row for an in-scope inventory domain (`seo_runtime._roster_missing_domains`), the same path it already takes for a missing or narrower-scope roster, and names the domains that triggered it. `fleet dashboard` / `fleet focus` were checked: their `--refresh` already re-classifies, and without it they are cache-only by contract — unchanged. Tests: `tests/test_seo_runtime.py` (roster staleness).
 
 ### BUG-090 · 2026-09-19 — `fleet domains --summary --verbose` crashes: `AttributeError: 'OptionInfo' object has no attribute 'lower'`
 
