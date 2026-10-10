@@ -314,6 +314,7 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
     )
     from .seo_runtime import (
         _live_domains_from_snapshot,
+        _roster_missing_domains,
         _snapshot_scope_split,
         run_seo,
         sort_rows,
@@ -342,16 +343,36 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
             except (OSError, ValueError):
                 snap_scope = None
 
-        # Refresh the live snapshot when it's missing OR narrower than requested.
-        if _seo_snapshot_needs_refresh(snap_scope, only):
+        expected = _wip_domains() if only == "wip" else _all_domains()
+        scope_stale = _seo_snapshot_needs_refresh(snap_scope, only)
+        # BUG-097 — a roster older than the inventory has no row for domains
+        # added since, so they'd be dropped silently. Treat it like a
+        # too-narrow roster and re-classify.
+        missing: list[str] = []
+        if not scope_stale:
+            try:
+                missing = _roster_missing_domains(load_snapshot(snap_path), expected)
+            except (OSError, ValueError):
+                missing = []
+
+        # Refresh the live snapshot when it's missing, narrower than
+        # requested, OR lacks in-scope inventory domains.
+        if scope_stale or missing:
             if snap_path is None:
                 console.print("[dim]No check snapshot on disk — running live-site classification first.[/]")
-            else:
+            elif scope_stale:
                 console.print(
                     f"[dim]Latest snapshot {snap_path.name} is scope={snap_scope!r}, "
                     f"but --only={only!r} requested. Running live-site classification first.[/]"
                 )
-            _live_total = len(_wip_domains() if only == "wip" else _all_domains())
+            else:
+                shown = ", ".join(missing[:5]) + (
+                    f", +{len(missing) - 5} more" if len(missing) > 5 else "")
+                console.print(
+                    f"[dim]Roster {snap_path.name} predates {len(missing)} inventory "
+                    f"domain(s) ({shown}). Running live-site classification first.[/]"
+                )
+            _live_total = len(expected)
             with spinner_counter(f"live classification ({only})", _live_total) as live_prog:
                 snap_path, _ = run_check(only=only, concurrency=concurrency,
                                          progress=live_prog)

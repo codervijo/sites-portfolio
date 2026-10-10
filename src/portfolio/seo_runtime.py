@@ -775,6 +775,15 @@ def _snapshot_scope_split(snapshot: dict) -> tuple[int, int, int]:
     return total, probed, total - probed
 
 
+def _roster_missing_domains(snapshot: dict, expected: list[str]) -> list[str]:
+    """Return the `expected` inventory domains with no row at all in a check
+    snapshot — i.e. domains added to the inventory after the roster was
+    classified. A domain classified parked/dead/error still has a row, so it
+    is not "missing" (BUG-097)."""
+    present = {r.get("domain", "").lower() for r in snapshot.get("results", [])}
+    return sorted({d.lower() for d in expected} - present)
+
+
 def probe_gsc_last_crawl(domain: str, *, gsc_service=None, coverage=None,
                          auth_skipped: bool = False) -> str | None:
     """Homepage `last_crawl_time` (YYYY-MM-DD) via a LIVE GSC URL-Inspection

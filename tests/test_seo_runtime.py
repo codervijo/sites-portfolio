@@ -10,6 +10,7 @@ import pytest
 from portfolio.seo_runtime import (
     SEORow,
     _live_domains_from_snapshot,
+    _roster_missing_domains,
     _snapshot_scope_split,
     _parse_robots_sitemaps,
     _robots_intent_from_body,
@@ -954,6 +955,70 @@ def test_snapshot_scope_split_no_exclusions_when_all_live():
         {"domain": "b.com", "variant": "bare", "classification": "forwarder"},
     ]}
     assert _snapshot_scope_split(snap) == (2, 2, 0)
+
+
+# ---------- roster staleness (BUG-097) ----------
+
+
+def test_roster_missing_domains_flags_inventory_newer_than_roster():
+    snap = {"results": [
+        {"domain": "old.com", "variant": "bare", "classification": "live-site"},
+        {"domain": "old.com", "variant": "www", "classification": "live-site"},
+    ]}
+    assert _roster_missing_domains(snap, ["old.com", "New.pics"]) == ["new.pics"]
+
+
+def test_roster_missing_domains_parked_row_is_not_missing():
+    # A parked/dead domain is classified, just excluded — re-classifying
+    # wouldn't change that, so it must not trigger a refresh.
+    snap = {"results": [
+        {"domain": "parked.com", "variant": "bare", "classification": "parked"},
+    ]}
+    assert _roster_missing_domains(snap, ["parked.com"]) == []
+
+
+class _Stop(Exception):
+    pass
+
+
+def _seo_mode_with_roster(monkeypatch, tmp_path, *, inventory):
+    """Drive `fleet seo` up to the roster decision. Raises `_Stop("classify")`
+    if it re-runs classification, `_Stop("cache")` if it trusts the roster."""
+    from portfolio import check, cli, seo_cache
+
+    snap = tmp_path / "2026-09-21.json"
+    snap.write_text(json.dumps({"scope": "wip", "results": [
+        {"domain": "old.com", "variant": "bare", "classification": "live-site"},
+    ]}))
+
+    def _classify(**_kw):
+        raise _Stop("classify")
+
+    def _cache():
+        raise _Stop("cache")
+
+    monkeypatch.setattr(check, "latest_snapshot", lambda: snap)
+    monkeypatch.setattr(check, "wip_domains", lambda: inventory)
+    monkeypatch.setattr(check, "run_check", _classify)
+    monkeypatch.setattr(seo_cache, "latest_snapshot", _cache)
+    with pytest.raises(_Stop) as exc:
+        cli._run_check_seo_mode(days=28, only_domain="", sort_by="domain",
+                                only="wip", concurrency=1)
+    return str(exc.value)
+
+
+def test_fleet_seo_reclassifies_when_roster_predates_inventory(
+        monkeypatch, tmp_path, capsys):
+    assert _seo_mode_with_roster(
+        monkeypatch, tmp_path, inventory=["old.com", "new.pics"]) == "classify"
+    # The operator is told which domains made the roster stale.
+    out = " ".join(capsys.readouterr().out.split())
+    assert "predates 1 inventory domain(s) (new.pics)" in out
+
+
+def test_fleet_seo_keeps_roster_when_it_covers_inventory(monkeypatch, tmp_path):
+    assert _seo_mode_with_roster(
+        monkeypatch, tmp_path, inventory=["old.com"]) == "cache"
 
 
 # ---------- sort ----------
