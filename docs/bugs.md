@@ -75,6 +75,19 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-098 · 2026-10-11 — `new bootstrap` names the project by dropping the TLD, so `lamill.pics` became `lamill` and collides with the other lamill.* sites
+
+- **Repro** — `portfolio new bootstrap` for `lamill.pics` (scaffold commit `63e44bc` in `sites/lamill.pics`, 2026-10-06).
+- **Expected** — a name unique to the domain: `lamill-pics` for the Cloudflare Worker (Worker names can't contain dots) and `lamill.pics` in `package.json`.
+- **Actual** — `"name": "lamill"` in both `wrangler.jsonc` and `package.json`; the Cloudflare Workers & Pages project is named `lamill`. `lamill.io`, `lamill.us` and `lamill.pics` all derive the same name.
+- **Where (guess)** — `bootstrap.py` `_project_name()` (`domain.rsplit(".", 1)[0]`), used by `_wrangler_jsonc()` and `_astro_package_json()`. The docstring says dropping the TLD is intended ("matches the user's preferred naming after several CF build iterations on kwizicle"), so the fix is a naming-rule change, not a typo.
+- **Severity** — `minor` today (the site is live and deploying); becomes `major` the next time a same-stem domain is bootstrapped or deployed.
+- **Notes** —
+  - Operator call 2026-10-11: it should have been `lamill.pics`; fix deferred.
+  - Two parts: (1) change `_project_name()` to keep the TLD (`lamill-pics`), checking every caller and BUG-044's slug handling; (2) rename the existing `lamill.pics` project — `wrangler.jsonc` name and the Worker name in the Cloudflare dashboard must change together, or the Git-integration build breaks; `package.json` name → `lamill.pics`.
+  - Unverified: whether a dashboard rename of the Worker keeps the `lamill.pics` custom domain and the Git connection attached. Check before renaming the live Worker.
+  - The dashboard also still labels the connected repo `codervijo/lamill` after the GitHub rename to `codervijo/lamill.pics`.
+
 ### BUG-096 · 2026-10-02 — `project hosting` / `project diagnose` misreport airsucks.com's deploy (stale "IN_PROGRESS" Pages deploy, "cloudflare-workers")
 
 - **Repro** — `uv run portfolio project hosting airsucks.com` and `uv run portfolio project diagnose airsucks.com`, right after a successful push-triggered deploy.
