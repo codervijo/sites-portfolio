@@ -75,6 +75,34 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-100 · 2026-10-17 — `project seo --all` coverage headline still says "top N inspected" when every sitemap URL was inspected
+
+- **Repro** — `uv run portfolio project seo streamsgalaxy.com --all` (24 sitemap URLs, all inspected).
+- **Expected** — something like `(all 24 sitemap URLs inspected — 10/24 indexed, 41%)` under `--all`; `top N` only for the default top-N sample.
+- **Actual** — `📊 Coverage (top 24 inspected — 10/24 indexed, 41%)`. It reads as a sample, not full coverage.
+- **Where (guess)** — `research_render.py` coverage headline (~L341) hard-codes `top {total}`; the renderer isn't told whether the run was `--all` (v45.E).
+- **Severity** — `cosmetic`.
+
+### BUG-099 · 2026-10-17 — `project seo` blocker text ignores `coverage_state`: "unknown to Google" pages are called "known to Google", and noindex pages are told to "improve the page"
+
+- **Repro** — `uv run portfolio project seo streamsgalaxy.com --all` (WordPress site; its sitemap lists noindex pages and pages Google has never seen).
+- **Expected** — wording and remedy match each coverage state:
+  - `url_is_unknown_to_google` → "Google hasn't discovered this URL" → link it internally / request indexing.
+  - `excluded_by_noindex_tag` while the URL is in the sitemap → "sitemap lists a noindex page" (conflicting signal) → remove it from the sitemap, or drop the noindex if the page should rank.
+- **Actual** — every non-homepage, non-indexed URL gets the same text:
+  ```
+  ⚠ https://streamsgalaxy.com/privacy-policy-2/ "url_is_unknown_to_google" (GSC)
+    URL is known to Google but not indexed.
+    → Improve the page or remove it from the sitemap.
+  ⚠ https://streamsgalaxy.com/home/ "excluded_by_noindex_tag" (GSC)
+    URL is known to Google but not indexed.
+    → Improve the page or remove it from the sitemap.
+  ```
+  The first is the opposite of the state. In the second, "improve the page" is the wrong fix.
+- **Where (guess)** — `seo_diagnose.compute_state()` (~L453–459), the catch-all `else:` `Blocker(kind="warn", detail="URL is known to Google but not indexed.", ...)`.
+- **Severity** — `minor` (misleading wording and remedy; no wrong data).
+- **Notes** — Same root cause as BUG-095 (one generic message for every `coverage_state`); fix them together in v36.E. `project_seo_diagnostics._generate_hints` already keeps a per-`coverage_state` mapping, so the blocker text could reuse it instead of a second vocabulary. The same run also showed `/how-to-use-facebook-live-on-android/` moving from `discovered_not_indexed` (2026-10-16) to `url_is_unknown_to_google` (2026-10-17). That's probably GSC inspection noise, not a lamill bug; recorded here in case it repeats.
+
 ### BUG-098 · 2026-10-11 — `new bootstrap` names the project by dropping the TLD, so `lamill.pics` became `lamill` and collides with the other lamill.* sites
 
 - **Repro** — `portfolio new bootstrap` for `lamill.pics` (scaffold commit `63e44bc` in `sites/lamill.pics`, 2026-10-06).
@@ -121,6 +149,7 @@ when applicable. Don't delete.
 - **Severity** — `minor` (headline-honesty regression of v36's stated purpose; it makes a dead site look fine).
 - **Notes** — Fix shape needs an operator decision on the threshold: e.g. a 4th state between `unproven` and `healthy` (`indexed — impressions but no clicks`), or gate `healthy` on clicks > 0. The Blockers banner text should vary by state (`(N — what's holding traffic back)` when not `blocked`).
 - **Decision (Claude, 2026-10-02; operator may override)** — 4th State `visible` (🟡 "visible — impressions but no clicks"); `healthy` requires clicks > 0. **Planned in** — `prd.md` v36.E.
+- **Re-hit 2026-10-17 — the planned fix isn't enough.** `project seo streamsgalaxy.com --all` (349 imp, **5 clicks**, 10/24 URLs indexed = 41%) prints `🟢 SEO state: healthy — earning traffic` above `⛔ Blockers (14 — why this site earns no traffic)`. With clicks > 0, the `visible` gate above still grades it 🟢 healthy, and the banner still says "earns no traffic". So the fix also needs to: (1) make the banner text depend on state (the Notes fix above), and (2) stop calling the site 🟢 when most of its sitemap isn't indexed. That means considering index coverage %, not just traffic. Where to set the cutoff is an operator call.
 
 ### BUG-093 · 2026-10-02 — `project seo` diagnostics save overwrites today's GSC snapshot and drops `v16c_inspections` → Index headline + index blockers silently vanish
 
