@@ -845,7 +845,9 @@ file with its header when absent, and returns `"skipped"` for a
 self-owned or blank domain. Driven by `new bootstrap --owner "<client>"`
 (`bootstrap_cli._resolve_inventory_inputs` → action `append-client`),
 which short-circuits *before* the registrar prompts — a client's
-registrar isn't the operator's to record. That path deliberately does
+registrar isn't the operator's to record. Since v45.G a client `--owner`
+also implies `--force`, skipping the owned-domains pre-flight (a client
+domain is never in the registrar inventory). That path deliberately does
 not reuse `append_domain_row()`, which writes into `portfolio.json` and
 would be rebuilt away on the next sync.
 

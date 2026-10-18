@@ -136,6 +136,7 @@ def _render_bootstrap_preflight(
     summary: str, audience: str, icp: str, goal: str,
     content_strategy: str, growth_hypothesis: str,
     registered: bool | None, registrar: str,
+    is_client: bool = False,
 ) -> None:
     """Print a single banner listing all 9 upcoming prompts.
 
@@ -143,6 +144,9 @@ def _render_bootstrap_preflight(
       - `non_interactive=True` (no prompts fire)
       - Every section already has a flag value AND `git_url` is set
         AND `registered`+`registrar` are set (no prompts fire)
+
+    v45.G — client domains never get the registration/registrar
+    prompts (7, 8), so the banner drops them and lists 7 questions.
     """
     if non_interactive:
         return
@@ -152,15 +156,11 @@ def _render_bootstrap_preflight(
         and bool(icp.strip()) and bool(goal.strip())
         and bool(content_strategy.strip())
         and bool(growth_hypothesis.strip())
-        and registered is not None and bool(registrar)
+        and (is_client or (registered is not None and bool(registrar)))
     )
     if all_supplied:
         return
 
-    console.print(
-        f"\n[bold]About to bootstrap [cyan]{domain}[/].[/] "
-        "You'll be asked 9 questions:\n"
-    )
     rows = [
         ("1.", "Lovable GitHub repo URL", "Enter to skip; scaffolds blank"),
         ("2.", "Summary", "one paragraph"),
@@ -172,6 +172,12 @@ def _render_bootstrap_preflight(
         ("8.", "Registrar", "porkbun / godaddy / namecheap / other"),
         ("9.", "Growth hypothesis", "one paragraph"),
     ]
+    if is_client:
+        rows = [r for r in rows if r[0] not in ("7.", "8.")]
+    console.print(
+        f"\n[bold]About to bootstrap [cyan]{domain}[/].[/] "
+        f"You'll be asked {len(rows)} questions:\n"
+    )
     for num, label, hint in rows:
         console.print(
             f"  {num} [bold]{label:<32}[/] [dim]({hint})[/]"

@@ -1006,6 +1006,18 @@ def new_bootstrap(
     # typo'd domain (e.g. `ageskd.dev` for `agesdk.dev`) exits cleanly
     # without scaffolding the wrong directory or polluting
     # portfolio.json. Bypass with `--force`.
+    #
+    # v45.G — a client domain is never in the operator's registrar
+    # inventory, so `--owner <client>` implies `--force` (and the
+    # inventory step already records registrar `other` via clients.csv).
+    from .data import OWNER_SELF, normalize_owner
+    is_client = normalize_owner(owner) != OWNER_SELF
+    if is_client and not force:
+        console.print(
+            f"[green]✓[/] client domain (owner={normalize_owner(owner)}) "
+            "— skipping owned-domains check; registrar recorded as `other`"
+        )
+        force = True
     if not force:
         owned = validate_owned_domain(domain)
         if not owned.found:
@@ -1042,6 +1054,7 @@ def new_bootstrap(
         content_strategy=content_strategy,
         growth_hypothesis=growth_hypothesis,
         registered=registered, registrar=registrar,
+        is_client=is_client,
     )
 
     # Bug-fix 2026-05-28 — copy-paste LLM prompt template. Printed after

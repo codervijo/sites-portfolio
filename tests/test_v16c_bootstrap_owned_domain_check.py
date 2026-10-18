@@ -295,3 +295,45 @@ def test_cli_bootstrap_csv_fallback_when_portfolio_json_absent(
     )
     assert result.exit_code == 0, result.stdout
     assert (sites_root / "agesdk.dev").is_dir()
+
+
+# ---------- v45.G — --owner implies --force ----------
+
+
+def test_cli_bootstrap_client_owner_skips_owned_check(monkeypatch, tmp_path):
+    """`--owner <client>` on a domain absent from the inventory proceeds
+    without `--force` and lands in clients.csv, not portfolio.json."""
+    _patch_inventory_paths(monkeypatch, tmp_path, names_json=["agesdk.dev"])
+    clients_csv = tmp_path / "domains" / "clients.csv"
+    monkeypatch.setattr(data_mod, "CLIENTS_CSV", clients_csv)
+    sites_root = tmp_path / "sites"
+    sites_root.mkdir()
+    monkeypatch.setattr(bs_mod, "SITES_ROOT", sites_root)
+
+    result = CliRunner().invoke(
+        app,
+        ["new", "bootstrap", "clientsite.com", "--owner", "Derek Hoyt",
+         "--non-interactive"],
+    )
+    assert result.exit_code == 0, result.stdout
+    flat = " ".join(result.stdout.split())
+    assert "skipping owned-domains check" in flat
+    assert (sites_root / "clientsite.com").is_dir()
+    assert "clientsite.com,Derek Hoyt" in clients_csv.read_text()
+
+
+def test_cli_bootstrap_owner_lamill_still_checks(monkeypatch, tmp_path):
+    """`--owner lamill` is the operator's own site → the owned-domains
+    check still fires."""
+    _patch_inventory_paths(monkeypatch, tmp_path, names_json=["agesdk.dev"])
+    sites_root = tmp_path / "sites"
+    sites_root.mkdir()
+    monkeypatch.setattr(bs_mod, "SITES_ROOT", sites_root)
+
+    result = CliRunner().invoke(
+        app,
+        ["new", "bootstrap", "brandnew.dev", "--owner", "lamill",
+         "--non-interactive"],
+    )
+    assert result.exit_code == 2
+    assert not (sites_root / "brandnew.dev").exists()

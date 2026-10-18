@@ -444,3 +444,33 @@ def test_registrar_prompt_accepts_other_explicitly(monkeypatch, tmp_path):
         non_interactive=False,
     )
     assert decision["registrar"] == "other"
+
+
+def test_preflight_banner_client_drops_registrar_prompts(monkeypatch):
+    """v45.G — client domains skip prompts 7/8, so the banner omits
+    them and counts 7 questions."""
+    captured = _capture_console(monkeypatch)
+    cli_mod._render_bootstrap_preflight(
+        domain="clientsite.com", non_interactive=False, git_url="",
+        summary="", audience="", icp="", goal="",
+        content_strategy="", growth_hypothesis="",
+        registered=None, registrar="", is_client=True,
+    )
+    joined = "\n".join(captured)
+    assert "7 questions" in joined
+    assert "Domain registered" not in joined
+    assert "Registrar" not in joined
+
+
+def test_preflight_banner_client_all_content_supplied_is_silent(monkeypatch):
+    """v45.G — a client with every content flag set fires no prompts,
+    even without --registered/--registrar."""
+    captured = _capture_console(monkeypatch)
+    cli_mod._render_bootstrap_preflight(
+        domain="clientsite.com", non_interactive=False,
+        git_url="https://github.com/u/r",
+        summary="s", audience="a", icp="i", goal="g",
+        content_strategy="c", growth_hypothesis="h",
+        registered=None, registrar="", is_client=True,
+    )
+    assert captured == []
