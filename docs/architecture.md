@@ -816,8 +816,18 @@ kills the site, and the operator carries the blame.
 #### `data/domains/clients.csv` — the fourth sync source (v45.D)
 
 Operator-authored roster of client-owned domains. Columns:
-`domain,owner,category` — `domain` (alias `name`) required, the rest
-optional.
+`domain,owner,category,contact_name,contact_email` — `domain` (alias
+`name`) required, the rest optional. The contact columns are v45.H;
+`append_client_row()` preserves any extra column the operator adds by
+hand, and the reader ignores columns it doesn't know.
+
+**`lamill.toml [client]` (v45.H).** The client's business context —
+`business_name`, `service_area`, `wants`, `deadline` (free text), `notes`
+— lives in the site's own `lamill.toml`, written once by `new bootstrap
+--owner <client>` via `lamill_toml_edit.set_table` (byte-preserving,
+ADR-0018). Additive-optional (ADR-0017): the parser ignores the table,
+nothing warns on its absence, and there is no consumer yet beyond agents
+reading the file.
 
 **Why a source and not a preserve-exception.** `cleanup()` rebuilds
 `portfolio.json` from its sources on every `fleet sync` and carries

@@ -216,7 +216,8 @@ def test_append_client_row_creates_file_with_header(tmp_path):
     p = tmp_path / "clients.csv"
     assert append_client_row(name="c.com", owner="Acme", path=p) == "added"
     rows = list(csv.DictReader(p.open(newline="")))
-    assert rows == [{"domain": "c.com", "owner": "Acme", "category": ""}]
+    assert rows == [{"domain": "c.com", "owner": "Acme", "category": "",
+                     "contact_name": "", "contact_email": ""}]
 
 
 def test_append_client_row_is_idempotent(tmp_path):

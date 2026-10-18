@@ -457,7 +457,8 @@ def test_preflight_banner_client_drops_registrar_prompts(monkeypatch):
         registered=None, registrar="", is_client=True,
     )
     joined = "\n".join(captured)
-    assert "7 questions" in joined
+    assert "8 questions" in joined
+    assert "Client details" in joined
     assert "Domain registered" not in joined
     assert "Registrar" not in joined
 

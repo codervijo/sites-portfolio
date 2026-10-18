@@ -921,6 +921,22 @@ def new_bootstrap(
              "the inventory row to data/domains/clients.csv instead of "
              "portfolio.json, so `fleet sync` can't rebuild it away.",
     ),
+    # v45.H — optional client details (only read when --owner is a
+    # client). Contact → clients.csv; the rest → lamill.toml [client].
+    client_contact_name: str = typer.Option(
+        "", "--client-contact-name", help="Client contact name (skips the prompt)"),
+    client_contact_email: str = typer.Option(
+        "", "--client-contact-email", help="Client contact email (skips the prompt)"),
+    client_business_name: str = typer.Option(
+        "", "--client-business-name", help="Client business name (skips the prompt)"),
+    client_service_area: str = typer.Option(
+        "", "--client-service-area", help="Client location / service area (skips the prompt)"),
+    client_wants: str = typer.Option(
+        "", "--client-wants", help="What the client wants from the site (skips the prompt)"),
+    client_deadline: str = typer.Option(
+        "", "--client-deadline", help="Launch deadline, free text (skips the prompt)"),
+    client_notes: str = typer.Option(
+        "", "--client-notes", help="Free-form client notes (skips the prompt)"),
     # v9.D — growth-hypothesis prompt that seeds docs/growth.md.
     growth_hypothesis: str = typer.Option(
         "", "--growth-hypothesis",
@@ -1109,6 +1125,19 @@ def new_bootstrap(
         domain=domain, registered=registered, registrar=registrar,
         non_interactive=non_interactive, owner=owner,
     )
+    # v45.H — optional client questions (no-op for the operator's own).
+    client_details = _resolve_client_details(
+        is_client=is_client, non_interactive=non_interactive,
+        flags={
+            "contact_name": client_contact_name,
+            "contact_email": client_contact_email,
+            "business_name": client_business_name,
+            "service_area": client_service_area,
+            "wants": client_wants,
+            "deadline": client_deadline,
+            "notes": client_notes,
+        },
+    )
     # v9.D — growth hypothesis. Same flag-or-prompt pattern; empty
     # value renders the pre-v9.D "site scaffolded; growth log started"
     # docs/growth.md.
@@ -1147,7 +1176,8 @@ def new_bootstrap(
         raise typer.Exit(3)
 
     # v9.C — append portfolio.json row when applicable.
-    _apply_inventory_decision(domain, inventory_decision)
+    _apply_inventory_decision(domain, inventory_decision, client_details)
+    _apply_client_table(result.project_dir, client_details)
 
     _render_bootstrap_summary(result, domain, topic=topic)
 
@@ -1686,6 +1716,7 @@ from .bootstrap_cli import (  # noqa: E402
     _LLM_TEMPLATE_SECTIONS,
     _OPERATOR_SECTION_NUMBERS,
     _REGISTRARS,
+    _apply_client_table,
     _apply_inventory_decision,
     _apply_multisection_paste,
     _collect_operator_inputs,
@@ -1697,6 +1728,7 @@ from .bootstrap_cli import (  # noqa: E402
     _render_bootstrap_summary,
     _render_llm_prompt_template,
     _render_project_tree,
+    _resolve_client_details,
     _resolve_git_url,
     _resolve_growth_hypothesis,
     _resolve_inventory_inputs,

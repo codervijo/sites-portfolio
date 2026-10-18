@@ -174,6 +174,8 @@ def _render_bootstrap_preflight(
     ]
     if is_client:
         rows = [r for r in rows if r[0] not in ("7.", "8.")]
+        rows.append(("C.", "Client details",
+                     "contact + business, one line each; Enter skips"))
     console.print(
         f"\n[bold]About to bootstrap [cyan]{domain}[/].[/] "
         f"You'll be asked {len(rows)} questions:\n"
@@ -383,6 +385,73 @@ def _resolve_inventory_inputs(*, domain: str, registered: bool | None,
             "registrar": registrar, "owner": owner}
 
 
+# v45.H — optional client questions, asked only when `--owner` names a
+# client. (key, prompt label, destination). Contact lands in the
+# clients.csv roster; business context in the site's `lamill.toml
+# [client]` table. Every field is optional; blanks are dropped.
+CLIENT_FIELDS: list[tuple[str, str, str]] = [
+    ("contact_name", "Client contact name", "csv"),
+    ("contact_email", "Client contact email", "csv"),
+    ("business_name", "Business name", "toml"),
+    ("service_area", "Location / service area", "toml"),
+    ("wants", "What they want from the site", "toml"),
+    ("deadline", "Launch deadline (free text)", "toml"),
+    ("notes", "Notes", "toml"),
+]
+
+
+def _resolve_client_details(*, is_client: bool, flags: dict[str, str],
+                            non_interactive: bool) -> dict[str, str]:
+    """Return the non-empty client details, keyed by CLIENT_FIELDS key.
+
+    Not a client → `{}`. A flag value wins and skips its prompt;
+    `--non-interactive` takes flags only. Otherwise each missing field
+    gets a one-line prompt where Enter skips.
+    """
+    if not is_client:
+        return {}
+    out: dict[str, str] = {}
+    prompted = False
+    for key, label, _dest in CLIENT_FIELDS:
+        value = (flags.get(key) or "").strip()
+        if not value and not non_interactive:
+            if not prompted:
+                console.print(
+                    "\n[bold]Client details[/] [dim](optional — Enter "
+                    "skips any field)[/]"
+                )
+                prompted = True
+            value = typer.prompt(
+                f"  {label}", default="", show_default=False,
+            ).strip()
+        if value:
+            out[key] = value
+    return out
+
+
+def _apply_client_table(project_dir, details: dict[str, str]) -> None:
+    """v45.H — write the business-context fields to the new site's
+    `lamill.toml [client]` table via the byte-preserving upsert
+    (ADR-0018). No toml-bound fields → nothing written."""
+    from .lamill_toml import LAMILL_TOML_FILENAME
+    from .lamill_toml_edit import set_table
+
+    body = {k: details[k] for k, _l, dest in CLIENT_FIELDS
+            if dest == "toml" and k in details}
+    if not body:
+        return
+    if not (project_dir / LAMILL_TOML_FILENAME).exists():
+        console.print(
+            "[yellow]  ↷ lamill.toml missing; [client] details not written[/]"
+        )
+        return
+    set_table(project_dir, "client", body)
+    console.print(
+        f"[green]  ✓ lamill.toml: [client] written "
+        f"({', '.join(body)})[/]"
+    )
+
+
 def _prompt_registrar(max_attempts: int = 3) -> str:
     """Interactive registrar prompt with retry-on-invalid.
 
@@ -408,7 +477,8 @@ def _prompt_registrar(max_attempts: int = 3) -> str:
     return "other"
 
 
-def _apply_inventory_decision(domain: str, decision: dict) -> None:
+def _apply_inventory_decision(domain: str, decision: dict,
+                              client_details: dict | None = None) -> None:
     """Execute the resolved inventory decision. Logs the outcome so
     the operator sees what happened in the summary."""
     action = decision.get("action")
@@ -418,7 +488,12 @@ def _apply_inventory_decision(domain: str, decision: dict) -> None:
         from .data import CLIENTS_CSV, append_client_row
 
         owner = decision.get("owner", "")
-        result = append_client_row(name=domain, owner=owner)
+        details = client_details or {}
+        result = append_client_row(
+            name=domain, owner=owner,
+            contact_name=details.get("contact_name", ""),
+            contact_email=details.get("contact_email", ""),
+        )
         if result == "added":
             console.print(
                 f"[green]  ✓ clients.csv: appended {domain} "

@@ -255,7 +255,7 @@ def _load_clients(path: Path | None = None) -> list[Domain]:
     operator-authored, not an API/dashboard export: the operator *is*
     the source of truth for who their clients are. Columns:
 
-        domain,owner,category
+        domain,owner,category,contact_name,contact_email
 
     `domain` (alias: `name`) is the only required column. A blank or
     missing `owner` normalizes to `OWNER_SELF` rather than erroring —
@@ -581,10 +581,15 @@ def append_client_row(
     name: str,
     owner: str,
     category: str | None = None,
+    contact_name: str = "",
+    contact_email: str = "",
     path: Path | None = None,
 ) -> str:
     """v45.D — append a row to `data/domains/clients.csv`, the client
     roster. Idempotent; creates the file (with header) when absent.
+
+    v45.H — optional `contact_name` / `contact_email` columns. Columns
+    the operator added by hand are preserved on rewrite.
 
     This is the write half of the fourth sync source, and the reason
     `new bootstrap --owner` does NOT reuse `append_domain_row`: that
@@ -608,12 +613,16 @@ def append_client_row(
     if not name or owner == OWNER_SELF:
         return "skipped"
 
-    header = ["domain", "owner", "category"]
+    header = ["domain", "owner", "category", "contact_name", "contact_email"]
     rows: list[dict] = []
     if path.exists():
         try:
             with path.open(newline="") as f:
-                rows = [r for r in csv.DictReader(f) if r]
+                reader = csv.DictReader(f)
+                rows = [r for r in reader if r]
+                extra = [c for c in (reader.fieldnames or [])
+                         if c and c not in header and c != "name"]
+                header += extra
         except (OSError, csv.Error, UnicodeDecodeError):
             rows = []
         for r in rows:
@@ -624,16 +633,19 @@ def append_client_row(
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=header)
+        writer = csv.DictWriter(f, fieldnames=header, extrasaction="ignore")
         writer.writeheader()
         for r in rows:
             writer.writerow({
+                **{k: (v or "").strip() for k, v in r.items() if k},
                 "domain": (r.get("domain") or r.get("name") or "").strip().lower(),
                 "owner": normalize_owner(r.get("owner")),
                 "category": (r.get("category") or "").strip(),
             })
         writer.writerow({
             "domain": name, "owner": owner, "category": (category or "").strip(),
+            "contact_name": (contact_name or "").strip(),
+            "contact_email": (contact_email or "").strip(),
         })
     tmp.replace(path)
     return "added"
