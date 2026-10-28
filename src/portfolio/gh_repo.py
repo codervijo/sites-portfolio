@@ -249,11 +249,47 @@ def _get_repo_via_token(owner: str, name: str) -> Optional[RepoInfo]:
         ) from e
     if r.status_code == 404:
         return None
+    if r.status_code == 301:
+        # BUG-101: the name is an old alias of a renamed repo. Following the
+        # redirect would push into that other repo, so stop and say so.
+        raise GhApiError(_renamed_repo_message(owner, name, _redirect_target(r)))
     if r.status_code != 200:
         raise GhApiError(
             f"GET /repos/{owner}/{name} → HTTP {r.status_code}: {r.text[:200]}"
         )
     return _repo_info_from_json(r.json(), created=False)
+
+
+def _redirect_target(r: httpx.Response) -> Optional[str]:
+    """Best-effort `full_name` of the repo a 301 points at; None if unknown."""
+    try:
+        url = (r.json() or {}).get("url")
+    except ValueError:
+        url = None
+    if not url:
+        return None
+    token = (get_key("GITHUB_TOKEN") or "").strip()
+    try:
+        t = httpx.get(
+            url,
+            headers={**GITHUB_HEADERS_BASE, "Authorization": f"Bearer {token}"},
+            timeout=HTTP_TIMEOUT,
+        )
+    except httpx.HTTPError:
+        return None
+    if t.status_code != 200:
+        return None
+    return (t.json() or {}).get("full_name")
+
+
+def _renamed_repo_message(owner: str, name: str, target: Optional[str]) -> str:
+    where = f"[{target}]" if target else "another repo"
+    return (
+        f"{owner}/{name} is a redirect to {where} (that repo was renamed). "
+        f"Not reusing it. If the local origin points at {owner}/{name}, "
+        f"remove it (`git remote remove origin`) and re-run so lamill "
+        f"creates the full-domain repo; or rename {where} back on GitHub."
+    )
 
 
 def _get_repo_via_cli(owner: str, name: str) -> Optional[RepoInfo]:
@@ -277,6 +313,10 @@ def _get_repo_via_cli(owner: str, name: str) -> Optional[RepoInfo]:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError as e:
         raise GhCliError(f"gh repo view returned non-JSON: {e}") from e
+    # `gh repo view` silently follows rename redirects (BUG-101).
+    resolved = data.get("nameWithOwner") or ""
+    if resolved and resolved.lower() != slug.lower():
+        raise GhCliError(_renamed_repo_message(owner, name, resolved))
     return _repo_info_from_gh_cli_json(data, created=False)
 
 

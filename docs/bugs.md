@@ -75,6 +75,29 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-102 · 2026-10-27 — `new deploy --dry-run` crashes at Step 9 with `UnboundLocalError: zone` when the apex already serves a page
+
+- **Repro** — `lamill new deploy thoralox.com --dry-run` while thoralox.com still serves GoDaddy's "Launching Soon" page.
+- **Expected** — dry-run prints the Step 9 plan and finishes.
+- **Actual** — `cli.py:3173 _deploy_step9_gsc(... zone=zone ...)` → `UnboundLocalError: cannot access local variable 'zone'`.
+- **Where** — `_deploy_cf_unified` Step 3 assigns `zone` only in the non-dry-run branch; Step 9 is reached whenever the apex probe returns live, which a parked registrar page does.
+- **Severity** — `minor` (dry-run only; the real run assigns `zone`).
+- **Notes** — Side observation, not fixed: the apex-live probe treats a registrar parking page as "live", so the real run may also attempt GSC before the CF deploy is serving. Check on thoralox.com's first real run.
+- **Fixed** — 2026-10-27 (uncommitted). `zone = None` in the dry-run branch; `_deploy_step9_gsc` already returns early on dry-run.
+
+### BUG-101 · 2026-10-27 — `new deploy` names the GitHub repo after the dot-free CF slug (`thoralox`), not the domain, and dies on a renamed-repo 301
+
+- **Repro** — `lamill new deploy thoralox.com` (local origin `codervijo/thoralox`; a 2023 repo of that name was later renamed on GitHub).
+- **Expected** — the GitHub repo is named after the full domain (`codervijo/thoralox.com`), like `airsucks.com` / `lamill.io` / `kwizicle.com`. A name that only redirects to a renamed repo is reported as such.
+- **Actual** — `✗ GitHub repo step failed: GET /repos/codervijo/thoralox → HTTP 301: {"message":"Moved Permanently","url":"https://api.github.com/repositories/634680308",...}`.
+- **Where** — `cli.py` `_deploy_cf_unified`: `gh_repo_target = slug`, where `slug = _project_name(domain)` drops the TLD (a Cloudflare naming rule that leaked into GitHub naming). `gh_repo._get_repo_via_token` treated 301 as a generic error; the `gh repo view` path silently follows the redirect, so it would have pushed into the renamed repo.
+- **Severity** — `blocker` for thoralox.com; `major` fleet-wide (any domain whose stem was used by an earlier repo).
+- **Notes** —
+  - Operator call 2026-10-27: full domain for **future** repos; existing repos keep their names (no fleet rename). The existing local-origin override (2026-05-27 slug-mismatch fix) is what keeps existing repos working.
+  - CF project/Worker name is unchanged (still `_project_name()`); that half is BUG-098.
+  - Survey 2026-10-27: ~35 site repos use the dot-free name, ~15 the full domain (hand-created).
+- **Fixed** — 2026-10-27 (uncommitted). `gh_repo_target = domain`; token-path 301 raises `GhApiError` naming the redirect target; CLI path raises when `nameWithOwner` differs from the requested name. Tests: `tests/test_gh_repo.py` (3 new).
+
 ### BUG-100 · 2026-10-17 — `project seo --all` coverage headline still says "top N inspected" when every sitemap URL was inspected
 
 - **Repro** — `uv run portfolio project seo streamsgalaxy.com --all` (24 sitemap URLs, all inspected).

@@ -2293,19 +2293,22 @@ def _deploy_cf_unified(
     # stays as _project_name(domain) — CF naming constraints don't
     # allow dots — but the GH repo target tracks the operator's
     # actual remote. See docs/bugs.md (2026-05-27 entry).
-    gh_repo_target = slug
+    # BUG-101: new repos are named after the full domain (`thoralox.com`),
+    # not the dot-free CF slug. Existing repos keep their names via the
+    # local-origin override below.
+    gh_repo_target = domain
     if not skip_repo:
         local_origin = read_local_origin(Path(project_dir))
         if local_origin:
             parsed = parse_github_remote(local_origin)
             if parsed and parsed.owner.lower() == gh_owner.lower():
-                if parsed.name != slug:
+                if parsed.name != gh_repo_target:
                     gh_repo_target = parsed.name
                     console.print(
                         f"  [yellow]↷[/] local origin → "
                         f"[cyan]{parsed.owner}/{parsed.name}[/] — using "
                         f"[cyan]{parsed.name}[/] as GH repo target "
-                        f"[dim](override of derived [cyan]{slug}[/])[/]"
+                        f"[dim](override of derived [cyan]{domain}[/])[/]"
                     )
 
     # v15.R — Porkbun per-domain API access pre-check. The account-
@@ -2399,6 +2402,7 @@ def _deploy_cf_unified(
         console.print(
             f"  [dim]would: ensure_zone({domain}, account_id={cf_account[:8]}…)[/]"
         )
+        zone = None  # BUG-102: step 9 reads it when the apex is already live
         target_ns: list[str] = []
     else:
         try:

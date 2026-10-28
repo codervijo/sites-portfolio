@@ -1,6 +1,7 @@
 """Tests for v15.I — `gh_repo.py` (GitHub REST API + gh CLI fallback)."""
 from __future__ import annotations
 
+import json
 import subprocess
 from unittest.mock import patch, MagicMock
 
@@ -412,3 +413,42 @@ def test_parse_github_remote_malformed_returns_none():
     assert parse_github_remote("https://github.com/owner/repo/extra") is None
     # No path at all.
     assert parse_github_remote("https://github.com/") is None
+
+
+# ---- BUG-101: renamed-repo redirects ----
+
+
+def test_get_repo_301_names_redirect_target(monkeypatch):
+    _stub_token_path(monkeypatch)
+
+    def fake_get(url, **kw):
+        if url.endswith("/repos/codervijo/thoralox"):
+            return httpx.Response(301, json={
+                "message": "Moved Permanently",
+                "url": "https://api.github.com/repositories/634680308",
+            })
+        return httpx.Response(200, json={"full_name": "codervijo/thoralox-old"})
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    with pytest.raises(GhApiError, match=r"redirect to \[codervijo/thoralox-old\]"):
+        get_repo("codervijo", "thoralox")
+
+
+def test_get_repo_301_target_unknown(monkeypatch):
+    _stub_token_path(monkeypatch)
+    monkeypatch.setattr(httpx, "get",
+                        lambda url, **kw: httpx.Response(301, text="not json"))
+    with pytest.raises(GhApiError, match="redirect to another repo"):
+        get_repo("codervijo", "thoralox")
+
+
+def test_get_repo_via_cli_rejects_followed_redirect(monkeypatch):
+    monkeypatch.setattr("portfolio.gh_repo.get_key", lambda k: "")
+    monkeypatch.setattr("portfolio.gh_repo.shutil.which", lambda x: "/usr/bin/gh")
+    proc_result = MagicMock(returncode=0, stderr="", stdout=json.dumps({
+        "name": "thoralox-old", "owner": {"login": "codervijo"},
+        "nameWithOwner": "codervijo/thoralox-old",
+    }))
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: proc_result)
+    with pytest.raises(GhError, match="was renamed"):
+        get_repo("codervijo", "thoralox")
