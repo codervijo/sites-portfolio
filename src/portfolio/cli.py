@@ -40,7 +40,14 @@ def _new_site_epilog() -> str:
     # Typer's rich epilog joins "\n\n"-separated chunks with one newline
     # and strips each chunk, so every visual line is its own chunk and
     # indentation lives inside the markup tag.
-    lines = ["[bold]Start a new site[/] (Porkbun domain + Lovable design → live):", ""]
+    lines = [
+        "[bold]Start a new site[/] (Porkbun domain + Lovable design → live):",
+        "",
+        "[cyan]lamill new site [<domain>][/]",
+        "[dim]   does all of the below; asks before each step; re-run to resume[/]",
+        "",
+        "[bold]Or step by step:[/]",
+    ]
     for i, (cmd, why) in enumerate(NEW_SITE_STEPS, 1):
         lines.append(f"{i}. [cyan]{cmd}[/]")
         lines.append(f"[dim]   {why}[/]")
@@ -1934,6 +1941,40 @@ def new_work(
     console.print(f"  {icon} {res.message}")
     if res.status == "created" and res.path is not None:
         console.print(f"  [dim]{res.path}[/]")
+
+
+@new_app.command("site")
+def new_site(
+    domain: str = typer.Argument(
+        "", help="Domain to publish. Omit to use your newest Porkbun registration (asks first).",
+        show_default=False),
+    git_url: str = typer.Option(
+        "", "--git-url",
+        help="Lovable/GitHub repo to build from. Omit to auto-discover your Lovable repos via `gh`."),
+    owner: str = typer.Option("", "--owner", help="Client name when an agency client owns the domain (passed to bootstrap)."),
+    yes: bool = typer.Option(False, "--yes", help="Skip the per-step confirms and accept proposals; passed to `new deploy --yes`."),
+    non_interactive: bool = typer.Option(False, "--non-interactive", help="No prompts at all (passed to bootstrap)."),
+    private: bool = typer.Option(False, "--private", help="Create the GitHub repo as private (passed to deploy)."),
+    timeout: int = typer.Option(0, "--timeout", help="Minutes to wait for the site to go live (default 120 on a first deploy, 30 otherwise)."),
+    no_wait: bool = typer.Option(False, "--no-wait", help="Don't wait for the site to go live after deploy."),
+) -> None:
+    """v48.C — publish a new site end-to-end: inventory → bootstrap → build → deploy → wait until live → check.
+
+    Asks before each step; re-run any time to resume (finished steps are
+    detected and skipped). Calls the existing `fleet sync` / `new bootstrap`
+    / `new deploy` / `project check` commands unchanged.
+    """
+    from .new_site import Options, run_new_site
+    opts = Options(git_url=git_url, owner=owner, yes=yes, non_interactive=non_interactive,
+                   private=private, timeout_min=timeout or None, no_wait=no_wait)
+    try:
+        code = run_new_site(domain or None, opts)
+    except KeyboardInterrupt:
+        console.print(
+            f"\n[yellow]↷[/] cancelled — the site keeps settling; re-run "
+            f"`lamill new site {domain}` to resume.".replace("  ", " "))
+        raise typer.Exit(130)
+    raise typer.Exit(code)
 
 
 @new_app.command("deploy")
