@@ -717,15 +717,14 @@ endif
 
 
 def _project_name(domain: str) -> str:
-    """Convert a domain to a CF-friendly project name.
+    """CF-friendly project name for a NEW bootstrap: full domain, dots → hyphens.
 
-    Drops the TLD and any subdomain dots. e.g. `kwizicle.com` → `kwizicle`,
-    `app.foo.io` → `app-foo`. Matches the user's preferred naming after
-    several CF build iterations on kwizicle.
+    `lamill.store` → `lamill-store`. Keeps the TLD so same-stem domains
+    don't collide on one CF project (BUG-098 / BUG-103). Existing sites keep
+    whatever their `wrangler.jsonc` says — deploy reads it from there.
     """
-    base = domain.lower().rsplit(".", 1)[0]
-    base = re.sub(r"[^a-z0-9-]", "-", base).strip("-")
-    return base or domain.lower().replace(".", "-")
+    from .cf_slug import new_project_name
+    return new_project_name(domain)
 
 
 def _wrangler_jsonc(domain: str, today_iso: str) -> str:

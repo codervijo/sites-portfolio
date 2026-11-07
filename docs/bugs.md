@@ -75,6 +75,17 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-103 · 2026-11-07 — `new deploy` attached `lamill.store` to `lamill.pics`'s Cloudflare project because both slugs are `lamill` *(urgent — live site serving the wrong content)*
+
+- **Repro** — bootstrap `lamill.store` (2026-11-07, `b7f2f4a`) while `lamill.pics` is already deployed; `lamill new deploy lamill.store`.
+- **Expected** — `lamill.store` gets its own CF project; or, if the name is taken by another site, deploy refuses before touching anything.
+- **Actual** — `https://lamill.store/` serves lamill.pics (title "LaMill Pics"; `/sitemap-index.xml` lists `https://lamill.pics/sitemap-0.xml`; `/kids/` → 404). Step 5 found the existing Pages project `lamill` (source `codervijo/lamill` — lamill.pics's pre-rename repo), printed `✓ … exists, skipping create`, and Step 6 attached `lamill.store` to it.
+- **Root cause** — BUG-098's predicted escalation. `bootstrap._project_name()` drops the TLD, so `lamill.store` and `lamill.pics` both write `"name": "lamill"` into `wrangler.jsonc` / `package.json`; `new deploy` recomputes the same slug (`cli.py` `_deploy_cf_unified`) and nothing checks that an existing project belongs to *this* domain.
+- **Fix** — (1) new bootstraps name the project after the full domain (`lamill-store`); (2) `new deploy` takes the slug from the site's own `wrangler.jsonc` `name` (legacy TLD-drop rule only when absent), so no existing site's project name changes; (3) pre-flight collision guard: ✗ exit before any GitHub/CF write when another cf-pages/cf-workers site under `sites/` resolves to the same slug.
+- **Remediation for lamill.store (operator-gated, outward-facing)** — rename `sites/lamill.store` `wrangler.jsonc` / `package.json` name to `lamill-store`, detach the `lamill.store` custom domain from the `lamill` Pages project, re-run `new deploy lamill.store`.
+- **Follow-up (not in this fix)** — remote ownership check in Step 5 (Pages `source_repo` vs this repo, rename-tolerant; Workers custom domains) for collisions with projects that have no local `sites/` dir.
+- **Severity** — `critical` (wrong site live on a production domain).
+
 ### BUG-102 · 2026-10-27 — `new deploy --dry-run` crashes at Step 9 with `UnboundLocalError: zone` when the apex already serves a page
 
 - **Repro** — `lamill new deploy thoralox.com --dry-run` while thoralox.com still serves GoDaddy's "Launching Soon" page.

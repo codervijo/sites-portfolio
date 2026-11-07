@@ -518,7 +518,7 @@ def test_from_genai_adds_wrangler_jsonc(tmp_path):
     assert (project / "wrangler.jsonc").exists()
     text = (project / "wrangler.jsonc").read_text()
     parsed = json.loads(text)
-    assert parsed["name"] == "kwizicle"  # base only — TLD dropped
+    assert parsed["name"] == "kwizicle-com"  # BUG-103: TLD kept
     assert parsed["assets"]["directory"] == "./dist"
     assert parsed["assets"]["not_found_handling"] == "single-page-application"
     assert any("wrangler.jsonc" in fix for fix in result.cf_fixes)
@@ -719,7 +719,7 @@ def test_add_wrangler_jsonc(tmp_path):
     assert (tmp_path / "wrangler.jsonc").exists()
     parsed = json.loads((tmp_path / "wrangler.jsonc").read_text())
     # Name drops the TLD entirely (matches user's preferred form after kwizicle iteration).
-    assert parsed["name"] == "kwizicle"
+    assert parsed["name"] == "kwizicle-com"
     assert parsed["compatibility_date"] == "2026-05-04"
     assert parsed["assets"]["not_found_handling"] == "single-page-application"
     # Idempotent: second call returns False, doesn't overwrite.
@@ -727,11 +727,12 @@ def test_add_wrangler_jsonc(tmp_path):
 
 
 @pytest.mark.parametrize("domain,expected", [
-    ("kwizicle.com", "kwizicle"),
-    ("homeloom.app", "homeloom"),
-    ("voltloop.site", "voltloop"),
-    ("foo.bar.io", "foo-bar"),
-    ("multi-word.com", "multi-word"),
+    ("kwizicle.com", "kwizicle-com"),
+    ("homeloom.app", "homeloom-app"),
+    ("lamill.store", "lamill-store"),
+    ("lamill.pics", "lamill-pics"),
+    ("foo.bar.io", "foo-bar-io"),
+    ("multi-word.com", "multi-word-com"),
 ])
 def test_project_name_munging(domain, expected):
     assert _project_name(domain) == expected

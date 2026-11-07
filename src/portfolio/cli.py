@@ -2169,7 +2169,7 @@ def _deploy_cf_unified(
     from pathlib import Path
 
     from . import apikeys, cloudflare
-    from .bootstrap import _project_name
+    from .cf_slug import find_slug_collisions, resolve_slug
     from .data import PORTFOLIO_JSON
     from .gh_repo import (
         GhAuthError, GhError, auth_path,
@@ -2183,7 +2183,7 @@ def _deploy_cf_unified(
         update_porkbun_ns,
     )
 
-    slug = _project_name(domain)
+    slug = resolve_slug(Path(project_dir), domain)
     console.print(
         f"[bold]v15.I — Deploy[/] [cyan]{domain}[/] "
         f"[dim](platform={platform} · git-integrated CF Pages-API · "
@@ -2202,6 +2202,25 @@ def _deploy_cf_unified(
         )
         raise typer.Exit(2)
     console.print("  [green]✓[/] CF creds present")
+
+    # BUG-103 — refuse before any GitHub/CF write when another fleet site
+    # already owns this CF project slug (lamill.store attached itself to
+    # lamill.pics's `lamill` project this way).
+    from .project import SITES_ROOT
+    collisions = find_slug_collisions(domain, slug, SITES_ROOT)
+    if collisions:
+        console.print(
+            f"  [red]✗[/] CF project name [cyan]{slug}[/] is already used by "
+            f"{', '.join(collisions)} — deploying would attach {domain} to "
+            f"that site's project and serve its content."
+        )
+        console.print(
+            f"  [dim]Fix: set a unique name in sites/{domain}/wrangler.jsonc "
+            f"(e.g. \"name\": \"{domain.lower().replace('.', '-')}\") and the "
+            f"same in package.json, commit, then re-run `lamill new deploy {domain}`.[/]"
+        )
+        raise typer.Exit(2)
+    console.print(f"  [green]✓[/] CF project name [cyan]{slug}[/] unique in fleet")
 
     # v15.N — pre-flight CF token scope probe. Catches under-scoped
     # tokens (e.g. missing `Cloudflare Pages:Edit`) BEFORE the
@@ -2290,7 +2309,7 @@ def _deploy_cf_unified(
     # `codervijo/kwizicle.com.git`) hit a Step 2 push failure because
     # ensure_origin_remote strict-checks the URL and Step 1 created
     # /detected the wrong repo. `slug` (the CF Pages project name)
-    # stays as _project_name(domain) — CF naming constraints don't
+    # stays as resolve_slug() (wrangler.jsonc name) — CF naming constraints don't
     # allow dots — but the GH repo target tracks the operator's
     # actual remote. See docs/bugs.md (2026-05-27 entry).
     # BUG-101: new repos are named after the full domain (`thoralox.com`),

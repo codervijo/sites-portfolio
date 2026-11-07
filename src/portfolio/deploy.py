@@ -184,16 +184,9 @@ class CloudflarePagesDeploy:
         command + output dir explicitly set. Idempotent: if a project with this
         name already exists, returns skipped=True.
         """
-        from .bootstrap import _project_name
+        from .cf_slug import resolve_slug
 
-        wrangler = project_dir / "wrangler.jsonc"
-        cf_name = _project_name(domain)
-        if wrangler.exists():
-            try:
-                cfg = json.loads(_strip_jsonc_comments(wrangler.read_text()))
-                cf_name = cfg.get("name") or cf_name
-            except json.JSONDecodeError:
-                pass
+        cf_name = resolve_slug(project_dir, domain)
 
         body = {
             "name": cf_name,
