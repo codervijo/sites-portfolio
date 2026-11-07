@@ -2713,6 +2713,27 @@ lamill project delegate <domain>    generation; micros-aware via `microtype` (v4
 
 (These are the **v47.A** decisions-lock agenda. Build phases B–D are unblocked; E is blocked on operator input; G is deferred.)
 
+### v48 — `lamill new site`: one guided command from Lovable design + domain to a live site *(planned — 2026-11-07; operator. **Queue-jump approved 2026-11-07:** v48 is worked next, ahead of the unshipped v37 / v40 / v42 / v44 / v46.E–F / v47 phases.)*
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v48.A | ☐ | **Kickoff / decisions lock.** Lock: the exact step list and order `new site` runs; per-step confirm gates vs run-through (and what `--yes` covers); resume semantics — a re-run detects each step's done-state and resumes at the first incomplete one (ADR-0015 idempotency posture, same as `new deploy`); the v48.D pre-deploy gate's contents and its override flag; whether `new site` becomes *the* documented entry point while `new bootstrap` / `new deploy` stay as standalone primitives; and the ADR need (likely none — no new write surface, it only composes existing verbs). |
+| v48.B | ☐ | **"Start a new site" walkthrough in `--help`.** An epilog on `lamill new --help` listing the five-step publish flow for a Porkbun domain + Lovable design: `fleet sync --refresh` → `new bootstrap <domain> --git-url <url>` → `make buildsh` + eyeball for Lovable placeholder head → `new deploy <domain> --yes --watch` → `project check <domain>`. A one-line pointer in root `lamill --help`. Ships first so the operator has a self-serve reference immediately. One test asserts the steps render. Rewritten in v48.C to lead with `new site`. |
+| v48.C | ☐ | **`lamill new site <domain> --git-url <url>` — the orchestrator.** Chains the existing primitives in order: inventory pre-flight (auto `fleet sync --refresh` when the domain is unknown) → `new bootstrap` → Docker build (`make buildsh`) → `new deploy` → `project check`. Each step prints one `✓ ✗ ↷` line; a re-run resumes at the first incomplete step. **Composition only** — calls the existing step functions, no reimplementation. Updates the v48.B help epilog to lead with `new site`. |
+| v48.D | ☐ | **Pre-deploy readiness gate.** Before the deploy step, `new site` refuses (✗, with the specific remediation) when the build fails, `project check` reports errors, or the Lovable scaffold placeholder head survives (`title "Lovable App"`, `description "Lovable Generated Project"`, `@Lovable` twitter handle — the lamill.io miss). Root-cause fix leads each hint; an override flag is the secondary "if you're sure" escape. |
+
+#### Design notes
+
+**Where this comes from.** 2026-11-07: operator had a fresh Porkbun domain + a finished Lovable design, couldn't recall the publish sequence, and had to ask Claude to reconstruct it from docs + history. The flow exists — it's just spread across four verbs and a Docker build, with one known manual eyeball step (Lovable placeholder head, see `docs/bugs.md` — the TanStack in-code-head blind spot).
+
+**Deliberate exception to prefer-check/fix-over-new-verbs** *(operator, 2026-11-07)*. `new site` is a new verb, but it adds **no new mechanism** — it only sequences `fleet sync`, `new bootstrap`, the build, `new deploy` and `project check`. Any capability gap found while building it gets fixed in the underlying primitive, not inside the orchestrator.
+
+**Help first, command second.** v48.B is independently useful and nearly free; it also becomes the spec v48.C must satisfy — the help epilog lists exactly the steps the orchestrator runs.
+
+**Still open — do NOT treat as decided** (the v48.A agenda): confirm-per-step vs run-through; how done-state is detected per step (e.g. bootstrap = `lamill.toml` present; deploy = live probe 200); whether `--git-url` is optional (blank Astro scaffold) or required; gate override flag name.
+
 
 ## 8. Open questions
 
