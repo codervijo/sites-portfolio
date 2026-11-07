@@ -85,6 +85,7 @@ when applicable. Don't delete.
 - **Remediation for lamill.store (operator-gated, outward-facing)** — rename `sites/lamill.store` `wrangler.jsonc` / `package.json` name to `lamill-store`, detach the `lamill.store` custom domain from the `lamill` Pages project, re-run `new deploy lamill.store`.
 - **Follow-up (not in this fix)** — remote ownership check in Step 5 (Pages `source_repo` vs this repo, rename-tolerant; Workers custom domains) for collisions with projects that have no local `sites/` dir.
 - **Severity** — `critical` (wrong site live on a production domain).
+- **Fixed** — 2026-11-07, `13c9079` (`cf_slug.py`; 7 tests in `tests/test_bug103_cf_slug.py`). Remediated live the same day with operator OK: `sites/lamill.store` slug → `lamill-store` (`6c84e79`), `lamill.store` detached from Pages `lamill`, stale `CNAME lamill.store → lamill.pages.dev` deleted, `new deploy lamill.store --yes --watch` → new Pages project `lamill-store`, HTTP 200 serving "LaMill Store" in 41 s; lamill.pics unaffected. BUG-098 part (1) is now covered; part (2) (renaming lamill.pics's own `lamill` project) remains open there.
 
 ### BUG-102 · 2026-10-27 — `new deploy --dry-run` crashes at Step 9 with `UnboundLocalError: zone` when the apex already serves a page
 

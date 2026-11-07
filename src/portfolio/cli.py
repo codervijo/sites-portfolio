@@ -19,12 +19,48 @@ from .check import (
 from .console import console, spinner_counter
 from .data import PORTFOLIO_JSON, cleanup as run_cleanup, load_domains, load_plan
 
+# v48.B — self-serve reference for publishing a fresh domain + Lovable
+# design. Kept as one constant so the help text and its test agree.
+NEW_SITE_STEPS: tuple[tuple[str, str], ...] = (
+    ("lamill fleet sync --refresh",
+     "pull the new Porkbun domain into the inventory"),
+    ("lamill new bootstrap <domain> --git-url <lovable-github-url>",
+     "scaffold sites/<domain>/; Lovable/TanStack is ported to Astro"),
+    ("cd ~/work/projects/sites && make buildsh",
+     "build in Docker (never host pnpm); fix any Lovable placeholder head:"),
+    ("lamill new deploy <domain> --yes --watch",
+     "GitHub, CF zone, Porkbun NS, CF project, domain; waits until live"),
+    ("lamill project check <domain>",
+     "confirm the live site is conformant"),
+)
+LOVABLE_PLACEHOLDERS = ('"Lovable App"', '"Lovable Generated Project"', "@Lovable")
+
+
+def _new_site_epilog() -> str:
+    # Typer's rich epilog joins "\n\n"-separated chunks with one newline
+    # and strips each chunk, so every visual line is its own chunk and
+    # indentation lives inside the markup tag.
+    lines = ["[bold]Start a new site[/] (Porkbun domain + Lovable design → live):", ""]
+    for i, (cmd, why) in enumerate(NEW_SITE_STEPS, 1):
+        lines.append(f"{i}. [cyan]{cmd}[/]")
+        lines.append(f"[dim]   {why}[/]")
+        if why.endswith(":"):
+            lines.append(f"[dim]   {' · '.join(LOVABLE_PLACEHOLDERS)}[/]")
+    lines += ["", "[dim]`new deploy` is safe to re-run; re-run it if the live probe shows ↷.[/]"]
+    return "\n\n".join(lines)
+
+
 app = typer.Typer(
     help="lamill — manage your domain fleet + sites/ workspace.",
+    epilog="New domain to publish? See [cyan]lamill new --help[/] → Start a new site.",
     add_completion=False,
 )
 
-new_app = typer.Typer(help="Add new domains / projects.", no_args_is_help=True)
+new_app = typer.Typer(
+    help="Add new domains / projects.",
+    epilog=_new_site_epilog(),
+    no_args_is_help=True,
+)
 app.add_typer(new_app, name="new")
 
 # v7.A — scope-first restructure. `project` for ops on one project,
