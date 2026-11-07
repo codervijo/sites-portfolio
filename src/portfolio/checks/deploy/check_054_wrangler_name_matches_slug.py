@@ -18,7 +18,7 @@ CHECK_ID = "CHECK_054"
 CHECK_NAME = "wrangler-name-matches-slug"
 CATEGORY = "deploy"
 SEVERITY = "warn"
-DESCRIPTION = "wrangler.jsonc `name` matches project directory slug (lowercase, hyphens only)."
+DESCRIPTION = "wrangler.jsonc `name` matches the project slug — full domain with hyphens (`lamill-store`), or the legacy TLD-dropped form (`kwizicle`)."
 
 
 def run(repo_path: str) -> CheckResult:
@@ -28,9 +28,13 @@ def run(repo_path: str) -> CheckResult:
     cfg = _read_jsonc(p)
     if cfg is None:
         return CheckResult(status="warn", message="wrangler.jsonc unreadable — skipped")
+    from ...cf_slug import new_project_name
     declared = cfg.get("name")
-    expected = _expected_slug(Path(repo_path).name)
-    if declared == expected:
+    dir_name = Path(repo_path).name
+    # BUG-103: new bootstraps keep the TLD (`lamill-store`); pre-BUG-103
+    # sites keep their TLD-dropped slug (`kwizicle`). Both are conformant.
+    expected = new_project_name(dir_name)
+    if declared in (expected, _expected_slug(dir_name)):
         return CheckResult(status="pass", message=f'name="{declared}"')
     return CheckResult(status="warn",
                        message=f'name="{declared}", expected "{expected}" (from dir slug)')

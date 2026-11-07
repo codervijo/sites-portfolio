@@ -135,3 +135,11 @@ def test_check_056_warn_plain_makefile(tmp_path):
 
 def test_check_056_warn_no_makefile(tmp_path):
     assert run_check("CHECK_056", str(tmp_path)).status == "warn"
+
+
+def test_check_054_pass_new_full_domain_slug(tmp_path):
+    # BUG-103 — new bootstraps keep the TLD.
+    project = tmp_path / "lamill.store"
+    project.mkdir()
+    (project / "wrangler.jsonc").write_text('{"name": "lamill-store"}')
+    assert run_check("CHECK_054", str(project)).status == "pass"

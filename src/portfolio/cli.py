@@ -1957,8 +1957,11 @@ def new_site(
     private: bool = typer.Option(False, "--private", help="Create the GitHub repo as private (passed to deploy)."),
     timeout: int = typer.Option(0, "--timeout", help="Minutes to wait for the site to go live (default 120 on a first deploy, 30 otherwise)."),
     no_wait: bool = typer.Option(False, "--no-wait", help="Don't wait for the site to go live after deploy."),
+    skip_gate: bool = typer.Option(
+        False, "--skip-gate",
+        help="Deploy even when the pre-deploy check finds errors or Lovable placeholders (fix them first if you can)."),
 ) -> None:
-    """v48.C — publish a new site end-to-end: inventory → bootstrap → build → deploy → wait until live → check.
+    """v48.C — publish a new site end-to-end: inventory → bootstrap → build → pre-deploy check → deploy → wait until live → check.
 
     Asks before each step; re-run any time to resume (finished steps are
     detected and skipped). Calls the existing `fleet sync` / `new bootstrap`
@@ -1966,7 +1969,8 @@ def new_site(
     """
     from .new_site import Options, run_new_site
     opts = Options(git_url=git_url, owner=owner, yes=yes, non_interactive=non_interactive,
-                   private=private, timeout_min=timeout or None, no_wait=no_wait)
+                   private=private, timeout_min=timeout or None, no_wait=no_wait,
+                   skip_gate=skip_gate)
     try:
         code = run_new_site(domain or None, opts)
     except KeyboardInterrupt:

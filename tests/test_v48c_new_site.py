@@ -157,6 +157,7 @@ class Harness:
         self.zone = zone_active
         self.confirms = confirms
         self.budget = None
+        self.gate_result = []
 
     def runner(self, argv):
         self.calls.append(argv[3:])  # strip `python -m portfolio`
@@ -179,6 +180,7 @@ class Harness:
             discover=lambda d: [RepoCandidate("codervijo/x-site", "https://github.com/codervijo/x-site",
                                               "2026-11-07", 0.9)],
             build=lambda d: (self.build_ok, "build OK" if self.build_ok else "build failed (exit 1)"),
+            gate=lambda d: self.gate_result,
             is_zone_active=lambda d: self.zone, probe_factory=lambda d, s: (lambda: None),
             wait=self.wait, sites_root=self.sites, ledger=self.ledger, newest=lambda: None)
 
@@ -244,3 +246,42 @@ def test_explicit_git_url_and_owner_pass_through(tmp_path):
                           "--owner", "Derek Hoyt"]
     assert "--private" in h.calls[1]
     assert json.loads(h.ledger.read_text()) == {"x.com": "codervijo/foo"}
+
+
+# ------------------------------------------------------------ v48.D gate
+
+
+def test_gate_blocks_deploy(tmp_path):
+    h = Harness(tmp_path, bootstrapped=True)
+    h.gate_result = [ns.GateFailure("CHECK_060", "has-favicon", "error", "default Lovable favicon")]
+    assert h.run(yes=True) == 2
+    assert ["new", "deploy"] not in h.cmds()
+
+
+def test_skip_gate_deploys_anyway(tmp_path):
+    h = Harness(tmp_path, bootstrapped=True)
+    h.gate_result = [ns.GateFailure("CHECK_060", "has-favicon", "error", "x")]
+    assert h.run(yes=True, skip_gate=True) == 0
+    assert ["new", "deploy"] in h.cmds()
+
+
+class _R:
+    def __init__(self, status, message=""):
+        self.status, self.message = status, message
+
+
+def test_gate_selects_errors_and_placeholders_not_live_or_warn():
+    results = {
+        "CHECK_060": _R("fail", "default favicon"),   # error severity
+        "CHECK_081": _R("fail", "'Lovable App'"),     # warn, but placeholder → blocks
+        "CHECK_070": _R("fail", "short title"),       # warn → ignored
+        "CHECK_150": _R("fail", "www"),               # live → ignored
+        "CHECK_073": _R("pass"),
+    }
+    got = [f.rule for f in ns.gate_failures(None, results)]
+    assert got == ["CHECK_060", "CHECK_081"]
+
+
+def test_gate_report_leads_with_fix_then_escape():
+    msg = ns.report_gate("x.com", [ns.GateFailure("CHECK_081", "no-placeholder-metadata", "warn", "'Lovable App'")])
+    assert msg.index("project fix x.com") < msg.index("--skip-gate")

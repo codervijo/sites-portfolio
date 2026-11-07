@@ -370,6 +370,7 @@ class Options:
     private: bool = False
     timeout_min: int | None = None
     no_wait: bool = False
+    skip_gate: bool = False
 
 
 def _repo_full_name(url: str) -> str | None:
@@ -385,6 +386,7 @@ def run_new_site(
     owned: Callable[[str], bool] | None = None,
     discover: Callable[[str], list[RepoCandidate]] = discover_lovable_repo,
     build: Callable[[Path], tuple[bool, str]] | None = None,
+    gate: Callable[[Path], list[GateFailure]] | None = None,
     is_zone_active: Callable[[str], bool] = zone_active,
     probe_factory: Callable[[str, str], Callable[[], LiveState]] | None = None,
     wait: Callable[..., str] = wait_until_live,
@@ -479,9 +481,19 @@ def run_new_site(
             raise NewSiteError(f"{detail} — fix the build in sites/{domain}/, then re-run `lamill new site {domain}`.")
         console.print(f"  [green]✓[/] {detail}")
 
-        # 4. deploy
+        # 4. pre-deploy gate (v48.D)
+        console.print("\n[bold]4. Pre-deploy check[/]")
+        if opts.skip_gate:
+            console.print("  [yellow]↷[/] skipped (--skip-gate)")
+        else:
+            failures = (gate or gate_failures)(site_dir)
+            if failures:
+                raise NewSiteError(report_gate(domain, failures))
+            console.print("  [green]✓[/] no blocking findings (errors, Lovable placeholders)")
+
+        # 5. deploy
         first_deploy = not is_zone_active(domain)
-        step(4, "Deploy" + (" (first deploy)" if first_deploy else ""))
+        step(5, "Deploy" + (" (first deploy)" if first_deploy else ""))
         argv = lamill_argv("new", "deploy", domain)
         if opts.yes:
             argv.append("--yes")
@@ -493,7 +505,7 @@ def run_new_site(
         console.print("  [green]✓[/] deploy pipeline finished")
 
         # 5. wait until live
-        console.print("\n[bold]5. Wait until live[/]")
+        console.print("\n[bold]6. Wait until live[/]")
         if opts.no_wait:
             console.print(f"  [yellow]↷[/] skipped (--no-wait) — re-run `lamill new site {domain}` to wait")
         else:
@@ -511,7 +523,7 @@ def run_new_site(
                 return 0
 
         # 6. check
-        step(6, "Project check")
+        step(7, "Project check")
         rc = runner(lamill_argv("project", "check", domain))
         console.print("  [green]✓[/] project check clean" if rc == 0
                       else f"  [red]✗[/] project check reported failures (exit {rc}) — see above")
@@ -524,3 +536,48 @@ def run_new_site(
     except NewSiteError as e:
         console.print(f"  [red]✗[/] {e}")
         return 2
+
+
+# ---------------------------------------------------------------- v48.D gate
+
+# Checks that probe the live site / GSC cache. Excluded from the pre-deploy
+# gate: before a first deploy there is nothing to probe, and on a re-deploy
+# a live-site finding shouldn't block shipping the fix for it.
+LIVE_CHECKS = ("CHECK_147", "CHECK_150", "CHECK_158", "CHECK_159", "CHECK_160", "CHECK_161")
+# Always blocking regardless of declared severity: AI-builder scaffold leaks
+# (CHECK_081 placeholder head text, CHECK_060 default Lovable favicon).
+PLACEHOLDER_CHECKS = ("CHECK_060", "CHECK_081")
+
+
+@dataclass(frozen=True)
+class GateFailure:
+    rule: str
+    name: str
+    severity: str
+    reason: str
+
+
+def gate_failures(site_dir: Path, results: dict | None = None) -> list[GateFailure]:
+    """Local conformance findings that must block a deploy."""
+    from .checks.registry import list_checks, run_checks
+    specs = {c.id: c for c in list_checks()}
+    if results is None:
+        results = run_checks(str(site_dir), skip_checks=list(LIVE_CHECKS))
+    out = []
+    for rule, res in results.items():
+        if rule in LIVE_CHECKS or res.status != "fail":
+            continue
+        spec = specs.get(rule)
+        sev = spec.severity if spec else "?"
+        if sev == "error" or rule in PLACEHOLDER_CHECKS:
+            out.append(GateFailure(rule, spec.name if spec else rule, sev, res.message))
+    return out
+
+
+def report_gate(domain: str, failures: list[GateFailure]) -> str:
+    lines = [f"{len(failures)} blocking finding(s) in sites/{domain}/:"]
+    lines += [f"    · {f.rule} {f.name}: {f.reason}" for f in failures]
+    lines.append(f"  Fix them in sites/{domain}/ (`lamill project fix {domain} --apply` "
+                 f"handles the auto-fixable ones), then re-run `lamill new site {domain}`.")
+    lines.append("  If you're sure they're fine: re-run with --skip-gate.")
+    return "\n".join(lines)
