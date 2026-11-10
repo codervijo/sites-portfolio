@@ -6086,6 +6086,17 @@ def fleet_fix(
                          use_ai=use_ai)
 
 
+@fleet_app.command("ga")
+def fleet_ga(
+    apply_changes: bool = typer.Option(False, "--apply", help="Execute (confirms per site)."),
+    assume_yes: bool = typer.Option(False, "--yes", help="Skip the per-site confirmation."),
+    only: list[str] = typer.Option(None, "--only", help="Limit to these domains (repeatable)."),
+) -> None:
+    """GA4 rollout (v49.E): ensure property, tag source, build, commit+push, verify live. Dry run by default."""
+    from . import fleet_ga as _fga
+    _fga.run(apply=apply_changes, assume_yes=assume_yes, only=only)
+
+
 @fleet_app.command("drift")
 def fleet_drift() -> None:
     """Surface inconsistencies across the four sources of truth."""
