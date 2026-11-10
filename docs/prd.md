@@ -2726,6 +2726,42 @@ lamill project delegate <domain>    generation; micros-aware via `microtype` (v4
 
 *(Tier complete 2026-11-07 — design notes archived in `docs/shipping-history.md § v48`.)*
 
+### v49 — GA4 on every site: property, tag, and live verification fleet-wide *(planned 2026-11-09; operator. **Queue-jump approved 2026-11-09:** v49 is worked next, ahead of the unshipped v40 / v42 / v44 / v45.I / v46.E–F / v47 phases.)*
+
+Fleet audit 2026-11-08: GA4 is live on only 4 sites (`calcengine.site`,
+`keralavotemap.site`, `lamillrentals.com`, `washcalc.app`). Six more have
+the tag wired to `PUBLIC_GA_ID` / `VITE_GA_ID` but the env var is unset, so
+nothing loads (`lamill.pics`, `mspproof.com`, `pqhorizon.com`,
+`cottagefoodmap.com`, `mdburst.com`, `homeloom.app`). The rest have no
+analytics. No `lamill.toml` has an `[analytics]` block: v18.D's
+bootstrap auto-create has skipped on every site because
+`~/lamill/ga4/` was never set up and `GA4_ACCOUNT_ID` is unset.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v49.A | ☑ | **Kickoff / decisions lock.** *(locked 2026-11-09 — ADR-0029.)* (a) **lamill owns tag injection** — reverses the v18 boundary ("markup injection belongs to the SEO pipeline"); rankmill only has a detector (`check_240`). (b) **ID is committed in site source**, not a build env var: the fixer writes the `G-…` ID into the site's code; measurement IDs are public, so this keeps the repo the source of truth and builds reproducible. Sites already reading `PUBLIC_GA_ID` / `VITE_GA_ID` get the committed ID as the value (env var may still override). (c) **No consent banner**; the privacy page gets a sentence saying GA4 is used. (d) **Queue-jump** ahead of the unshipped phases. (e) **One Google identity: `foundervijo@gmail.com`** for GA4, same as GSC. One OAuth client (GCP project `vijos-portfolio`, already used by GSC) and one GA4 account, with `GA4_ACCOUNT_ID` pointing at it. Existing GA4 accounts found 2026-11-09: LaMill Rentals 365405177 (calcengine, civictools, lamillrentals, washcalc), Lamill Web systems 123726081 (iotnews, streamsgalaxy), kwizicle 173156251, linkedcsi 389463519, veespot 173139078, lamill web dev tester1 344679696 (test). Fleet account created 2026-11-09 by foundervijo@: **LaMill Sites, account ID 415643559** (`GA4_ACCOUNT_ID`); first property `lamill.store`, measurement ID `G-JHCQC2SH9J`. Existing properties are consolidated into it through GA4's "Move property" (operator, in the dashboard); IDs and history survive the move. (f) **Command name is `ga`, not `ga4`** (operator, 2026-11-09): `lamill fleet ga`. (g) **The 9 pre-existing properties go last** (operator, 2026-11-09): sites whose source already loads a non-LaMill-Sites `G-` ID, or whose property sits in an old account, are ↷ deferred by the first `fleet ga` run; consolidating them into LaMill Sites is a final step, automated if the Admin API supports moving a property between accounts (unverified — verify in v49.E), else a dashboard checklist. (h) **Scope:** every live site with `owner = "lamill"`, excluding dark sites (`csinorcal.church`), HostGator-WP (`hybridautopart.com`, `streamsgalaxy.com`), non-live sites, and `*.bup` / `*.old` dirs. Client-owned sites wait for per-client accounts. (i) **One property per site** (display name = domain, web stream `https://<domain>`, America/Los_Angeles, USD, 14-month event + user retention, Google Signals off). Account split: LaMill Sites for own sites, one account per client; a tool gets its own account only when sold or spun off (move the property then). (j) **Privacy page:** where a privacy page exists, the fixer adds one sentence saying GA4 is used; sites without one are ↷ skipped (no page creation in v49). (k) **Checks:** CHECK_162 `ga4-id-recorded` (`lamill.toml [analytics] ga4_id` set), CHECK_163 `ga4-tag-in-source` (source loads that ID — reads layouts/components, not just `index.astro`; fixes the CHECK_080 blind spot hit on lamill.store), CHECK_164 `ga4-live-tag` (live site loads that ID). All `warn` severity so they never block the v48.D pre-deploy gate. (l) **Setup done 2026-11-09:** Admin API enabled in `vijos-portfolio`, `analytics.edit` scope added, app In production, `~/lamill/ga4/{credentials,token}.json` in place, `GA4_ACCOUNT_ID=415643559` set; Admin API verified live as foundervijo@ (sees all 7 accounts). v49.B therefore starts at property ensure. (m) `lamill.store` was hand-tagged 2026-11-09 (commit `60d1afe` in that repo) as the reference shape for the Astro fixer. |
+| v49.B | ☐ | **GA4 setup unblock + idempotent property ensure.** Guided one-time setup (`~/lamill/ga4/credentials.json` + `lamill settings ga4 auth` + `GA4_ACCOUNT_ID`) with deep-linked console URLs. New `ensure_property(domain)`: find an existing property/web stream for the domain (Admin API list) before creating one (ADR-0015 idempotency). Backfill `lamill.toml [analytics] ga4_id` for the 4 live sites from their live IDs. Once this lands, v18.D bootstrap (and so `lamill new site`) creates GA4 for new sites with no further change. |
+| v49.C | ☐ | **Tag injection as check + fix.** New check: `lamill.toml [analytics] ga4_id` set → site source loads gtag with that ID. Fixer per stack (Astro layout partial; Vite/React `index.html`), writing the committed ID; adapts the existing `PUBLIC_GA_ID` pattern on the 6 env-wired sites. Plus a privacy-page sentence where a privacy page exists. Composes with CHECK_080/148/149. |
+| v49.D | ☐ | **Live verification.** New live check: the live homepage (HTML or its JS bundles) loads gtag with the `lamill.toml` ID. Catches "committed but not deployed" and ID mismatches. |
+| v49.E | ☐ | **Fleet rollout — `lamill fleet ga [--apply] [--yes]`.** One idempotent run over all in-scope sites; `fleet fix` can't (it never commits/pushes or calls the GA4 API). Per site, each step probes before acting and prints `✓ ✗ ↷`: (1) ID — `lamill.toml [analytics] ga4_id` present → skip; else reuse a LaMill Sites property whose web-stream URL is the domain; else create (property = domain, Los Angeles, USD, web stream `https://<domain>`, 14-month retention) and write the ID. (2) Tag — source already loads that ID → skip; a *different* `G-` ID → ✗ stop that site for the operator; else the v49.C fixer per stack. (3) Build in the container; dist must contain the ID, else revert that site's changes → ✗. (4) Commit only the files the run touched, then push (platform auto-deploys). (5) Live check — ✓ when live loads the ID, ↷ "deploying" otherwise; no waiting, re-run to confirm. Dry-run default; `--apply` confirms per site; `--yes` skips confirmation. Re-run on a done fleet = all ✓, no writes. Excludes dark (`csinorcal.church`), HostGator-WP, non-live, and client-owned sites (until per-client GA4 accounts exist). The steps reuse the v49.B–D checks/fixers so `project check` / new sites get the same behavior. |
+| v49.F | ☐ | **Docs wrap.** `architecture.md` (boundary reversal, new checks), `AI_AGENTS.md`, shipping history; supersede the v18 "markup belongs to SEO pipeline" note. |
+
+#### Design notes
+
+**Why lamill now owns tag injection (reverses v18.A (a)).** The v18
+boundary assumed the SEO pipeline would inject markup from
+`[analytics] ga4_id`; six months on, nothing does, and the fleet is
+~90% untracked. Delivering it as check + fix fits
+`[[feedback_prefer_check_fix_delivery]]` and makes it reachable via
+`fleet fix`.
+
+**Why commit the ID instead of a build env var.** Env vars live in each
+platform's dashboard (Cloudflare Pages, Workers, Vercel all differ), are
+invisible in the repo, and are exactly why six sites have GA4 code that
+loads nothing today. A committed public ID can't drift silently.
+
 
 ## 8. Open questions
 

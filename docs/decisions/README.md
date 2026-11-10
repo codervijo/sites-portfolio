@@ -41,6 +41,7 @@ trade-offs were, and what the consequences are.
 | 0026 | `project delegate` gets a second, provider-pluggable backend: OpenHands/OpenAI takes over when Claude hits the 5h cap (extends 0023) | Accepted | — |
 | 0027 | Apex stays canonical, but `www` is required and permanently redirects to it (tightens the doc-only apex-canonical lock; no more absent-www) | Accepted | — |
 | 0028 | `micros` is a category-scoped namespace; microtypes are live pilot sites, and their data is agent-generated behind a provenance gate | Proposed | — |
+| 0029 | lamill owns GA4 tag injection (reverses the v18 SEO-pipeline boundary); the measurement ID is committed in site source, not a build env var | Accepted | — |
 
 ## When to write an ADR
 
