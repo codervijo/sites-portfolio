@@ -8,7 +8,9 @@ CHECK_080 blind spot). The tier-1 fixer writes the committed ID, in order:
   2. Source references a *different* real `G-` ID → manual (never overwrite).
   3. Source reads `PUBLIC_GA_ID` / `VITE_GA_ID` → wrap each read with the
      committed ID as default (`(import.meta.env.PUBLIC_GA_ID || "G-…")`);
-     an env var set on the platform still overrides.
+     an env var set on the platform still overrides. If no reading file is
+     a layout / app entry or imported by one, the loader isn't site-wide
+     (mdburst: only tool islands) → manual.
   4. Otherwise inject per stack:
        - Astro: write `src/components/Analytics.astro` (lamill.store's
          shape) and render `<Analytics />` before `</head>` in every
@@ -226,6 +228,15 @@ def _plan_tag(base: Path, ga: str) -> tuple[str, dict[Path, str]] | FixResult:
 
     env_files = _env_reads(base)
     if env_files:
+        stray = [p for p in env_files if not _site_wide(base, p)]
+        if stray and len(stray) == len(env_files):
+            names = ", ".join(str(p.relative_to(base)) for p in stray)
+            return FixResult(
+                "manual",
+                f"GA loader ({names}) isn't reached from a layout or the app entry — "
+                "only some pages would be tracked; wire it site-wide by hand",
+                [],
+            )
         writes = {
             p: _ENV_READ.sub(lambda m: f'({m.group(1)}.{m.group(2)} || "{ga}")', _read(p))
             for p in env_files
@@ -259,6 +270,20 @@ def _plan_tag(base: Path, ga: str) -> tuple[str, dict[Path, str]] | FixResult:
         return FixResult("manual", "no `</head>` found in layouts, pages or index.html — tag by hand", [])
     names = ", ".join(str(p.relative_to(base)) for p in writes)
     return f"tag {ga} in {names}", writes
+
+
+_ENTRIES = ("src/main.tsx", "src/main.ts", "src/main.jsx", "src/main.js", "index.html")
+
+
+def _site_wide(base: Path, f: Path) -> bool:
+    """True when `f` owns a `</head>`, is the app entry, or is imported by
+    one of those (one hop, matched on the module's file stem)."""
+    owners = [p for p in _src_files(base, _HEAD_EXT) if "</head>" in _read(p)]
+    owners += [base / e for e in _ENTRIES if (base / e).is_file()]
+    if f in owners:
+        return True
+    stem = re.compile(rf"""[/"']{re.escape(f.stem)}(?:\.[a-z]+)?["']""")
+    return any(stem.search(_read(o)) for o in owners)
 
 
 def _rel(from_dir: Path, target: Path) -> str:

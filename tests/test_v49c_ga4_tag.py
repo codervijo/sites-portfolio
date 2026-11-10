@@ -112,6 +112,23 @@ def test_env_wired_reads_get_committed_default(tmp_path):
     assert _fix(d).status == "nothing-to-do"
 
 
+def test_env_loader_only_in_a_component_is_manual(tmp_path):
+    d = _site(tmp_path)
+    _w(d, "src/layouts/Layout.astro", ASTRO_LAYOUT)
+    _w(d, "src/analytics/init.ts", "const a = import.meta.env.PUBLIC_GA_ID;\n")
+    _w(d, "src/components/tools/Tool.tsx", 'import { initAnalytics } from "../../analytics/init";\n')
+    res = _fix(d)
+    assert res.status == "manual" and "site-wide" in res.summary
+
+
+def test_env_loader_from_app_entry_is_site_wide(tmp_path):
+    d = _site(tmp_path)
+    _w(d, "index.html", "<html><head></head></html>")
+    _w(d, "src/main.tsx", 'import { initAnalytics } from "./analytics/init.ts";\n')
+    init = _w(d, "src/analytics/init.ts", "const a = import.meta.env.VITE_GA_ID?.trim();\n")
+    assert _fix(d).status == "fixed" and GA in init.read_text()
+
+
 # ---- Vite index.html / TanStack -------------------------------------------
 
 def test_vite_index_html_gets_snippet(tmp_path):
