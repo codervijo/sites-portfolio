@@ -540,3 +540,43 @@ def run(*, apply: bool, assume_yes: bool, only: list[str] | None = None, switch_
     if not apply and "planned" in counts:
         console.print("[dim]Dry run — `lamill fleet ga --apply` to execute (confirms per site).[/]")
     return results
+
+
+# ---------------------------------------------------------------- v49.H new sites
+
+
+def tag_new_site(base: Path, *, commit: bool) -> tuple[str, str, list[str]]:
+    """Make a freshly bootstrapped site load its recorded GA4 ID (v49.H).
+
+    Returns (kind, message, touched) with kind ∈ ok / skip / err. Never
+    pushes — `new deploy` does. With `commit`, the touched files (only
+    those) are committed locally; a touched file that already had
+    uncommitted edits is restored and reported instead."""
+    from .checks.seo import check_162_ga4_id_recorded as c162
+    from .checks.seo import check_163_ga4_tag_in_source as c163
+    ga = c162.recorded_id(base)
+    hint = f"`lamill fleet ga --only {base.name} --apply` once fixed"
+    if not ga:
+        return "skip", f"no GA4 ID in lamill.toml (GA4 setup skipped?) — {hint}", []
+    plan = c163._fix(base, dry_run=True, assume_yes=True)
+    if plan.status == "nothing-to-do":
+        return "ok", f"source loads {ga}", []
+    if plan.status != "would-fix":
+        return "skip", f"{plan.summary} — {hint}", []
+    dirty_before = _dirty(base) if commit else set()
+    snap = Snapshot(base)
+    r = c163._fix(base, dry_run=False, assume_yes=True)
+    if r.status != "fixed":
+        return "skip", f"{r.summary} — {hint}", []
+    touched = [Path(t) for t in r.files_touched]
+    rels = [str(t.relative_to(base)) for t in touched]
+    if commit:
+        clash = sorted(set(rels) & dirty_before)
+        if clash:
+            snap.restore(touched)
+            return "err", f"uncommitted edits in {', '.join(clash)} — commit or stash, then re-run", []
+        for step in (["add", "--", *rels], ["commit", "-m", COMMIT_MSG.format(ga=ga), "--", *rels]):
+            g = _git(base, *step)
+            if g.returncode != 0:
+                return "err", f"git {step[0]}: {(g.stderr or g.stdout).strip()[:200]}", rels
+    return "ok", f"tagged {ga}: {r.summary}", rels

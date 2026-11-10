@@ -24,9 +24,9 @@ Listed reverse-chronologically (newest first).
 
 ---
 
-## v49 — GA4 on every site: property, tag, and live verification (v49.A-G) — shipped 2026-11-09
+## v49 — GA4 on every site: property, tag, and live verification (v49.A-H) — shipped 2026-11-09
 
-Commits: `08e2551` (B), `08f0af3` (C), `593b2c0` (D), `59c1982` + `52c3cd0` + `d79ff4c` (E), `fd0e4a2` (F), G in the tier-close commit. ADR-0029 (amended 2026-11-09 for the clean switch).
+Commits: `08e2551` (B), `08f0af3` (C), `593b2c0` (D), `59c1982` + `52c3cd0` + `d79ff4c` (E), `fd0e4a2` (F), `5304a59` (G), H in its own commit. v49.H (new sites ship with the tag) was added after the A–G close, when the operator asked whether a new site would get GA4 automatically — bootstrap created the property but nothing injected the tag. ADR-0029 (amended 2026-11-09 for the clean switch).
 
 **Outcome:** 42 in-scope sites, 41 done by the final dry run's count (the 42nd, mdburst, was then fixed by hand); every site's GA4 property is in LaMill Sites (account 415643559). Verified live everywhere except the 5 `.xyz` sites (unreachable from the operator's network). Out of scope by design: dark (`csinorcal.church`), HostGator-WP, non-live, client-owned sites.
 

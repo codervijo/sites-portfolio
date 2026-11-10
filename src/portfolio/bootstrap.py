@@ -58,6 +58,8 @@ class BootstrapResult:
     # renders both fields after bootstrap completes.
     ga4_status: str = ""           # "" | "created" | "found" | "skipped:<reason>" | "failed:<error>"
     ga4_measurement_id: str | None = None   # populated iff status is "created" or "found"
+    # v49.H — CHECK_163 fixer outcome: (kind ok|skip|err, message); None = not attempted.
+    ga4_tag: tuple[str, str] | None = None
     # v29.D — which [content] fields were derived+seeded from the
     # authored AI_AGENTS sections (ADR-0019). Empty list = none seeded
     # (no API key / no brief / derivation failure); CLI renders a summary.
@@ -2241,6 +2243,17 @@ def _bootstrap_inner(
             indexnow.provision(project_dir)
         except Exception:
             pass
+
+        # v49.H — ship the GA4 tag in the initial commit (CHECK_163 fixer:
+        # per-stack injection + privacy sentence). Best-effort: a miss is
+        # reported and `lamill fleet ga` / `new site` catch it later.
+        if measurement_id:
+            try:
+                from .fleet_ga import tag_new_site
+                kind, msg, _ = tag_new_site(project_dir, commit=False)
+            except Exception as e:  # noqa: BLE001 — never fail bootstrap on GA4
+                kind, msg = "skip", f"GA4 tag not injected ({type(e).__name__}: {e})"[:300]
+            result.ga4_tag = (kind, msg)
 
     initialized, sha = _git_init_and_commit(
         project_dir,

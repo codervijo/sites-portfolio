@@ -872,6 +872,10 @@ def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:
                 f"measurement ID [cyan]{result.ga4_measurement_id}[/] "
                 f"written to lamill.toml [dim][analytics][/]"
             )
+            if result.ga4_tag:
+                kind, msg = result.ga4_tag
+                mark = {"ok": "[green]✓[/]", "skip": "[yellow]↷[/]", "err": "[red]✗[/]"}[kind]
+                console.print(f"{mark} GA4 tag · [dim]{msg}[/]")
         elif result.ga4_status.startswith("skipped:"):
             console.print(
                 f"\n[yellow]↷[/] GA4 property creation "

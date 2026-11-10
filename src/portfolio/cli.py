@@ -25,7 +25,7 @@ NEW_SITE_STEPS: tuple[tuple[str, str], ...] = (
     ("lamill fleet sync --refresh",
      "pull the new Porkbun domain into the inventory"),
     ("lamill new bootstrap <domain> --git-url <lovable-github-url>",
-     "scaffold sites/<domain>/; Lovable/TanStack is ported to Astro"),
+     "scaffold sites/<domain>/; Lovable/TanStack is ported to Astro; GA4 property + tag"),
     ("cd ~/work/projects/sites && make buildsh",
      "build in Docker (never host pnpm); fix any Lovable placeholder head:"),
     ("lamill new deploy <domain> --yes --watch",

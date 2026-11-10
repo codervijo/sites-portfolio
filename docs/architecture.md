@@ -226,6 +226,10 @@ rankmill keeps only its detector (`check_240`).
   and before the push. The Admin API cannot move a property between
   accounts, so switching is the only automatable path; old properties keep
   their history read-only.
+- **New sites (v49.H):** `new bootstrap` runs the CHECK_163 fixer
+  (`fleet_ga.tag_new_site`) before the initial commit, so the tag ships with
+  the first deploy; `new site` re-runs it after bootstrap (commits touched
+  files locally, `new deploy` pushes) and checks the built output has the ID.
 - **gtag gotcha (fixed on mdburst, homeloom, calcengine 2026-11-09):**
   gtag.js only processes `arguments` objects in `dataLayer`; pushing a
   plain array (`dataLayer.push(["event", …])`, `push(args)`) is silently

@@ -158,6 +158,8 @@ class Harness:
         self.confirms = confirms
         self.budget = None
         self.gate_result = []
+        self.events: list[str] = []  # v49.H: GA4 tag vs build order
+        self.ga4_result = ("ok", "source loads G-X", [])
 
     def runner(self, argv):
         self.calls.append(argv[3:])  # strip `python -m portfolio`
@@ -179,7 +181,8 @@ class Harness:
             ask_prompt=lambda m: "", owned=lambda d: True,
             discover=lambda d: [RepoCandidate("codervijo/x-site", "https://github.com/codervijo/x-site",
                                               "2026-11-07", 0.9)],
-            build=lambda d: (self.build_ok, "build OK" if self.build_ok else "build failed (exit 1)"),
+            build=lambda d: (self.events.append("build"), (self.build_ok, "build OK" if self.build_ok else "build failed (exit 1)"))[1],
+            ga4_tag=lambda d: (self.events.append("ga4"), self.ga4_result)[1],
             gate=lambda d: self.gate_result,
             is_zone_active=lambda d: self.zone, probe_factory=lambda d, s: (lambda: None),
             wait=self.wait, sites_root=self.sites, ledger=self.ledger, newest=lambda: None)
@@ -285,3 +288,19 @@ def test_gate_selects_errors_and_placeholders_not_live_or_warn():
 def test_gate_report_leads_with_fix_then_escape():
     msg = ns.report_gate("x.com", [ns.GateFailure("CHECK_081", "no-placeholder-metadata", "warn", "'Lovable App'")])
     assert msg.index("project fix x.com") < msg.index("--skip-gate")
+
+
+def test_ga4_tag_step_runs_after_bootstrap_before_build(tmp_path):
+    """v49.H — new sites ship with the GA4 tag."""
+    h = Harness(tmp_path)
+    assert h.run(yes=True) == 0
+    assert h.events == ["ga4", "build"]
+
+
+def test_ga4_tag_skip_or_error_never_blocks_publish(tmp_path):
+    for result in [("skip", "no GA4 ID", []), ("err", "uncommitted edits", [])]:
+        (tmp_path / result[0]).mkdir()
+        h = Harness(tmp_path / result[0], bootstrapped=True)
+        h.ga4_result = result
+        assert h.run(yes=True) == 0
+        assert ["new", "deploy"] in h.cmds()

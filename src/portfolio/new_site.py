@@ -393,6 +393,7 @@ def run_new_site(
     sites_root: Path = SITES_ROOT,
     ledger: Path = LEDGER,
     newest: Callable[[], tuple[str, str] | None] = newest_porkbun_domain,
+    ga4_tag: Callable[[Path], tuple[str, str, list[str]]] | None = None,
 ) -> int:
     """Run the guided flow. Returns the process exit code."""
     import typer
@@ -474,12 +475,33 @@ def run_new_site(
                 record_ledger(domain, repo_name, ledger)
             console.print("  [green]✓[/] bootstrapped")
 
+        # 2b. GA4 tag (v49.H) — bootstrap normally did it; this covers sites
+        # bootstrapped earlier or with GA4 skipped. Never blocks.
+        console.print("\n[bold]GA4 tag[/]")
+        from .fleet_ga import built_output_has, tag_new_site
+        try:
+            kind, msg, _ = (ga4_tag or (lambda d: tag_new_site(d, commit=True)))(site_dir)
+        except Exception as e:  # noqa: BLE001 — GA4 never blocks a publish
+            kind, msg = "skip", f"GA4 tag step failed ({type(e).__name__}: {e})"[:300]
+        mark = {"ok": "[green]✓[/]", "skip": "[yellow]↷[/]", "err": "[red]✗[/]"}[kind]
+        console.print(f"  {mark} {msg}")
+
         # 3. build
         step(3, "Build (in Docker)")
         ok, detail = (build or build_in_container)(site_dir)
         if not ok:
             raise NewSiteError(f"{detail} — fix the build in sites/{domain}/, then re-run `lamill new site {domain}`.")
         console.print(f"  [green]✓[/] {detail}")
+        from .checks.seo.check_162_ga4_id_recorded import recorded_id
+        try:
+            ga = recorded_id(site_dir)
+        except Exception:  # noqa: BLE001 — unparseable lamill.toml is CHECK_059's job
+            ga = None
+        if ga and kind == "ok":
+            if built_output_has(site_dir, ga):
+                console.print(f"  [green]✓[/] built output contains GA4 {ga}")
+            else:
+                console.print(f"  [yellow]↷[/] built output doesn't contain GA4 {ga} — check the tag before deploying")
 
         # 4. pre-deploy gate (v48.D)
         console.print("\n[bold]4. Pre-deploy check[/]")
