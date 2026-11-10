@@ -47,3 +47,15 @@ A fleet audit on 2026-11-08 found the split never produced a tagged site:
   (`vijos-portfolio` project, shared with GSC) cover all sites; per-site
   separation is one GA4 property per site under the LaMill Sites account
   (per-client accounts for client-owned sites).
+
+## Amendment — 2026-11-09 (v49.F)
+
+Decision (g) of v49.A planned to consolidate pre-existing properties into
+LaMill Sites with GA4's "Move property". The Admin API has no method for
+that (checked v1beta + v1alpha discovery docs), so the operator chose a
+**clean switch** instead: `lamill fleet ga --switch-old` gives each such
+site a fresh LaMill Sites property, replaces the old ID in source, and
+deletes hosting env vars that would override the committed ID. The old
+properties keep their history, readable in their old accounts. Applied to
+calcengine.site, civictools.app, keralavotemap.site, lamillrentals.com
+and washcalc.app.

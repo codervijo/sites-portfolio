@@ -30,6 +30,7 @@ sites/portfolio/
 │   ├── gsc_recrawl.py            # GSC sitemap-resubmit flow
 │   ├── gsc_admin.py              # GSC + Site Verification write client (v24.B)
 │   ├── ga4_admin.py              # GA4 Admin API client + OAuth (v18.C); find-or-create (v49.B)
+│   ├── fleet_ga.py               # `fleet ga` GA4 rollout runner (v49.E) + `--switch-old` (v49.F)
 │   ├── gtrends.py                # Google Trends via pytrends (v19.B)
 │   ├── seo_runtime.py            # live HTTP SEO probe orchestrator
 │   ├── seo_cache.py              # snapshot save/load for `data/seo/`
@@ -189,6 +190,46 @@ Universal conformance catalog at `src/portfolio/checks/<category>/check_NNN_<slu
 - **Fleet exclusions**: `[git] ignore_repos = ["portfolio"]` in
   `~/.config/portfolio/config.toml` keeps the tool's own repo out of
   the per-site SEO/stack checks (Python CLI, not a website).
+
+### GA4 lifecycle (v49, ADR-0029)
+
+lamill owns GA4 end to end — property, tag, live verification. The v18
+boundary ("markup injection belongs to the SEO pipeline") is superseded;
+rankmill keeps only its detector (`check_240`).
+
+- **CHECK_162 `ga4-id-recorded`** (warn) — `lamill.toml [analytics] ga4_id`
+  set. Fixer: adopt a single real `G-` from source → reuse a LaMill Sites
+  property whose web stream is the domain → `manual` when the property is
+  in another account → create property + web stream + 14-month retention
+  (`ga4_admin.ensure_property`).
+- **CHECK_163 `ga4-tag-in-source`** (warn) — source (`index.html` + all of
+  `src/`) loads that ID site-wide. Fixer per stack: Astro
+  `src/components/Analytics.astro` + `<Analytics />` before `</head>`;
+  TanStack/React `.tsx` gtag `<script>` elements; Vite `index.html`
+  snippet; existing `PUBLIC_GA_ID`/`VITE_GA_ID` reads wrapped as
+  `(import.meta.env.X || "G-…")`. Adds one GA sentence to an existing
+  privacy page; a page that contradicts GA ("No analytics") is `manual`.
+  An env loader reached only from islands (old mdburst) is `manual`.
+- **CHECK_164 `ga4-live-tag`** (warn, report-only) — live homepage HTML or
+  its same-origin bundles (scripts, modulepreload, Astro island URLs and
+  their imports, ≤25 fetches) carry the ID. `live_state()` →
+  live / mismatch / missing / unreachable.
+- **`lamill fleet ga`** (`fleet_ga.py`) — the only path that commits and
+  pushes: per site live gate → CHECK_162/163 plan → (apply) in-memory
+  snapshot, fixers, dirty-file guard, container build with the ID required
+  in the output (else restore), commit only touched files + push, CHECK_164
+  (↷ deploying right after a push). `--switch-old` (v49.F): a site whose
+  property sits in another account gets a fresh LaMill Sites property; the
+  old ID is replaced in `lamill.toml` / `index.html` / `src/` and in
+  gitignored local `.env*` (never committed); hosting env vars
+  `PUBLIC_GA_ID`/`VITE_GA_ID` (Vercel) are deleted after the build passes
+  and before the push. The Admin API cannot move a property between
+  accounts, so switching is the only automatable path; old properties keep
+  their history read-only.
+- **gtag gotcha (fixed on mdburst, homeloom, calcengine 2026-11-09):**
+  gtag.js only processes `arguments` objects in `dataLayer`; pushing a
+  plain array (`dataLayer.push(["event", …])`, `push(args)`) is silently
+  ignored. Hand-written helpers must push `arguments`.
 
 ### Fix-tier
 
@@ -505,12 +546,13 @@ ftp_port = 21
 public_html_path = "/home/vikt/public_html/example.com/"
 
 [analytics]
-# v18.D — written by `new bootstrap` when GA4 auto-create succeeds.
-# `ga4_id` is the measurement ID returned by the Admin API (matches
-# `G-[A-Z0-9]{6,12}` shape). The SEO pipeline (separate project)
-# reads this and handles markup injection — portfolio owns the
-# property creation lifecycle, not the gtag block in the site's
-# Layout.
+# v18.D — written by `new bootstrap` when GA4 auto-create succeeds;
+# v49.B — also by the CHECK_162 fixer (adopt from source / reuse /
+# create in the LaMill Sites account). `ga4_id` is the measurement ID
+# (`G-[A-Z0-9]{6,12}`). Since v49 (ADR-0029) lamill also owns the
+# gtag block: CHECK_163 checks + injects it in site source with this
+# ID committed, CHECK_164 checks the live site loads it. (Supersedes
+# the v18 note that markup injection belonged to the SEO pipeline.)
 ga4_id = "G-HP39MQPM2M"
 
 [notes]
@@ -1142,6 +1184,11 @@ lamill
 │   ├── check                                        ✅ v5.B
 │   ├── fix                                          ✅ v6.G
 │   ├── drift                                        ✅ v6.A
+│   ├── ga [--apply] [--yes] [--only DOMAIN]         ✅ v49.E — GA4 rollout:
+│   │      [--switch-old]                                     ensure property → tag
+│   │                                                         → build gate → commit
+│   │                                                         + push → live check;
+│   │                                                         --switch-old v49.F
 │   ├── repos [--add-deploy-declarations]            ✅ v7.E (flag in v10.C)
 │   ├── dashboard                                    ✅ v7.B
 │   └── sync [--refresh-rdap]                        ✅ v7.A; renamed v14.B
@@ -1384,7 +1431,8 @@ this was paid for in real debugging (2026-06-15).
 | `gsc.py` | GSC OAuth + queries + sync. **v24.B scope bump**: `SCOPES` changed from `["webmasters.readonly"]` to `["webmasters", "siteverification"]` so `gsc_admin.py`'s write helpers can use the same cached OAuth token; operator runs `lamill settings gsc auth --force` once to re-consent. | `gsc_auth`, `gsc_status`, `authenticate`, `query_with_dims`, `list_properties` |
 | `gsc_recrawl.py` | Sitemap resubmit flow + per-URL inspection (powers v16.C `CHECK_147 url-indexed`) | `recrawl_property`, `inspect_one_url` |
 | `gsc_admin.py` (v24.B / v25.C / v25.D) | GSC + Site Verification API **write** client. httpx-direct (matches `ga4_admin.py` / `gh_repo.py`; not `googleapiclient.discovery.build`). Reuses `gsc.authenticate()` token — no separate credential file. Used by `new deploy` Step 9 (v24.C / v25.C) to register `sc-domain:<domain>` properties + submit sitemaps without dashboard clicks. **v25.C multi-method verification**: `get_verification_token(method=...)` + `verify_domain(method=...)` accept `method ∈ {"FILE", "DNS_TXT"}` (default FILE per ADR-0014); `write_verification_file(project_dir, token)` writes Google's HTML proof to `public/<token>`; `wait_for_verification_file_live(domain, token)` HEAD-polls (~180s budget). **v25.D `classify_403(error_body)`** parses Google's 403 JSON details to distinguish `insufficient_scope` (re-consent) vs `service_disabled` (enable API in GCP; surfaces consumer-project URL when available) vs `invalid_grant` (re-auth) vs `unknown`. Idempotent at every level (`list_sites` + `list_sitemaps` probes skip re-adding existing entries). Typed errors: `GSCAdminError` (non-2xx) + `VerificationFailedError` (propagation budget exhausted; method-aware hint text). | `get_verification_token`, `write_verification_file`, `wait_for_verification_file_live`, `verify_domain`, `add_site`, `submit_sitemap`, `list_sites`, `list_sitemaps`, `classify_403` |
-| `ga4_admin.py` (v18.C) | GA4 Admin API client + OAuth (`analytics.edit` scope). httpx-direct (no `googleapiclient.discovery.build`). Used by `new bootstrap` and the CHECK_162 fixer to provision per-site GA4 properties + web data streams; measurement ID lands in `lamill.toml [analytics] ga4_id`. **v49.B find-or-create:** `stream_index()` lists every property/web stream in every account the token can see; `ensure_property(domain, account_id)` reuses a fleet-account match, reports `elsewhere` (property lives in another account → move it, never duplicate), `ambiguous`, `would-create` (dry run), or creates property + stream; `set_data_retention()` probes then sets 14-month event + user retention (ADR-0015 idempotency). Credentials at `~/lamill/ga4/{credentials.json,token.json}` (chmod 600); account = `GA4_ACCOUNT_ID` (LaMill Sites, ADR-0029). Tests are isolated from the real sign-in by `tests/conftest.py`. | `create_property`, `create_web_stream`, `stream_index`, `find_for_domain`, `ensure_property`, `set_data_retention`, `normalize_host`, `authenticate`, `has_token` |
+| `ga4_admin.py` (v18.C) | GA4 Admin API client + OAuth (`analytics.edit` scope). httpx-direct (no `googleapiclient.discovery.build`). Used by `new bootstrap` and the CHECK_162 fixer to provision per-site GA4 properties + web data streams; measurement ID lands in `lamill.toml [analytics] ga4_id`. **v49.B find-or-create:** `stream_index()` lists every property/web stream in every account the token can see; `ensure_property(domain, account_id)` reuses a fleet-account match, reports `elsewhere` (property lives in another account → move it, never duplicate), `ambiguous`, `would-create` (dry run), or creates property + stream; **v49.F** `ignore_other_accounts=True` creates a fleet property even when another account has one (clean switch); `set_data_retention()` probes then sets 14-month event + user retention (ADR-0015 idempotency). Credentials at `~/lamill/ga4/{credentials.json,token.json}` (chmod 600); account = `GA4_ACCOUNT_ID` (LaMill Sites, ADR-0029). Tests are isolated from the real sign-in by `tests/conftest.py`. | `create_property`, `create_web_stream`, `stream_index`, `find_for_domain`, `ensure_property`, `set_data_retention`, `normalize_host`, `authenticate`, `has_token` |
+| `fleet_ga.py` (v49.E–F) | `lamill fleet ga` GA4 rollout runner: per-site live gate → CHECK_162/163 plans → in-memory `Snapshot` → fixers → dirty-file guard → container build gate (`built_output_has`) → `commit_and_push` (touched files only) → CHECK_164 live state. `--switch-old` → `_switch`: fresh LaMill Sites property (`ensure_property(..., ignore_other_accounts=True)`), old ID replaced in source + gitignored `.env*`, Vercel `PUBLIC_GA_ID`/`VITE_GA_ID` deleted pre-push (`vercel.delete_env_keys`). | `run`, `run_site`, `in_scope_sites`, `Snapshot`, `commit_and_push`, `built_output_has` |
 | `gtrends.py` (v19.B + 2026-05-22 PM mitigations) | Google Trends via `pytrends` — topic-specific only (`fetch_trends(topic, ...)` returns `TrendsPayload` with interest-over-time + related queries). Per-topic cache at `data/gtrends/<topic-hash>.json` keyed by (topic, timeframe, region); schema `gtrends-v1`; 24h TTL. `_make_pytrends_client()` boundary handles UA rotation (5 modern browser UAs) + lazy `ImportError` → typed `GTrendsError` with `uv sync` hint. **429 mitigations** (2026-05-22 PM): `GTrendsRateLimitError` subclass detected via `"429"` / `"Too Many Requests"` in pytrends error string; `fetch_trends` falls back to ANY cached payload via `load_any_cached` (renderer surfaces yellow stale-warning header). **No-topic latest-trends surface withdrawn 2026-05-22 PM** — all three approaches 404'd (pytrends `trending_searches` / `today_searches` / public RSS feed). See `docs/bugs.md` 2026-05-22 PM entry for the iteration log. L4 SerpAPI fallback NOT shipped — pinned. | `fetch_trends`, `load_cached`, `load_any_cached`, `save_cached`, `payload_age_hours`, `TrendsPayload`, `GTrendsError`, `GTrendsRateLimitError` |
 | `seo_runtime.py` | Live HTTP SEO probe orchestrator | `run_seo(domains)` |
 | `seo_cache.py` | Snapshot save/load for `data/seo/` | `save_snapshot`, `latest_snapshot`, `is_stale` |
@@ -2107,6 +2155,23 @@ opened during that work.
 
 **Cost.** ~2-3h careful renaming + cross-module audit + test pass.
 Low risk per-file but breadth is wide.
+
+### `vercel.find_project_by_domain` misses BUILDING projects (v49.F)
+
+Matches on `targets.production.alias`, which during a production build
+lists only the `*.vercel.app` aliases — so the custom domain lookup fails
+until the deploy is READY (seen on calcengine.site 2026-11-09). Fix: also
+match the project's attached domains (`/v9/projects/{id}/domains`) or
+fall back to `alias`. Not hit by `fleet ga` in practice (lookup happens
+before the push).
+
+### `.pnpm-store/` left by container builds
+
+`new_site.build_in_container` installs with the store inside the mounted
+repo; sites whose `.gitignore` lacks `.pnpm-store/` (calcengine.site,
+lamill.io, lamillrentals.com, voltloop.site, washcalc.app) show it
+untracked. Never committed (fleet ga commits touched files only). Fix:
+point `store-dir` outside `/work`, or add a scaffold check.
 
 ### `LLMClient` protocol (existing carryover)
 

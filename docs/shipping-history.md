@@ -24,6 +24,30 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v49 — GA4 on every site: property, tag, and live verification (v49.A-G) — shipped 2026-11-09
+
+Commits: `08e2551` (B), `08f0af3` (C), `593b2c0` (D), `59c1982` + `52c3cd0` + `d79ff4c` (E), `fd0e4a2` (F), G in the tier-close commit. ADR-0029 (amended 2026-11-09 for the clean switch).
+
+**Outcome:** 42 in-scope sites, 41 done by the final dry run's count (the 42nd, mdburst, was then fixed by hand); every site's GA4 property is in LaMill Sites (account 415643559). Verified live everywhere except the 5 `.xyz` sites (unreachable from the operator's network). Out of scope by design: dark (`csinorcal.church`), HostGator-WP, non-live, client-owned sites.
+
+**Field findings while building:** (1) the first full-suite run after GA4 sign-in created 19 junk properties through un-stubbed `bootstrap()` tests — `tests/conftest.py` now isolates every test from the real sign-in; (2) the Admin API has no move-property method, so consolidation became a clean switch (v49.F); (3) container builds needed pnpm 10 for unpinned sites, a non-interactive modules purge, and a `pnpm` shim on PATH for build scripts that call `pnpm` themselves; (4) builds rewrite tracked files (voltloop `public/sitemap.xml`) — restored after the gate; (5) a gitignored local `.env` can carry the old ID into the build gate; (6) hand-written gtag helpers on three sites pushed plain arrays to `dataLayer`, which gtag.js ignores — homeloom had recorded nothing at all.
+
+### Design notes (archived from prd.md)
+
+**Why lamill now owns tag injection (reverses v18.A (a)).** The v18
+boundary assumed the SEO pipeline would inject markup from
+`[analytics] ga4_id`; six months on, nothing does, and the fleet is
+~90% untracked. Delivering it as check + fix fits
+`[[feedback_prefer_check_fix_delivery]]` and makes it reachable via
+`fleet fix`.
+
+**Why commit the ID instead of a build env var.** Env vars live in each
+platform's dashboard (Cloudflare Pages, Workers, Vercel all differ), are
+invisible in the repo, and are exactly why six sites have GA4 code that
+loads nothing today. A committed public ID can't drift silently.
+
+---
+
 ## v48 — `lamill new site` guided publish (v48.A-D) — shipped 2026-11-07
 
 Commits: `20af430` (A), `e969b5a` (B), `b7165c6` (C), D in the tier-close commit. No ADR — `new site` composes existing verbs and adds only `data/new_site.json` (portfolio turf).
