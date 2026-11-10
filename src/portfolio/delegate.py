@@ -1228,7 +1228,12 @@ def _detect_build(site_dir: Path) -> tuple[str | None, str]:
         # `@tanstack/query-core` failed to resolve) while pnpm 10 builds them —
         # so unpinned sites get pnpm 10, matching their lockfileVersion 9.0.
         exe = "corepack pnpm" if pkg.get("packageManager") else f"corepack pnpm@{PNPM_FALLBACK_MAJOR}"
-        install, build, pm = f"{exe} install", f"{exe} run build", "pnpm"
+        # A node_modules left by another pnpm major triggers a purge prompt
+        # that aborts with no TTY (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY,
+        # 2026-11-09 fleet ga run). Allow the purge non-interactively; not
+        # CI=true, which would also force --frozen-lockfile.
+        install, build, pm = (f"{exe} install --config.confirm-modules-purge=false",
+                              f"{exe} run build", "pnpm")
     env = "export COREPACK_HOME=/tmp/cc-corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0;"
     return f"{env} {install} && {build}", pm
 
