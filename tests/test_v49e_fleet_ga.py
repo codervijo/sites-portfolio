@@ -154,3 +154,17 @@ def test_privacy_page_claiming_no_analytics_blocks(site):
     r = _run(site)
     assert r.outcome == "failed" and "rewrite it first" in r.detail
     assert not (site / "src/components/Analytics.astro").exists()
+
+
+def test_build_rewriting_a_tracked_file_is_undone(site):
+    (site / "public").mkdir()
+    (site / "public/sitemap.xml").write_text("<old/>")
+    _git(site, "add", "-A"); _git(site, "commit", "-qm", "sitemap")
+
+    def b(base):
+        (base / "public/sitemap.xml").write_text("<regenerated/>")
+        return _good_build(base)
+    r = _run(site, build=b)
+    assert r.outcome == "changed"
+    assert (site / "public/sitemap.xml").read_text() == "<old/>"
+    assert _git(site, "status", "--porcelain") == ""

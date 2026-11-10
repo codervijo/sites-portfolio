@@ -98,6 +98,17 @@ class Snapshot:
                 p.unlink()
 
 
+def _undo_build_side_effects(base: Path, dirty_before: set[str], touched: list[Path]) -> None:
+    """Builds can regenerate committed files (voltloop rewrites
+    `public/sitemap.xml`). Restore tracked files the build changed that were
+    clean before and that this run didn't write, so the repo is left as found."""
+    ours = {str(p.relative_to(base)) for p in touched}
+    tracked = set(_git(base, "ls-files").stdout.splitlines())
+    stray = sorted((_dirty(base) - dirty_before - ours) & tracked)
+    if stray:
+        _git(base, "checkout", "--", *stray)
+
+
 def built_output_has(base: Path, ga: str) -> bool:
     for d in _BUILD_DIRS:
         root = base / d
@@ -206,7 +217,8 @@ def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], b
             return SiteResult(domain, "deferred", msg)
     _step("ok" if ga else "skip", "id", ga or p162.summary)
 
-    plan_id = existing or "G-(new)"
+    found = c162._GA_ID.search(p162.summary) if p162.status == "would-fix" else None
+    plan_id = existing or (found.group(0) if found else "G-(new)")
     tag_plan = c163._plan_tag(base, plan_id)
     if isinstance(tag_plan, FixResult):
         _step("err", "tag", tag_plan.summary)
@@ -271,6 +283,7 @@ def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], b
     source_changed = any(p.name != "lamill.toml" for p in touched)
     if source_changed:
         ok, detail = build(base)
+        _undo_build_side_effects(base, dirty_before, touched)
         if not ok or not built_output_has(base, ga):
             snap.restore(touched)
             msg = detail if not ok else f"built output doesn't contain {ga}"

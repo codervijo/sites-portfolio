@@ -1192,6 +1192,9 @@ def run_project_checks(site_dir: Path) -> dict[str, str]:
     return {cid: r.status for cid, r in results.items()}
 
 
+PNPM_FALLBACK_MAJOR = 10  # see _detect_build
+
+
 def _detect_build(site_dir: Path) -> tuple[str | None, str]:
     """Return (build_shell_cmd, package_manager) or (None, reason) when there
     is nothing to build. Package manager from lockfile; build via the
@@ -1219,7 +1222,13 @@ def _detect_build(site_dir: Path) -> tuple[str | None, str]:
     if (site_dir / "yarn.lock").is_file():
         install, build, pm = "corepack yarn install", "corepack yarn run build", "yarn"
     else:
-        install, build, pm = "corepack pnpm install", "corepack pnpm run build", "pnpm"
+        # Corepack honours a `packageManager` pin; without one it fetches the
+        # newest pnpm. pnpm 12 broke unpinned fleet builds (2026-11-09,
+        # airsucks.com: ignored build scripts became fatal, then
+        # `@tanstack/query-core` failed to resolve) while pnpm 10 builds them —
+        # so unpinned sites get pnpm 10, matching their lockfileVersion 9.0.
+        exe = "corepack pnpm" if pkg.get("packageManager") else f"corepack pnpm@{PNPM_FALLBACK_MAJOR}"
+        install, build, pm = f"{exe} install", f"{exe} run build", "pnpm"
     env = "export COREPACK_HOME=/tmp/cc-corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0;"
     return f"{env} {install} && {build}", pm
 

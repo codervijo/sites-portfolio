@@ -456,7 +456,13 @@ def test_detect_build_picks_pnpm(site):
     (site / "package.json").write_text('{"scripts":{"build":"astro build"}}')
     (site / "pnpm-lock.yaml").write_text("lockfileVersion: 9\n")
     cmd, pm = _detect_build(site)
-    assert pm == "pnpm" and "corepack pnpm run build" in cmd
+    assert pm == "pnpm" and "corepack pnpm@10 run build" in cmd
+
+
+def test_detect_build_honours_package_manager_pin(site):
+    (site / "package.json").write_text('{"packageManager":"pnpm@9.15.4","scripts":{"build":"vite build"}}')
+    cmd, _ = _detect_build(site)
+    assert "corepack pnpm install" in cmd and "pnpm@10" not in cmd
 
 
 def test_detect_build_no_build_script(site):
