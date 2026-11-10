@@ -28,6 +28,7 @@ new location for GA4 to avoid compounding the drift.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -282,3 +283,184 @@ def create_web_stream(
                 f"{body!r}"
             )
         return stream_id, measurement_id
+
+
+# ---- v49.B — read + idempotent ensure --------------------------------
+
+RETENTION = "FOURTEEN_MONTHS"
+
+
+def _raise_for(resp: httpx.Response, what: str) -> None:
+    if resp.status_code == 200:
+        return
+    cls = (
+        GA4TransientError
+        if _httpapi.status_is_transient(resp.status_code)
+        else GA4AdminError
+    )
+    raise cls(f"{what} → HTTP {resp.status_code}: {resp.text[:300]}")
+
+
+def _paged(c: httpx.Client, url: str, key: str) -> list[dict]:
+    """GET every page of a list endpoint; returns the concatenated `key` items."""
+    items: list[dict] = []
+    token = ""
+    while True:
+        params = {"pageSize": 200}
+        if token:
+            params["pageToken"] = token
+        resp = c.get(url, params=params)
+        _raise_for(resp, f"GET {url}")
+        body = resp.json()
+        items.extend(body.get(key) or [])
+        token = body.get("nextPageToken") or ""
+        if not token:
+            return items
+
+
+def normalize_host(uri_or_host: str) -> str:
+    """`https://www.Foo.com/` → `foo.com` (scheme, path and `www.` dropped)."""
+    from urllib.parse import urlparse
+
+    s = (uri_or_host or "").strip()
+    host = (urlparse(s).hostname if "://" in s else s.split("/", 1)[0]) or ""
+    host = host.lower().rstrip(".")
+    return host[4:] if host.startswith("www.") else host
+
+
+
+@dataclass(frozen=True)
+class StreamHit:
+    """One GA4 property (and its web stream, if any) visible to the token."""
+    account_id: str
+    account_name: str
+    property_id: str
+    property_name: str
+    measurement_id: str | None
+    host: str | None
+
+
+def stream_index(*, client: httpx.Client | None = None) -> list[StreamHit]:
+    """Every property in every account the token can see, one row per web
+    stream (a property with no web stream still gets one row, ids None)."""
+    hits: list[StreamHit] = []
+    with _httpapi.managed_client(client, _client) as c:
+        for acct in _paged(c, f"{_ADMIN_API_BASE}/accountSummaries", "accountSummaries"):
+            account_id = acct.get("account", "").split("/")[-1]
+            account_name = (acct.get("displayName") or "").strip()
+            for prop in acct.get("propertySummaries") or []:
+                property_id = prop.get("property", "").split("/")[-1]
+                property_name = (prop.get("displayName") or "").strip()
+                streams = _paged(
+                    c, f"{_ADMIN_API_BASE}/properties/{property_id}/dataStreams",
+                    "dataStreams",
+                )
+                web = [s for s in streams if s.get("type") == "WEB_DATA_STREAM"]
+                if not web:
+                    hits.append(StreamHit(account_id, account_name, property_id,
+                                          property_name, None, None))
+                for s in web:
+                    wsd = s.get("webStreamData") or {}
+                    uri = wsd.get("defaultUri") or ""
+                    hits.append(StreamHit(
+                        account_id, account_name, property_id, property_name,
+                        wsd.get("measurementId") or None,
+                        normalize_host(uri) if uri else None,
+                    ))
+    return hits
+
+
+def find_for_domain(domain: str, index: list[StreamHit]) -> list[StreamHit]:
+    """Rows belonging to `domain`: web-stream host match first; failing that,
+    a property whose display name is the domain (covers a half-finished
+    create where the stream never landed)."""
+    d = normalize_host(domain)
+    by_host = [h for h in index if h.host == d and h.measurement_id]
+    if by_host:
+        return by_host
+    return [h for h in index if normalize_host(h.property_name) == d]
+
+
+def set_data_retention(property_id: str, *, client: httpx.Client | None = None) -> bool:
+    """Ensure event + user data retention are 14 months. Returns True when it
+    changed anything (probe before act — ADR-0015 idempotency)."""
+    url = f"{_ADMIN_API_BASE}/properties/{property_id}/dataRetentionSettings"
+    with _httpapi.managed_client(client, _client) as c:
+        resp = c.get(url)
+        _raise_for(resp, f"GET {url}")
+        cur = resp.json()
+        if (cur.get("eventDataRetention") == RETENTION
+                and cur.get("userDataRetention") == RETENTION):
+            return False
+        resp = c.patch(
+            url,
+            params={"updateMask": "eventDataRetention,userDataRetention"},
+            json={"eventDataRetention": RETENTION, "userDataRetention": RETENTION},
+        )
+        _raise_for(resp, f"PATCH {url}")
+        return True
+
+
+@dataclass(frozen=True)
+class EnsureOutcome:
+    """Result of `ensure_property`.
+
+    status:
+      - "found"        — a property for the domain already exists in the fleet account
+      - "created"      — a new property (and/or web stream) was created
+      - "would-create" — dry run; nothing exists yet
+      - "elsewhere"    — the domain's property lives in another account (move it first)
+      - "ambiguous"    — more than one fleet-account property matches
+    """
+    status: str
+    measurement_id: str | None = None
+    property_id: str | None = None
+    account_name: str | None = None
+    detail: str = ""
+
+
+def ensure_property(
+    domain: str,
+    account_id: str,
+    *,
+    index: list[StreamHit] | None = None,
+    dry_run: bool = False,
+    client: httpx.Client | None = None,
+) -> EnsureOutcome:
+    """Find-or-create the GA4 property + web stream for `domain` in the fleet
+    account `account_id`. Never creates a duplicate: a match in any visible
+    account wins. New properties get display name = domain, a web stream at
+    `https://<domain>`, and 14-month retention (v49.A (i))."""
+    with _httpapi.managed_client(client, _client) as c:
+        idx = index if index is not None else stream_index(client=c)
+        hits = find_for_domain(domain, idx)
+        mine = [h for h in hits if h.account_id == str(account_id)]
+        other = [h for h in hits if h.account_id != str(account_id)]
+        mine_ids = {h.measurement_id for h in mine if h.measurement_id}
+        if len(mine_ids) > 1:
+            return EnsureOutcome("ambiguous", detail=", ".join(sorted(mine_ids)))
+        if mine_ids:
+            h = next(h for h in mine if h.measurement_id)
+            if not dry_run:
+                set_data_retention(h.property_id, client=c)
+            return EnsureOutcome("found", h.measurement_id, h.property_id, h.account_name)
+        if other and not mine:
+            h = other[0]
+            return EnsureOutcome(
+                "elsewhere", h.measurement_id, h.property_id, h.account_name,
+                detail=f"account {h.account_name} ({h.account_id})",
+            )
+        if dry_run:
+            return EnsureOutcome("would-create")
+        # A fleet-account property with no web stream → add the stream only.
+        property_id = mine[0].property_id if mine else create_property(
+            str(account_id), domain, client=c,
+        )
+        _sid, measurement_id = create_web_stream(
+            property_id, f"https://{domain}", display_name=domain, client=c,
+        )
+        set_data_retention(property_id, client=c)
+        if index is not None:
+            index.append(StreamHit(str(account_id), "", property_id, domain,
+                                   measurement_id, normalize_host(domain)))
+        return EnsureOutcome("created", measurement_id, property_id)

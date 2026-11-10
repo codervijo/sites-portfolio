@@ -56,8 +56,8 @@ class BootstrapResult:
     # v18.D — GA4 auto-create outcome from bootstrap. ga4_status is
     # always set to one of the literal status strings below; CLI
     # renders both fields after bootstrap completes.
-    ga4_status: str = ""           # "" | "created" | "skipped:<reason>" | "failed:<error>"
-    ga4_measurement_id: str | None = None   # populated iff status == "created"
+    ga4_status: str = ""           # "" | "created" | "found" | "skipped:<reason>" | "failed:<error>"
+    ga4_measurement_id: str | None = None   # populated iff status is "created" or "found"
     # v29.D — which [content] fields were derived+seeded from the
     # authored AI_AGENTS sections (ADR-0019). Empty list = none seeded
     # (no API key / no brief / derivation failure); CLI renders a summary.
@@ -1646,18 +1646,21 @@ def _maybe_create_ga4_property(
             "(run `lamill settings apikeys set GA4_ACCOUNT_ID <id>`)",
         )
 
+    # v49.B — find-or-create: never duplicates a property that already
+    # exists for this domain (re-runs, or a property made by hand).
     try:
-        property_id = ga4_admin.create_property(account_id, domain)
-        _stream_id, measurement_id = ga4_admin.create_web_stream(
-            property_id, f"https://{domain}/",
-        )
+        out = ga4_admin.ensure_property(domain, account_id)
     except ga4_admin.GA4AdminError as e:
         msg = str(e)
         if len(msg) > 200:
             msg = msg[:200] + "..."
         return (None, f"failed:{msg}")
 
-    return (measurement_id, "created")
+    if out.status in ("created", "found"):
+        return (out.measurement_id, out.status)
+    if out.status == "elsewhere":
+        return (None, f"skipped:property exists in {out.detail} — move it to the fleet account")
+    return (None, f"skipped:{out.status} {out.detail}".rstrip())
 
 
 def _remove_legacy_wrangler_toml(project_dir: Path) -> bool:

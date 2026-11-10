@@ -865,9 +865,10 @@ def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:
     # v18.D — surface GA4 auto-create outcome. Always render the line
     # so the operator sees whether GA4 was wired (or why it wasn't).
     if result.ga4_status:
-        if result.ga4_status == "created":
+        if result.ga4_status in ("created", "found"):
+            verb = "created" if result.ga4_status == "created" else "exists, reused"
             console.print(
-                f"\n[green]✓[/] GA4 property created · "
+                f"\n[green]✓[/] GA4 property {verb} · "
                 f"measurement ID [cyan]{result.ga4_measurement_id}[/] "
                 f"written to lamill.toml [dim][analytics][/]"
             )

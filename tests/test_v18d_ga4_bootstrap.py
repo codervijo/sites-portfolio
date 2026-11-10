@@ -24,6 +24,23 @@ import pytest
 # ---- AnalyticsBlock schema ------------------------------------------
 
 
+
+@pytest.fixture(autouse=True)
+def _offline_ga4_ensure(monkeypatch):
+    """v49.B — `_maybe_create_ga4_property` now goes through
+    `ensure_property`, which lists existing properties first. Keep these
+    tests offline: empty index, no retention calls, a dummy HTTP client."""
+    import httpx
+    from portfolio import ga4_admin
+
+    monkeypatch.setattr(ga4_admin, "stream_index", lambda **kw: [])
+    monkeypatch.setattr(ga4_admin, "set_data_retention", lambda *a, **kw: False)
+    monkeypatch.setattr(
+        ga4_admin, "_client",
+        lambda client=None: httpx.Client(transport=httpx.MockTransport(
+            lambda req: httpx.Response(500, text="offline test"))),
+    )
+
 def test_analytics_block_parses_valid_ga4_id(tmp_path: Path):
     from portfolio.lamill_toml import load
 
@@ -225,7 +242,7 @@ def test_maybe_create_happy_path(monkeypatch):
     assert measurement_id == "G-NEWSITE99"
     assert status == "created"
     assert captured["property_args"] == ("42", "newsite.dev")
-    assert captured["stream_args"] == ("987654321", "https://newsite.dev/")
+    assert captured["stream_args"] == ("987654321", "https://newsite.dev")
 
 
 # ---- Bootstrap integration -----------------------------------------
