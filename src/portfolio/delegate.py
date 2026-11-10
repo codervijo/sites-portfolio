@@ -1235,6 +1235,12 @@ def _detect_build(site_dir: Path) -> tuple[str | None, str]:
         install, build, pm = (f"{exe} install --config.confirm-modules-purge=false",
                               f"{exe} run build", "pnpm")
     env = "export COREPACK_HOME=/tmp/cc-corepack COREPACK_ENABLE_DOWNLOAD_PROMPT=0;"
+    if pm == "pnpm":
+        # Build scripts that call `pnpm` themselves (washcalc: `pnpm build:client
+        # && …`) need a `pnpm` on PATH, pinned like the outer call
+        # (2026-11-09: `sh: 1: pnpm: not found`).
+        env += (" mkdir -p /tmp/cc-bin && printf '#!/bin/sh\\nexec %s \"$@\"\\n' "
+                f"'{exe}' > /tmp/cc-bin/pnpm && chmod +x /tmp/cc-bin/pnpm && export PATH=/tmp/cc-bin:$PATH;")
     return f"{env} {install} && {build}", pm
 
 

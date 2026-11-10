@@ -269,3 +269,23 @@ def verify_token(*, client: httpx.Client | None = None) -> dict:
         resp = c.get("/v2/user")
     _raise_for_status(resp, "GET /v2/user")
     return resp.json()
+
+
+# ---------- project env vars (v49.F) ----------
+
+
+def delete_env_keys(project_id: str, keys: set[str], *,
+                    dry_run: bool = False,
+                    client: httpx.Client | None = None) -> list[str]:
+    """Delete every env var of `project_id` whose key is in `keys` (all
+    targets). Returns the deleted (or, dry run, would-delete) key names;
+    probe before act — none present → []."""
+    with _httpapi.managed_client(client, _client) as c:
+        resp = c.get(f"/v9/projects/{project_id}/env")
+        _raise_for_status(resp, f"GET /v9/projects/{project_id}/env")
+        hits = [e for e in resp.json().get("envs", []) if e.get("key") in keys]
+        if not dry_run:
+            for e in hits:
+                r = c.delete(f"/v9/projects/{project_id}/env/{e['id']}")
+                _raise_for_status(r, f"DELETE /v9/projects/{project_id}/env/{e['id']}")
+    return sorted(e["key"] for e in hits)

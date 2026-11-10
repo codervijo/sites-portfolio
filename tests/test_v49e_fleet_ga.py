@@ -55,7 +55,8 @@ def _good_build(base: Path):
 def _run(site, *, apply=True, build=_good_build, live=(True, "HTTP 200"), confirm=lambda q: True,
          account=("415643559", "LaMill Sites")):
     return fleet_ga.run_site(site.name, site, apply=apply, confirm=confirm, build=build,
-                             is_live=lambda d, b: live, account_of=lambda ga: account)
+                             is_live=lambda d, b: live, account_of=lambda ga: account,
+                             other_account_id=lambda d: None)
 
 
 @pytest.fixture(autouse=True)
@@ -168,3 +169,118 @@ def test_build_rewriting_a_tracked_file_is_undone(site):
     assert r.outcome == "changed"
     assert (site / "public/sitemap.xml").read_text() == "<old/>"
     assert _git(site, "status", "--porcelain") == ""
+
+
+# ---------------------------------------------------------------- v49.F --switch-old
+
+OLD = "G-OLDOLD1234"
+NEW = "G-NEWNEW5678"
+
+
+def _switch_site(site: Path) -> Path:
+    (site / "lamill.toml").write_text(TOML.replace(GA, OLD))
+    (site / "src/components").mkdir(parents=True, exist_ok=True)
+    (site / "src/components/Analytics.astro").write_text(f'<script src="https://www.googletagmanager.com/gtag/js?id={OLD}"></script>\n')
+    (site / "src/layouts/Layout.astro").write_text(LAYOUT.replace("</head>", "<Analytics />\n  </head>"))
+    _git(site, "add", "-A"); _git(site, "commit", "-qm", "old ga"); _git(site, "push", "-q")
+    return site
+
+
+def _run_switch(site, *, apply=True, env=("PUBLIC_GA_ID",), env_ok=True, build=_good_build):
+    calls = []
+
+    def drop(base, dry):
+        calls.append(dry)
+        if not dry and not env_ok:
+            raise RuntimeError("403")
+        return list(env)
+    r = fleet_ga.run_site(site.name, site, apply=apply, confirm=lambda q: True, build=build,
+                          is_live=lambda d, b: (True, "HTTP 200"),
+                          account_of=lambda ga: ("365405177", "LaMill Rentals"),
+                          switch_old=True, new_property=lambda d: NEW, drop_env=drop,
+                          other_account_id=lambda d: OLD)
+    return r, calls
+
+
+def test_switch_dry_run_writes_nothing(site):
+    _switch_site(site)
+    r, calls = _run_switch(site, apply=False)
+    assert r.outcome == "planned" and calls == [True]
+    assert _git(site, "status", "--porcelain") == ""
+
+
+def test_switch_replaces_id_drops_env_and_pushes(site):
+    _switch_site(site)
+    r, calls = _run_switch(site)
+    assert r.outcome == "changed", r.detail
+    assert calls == [True, False]
+    assert NEW in (site / "lamill.toml").read_text()
+    comp = (site / "src/components/Analytics.astro").read_text()
+    assert NEW in comp and OLD not in comp
+    assert f"{OLD} → {NEW}" in _git(site, "log", "-1", "--format=%s")
+    assert _git(site, "rev-parse", "HEAD") == _git(site, "rev-parse", "origin/main")
+
+
+def test_switch_env_delete_failure_reverts(site):
+    _switch_site(site)
+    head = _git(site, "rev-parse", "HEAD")
+    r, _ = _run_switch(site, env_ok=False)
+    assert r.outcome == "failed" and "env delete failed" in r.detail
+    assert OLD in (site / "lamill.toml").read_text()
+    assert _git(site, "rev-parse", "HEAD") == head
+    assert _git(site, "status", "--porcelain") == ""
+
+
+def test_without_flag_still_deferred(site):
+    _switch_site(site)
+    r = _run(site, account=("365405177", "LaMill Rentals"))
+    assert r.outcome == "deferred"
+
+
+def test_ensure_property_ignore_other_accounts_creates(monkeypatch):
+    from portfolio import ga4_admin
+    idx = [ga4_admin.StreamHit("1", "Old", "p1", "x.test", OLD, "x.test")]
+    monkeypatch.setattr(ga4_admin, "create_property", lambda acct, name, client=None: "p2")
+    monkeypatch.setattr(ga4_admin, "create_web_stream", lambda pid, uri, display_name, client=None: ("s", NEW))
+    monkeypatch.setattr(ga4_admin, "set_data_retention", lambda pid, client=None: True)
+    assert ga4_admin.ensure_property("x.test", "2", index=idx, client=object()).status == "elsewhere"
+    out = ga4_admin.ensure_property("x.test", "2", index=idx, ignore_other_accounts=True, client=object())
+    assert (out.status, out.measurement_id) == ("created", NEW)
+    again = ga4_admin.ensure_property("x.test", "2", index=idx, ignore_other_accounts=True, client=object())
+    assert (again.status, again.measurement_id) == ("found", NEW)
+
+
+def test_switch_updates_gitignored_env_without_committing(site):
+    _switch_site(site)
+    (site / ".gitignore").write_text("dist/\n.env\n")
+    _git(site, "commit", "-qam", "ignore env"); _git(site, "push", "-q")
+    (site / ".env").write_text(f"PUBLIC_GA_ID={OLD}\n")
+    r, _ = _run_switch(site)
+    assert r.outcome == "changed"
+    assert (site / ".env").read_text() == f"PUBLIC_GA_ID={NEW}\n"
+    assert ".env" not in _git(site, "show", "--name-only", "--format=", "HEAD").split()
+
+
+def test_switch_build_failure_restores_env(site):
+    _switch_site(site)
+    (site / ".gitignore").write_text("dist/\n.env\n")
+    _git(site, "commit", "-qam", "ignore env"); _git(site, "push", "-q")
+    (site / ".env").write_text(f"PUBLIC_GA_ID={OLD}\n")
+    r, _ = _run_switch(site, build=lambda b: (False, "build failed (exit 1)"))
+    assert r.outcome == "failed"
+    assert (site / ".env").read_text() == f"PUBLIC_GA_ID={OLD}\n"
+
+
+def test_switch_rerun_without_recorded_id_still_switches(site, monkeypatch):
+    """calcengine shape: no ID in lamill.toml or source; old ID only in the
+    hosting env; the fleet property already exists from a reverted run."""
+    from portfolio.checks.seo import check_162_ga4_id_recorded as c162
+    monkeypatch.setattr(c162, "_fix", lambda base, dry_run, assume_yes: (
+        c162.FixResult("would-fix", f"record existing {NEW}", []) if dry_run
+        else c162.FixResult("nothing-to-do", "", [])))
+    (site / "lamill.toml").write_text(TOML.split("[analytics]")[0])
+    _git(site, "commit", "-qam", "no id"); _git(site, "push", "-q")
+    r, calls = _run_switch(site)
+    assert r.outcome == "changed", r.detail
+    assert calls == [True, False]
+    assert f"{OLD} → {NEW}" in _git(site, "log", "-1", "--format=%s")

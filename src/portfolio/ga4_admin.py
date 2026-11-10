@@ -425,12 +425,16 @@ def ensure_property(
     *,
     index: list[StreamHit] | None = None,
     dry_run: bool = False,
+    ignore_other_accounts: bool = False,
     client: httpx.Client | None = None,
 ) -> EnsureOutcome:
     """Find-or-create the GA4 property + web stream for `domain` in the fleet
     account `account_id`. Never creates a duplicate: a match in any visible
     account wins. New properties get display name = domain, a web stream at
-    `https://<domain>`, and 14-month retention (v49.A (i))."""
+    `https://<domain>`, and 14-month retention (v49.A (i)).
+
+    `ignore_other_accounts` (v49.F clean switch): a match outside the fleet
+    account no longer blocks — a fresh fleet property is created instead."""
     with _httpapi.managed_client(client, _client) as c:
         idx = index if index is not None else stream_index(client=c)
         hits = find_for_domain(domain, idx)
@@ -444,7 +448,7 @@ def ensure_property(
             if not dry_run:
                 set_data_retention(h.property_id, client=c)
             return EnsureOutcome("found", h.measurement_id, h.property_id, h.account_name)
-        if other and not mine:
+        if other and not mine and not ignore_other_accounts:
             h = other[0]
             return EnsureOutcome(
                 "elsewhere", h.measurement_id, h.property_id, h.account_name,

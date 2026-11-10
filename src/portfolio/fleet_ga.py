@@ -15,6 +15,11 @@ printing ✓ / ✗ / ↷:
   4. commit   — only the files this run touched, then `git push`.
   5. live     — CHECK_164 `live_state`: ✓ live, ↷ deploying (no waiting).
 
+`--switch-old` (v49.F) turns step 1's ↷ deferred into a clean switch: a
+fresh LaMill Sites property, the old ID replaced in lamill.toml / index.html /
+src/, and hosting env vars that would override it (Vercel `PUBLIC_GA_ID` /
+`VITE_GA_ID`) deleted after the build passes, before the push.
+
 Dry run by default (plan only — no API writes, no file writes). `--apply`
 confirms per site; `--yes` skips the confirmation. A file this run would
 touch that already has uncommitted edits stops that site (✗) — operator
@@ -30,6 +35,8 @@ from typing import Callable
 from .console import console
 
 COMMIT_MSG = "GA4: tag {ga} (lamill fleet ga, ADR-0029)"
+SWITCH_MSG = "GA4: switch {old} → {ga} (lamill fleet ga --switch-old, v49.F)"
+_ENV_KEYS = {"PUBLIC_GA_ID", "VITE_GA_ID"}
 _BUILD_DIRS = ("dist", ".output", "build", ".vercel/output")
 _SCAN_EXT = {".html", ".js", ".mjs"}
 
@@ -124,10 +131,10 @@ def built_output_has(base: Path, ga: str) -> bool:
     return False
 
 
-def commit_and_push(base: Path, files: list[Path], ga: str) -> tuple[bool, str]:
+def commit_and_push(base: Path, files: list[Path], ga: str, msg: str | None = None) -> tuple[bool, str]:
     rels = [str(p.relative_to(base)) for p in files]
     for step in (["add", "--", *rels],
-                 ["commit", "-m", COMMIT_MSG.format(ga=ga), "--", *rels]):
+                 ["commit", "-m", msg or COMMIT_MSG.format(ga=ga), "--", *rels]):
         r = _git(base, *step)
         if r.returncode != 0:
             return False, f"git {step[0]}: {(r.stderr or r.stdout).strip()[:200]}"
@@ -180,7 +187,11 @@ def _account_of(ga: str) -> tuple[str, str] | None:
 def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], bool],
              build: Callable[[Path], tuple[bool, str]],
              is_live: Callable[[str, Path], tuple[bool | None, str]] = _is_live,
-             account_of: Callable[[str], tuple[str, str] | None] = _account_of) -> SiteResult:
+             account_of: Callable[[str], tuple[str, str] | None] = _account_of,
+             switch_old: bool = False,
+             new_property: Callable[[str], str] | None = None,
+             drop_env: Callable[[str, bool], list[str]] | None = None,
+             other_account_id: Callable[[str], str | None] | None = None) -> SiteResult:
     from .checks.seo import check_162_ga4_id_recorded as c162
     from .checks.seo import check_163_ga4_tag_in_source as c163
     from .checks.seo import check_164_ga4_live_tag as c164
@@ -198,6 +209,10 @@ def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], b
     p162 = c162._fix(base, dry_run=True, assume_yes=True)
     if p162.status == "manual":
         deferred = "move it" in p162.summary
+        old = c162._GA_ID.search(p162.summary)
+        if deferred and switch_old and old:
+            return _switch(domain, base, old.group(0), p162.summary.split(" — ")[0], apply=apply, confirm=confirm,
+                           build=build, new_property=new_property, drop_env=drop_env)
         _step("skip" if deferred else "err", "id", p162.summary)
         return SiteResult(domain, "deferred" if deferred else "failed", p162.summary)
     if p162.status == "error":
@@ -206,6 +221,14 @@ def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], b
     ga = c162.recorded_id(base)
     src_ids = c163.source_ids(base)
     existing = ga or (next(iter(src_ids)) if len(src_ids) == 1 else None)
+    if switch_old and not existing:
+        # A re-run after a reverted switch: the new fleet property exists, so
+        # CHECK_162 "reuses" it — but the old ID (other account) may still sit
+        # in a local .env / hosting env var. Finish the switch.
+        old = (other_account_id or _other_account_id)(domain)
+        if old:
+            return _switch(domain, base, old, f"{old} is in another account", apply=apply,
+                           confirm=confirm, build=build, new_property=new_property, drop_env=drop_env)
     if existing:
         # v49.A (g): IDs living outside the fleet account go last (moved first).
         from . import apikeys
@@ -213,6 +236,9 @@ def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], b
         fleet = (apikeys.get_key("GA4_ACCOUNT_ID") or "").strip()
         if acct is not None and fleet and acct[0] != fleet:
             msg = f"{existing} is in {acct[1]} — move it to the fleet account first"
+            if switch_old:
+                return _switch(domain, base, existing, f"{existing} is in {acct[1]}", apply=apply,
+                               confirm=confirm, build=build, new_property=new_property, drop_env=drop_env)
             _step("skip", "id", msg)
             return SiteResult(domain, "deferred", msg)
     _step("ok" if ga else "skip", "id", ga or p162.summary)
@@ -273,12 +299,20 @@ def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], b
         _step("err", "tag", r163.summary)
         return SiteResult(domain, "failed", r163.summary)
 
+    return _finish(domain, base, ga, touched, snap, dirty_before, build, c164)
+
+
+def _finish(domain: str, base: Path, ga: str, touched: list[Path], snap: Snapshot,
+            dirty_before: set[str], build, c164, *, msg: str | None = None,
+            pre_push: Callable[[], tuple[bool, str]] | None = None) -> SiteResult:
+    """Shared apply tail: dirty-file guard → build gate → (pre_push) →
+    commit touched files + push → live state."""
     clash = sorted(str(p.relative_to(base)) for p in touched if str(p.relative_to(base)) in dirty_before)
     if clash:
         snap.restore(touched)
-        msg = f"uncommitted edits in {', '.join(clash)} — commit or stash them, then re-run"
-        _step("err", "git", msg)
-        return SiteResult(domain, "failed", msg)
+        m = f"uncommitted edits in {', '.join(clash)} — commit or stash them, then re-run"
+        _step("err", "git", m)
+        return SiteResult(domain, "failed", m)
 
     source_changed = any(p.name != "lamill.toml" for p in touched)
     if source_changed:
@@ -286,12 +320,19 @@ def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], b
         _undo_build_side_effects(base, dirty_before, touched)
         if not ok or not built_output_has(base, ga):
             snap.restore(touched)
-            msg = detail if not ok else f"built output doesn't contain {ga}"
-            _step("err", "build", f"{msg} — changes reverted")
-            return SiteResult(domain, "failed", msg)
+            m = detail if not ok else f"built output doesn't contain {ga}"
+            _step("err", "build", f"{m} — changes reverted")
+            return SiteResult(domain, "failed", m)
         _step("ok", "build", f"{detail}; output contains {ga}")
 
-    ok, detail = commit_and_push(base, touched, ga)
+    if pre_push is not None:
+        ok, detail = pre_push()
+        if not ok:
+            snap.restore(touched)
+            _step("err", "env", f"{detail} — changes reverted")
+            return SiteResult(domain, "failed", detail)
+
+    ok, detail = commit_and_push(base, touched, ga, msg)
     if not ok:
         _step("err", "push", detail)
         return SiteResult(domain, "failed", detail, [str(p.relative_to(base)) for p in touched])
@@ -301,12 +342,164 @@ def run_site(domain: str, base: Path, *, apply: bool, confirm: Callable[[str], b
     return res
 
 
+def _new_fleet_property(domain: str) -> str:
+    """Find-or-create `domain`'s property in the fleet account, ignoring
+    properties elsewhere (v49.F). Returns the new measurement ID."""
+    from . import apikeys, ga4_admin
+    from .checks.seo import check_162_ga4_id_recorded as c162
+    account_id = (apikeys.get_key("GA4_ACCOUNT_ID") or "").strip()
+    if c162._INDEX is None:
+        c162._INDEX = ga4_admin.stream_index()
+    out = ga4_admin.ensure_property(domain, account_id, index=c162._INDEX, ignore_other_accounts=True)
+    if out.status not in ("found", "created") or not out.measurement_id:
+        raise ga4_admin.GA4AdminError(f"ensure_property({domain}) → {out.status} {out.detail}".strip())
+    return out.measurement_id
+
+
+def _other_account_id(domain: str) -> str | None:
+    """Measurement ID of `domain`'s property in a non-fleet account, if any."""
+    from . import apikeys, ga4_admin
+    from .checks.seo import check_162_ga4_id_recorded as c162
+    fleet = (apikeys.get_key("GA4_ACCOUNT_ID") or "").strip()
+    try:
+        if c162._INDEX is None:
+            if not ga4_admin.has_token():
+                return None
+            c162._INDEX = ga4_admin.stream_index()
+    except ga4_admin.GA4AdminError:
+        return None
+    hit = next((h for h in ga4_admin.find_for_domain(domain, c162._INDEX)
+                if h.account_id != fleet and h.measurement_id), None)
+    return hit.measurement_id if hit else None
+
+
+def _drop_host_env(base: Path, dry_run: bool) -> list[str]:
+    """Delete hosting env vars that would override the committed ID (Vercel
+    only; other platforms → [])."""
+    from . import lamill_toml, vercel
+    try:
+        lt = lamill_toml.load(base)
+    except lamill_toml.ParseError:
+        lt = None
+    platform = lt.deploy.platform if lt else None
+    if platform != "vercel":
+        return []
+    proj = vercel.find_project_by_domain(base.name)
+    return vercel.delete_env_keys(proj.project_id, _ENV_KEYS, dry_run=dry_run)
+
+
+def _replace_id(base: Path, files, old: str, new: str) -> list[Path]:
+    out = []
+    for p in files:
+        if p.name == "lamill.toml" or not p.is_file():
+            continue
+        try:
+            text = p.read_text()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if old in text:
+            p.write_text(text.replace(old, new))
+            out.append(p)
+    return out
+
+
+def _switch(domain: str, base: Path, old: str, why: str, *, apply: bool, confirm, build,
+            new_property=None, drop_env=None) -> SiteResult:
+    """v49.F clean switch: fresh fleet property replaces `old` everywhere."""
+    from .checks.seo import check_162_ga4_id_recorded as c162
+    from .checks.seo import check_163_ga4_tag_in_source as c163
+    from .checks.seo import check_164_ga4_live_tag as c164
+    from .fix_helpers import FixResult
+    new_property = new_property or _new_fleet_property
+    drop_env = drop_env or _drop_host_env
+
+    _step("skip", "id", f"{why} → switch to a new LaMill Sites property")
+    tag_plan = c163._plan_tag(base, old)  # replacing old→new is textual, so plan against old
+    if isinstance(tag_plan, FixResult):
+        _step("err", "tag", tag_plan.summary)
+        return SiteResult(domain, "failed", tag_plan.summary)
+    tag_summary, tag_writes = tag_plan
+    _step("skip" if tag_writes else "ok", "tag", tag_summary.replace(old, "new ID") if tag_writes else f"source loads {old} → replace")
+    priv, priv_file = c163.privacy_state(base)
+    if priv == "conflict":
+        m = f"{priv_file.relative_to(base)} contradicts GA — rewrite it first"
+        _step("err", "privacy", m)
+        return SiteResult(domain, "failed", m)
+    if priv == "missing" and priv_file is not None:
+        _step("skip", "privacy", f"add GA sentence → {priv_file.relative_to(base)}")
+    try:
+        env_keys = drop_env(base, True)
+    except Exception as e:
+        _step("err", "env", f"can't read hosting env vars: {e}"[:300])
+        return SiteResult(domain, "failed", str(e)[:300])
+    if env_keys:
+        _step("skip", "env", f"delete {', '.join(env_keys)} after the build passes")
+
+    if not apply:
+        return SiteResult(domain, "planned", f"switch {old} → new")
+    if not confirm(f"Switch {domain} from {old} to a new LaMill Sites property?"):
+        _step("skip", "apply", "declined")
+        return SiteResult(domain, "skipped", "declined")
+
+    dirty_before = _dirty(base)
+    snap = Snapshot(base)
+    try:
+        ga = new_property(domain)
+    except Exception as e:
+        _step("err", "id", f"property create failed: {e}"[:300])
+        return SiteResult(domain, "failed", str(e)[:300])
+    _step("ok", "id", f"LaMill Sites property → {ga}")
+
+    # Gitignored local env files (calcengine `.env`: PUBLIC_GA_ID=<old>) would
+    # make the build gate see the old ID; update them too, never commit them.
+    env_files = [p for p in base.glob(".env*") if p.is_file() and p.name != ".env.example"
+                 and _git(base, "check-ignore", "-q", p.name).returncode == 0]
+    env_snap = {p: p.read_bytes() for p in env_files}
+    local_env = _replace_id(base, env_files, old, ga)
+    if local_env:
+        _step("ok", "env", f"{old} → {ga} in local {', '.join(p.name for p in local_env)} (gitignored, not committed)")
+    touched = [c162._write(base, ga)]
+    touched += _replace_id(base, list(snap.files), old, ga)
+    r163 = c163._fix(base, dry_run=False, assume_yes=True)
+    if r163.status == "fixed":
+        touched += [Path(p) for p in r163.files_touched if Path(p) not in touched]
+        _step("ok", "tag", r163.summary)
+    elif r163.status != "nothing-to-do":
+        snap.restore(touched)
+        for p, b in env_snap.items():
+            p.write_bytes(b)
+        _step("err", "tag", r163.summary)
+        return SiteResult(domain, "failed", r163.summary)
+    else:
+        _step("ok", "tag", f"{old} → {ga} in {len(touched) - 1} source file(s)")
+
+    def pre_push() -> tuple[bool, str]:
+        if not env_keys:
+            return True, ""
+        try:
+            gone = drop_env(base, False)
+        except Exception as e:
+            return False, f"env delete failed: {e}"[:300]
+        _step("ok", "env", f"deleted {', '.join(gone) or 'nothing'}")
+        return True, ""
+
+    res = _finish(domain, base, ga, touched, snap, dirty_before, build, c164,
+                  msg=SWITCH_MSG.format(old=old, ga=ga), pre_push=pre_push)
+    if res.outcome == "failed" and not res.touched:  # reverted before commit
+        for p, b in env_snap.items():
+            p.write_bytes(b)
+    return res
+
+
 def _live_step(domain: str, base: Path, c164, outcome: str) -> SiteResult:
     from .checks.seo import _live
     _live.clear_cache()
     state, detail = c164.live_state(base)
     if state == "live":
         _step("ok", "live", detail)
+    elif state == "mismatch" and outcome == "changed":
+        # Just pushed: the old build (old ID) is still served until the deploy lands.
+        _step("skip", "live", f"deploying — {detail}; re-run to confirm")
     elif state == "mismatch":
         _step("err", "live", detail)
         return SiteResult(domain, "failed", detail)
@@ -315,7 +508,7 @@ def _live_step(domain: str, base: Path, c164, outcome: str) -> SiteResult:
     return SiteResult(domain, outcome, detail)
 
 
-def run(*, apply: bool, assume_yes: bool, only: list[str] | None = None,
+def run(*, apply: bool, assume_yes: bool, only: list[str] | None = None, switch_old: bool = False,
         build: Callable[[Path], tuple[bool, str]] | None = None,
         confirm: Callable[[str], bool] | None = None) -> list[SiteResult]:
     import typer
@@ -333,7 +526,7 @@ def run(*, apply: bool, assume_yes: bool, only: list[str] | None = None,
     console.print(f"[dim]{'APPLY' if apply else 'DRY RUN'} — {len(sites)} site(s)[/]")
     results = []
     for name, path in sites:
-        results.append(run_site(name, path, apply=apply, confirm=confirm, build=build))
+        results.append(run_site(name, path, apply=apply, confirm=confirm, build=build, switch_old=switch_old))
 
     counts: dict[str, list[str]] = {}
     for r in results:
