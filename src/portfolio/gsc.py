@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -46,13 +47,35 @@ def _interactive_flow() -> Credentials:
     return flow.run_local_server(port=0, open_browser=True)
 
 
+def write_token_atomic(path: Path, creds: Credentials) -> None:
+    """Write an OAuth token via temp file + rename (chmod 600 before the
+    rename). A plain `write_text` truncates first, so an interrupted
+    write left a 0-byte token and lost the refresh token (BUG-104)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(creds.to_json())
+    tmp.chmod(0o600)
+    os.replace(tmp, path)
+
+
+def load_token(path: Path, scopes: list[str], fix_cmd: str) -> Credentials:
+    """Load a cached OAuth token; a corrupt/empty file raises
+    MissingCredentialsError naming the re-auth command (BUG-104)."""
+    try:
+        return Credentials.from_authorized_user_file(str(path), scopes)
+    except (ValueError, KeyError) as e:  # JSONDecodeError is a ValueError
+        size = path.stat().st_size if path.exists() else 0
+        raise MissingCredentialsError(
+            f"OAuth token at {path} is unreadable ({size} bytes: {e}). "
+            f"Run `{fix_cmd}` to re-authorize."
+        ) from e
+
+
 def _save_token(creds: Credentials) -> None:
-    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_PATH.write_text(creds.to_json())
-    TOKEN_PATH.chmod(0o600)
+    write_token_atomic(TOKEN_PATH, creds)
 
 
-def authenticate(force: bool = False) -> Credentials:
+def authenticate(force: bool = False, interactive: bool = True) -> Credentials:
     """Return valid Credentials. Runs interactive flow when needed.
 
     `force=True` always runs the interactive flow (e.g. when re-authing).
@@ -65,7 +88,7 @@ def authenticate(force: bool = False) -> Credentials:
 
     creds: Credentials | None = None
     if not force and TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+        creds = load_token(TOKEN_PATH, SCOPES, "lamill settings gsc auth --force")
 
     if creds and creds.valid:
         return creds
@@ -75,9 +98,21 @@ def authenticate(force: bool = False) -> Credentials:
             creds.refresh(Request())
             _save_token(creds)
             return creds
-        except RefreshError:
-            pass  # Fall through to interactive flow
+        except RefreshError as e:
+            if not interactive:
+                raise MissingCredentialsError(
+                    f"Google login expired or was revoked ({e}). "
+                    "Run `lamill settings gsc auth --force` to log in again."
+                ) from e
+            # Fall through to interactive flow
 
+    if not interactive:
+        # Read-only callers (fleet seo preflight) must never open a
+        # browser mid-run; say what's wrong instead (BUG-104).
+        raise MissingCredentialsError(
+            f"Not logged in to Google Search Console (no token at {TOKEN_PATH}). "
+            "Run `lamill settings gsc auth --force` to log in."
+        )
     creds = _interactive_flow()
     _save_token(creds)
     return creds

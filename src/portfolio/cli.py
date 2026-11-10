@@ -372,6 +372,12 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
         raise typer.Exit(2)
     _parse_since(since)  # fail fast on a bad --since before any probing
 
+    # BUG-104 — preflight BEFORE anything else runs. GSC is the point of
+    # this view: if the login is broken, say so in plain words and stop,
+    # instead of rendering a "fresh" table of blanks.
+    from .seo_runtime import preflight_or_exit, report_gsc_problems
+    gsc_auth = preflight_or_exit(console)
+
     if only_domain:
         # --domain bypasses both the live and seo caches — single-domain
         # runs aren't cached (they're cheap and one-off).
@@ -452,7 +458,11 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
             cached = seo_load_snapshot(cache_path)
             cached_rows = rows_from_snapshot(cached)
             cached_domains = {r.domain for r in cached_rows}
-            if cached_domains.issuperset(domains):
+            # BUG-104: a snapshot saved during a GSC auth failure (pre-fix)
+            # has no GSC data at all — re-fetch instead of serving it.
+            cached_gsc_dead = bool(cached_rows) and all(
+                r.gsc_status == "auth-skipped" for r in cached_rows)
+            if cached_domains.issuperset(domains) and not cached_gsc_dead:
                 console.print(
                     f"[green]GSC data:[/] {cache_path.name} "
                     f"[dim](cached · {days}d window; --refresh to re-fetch)[/]"
@@ -468,13 +478,18 @@ def _run_check_seo_mode(*, days: int, only_domain: str, sort_by: str,
     env = load_env()
     crux_key = env.get("CRUX_API_KEY", "").strip()
     if not crux_key:
-        console.print("[dim]CRUX_API_KEY not set in portfolio.env — Core Web Vitals columns will be empty.[/]")
+        console.print("[yellow]↷ Preflight: CrUX — CRUX_API_KEY not set in portfolio.env; "
+                      "Core Web Vitals columns will be empty.[/]")
 
     with spinner_counter("SEO probes", len(domains)) as progress:
         rows = run_seo(domains, days=days, crux_api_key=crux_key,
-                       progress_callback=progress)
+                       progress_callback=progress, gsc_auth=gsc_auth)
     console.print(f"[green]✓[/] SEO probes: {len(domains)} domain(s) — "
                   f"HTTP + GSC ({days}d) + CrUX · {progress.elapsed:.0f}s")
+
+    # BUG-104: never save a snapshot built from a failed GSC auth.
+    if not report_gsc_problems(rows, console):
+        cache_eligible = False
 
     fresh_path = None
     if cache_eligible:

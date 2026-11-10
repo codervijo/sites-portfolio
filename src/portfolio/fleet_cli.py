@@ -48,8 +48,12 @@ def focus(
         # Re-run live + seo upstream. Same shape as fleet dashboard --refresh.
         from .check import run_check, wip_domains
         from .seo_cache import save_snapshot as seo_save_snapshot
-        from .seo_runtime import _live_domains_from_snapshot, run_seo
+        from .seo_runtime import (_live_domains_from_snapshot, preflight_or_exit,
+                                  report_gsc_problems, run_seo)
         from .suggest import load_env
+
+        # BUG-104 — check the GSC login before any probing starts.
+        gsc_auth = preflight_or_exit(console)
 
         with spinner_counter("live snapshot", len(wip_domains())) as live_prog:
             snap_path, _ = run_check(only="wip", concurrency=20,
@@ -61,10 +65,11 @@ def focus(
             crux_key = load_env().get("CRUX_API_KEY", "").strip()
             with spinner_counter("SEO probes", len(domains)) as progress:
                 seo_rows = run_seo(domains, days=28, crux_api_key=crux_key,
-                                   progress_callback=progress)
-            cache_path = seo_save_snapshot(seo_rows, days=28)
-            console.print(f"[green]✓[/] SEO probes: {len(domains)} domains "
-                          f"({cache_path.name}) · {progress.elapsed:.0f}s")
+                                   progress_callback=progress, gsc_auth=gsc_auth)
+            if report_gsc_problems(seo_rows, console):
+                cache_path = seo_save_snapshot(seo_rows, days=28)
+                console.print(f"[green]✓[/] SEO probes: {len(domains)} domains "
+                              f"({cache_path.name}) · {progress.elapsed:.0f}s")
 
     # Pull every signal source. None / empty means "skip that signal."
     live_path = live_latest()

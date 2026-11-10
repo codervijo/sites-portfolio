@@ -550,8 +550,12 @@ def run_dashboard(*, scope: str = "wip", sort: str = "attention",
         # dashboard just consumes their snapshots.
         from .check import run_check
         from .seo_cache import save_snapshot as seo_save_snapshot
-        from .seo_runtime import _live_domains_from_snapshot, run_seo
+        from .seo_runtime import (_live_domains_from_snapshot, preflight_or_exit,
+                                  report_gsc_problems, run_seo)
         from .suggest import load_env
+
+        # BUG-104 — check the GSC login before any probing starts.
+        gsc_auth = preflight_or_exit(console)
 
         _live_total = len(wip_domains() if scope == "wip" else all_domains())
         with spinner_counter(f"live snapshot ({scope})", _live_total) as live_prog:
@@ -564,10 +568,11 @@ def run_dashboard(*, scope: str = "wip", sort: str = "attention",
             crux_key = load_env().get("CRUX_API_KEY", "").strip()
             with spinner_counter("SEO probes", len(domains)) as progress:
                 seo_rows = run_seo(domains, days=28, crux_api_key=crux_key,
-                                   progress_callback=progress)
-            cache_path = seo_save_snapshot(seo_rows, days=28)
-            console.print(f"[green]✓[/] SEO probes: {len(domains)} domains "
-                          f"({cache_path.name}) · {progress.elapsed:.0f}s")
+                                   progress_callback=progress, gsc_auth=gsc_auth)
+            if report_gsc_problems(seo_rows, console):
+                cache_path = seo_save_snapshot(seo_rows, days=28)
+                console.print(f"[green]✓[/] SEO probes: {len(domains)} domains "
+                              f"({cache_path.name}) · {progress.elapsed:.0f}s")
 
     _rows_total = len(wip_domains() if scope == "wip" else all_domains())
     with spinner_counter("building dashboard", _rows_total) as build_prog:

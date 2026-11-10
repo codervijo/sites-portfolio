@@ -812,6 +812,113 @@ def probe_gsc_last_crawl(domain: str, *, gsc_service=None, coverage=None,
         return None
 
 
+class GscPreflightError(RuntimeError):
+    """GSC can't be used — message is operator-facing, plain words + fix."""
+
+
+_NET_PROBE_URL = "https://www.google.com/generate_204"
+_GSC_PROBE_URL = "https://searchconsole.googleapis.com/$discovery/rest?version=v1"
+
+
+def _reach(url: str, timeout: float = 5.0) -> str | None:
+    """GET `url`; None if any HTTP response came back (host reachable),
+    else a short plain-words reason."""
+    try:
+        httpx.get(url, timeout=timeout, follow_redirects=False)
+        return None
+    except httpx.ConnectError as e:
+        msg = str(e).lower()
+        if "name or service not known" in msg or "temporary failure in name resolution" in msg \
+                or "nodename nor servname" in msg or "getaddrinfo" in msg:
+            return "DNS lookup failed"
+        return f"connection failed ({e})"
+    except httpx.TimeoutException:
+        return f"no answer within {timeout:.0f}s"
+    except Exception as e:  # noqa: BLE001 — any failure is the reason
+        return f"{type(e).__name__}: {e}"
+
+
+def gsc_preflight() -> tuple[Any, dict[str, list[dict]]]:
+    """Staged GSC readiness check BEFORE any probing (BUG-104):
+    1 internet → 2 Search Console API reachable → 3 login → 4 list sites.
+
+    Returns (creds, coverage). Raises GscPreflightError naming the failed
+    stage, the plain-words cause, and the fix. Never opens a browser.
+    """
+    from .gsc import (MissingCredentialsError, authenticate, coverage_map,
+                      get_service, list_properties)
+    why = _reach(_NET_PROBE_URL)
+    if why:
+        raise GscPreflightError(
+            f"no internet — couldn't reach google.com ({why}). "
+            "Check Wi-Fi / VPN / network, then re-run.")
+    why = _reach(_GSC_PROBE_URL)
+    if why:
+        raise GscPreflightError(
+            f"internet works, but the Search Console API isn't reachable ({why}). "
+            "Likely a Google outage or a firewall/VPN block; check "
+            "https://status.cloud.google.com and re-run.")
+    try:
+        creds = authenticate(interactive=False)
+    except MissingCredentialsError as e:
+        raise GscPreflightError(str(e)) from e
+    except Exception as e:  # network down, Google outage, ...
+        raise GscPreflightError(
+            f"login check failed ({type(e).__name__}: {e}). "
+            "Run `lamill settings gsc auth --force` to log in again."
+        ) from e
+    try:
+        props = list_properties(get_service(creds))
+    except Exception as e:
+        raise GscPreflightError(
+            f"Logged in, but Search Console refused to list sites "
+            f"({type(e).__name__}: {e}). "
+            "Run `lamill settings gsc auth --force` with the right Google account."
+        ) from e
+    if not props:
+        raise GscPreflightError(
+            "Logged in, but this Google account has no Search Console sites — "
+            "wrong account? Run `lamill settings gsc auth --force` and pick the "
+            "account that owns the fleet's GSC properties."
+        )
+    return creds, coverage_map(props)
+
+
+def preflight_or_exit(console) -> tuple[Any, dict[str, list[dict]]]:
+    """Run `gsc_preflight()` and print its ✓/✗ line. On failure, exit 1
+    before any real work starts. Shared by fleet seo / focus / dashboard."""
+    import typer
+    try:
+        gsc_auth = gsc_preflight()
+    except GscPreflightError as e:
+        console.print(f"[red]✗ Preflight: Google Search Console — {e}[/]")
+        raise typer.Exit(1)
+    console.print(f"[green]✓[/] Preflight: internet ✓ · Search Console API ✓ · "
+                  f"logged in ✓ · {len(gsc_auth[1])} site(s) visible")
+    return gsc_auth
+
+
+def report_gsc_problems(rows: list["SEORow"], console) -> bool:
+    """Print a red ✗ for GSC failures found while probing. Returns False when
+    GSC auth failed for every row, so the caller must NOT save the snapshot
+    (it would poison the cache and every later Δ)."""
+    if rows and all(r.gsc_status == "auth-skipped" for r in rows):
+        cause = next((n[len("gsc-auth: "):] for r in rows for n in r.notes
+                      if n.startswith("gsc-auth: ")), "unknown cause")
+        console.print(f"[red]✗ GSC auth failed[/] — {cause}\n"
+                      f"  Run `lamill settings gsc auth --force`, then re-run with --refresh. "
+                      f"GSC columns empty; snapshot not saved.")
+        return False
+    errs = [(r.domain, n[len("gsc-error: "):]) for r in rows for n in r.notes
+            if n.startswith("gsc-error: ")]
+    if errs:
+        d0, e0 = errs[0]
+        console.print(f"[red]✗ GSC query failed for {len(errs)} domain(s)[/] — "
+                      f"{', '.join(d for d, _ in errs[:5])}"
+                      f"{' …' if len(errs) > 5 else ''}\n  first error ({d0}): {e0}")
+    return True
+
+
 def run_seo(
     domains: list[str],
     *,
@@ -819,6 +926,7 @@ def run_seo(
     crux_api_key: str = "",
     concurrency: int = 4,
     progress_callback=None,
+    gsc_auth: tuple[Any, dict[str, list[dict]]] | None = None,
 ) -> list[SEORow]:
     """Probe HTTP, GSC, and CrUX for each domain. Returns one SEORow per
     domain, in input order.
@@ -836,14 +944,20 @@ def run_seo(
     creds = None
     gsc_coverage: dict[str, list[dict]] = {}
     auth_skipped = False
+    auth_error: str | None = None
     try:
-        from .gsc import authenticate, get_service, list_properties, coverage_map
-        creds = authenticate()
-        bootstrap = get_service(creds)
-        gsc_coverage = coverage_map(list_properties(bootstrap))
-    except Exception:
-        # Most common: MissingCredentialsError. Treat all as auth-skipped.
+        if gsc_auth is not None:  # caller already ran gsc_preflight()
+            creds, gsc_coverage = gsc_auth
+        else:
+            from .gsc import authenticate, get_service, list_properties, coverage_map
+            creds = authenticate()
+            bootstrap = get_service(creds)
+            gsc_coverage = coverage_map(list_properties(bootstrap))
+    except Exception as e:
+        # Most common: MissingCredentialsError. Treat all as auth-skipped,
+        # but keep the cause so the CLI can say why (BUG-104).
         auth_skipped = True
+        auth_error = f"{type(e).__name__}: {e}"
 
     def fetch_one(domain: str) -> SEORow:
         row = SEORow(domain=domain)
@@ -867,6 +981,10 @@ def run_seo(
             auth_skipped=auth_skipped,
         )
         row.gsc_status = gsc_data["status"]
+        if auth_error:
+            row.notes.append(f"gsc-auth: {auth_error}")
+        if gsc_data.get("error"):
+            row.notes.append(f"gsc-error: {gsc_data['error']}")
         row.gsc_clicks = gsc_data.get("clicks")
         row.gsc_impressions = gsc_data.get("impressions")
         row.gsc_ctr = gsc_data.get("ctr")

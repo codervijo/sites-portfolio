@@ -75,6 +75,16 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-104 · 2026-11-10 — `fleet seo --refresh` shows no GSC data for every site, labels it "fresh", and reports every site's impressions as lost
+
+- **Repro** — `lamill fleet seo --refresh` on 2026-11-10 at 09:03.
+- **Expected** — GSC columns populated, or a red ✗ naming the auth failure and its fix.
+- **Actual** — every GSC column was blank and Imp was "–" for every site. ΔImp equalled each site's whole previous total (hybridautopart −19.9k, montereybayevents −17.0k). Header: `GSC data: 2026-11-10.json (fresh · 28d window)`. The only hint was a dim "not authenticated — run `portfolio gsc auth`" line below the table, and that command name is stale.
+- **Root cause** — `~/.config/portfolio/gsc/token.json` was **0 bytes** (mtime 2026-11-10 08:49:37), so the refresh token was lost. `gsc._save_token` used `write_text`, which truncates first, so an interrupted token refresh left an empty file. `run_seo` swallowed the resulting JSONDecodeError as `auth-skipped`, and the CLI saved that as today's snapshot, which poisoned the cache and every later Δ. `ga4_admin._save_token` had the same non-atomic write.
+- **Fix** — (1) `gsc.write_token_atomic` (temp file + chmod 600 + `os.replace`), used by both gsc and ga4_admin. (2) `gsc.load_token`: an unreadable token raises `MissingCredentialsError` naming the size and `lamill settings gsc auth --force` (or `settings ga4 auth --force`). (3) `fleet seo` prints `✗ GSC auth failed — <cause>`, does not save the snapshot, and drops Δ. (4) The cache path ignores a snapshot whose rows are all `auth-skipped`. (5) The stale hint now says `lamill settings gsc auth --force`. (6) Operator rule 2026-11-10 ("never fail silently… surface it in simple words as early as possible… preflight checks"): `fleet seo`, `fleet focus --refresh` and `fleet dashboard --refresh` run `seo_runtime.preflight_or_exit()` first, before roster refresh, cache, or probes. Its stages are: (a) internet (`google.com/generate_204`), (b) Search Console API reachable, (c) login without opening a browser (`gsc.authenticate(interactive=False)`), and (d) list properties. Any failure (no internet or DNS, API unreachable, no or corrupt token, revoked login, zero properties) prints `✗ Preflight: Google Search Console — <plain cause + fix>` and exits 1. Per-domain GSC query errors print a red ✗ summary instead of a grey dot (`report_gsc_problems`, shared by all three commands, which also blocks saving a snapshot when auth failed). A missing CrUX key is a yellow ↷ preflight line.
+- **Severity** — `major` (fleet SEO view silently wrong).
+- **Fixed** — 2026-11-10 (uncommitted). Tests: `tests/test_bug104_gsc_token.py` (14). Operator still has to re-authorize once, because the lost refresh token can't be recovered.
+
 ### BUG-103 · 2026-11-07 — `new deploy` attached `lamill.store` to `lamill.pics`'s Cloudflare project because both slugs are `lamill` *(urgent — live site serving the wrong content)*
 
 - **Repro** — bootstrap `lamill.store` (2026-11-07, `b7f2f4a`) while `lamill.pics` is already deployed; `lamill new deploy lamill.store`.

@@ -800,7 +800,7 @@ def _render_seo_table(rows: list, *, days: int, sort_by: str,
     if n:
         gsc_skipped = sum(1 for r in rows if r.gsc_status == "auth-skipped")
         if gsc_skipped == n:
-            console.print("[dim]GSC: not authenticated — run `portfolio gsc auth` to enable GSC columns.[/]")
+            console.print("[dim]GSC: not authenticated — run `lamill settings gsc auth --force` to enable GSC columns.[/]")
         if crux_uniformly_empty:
             crux_no_key = sum(1 for r in rows if r.crux_status == "no-key")
             crux_no_data = sum(1 for r in rows if r.crux_status == "no-data")

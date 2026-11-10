@@ -89,9 +89,8 @@ def _interactive_flow() -> Credentials:
 def _save_token(creds: Credentials) -> None:
     """Persist the refresh token to `TOKEN_PATH` with chmod 600 (mirrors
     `gsc._save_token`). Creates the parent dir if missing."""
-    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_PATH.write_text(creds.to_json())
-    TOKEN_PATH.chmod(0o600)
+    from .gsc import write_token_atomic
+    write_token_atomic(TOKEN_PATH, creds)
 
 
 def authenticate(force: bool = False) -> Credentials:
@@ -114,7 +113,11 @@ def authenticate(force: bool = False) -> Credentials:
 
     creds: Credentials | None = None
     if not force and TOKEN_PATH.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+        from .gsc import load_token
+        try:
+            creds = load_token(TOKEN_PATH, SCOPES, "lamill settings ga4 auth --force")
+        except Exception as e:  # gsc.MissingCredentialsError → this module's typed error
+            raise MissingCredentialsError(str(e)) from e
 
     if creds and creds.valid:
         return creds
