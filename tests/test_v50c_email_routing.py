@@ -238,3 +238,21 @@ def test_fleet_fix_plans_warn_fixers_like_project_fix(tmp_path, monkeypatch, cap
 def test_backup_dirs_are_na(tmp_path, name):
     from portfolio.checks.deploy import check_165_email_routing_ready as c
     assert "backup copy" in c.run(str(_site(tmp_path, name))).message
+
+
+def test_extra_addresses_from_toml(tmp_path):
+    (tmp_path / "lamill.toml").write_text(
+        '[email]\naddresses = ["security", "Hello", "bad addr", "ops@x.com", 3]\n')
+    assert er_mod.local_parts_for(tmp_path) == ("hello", "security", "ops")
+    (tmp_path / "lamill.toml").write_text('schema = "lamill-toml-v1"\n')
+    assert er_mod.local_parts_for(tmp_path) == ("hello",)
+
+
+def test_extra_address_gets_its_own_rule_and_hello_is_kept():
+    cf = FakeCF(dest={"email": er_mod.DEFAULT_FORWARD_TO, "verified": "2026-11-10T00:00:00Z"})
+    er_mod.ensure(D, client=cf.client())
+    st = er_mod.inspect(D, client=cf.client(), local_parts=("hello", "security"))
+    assert st.missing_rules() == [f"security@{D}"]
+    cf.writes.clear()
+    r = er_mod.ensure(D, client=cf.client(), local_parts=("hello", "security"))
+    assert cf.writes == ["rule"] and r.state.ready()

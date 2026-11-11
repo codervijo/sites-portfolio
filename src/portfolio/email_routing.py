@@ -27,6 +27,7 @@ the writes. The CF API endpoints used:
 """
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -112,6 +113,28 @@ def forward_to_for(base: Path) -> str:
             return v.strip()
     return DEFAULT_FORWARD_TO
 
+
+
+_LOCAL_PART_RE = re.compile(r"^[a-z0-9][a-z0-9._+-]{0,63}$")
+
+
+def local_parts_for(base: Path) -> tuple[str, ...]:
+    """`hello` plus `lamill.toml [email] addresses` (local parts, e.g.
+    `["security"]`). Invalid entries are ignored; `hello` is always first."""
+    out = list(DEFAULT_LOCAL_PARTS)
+    try:
+        doc = tomllib.loads((base / "lamill.toml").read_text())
+    except (OSError, tomllib.TOMLDecodeError):
+        return tuple(out)
+    email = doc.get("email")
+    extra = email.get("addresses") if isinstance(email, dict) else None
+    if isinstance(extra, list):
+        for v in extra:
+            if isinstance(v, str):
+                v = v.strip().lower().split("@", 1)[0]
+                if _LOCAL_PART_RE.match(v) and v not in out:
+                    out.append(v)
+    return tuple(out)
 
 # ---------------------------------------------------------------- DNS (public)
 

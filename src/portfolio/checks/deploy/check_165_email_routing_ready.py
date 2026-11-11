@@ -1,6 +1,7 @@
 """CHECK_165 — `hello@<site>` can receive mail (v50.C).
 
-Every operator-owned site gets `hello@<site>`, forwarded by Cloudflare
+Every operator-owned site gets `hello@<site>` (plus any
+`lamill.toml [email] addresses`, e.g. `["security"]`), forwarded by Cloudflare
 Email Routing to `hello@lamill.io` (or `lamill.toml [email] forward_to`).
 Operator decision 2026-11-10: email for every own site, retroactive.
 
@@ -77,7 +78,8 @@ def _not_applicable(base: Path) -> str | None:
 
 def _inspect(base: Path):
     from portfolio import email_routing as er
-    return er.inspect(base.name.lower(), forward_to=er.forward_to_for(base))
+    return er.inspect(base.name.lower(), forward_to=er.forward_to_for(base),
+                      local_parts=er.local_parts_for(base))
 
 
 def run(repo_path: str) -> CheckResult:
@@ -130,8 +132,9 @@ def _apply(project_dir: Path, dry_run: bool, assume_yes: bool) -> FixResult:
     if reason:
         return FixResult(status="nothing-to-do", summary=f"{reason} — n/a", files_touched=[])
     fwd = er.forward_to_for(base)
+    parts = er.local_parts_for(base)
     try:
-        st = er.inspect(base.name.lower(), forward_to=fwd)
+        st = er.inspect(base.name.lower(), forward_to=fwd, local_parts=parts)
     except er.EmailRoutingError as e:
         return FixResult(status="error", summary=str(e), files_touched=[])
     if st.other_provider:
@@ -158,7 +161,7 @@ def _apply(project_dir: Path, dry_run: bool, assume_yes: bool) -> FixResult:
         return FixResult(status="would-fix", summary="would " + "; ".join(steps),
                          files_touched=[])
     try:
-        res = er.ensure(base.name.lower(), forward_to=fwd)
+        res = er.ensure(base.name.lower(), forward_to=fwd, local_parts=parts)
     except er.EmailRoutingError as e:
         return FixResult(status="error", summary=str(e), files_touched=[])
     summary = "; ".join(res.changed) or "no change"
