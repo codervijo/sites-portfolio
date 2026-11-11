@@ -235,6 +235,35 @@ rankmill keeps only its detector (`check_240`).
   plain array (`dataLayer.push(["event", …])`, `push(args)`) is silently
   ignored. Hand-written helpers must push `arguments`.
 
+### Email routing (v50)
+
+Every operator-owned site gets `hello@<site>`, forwarded by Cloudflare
+Email Routing to `hello@lamill.io` (override: `lamill.toml [email]
+forward_to`). Client-owned, dark and HostGator sites, and archived dirs,
+are n/a. Delivered through check + fix only; there is no `fleet email` verb.
+
+- **CHECK_165 `email-routing-ready`** (warn) — `email_routing.inspect()`
+  classifies the domain:
+  - an MX belonging to another provider (Zoho, Google, Proton, Namecheap
+    eForward, own server) → ✓ "managed elsewhere", never touched;
+  - routing on with status `ready`, a rule for every address, and the
+    destination verified → ✓;
+  - otherwise warn, with the exact steps or the blocker.
+
+  Blockers mean no writes: zone not `active`, an apex SPF without
+  `include:_spf.mx.cloudflare.net`, or a rule for the address that
+  already forwards elsewhere. A zone that is `misconfigured` (CF's MX/SPF
+  removed) is warned, never ✓.
+- **Fixer** (tier 1, CF API, writes no files). It runs in two passes,
+  because CF rejects a rule to an unverified destination (code 2054):
+  - Pass 1: add the destination (CF mails a verification link) and enable
+    routing (CF adds and locks MX + SPF).
+  - The operator clicks the link.
+  - Pass 2: add the rule.
+
+  Re-running on a done site writes nothing. Pilot command:
+  `lamill project fix <domain> --rule CHECK_165 --apply`.
+
 ### Fix-tier
 
 Each check module can co-locate two attributes:
@@ -1435,6 +1464,7 @@ this was paid for in real debugging (2026-06-15).
 | `gsc.py` | GSC OAuth + queries + sync. **v24.B scope bump**: `SCOPES` changed from `["webmasters.readonly"]` to `["webmasters", "siteverification"]` so `gsc_admin.py`'s write helpers can use the same cached OAuth token; operator runs `lamill settings gsc auth --force` once to re-consent. **BUG-104:** tokens are written atomically (`write_token_atomic`, also used by `ga4_admin`); an unreadable token raises `MissingCredentialsError` with the re-auth command (`load_token`); `authenticate(interactive=False)` never opens a browser. | `gsc_auth`, `gsc_status`, `authenticate`, `query_with_dims`, `list_properties`, `write_token_atomic`, `load_token` |
 | `gsc_recrawl.py` | Sitemap resubmit flow + per-URL inspection (powers v16.C `CHECK_147 url-indexed`) | `recrawl_property`, `inspect_one_url` |
 | `gsc_admin.py` (v24.B / v25.C / v25.D) | GSC + Site Verification API **write** client. httpx-direct (matches `ga4_admin.py` / `gh_repo.py`; not `googleapiclient.discovery.build`). Reuses `gsc.authenticate()` token — no separate credential file. Used by `new deploy` Step 9 (v24.C / v25.C) to register `sc-domain:<domain>` properties + submit sitemaps without dashboard clicks. **v25.C multi-method verification**: `get_verification_token(method=...)` + `verify_domain(method=...)` accept `method ∈ {"FILE", "DNS_TXT"}` (default FILE per ADR-0014); `write_verification_file(project_dir, token)` writes Google's HTML proof to `public/<token>`; `wait_for_verification_file_live(domain, token)` HEAD-polls (~180s budget). **v25.D `classify_403(error_body)`** parses Google's 403 JSON details to distinguish `insufficient_scope` (re-consent) vs `service_disabled` (enable API in GCP; surfaces consumer-project URL when available) vs `invalid_grant` (re-auth) vs `unknown`. Idempotent at every level (`list_sites` + `list_sitemaps` probes skip re-adding existing entries). Typed errors: `GSCAdminError` (non-2xx) + `VerificationFailedError` (propagation budget exhausted; method-aware hint text). | `get_verification_token`, `write_verification_file`, `wait_for_verification_file_live`, `verify_domain`, `add_site`, `submit_sitemap`, `list_sites`, `list_sitemaps`, `classify_403` |
+| `email_routing.py` (v50.B) | Cloudflare Email Routing client: `hello@<site>` forwards to `hello@lamill.io` (or `lamill.toml [email] forward_to`). `inspect()` is a read-only snapshot (zone, MX, apex SPF, routing settings + status, rules, destination); `plan()` returns steps vs blockers; `ensure()` writes, then re-reads. Never touches a zone whose MX belongs to another provider, an SPF record lacking CF's include, or an existing rule that forwards elsewhere. CF rejects rules to an unverified destination (code 2054), so the rule is added on a second pass after the operator's click. Used only by CHECK_165 (check + fix; no CLI verb). Tests are isolated from the real API by `tests/conftest.py`. | `inspect`, `plan`, `ensure`, `forward_to_for`, `public_mx`, `EmailState`, `EmailRoutingError` |
 | `ga4_admin.py` (v18.C) | GA4 Admin API client + OAuth (`analytics.edit` scope). httpx-direct (no `googleapiclient.discovery.build`). Used by `new bootstrap` and the CHECK_162 fixer to provision per-site GA4 properties + web data streams; measurement ID lands in `lamill.toml [analytics] ga4_id`. **v49.B find-or-create:** `stream_index()` lists every property/web stream in every account the token can see; `ensure_property(domain, account_id)` reuses a fleet-account match, reports `elsewhere` (property lives in another account → move it, never duplicate), `ambiguous`, `would-create` (dry run), or creates property + stream; **v49.F** `ignore_other_accounts=True` creates a fleet property even when another account has one (clean switch); `set_data_retention()` probes then sets 14-month event + user retention (ADR-0015 idempotency). Credentials at `~/lamill/ga4/{credentials.json,token.json}` (chmod 600); account = `GA4_ACCOUNT_ID` (LaMill Sites, ADR-0029). Tests are isolated from the real sign-in by `tests/conftest.py`. | `create_property`, `create_web_stream`, `stream_index`, `find_for_domain`, `ensure_property`, `set_data_retention`, `normalize_host`, `authenticate`, `has_token` |
 | `fleet_ga.py` (v49.E–F) | `lamill fleet ga` GA4 rollout runner: per-site live gate → CHECK_162/163 plans → in-memory `Snapshot` → fixers → dirty-file guard → container build gate (`built_output_has`) → `commit_and_push` (touched files only) → CHECK_164 live state. `--switch-old` → `_switch`: fresh LaMill Sites property (`ensure_property(..., ignore_other_accounts=True)`), old ID replaced in source + gitignored `.env*`, Vercel `PUBLIC_GA_ID`/`VITE_GA_ID` deleted pre-push (`vercel.delete_env_keys`). | `run`, `run_site`, `in_scope_sites`, `Snapshot`, `commit_and_push`, `built_output_has` |
 | `gtrends.py` (v19.B + 2026-05-22 PM mitigations) | Google Trends via `pytrends` — topic-specific only (`fetch_trends(topic, ...)` returns `TrendsPayload` with interest-over-time + related queries). Per-topic cache at `data/gtrends/<topic-hash>.json` keyed by (topic, timeframe, region); schema `gtrends-v1`; 24h TTL. `_make_pytrends_client()` boundary handles UA rotation (5 modern browser UAs) + lazy `ImportError` → typed `GTrendsError` with `uv sync` hint. **429 mitigations** (2026-05-22 PM): `GTrendsRateLimitError` subclass detected via `"429"` / `"Too Many Requests"` in pytrends error string; `fetch_trends` falls back to ANY cached payload via `load_any_cached` (renderer surfaces yellow stale-warning header). **No-topic latest-trends surface withdrawn 2026-05-22 PM** — all three approaches 404'd (pytrends `trending_searches` / `today_searches` / public RSS feed). See `docs/bugs.md` 2026-05-22 PM entry for the iteration log. L4 SerpAPI fallback NOT shipped — pinned. | `fetch_trends`, `load_cached`, `load_any_cached`, `save_cached`, `payload_age_hours`, `TrendsPayload`, `GTrendsError`, `GTrendsRateLimitError` |

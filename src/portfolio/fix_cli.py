@@ -74,9 +74,14 @@ def _run_project_fix_all(*, apply_changes: bool, rule_filter, assume_yes: bool,
     for domain, project_dir in projects:
         try:
             results = run_checks(str(project_dir))
+            # Same rule as `project fix` (project.build_status): a `warn`
+            # counts unless it's a skip. Before v50 fleet fix only took
+            # `fail`, so warn-severity fixers (CHECK_162/163/165) silently
+            # showed "nothing to fix" fleetwide.
             failed_ids = [
                 cid for cid, r in results.items()
                 if r.status == "fail"
+                or (r.status == "warn" and "skipped" not in r.message)
             ]
         except Exception as e:
             plans.append({

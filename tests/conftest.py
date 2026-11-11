@@ -28,3 +28,18 @@ def _isolate_ga4(monkeypatch, tmp_path_factory):
         raise RuntimeError("tests must not call the real GA4 Admin API — stub ga4_admin._client")
 
     monkeypatch.setattr(ga4_admin, "_client", _no_network)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_email_routing(monkeypatch):
+    """v50.B: CHECK_165 runs on any domain-shaped dir. Tests must never reach
+    the real Cloudflare Email Routing API or public DNS — stub
+    `email_routing.inspect` / pass clients instead."""
+    from portfolio import email_routing
+
+    def _no_network(*a, **k):
+        raise email_routing.EmailRoutingError(
+            "tests must not call the real Cloudflare Email Routing API — stub it")
+
+    monkeypatch.setattr(email_routing, "inspect", _no_network)
+    monkeypatch.setattr(email_routing, "public_mx", _no_network)
