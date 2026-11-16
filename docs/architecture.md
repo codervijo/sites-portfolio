@@ -34,6 +34,7 @@ sites/portfolio/
 │   ├── gtrends.py                # Google Trends via pytrends (v19.B)
 │   ├── seo_runtime.py            # live HTTP SEO probe orchestrator
 │   ├── seo_cache.py              # snapshot save/load for `data/seo/`
+│   ├── seo_deep.py               # v51 `project seo --deep`: crawl probe + link graph (raw HTML)
 │   ├── serp.py                   # cluster builder for `new validate`
 │   ├── serp_fetch.py             # SerpAPI client
 │   ├── serp_query_cache.py       # per-query snapshot cache under `data/serp/`
@@ -71,6 +72,7 @@ sites/portfolio/
 │   ├── domains/clients.csv       # v45.D client roster (4th sync source)
 │   ├── checks/<YYYY-MM-DD>.json  # one site-classification snapshot per run
 │   ├── seo/<YYYY-MM-DD>.json     # SEO probe snapshots
+│   ├── seo_deep/<domain>/<YYYY-MM-DD>.json  # v51 `project seo --deep` report (seo-deep-v1)
 │   ├── gsc/<YYYY-MM-DD>.json     # GSC totals
 │   ├── serp/<YYYY-MM-DD>/        # SerpAPI cache per day
 │   │   ├── _quota.json           # monthly-quota counter
@@ -838,6 +840,53 @@ driven from the CLI by `console.spinner_counter` (the v33.L hook
 pattern) with a `✓ inspected N URL(s) in Ns` line after each. Capped
 runs skip the spinner — ten calls don't need one.
 
+#### `project seo --deep` (v51)
+
+Indexing root-cause diagnostic, read-only (no fixes, indexing requests,
+sitemap submits or monitoring). `cli._run_seo_deep` runs five steps, one
+`✓ / ↷ / ✗` line each (stderr under `--json`, so stdout stays JSON):
+
+1. **Preflight** — `seo_deep.open_gsc` (BUG-104 `gsc_preflight`); failure →
+   `✗ Preflight: Google Search Console — <cause + fix>`, exit 1.
+2. **Crawl** — `crawl_site`: every sitemap URL + bounded BFS from `/`, raw
+   HTML only (Googlebot's pre-render view).
+3. **Inspect** — sized first (URLs, calls left after today's cache, share
+   of the 2,000/day property quota); confirms above
+   `_ALL_CONFIRM_THRESHOLD` (50) unless `--yes`; declining skips
+   inspection and says so in the report. `sweep_inspections` (same-day
+   cache, `--fresh`, budget, 429 stop, 550/min).
+4. **Baselines** — `compare_with_baselines` (auto-pick or `--baseline`,
+   HTTP-only, zero inspection quota).
+5. **Report** — `build_report` → `derive_findings` + `url_statuses`;
+   `data/seo_deep/<domain>/<UTC-date>.json` (`schema = "seo-deep-v1"`,
+   atomic write); `--json` prints it, otherwise `render_seo_deep`.
+
+`--deep` *replaces* the standard view rather than stacking on it: the
+standard view's `--all` path would inspect every URL a second time.
+
+**Findings.** Each rule reads observed data and emits nothing when its
+input is missing. Tiers: `confirmed` (a fetched page or an API field says
+so — robots/noindex/non-200/empty-shell/redirect/canonical/orphans, GSC
+sitemap missing/mismatched/erroring, Google-vs-declared canonical),
+`likely` (≥2 independent signals or a baseline contrast), `possible` (one
+signal). Ranked tier → URLs affected → impact; the Fixes list re-sorts the
+same findings by impact. **The URL Inspection `sitemap` field is not
+evidence on its own**: it is empty even on indexed URLs of fully indexed
+sc-domain properties (cottagefoodmap.com, verified 2026-11-16), so it
+counts only when some URLs carry it and the unknown ones don't.
+
+**Per-URL status** — `UrlStatus.discovery` = `indexed` / `crawled` (has a
+last-crawl time) / `known` / `unknown` / `not-inspected`, plus coverage
+meaning (`seo_diagnose.coverage_text`), referring-URL count, Google vs
+declared canonical, HTTP, redirects, canonical kind, noindex, robots,
+click depth, inbound links, words. The human view lists non-indexed URLs
+(≤200); the JSON has all.
+
+**Shared wording (BUG-099).** `seo_diagnose.COVERAGE_TEXT` maps every
+coverage token to (meaning, next action); `compute_state` Blockers and the
+`--deep` report both read it. v36.E (BUG-095) extends this table rather
+than adding a second one.
+
 #### `Domain`
 
 Per-row entry in `data/portfolio.json`. Fields: `name`,
@@ -1194,7 +1243,7 @@ lamill
 ├── project                                          # ops on one project
 │   ├── check <name>                                 ✅ v7.A
 │   ├── fix <name>                                   ✅ v6.D
-│   ├── seo <name>                                   ✅ v7.A (+ v13.B GSC diagnostics)
+│   ├── seo <name>                                   ✅ v7.A (+ v13.B GSC diagnostics; v51 `--deep [--fresh] [--baseline D] [--json]`)
 │   ├── todos <name>                                 ✅ v27.D — read [[todo]] table
 │   ├── diagnose <name>                              ✅ v7.F
 │   ├── version <name>                               ⏳ v15.B — read local
@@ -1462,7 +1511,7 @@ this was paid for in real debugging (2026-06-15).
 | `cloudflare.py` | CF API client (Pages, Workers, DNS) — extended in v15.N (`probe_token_scopes` Read-side scope probe), v15.R (`purge_conflicting_root_records` DNS auto-cleanup), **v25.B `probe_zone_write_capability`** (per-zone DNS:Edit pre-flight via deliberately-invalid TTL=2 POST), **v25.D `diagnose_token`** (comprehensive token diagnostic — accounts × Pages/Workers/Settings, zones × DNS:Edit; powers `settings cloudflare check-token` CLI). | `walk_pages_projects`, `dns_lookup`, `probe_token_scopes`, `probe_zone_write_capability` → `ZoneWriteProbe`, `diagnose_token` → `TokenDiagnostic` |
 | `godaddy.py` | v31.A | GoDaddy Management API client (httpx-direct, `sso-key <KEY>:<SECRET>` auth vs `api.godaddy.com`). `list_domains()` (GET `/v1/domains`, marker-paginated) + `get_domain()` (GET `/v1/domains/{domain}` → expires/status/nameServers/renewAuto); typed `GoDaddyError` (401/403 key hint, 429 rate-limit). Management API only (1+ domain threshold) — buying stays on Porkbun. `apikeys` gains `GODADDY_API_KEY`/`GODADDY_API_SECRET` + `_probe_godaddy`. **v31.B**: `fetch_inventory()` (active-only; the account carries years of cancelled domains) + `refresh_godaddy_csv()` merge-refresh (updates expiry/status/auto-renew/NS, preserves manual-only columns, adds/drops domains); `cli._do_godaddy_refresh()` runs in `fleet sync --refresh` beside `_do_porkbun_refresh`. **v31.C**: `get_nameservers()` (reuses `get_domain`, sorted/lowercased) + `set_nameservers()` (PUT `/v1/domains/{domain}` `{"nameServers": …}`, refuses empty list) power `new deploy` Step 4's GoDaddy NS branch — GET-then-compare (reuses `porkbun_dns.ns_matches`) → confirm → PUT, idempotent per ADR-0015. See ADR-0021 |
 | `gsc.py` | GSC OAuth + queries + sync. **v24.B scope bump**: `SCOPES` changed from `["webmasters.readonly"]` to `["webmasters", "siteverification"]` so `gsc_admin.py`'s write helpers can use the same cached OAuth token; operator runs `lamill settings gsc auth --force` once to re-consent. **BUG-104:** tokens are written atomically (`write_token_atomic`, also used by `ga4_admin`); an unreadable token raises `MissingCredentialsError` with the re-auth command (`load_token`); `authenticate(interactive=False)` never opens a browser. | `gsc_auth`, `gsc_status`, `authenticate`, `query_with_dims`, `list_properties`, `write_token_atomic`, `load_token` |
-| `gsc_recrawl.py` | Sitemap resubmit flow + per-URL inspection (powers v16.C `CHECK_147 url-indexed`) | `recrawl_property`, `inspect_one_url` |
+| `gsc_recrawl.py` | Sitemap resubmit flow + per-URL inspection (powers v16.C `CHECK_147 url-indexed`). **v51.C:** `UrlInspection` gained optional `sitemaps`, `referring_urls`, `google_canonical`, `user_canonical`, `robots_txt_state`, `crawled_as` (fields the API always returned) + `http_status` on API errors (429 = quota); `pick_property` (sc-domain first) split out of `find_gsc_property`. `gsc-exchange-v1` payload unchanged. | `recrawl_property`, `inspect_one_url`, `pick_property` |
 | `gsc_admin.py` (v24.B / v25.C / v25.D) | GSC + Site Verification API **write** client. httpx-direct (matches `ga4_admin.py` / `gh_repo.py`; not `googleapiclient.discovery.build`). Reuses `gsc.authenticate()` token — no separate credential file. Used by `new deploy` Step 9 (v24.C / v25.C) to register `sc-domain:<domain>` properties + submit sitemaps without dashboard clicks. **v25.C multi-method verification**: `get_verification_token(method=...)` + `verify_domain(method=...)` accept `method ∈ {"FILE", "DNS_TXT"}` (default FILE per ADR-0014); `write_verification_file(project_dir, token)` writes Google's HTML proof to `public/<token>`; `wait_for_verification_file_live(domain, token)` HEAD-polls (~180s budget). **v25.D `classify_403(error_body)`** parses Google's 403 JSON details to distinguish `insufficient_scope` (re-consent) vs `service_disabled` (enable API in GCP; surfaces consumer-project URL when available) vs `invalid_grant` (re-auth) vs `unknown`. Idempotent at every level (`list_sites` + `list_sitemaps` probes skip re-adding existing entries). Typed errors: `GSCAdminError` (non-2xx) + `VerificationFailedError` (propagation budget exhausted; method-aware hint text). | `get_verification_token`, `write_verification_file`, `wait_for_verification_file_live`, `verify_domain`, `add_site`, `submit_sitemap`, `list_sites`, `list_sitemaps`, `classify_403` |
 | `email_routing.py` (v50.B) | Cloudflare Email Routing client: `hello@<site>` forwards to `hello@lamill.io` (or `lamill.toml [email] forward_to`). `inspect()` is a read-only snapshot (zone, MX, apex SPF, routing settings + status, rules, destination); `plan()` returns steps vs blockers; `ensure()` writes, then re-reads. Never touches a zone whose MX belongs to another provider, an SPF record lacking CF's include, or an existing rule that forwards elsewhere. CF rejects rules to an unverified destination (code 2054), so the rule is added on a second pass after the operator's click. Used only by CHECK_165 (check + fix; no CLI verb). Tests are isolated from the real API by `tests/conftest.py`. | `inspect`, `plan`, `ensure`, `forward_to_for`, `public_mx`, `EmailState`, `EmailRoutingError` |
 | `ga4_admin.py` (v18.C) | GA4 Admin API client + OAuth (`analytics.edit` scope). httpx-direct (no `googleapiclient.discovery.build`). Used by `new bootstrap` and the CHECK_162 fixer to provision per-site GA4 properties + web data streams; measurement ID lands in `lamill.toml [analytics] ga4_id`. **v49.B find-or-create:** `stream_index()` lists every property/web stream in every account the token can see; `ensure_property(domain, account_id)` reuses a fleet-account match, reports `elsewhere` (property lives in another account → move it, never duplicate), `ambiguous`, `would-create` (dry run), or creates property + stream; **v49.F** `ignore_other_accounts=True` creates a fleet property even when another account has one (clean switch); `set_data_retention()` probes then sets 14-month event + user retention (ADR-0015 idempotency). Credentials at `~/lamill/ga4/{credentials.json,token.json}` (chmod 600); account = `GA4_ACCOUNT_ID` (LaMill Sites, ADR-0029). Tests are isolated from the real sign-in by `tests/conftest.py`. | `create_property`, `create_web_stream`, `stream_index`, `find_for_domain`, `ensure_property`, `set_data_retention`, `normalize_host`, `authenticate`, `has_token` |
@@ -1470,6 +1519,7 @@ this was paid for in real debugging (2026-06-15).
 | `gtrends.py` (v19.B + 2026-05-22 PM mitigations) | Google Trends via `pytrends` — topic-specific only (`fetch_trends(topic, ...)` returns `TrendsPayload` with interest-over-time + related queries). Per-topic cache at `data/gtrends/<topic-hash>.json` keyed by (topic, timeframe, region); schema `gtrends-v1`; 24h TTL. `_make_pytrends_client()` boundary handles UA rotation (5 modern browser UAs) + lazy `ImportError` → typed `GTrendsError` with `uv sync` hint. **429 mitigations** (2026-05-22 PM): `GTrendsRateLimitError` subclass detected via `"429"` / `"Too Many Requests"` in pytrends error string; `fetch_trends` falls back to ANY cached payload via `load_any_cached` (renderer surfaces yellow stale-warning header). **No-topic latest-trends surface withdrawn 2026-05-22 PM** — all three approaches 404'd (pytrends `trending_searches` / `today_searches` / public RSS feed). See `docs/bugs.md` 2026-05-22 PM entry for the iteration log. L4 SerpAPI fallback NOT shipped — pinned. | `fetch_trends`, `load_cached`, `load_any_cached`, `save_cached`, `payload_age_hours`, `TrendsPayload`, `GTrendsError`, `GTrendsRateLimitError` |
 | `seo_runtime.py` | Live HTTP SEO probe orchestrator. **BUG-104 preflight** (never fail silently): `gsc_preflight()` stages internet → Search Console API reachable → login → list sites, raising `GscPreflightError` in plain words; `preflight_or_exit()` runs it before any work in `fleet seo` / `fleet focus --refresh` / `fleet dashboard --refresh`; `report_gsc_problems()` prints ✗ for per-domain GSC failures and blocks saving a snapshot when auth failed. | `run_seo(domains, gsc_auth=)`, `gsc_preflight`, `preflight_or_exit`, `report_gsc_problems` |
 | `seo_cache.py` | Snapshot save/load for `data/seo/` | `save_snapshot`, `latest_snapshot`, `is_stale` |
+| `seo_deep.py` (v51.B–E) | `project seo --deep` indexing root-cause diagnostic, read-only. v51.B: Googlebot-semantics robots.txt (`parse_robots` → `RobotsRules.check`: `googlebot` group else `*`, `*`/`$` wildcards, longest match wins, Allow wins ties; 4xx → allow all, 5xx/unreachable → disallow all); `probe_url` follows redirects by hand (every hop recorded, loop/>10 hops → `error`) and reads raw HTML for canonical kind (self/variant/other/host_mismatch/cross_site/missing/multiple), `noindex` (meta + `X-Robots-Tag`, UA-scoped values honored), title + visible body chars (SSR empty-shell), followable same-site `<a href>` links (www = apex; nofollow counted, not followed); `crawl_site` probes every sitemap URL + a bounded BFS from `/` (cap = sitemap + 100, ceiling 2000; 8 threads on one shared client) and builds the link graph — inbound links (a link through a redirect counts for its target), click depth from `/`, `orphans`, `unreachable_from_home`, `linked_not_in_sitemap`. Graph key `url_key` folds slash / www / `index.html` / fragment. Reuses `seo_diagnose._discover_pages` + `_has_title`. **v51.C** `sweep_inspections`: inspects every sitemap URL; same-day cache (today's `deep_inspections`, ok records reused unless `fresh`); budget = `URL_INSPECTION_DAILY_QUOTA` (2000/property/day) minus calls lamill recorded today (`inspections_used_today`: today's `deep_inspections` + `v16c_inspections`); past budget → `not_inspected` (resume next run); a 429/quota error stops the sweep; `_Throttle` at 550/min (< Google's 600); saves every 10 calls and in `finally`. `open_gsc` = BUG-104 `gsc_preflight` → `(service, property)`, else `GscUnavailable`. **v51.D** baseline comparison, zero URL Inspection quota: `pick_baselines` (cached inspections — today's `deep_inspections` else newest `v16c_inspections` — ≥5 inspected and all indexed; ranked same framework+platform → same framework → other, then inspected count; `--baseline` override taken as-is), `profile_site` → `SiteProfile` (crawl metrics from a `CrawlResult`, `sitemap_shape` = index/flat + `<lastmod>` share + `<loc>` hosts, `gsc_sitemaps` = `sitemaps.list` incl. `lastSubmitted`/`lastDownloaded`/submitted count, `text_stats` = 5-word-shingle template share, non-template words, near-duplicates at Jaccard ≥0.8 after template removal; `UrlProbe` gained `words` + `shingles`), `compare` → one `Contrast` per signal, `outside` = beyond the baselines' observed min–max, `worse` = outside on the bad side (no invented thresholds), `categorical_notes` (stack, sitemap form, multi-host `<loc>`, GSC sitemap ≠ live / pending / errors), `compare_with_baselines` orchestrates. Site age via `_repo_age_days` (root commit) — local stand-in for the BUG-105-broken `project.fetch_first_commit_date`. **v51.E** `derive_findings` (`Finding`: tier/impact/affected/evidence/fix/url sample), `prioritized_fixes`, `url_statuses` (`UrlStatus.discovery`), `build_report` → `DeepReport.to_json` (`seo-deep-v1`), `save_report` (atomic) to `report_path`. Renderer: `research_render.render_seo_deep`. See § Data model › `project seo --deep`. | `crawl_site`, `probe_url`, `parse_robots`, `url_key`, `CrawlResult`, `UrlProbe`, `sweep_inspections`, `open_gsc`, `SweepResult`, `pick_baselines`, `profile_site`, `compare`, `compare_with_baselines`, `Comparison`, `derive_findings`, `build_report`, `save_report` |
 | `serp.py` | Cluster builder for `new validate` | `build_cluster` |
 | `serp_fetch.py` | SerpAPI client | `fetch_serp_for_query` |
 | `serp_query_cache.py` | Per-query snapshot cache under `data/serp/` | `save_query_snapshot`, `load_query_snapshot` |
@@ -2089,7 +2139,9 @@ here so they don't get lost.
 ### `data/gsc/<domain>/<date>.json` — one file, several writers (BUG-093)
 
 `project seo` diagnostics (`property_url/sitemaps/coverage/hints`) and
-`check_147` (`v16c_inspections`) share one snapshot per day. v36.D made
+`check_147` (`v16c_inspections`) share one snapshot per day — and, since
+v51.C, `project seo --deep` (`deep_inspections`, a `{url: record}` map
+merged per URL, each record stamped `inspected_at`). v36.D made
 `save_snapshot()` merge sections, which stops same-day clobbering, but
 `fetched_at` is still file-level (a `check_147` write makes stale coverage
 look fresh) and most readers (`gsc_rollup`, `check_155`, `fleet focus`

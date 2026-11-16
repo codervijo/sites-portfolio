@@ -251,12 +251,13 @@ def _human_age_from_iso(iso: str | None) -> str:
         return "—"
 
 
-def _render_project_seo_diagnostics(diag, console) -> None:
+def _render_project_seo_diagnostics(diag, console, *, full: bool = False) -> None:
     """v13.B — render the diagnostics block (sitemaps + coverage +
     hints) for one domain. Accepts a `ProjectSeoDiagnostics`
     dataclass instance OR a dict reconstructed from the cache;
     duck-typed access (`getattr`/`.get`) keeps both shapes
-    supported."""
+    supported. `full` (BUG-100) — the caller inspected the whole
+    sitemap (`--all`), so the Coverage headline says "all N", not "top N"."""
     # Normalize access — works for both dataclass and dict.
     def _get(obj, key, default=None):
         if isinstance(obj, dict):
@@ -338,9 +339,12 @@ def _render_project_seo_diagnostics(diag, console) -> None:
         )
         total = len(coverage)
         pct = (indexed_count * 100 // total) if total else 0
+        # BUG-100 — `--all` inspects the whole sitemap; don't call it "top N".
+        scope = (f"all {total} sitemap URLs inspected" if full
+                 else f"top {total} inspected")
         console.print(
             f"    [bold]📊 Coverage[/] "
-            f"[dim](top {total} inspected — {indexed_count}/{total} indexed, {pct}%)[/]"
+            f"[dim]({scope} — {indexed_count}/{total} indexed, {pct}%)[/]"
         )
         for cv in coverage:
             state = (_get(cv, "coverage_state") or "").lower()
@@ -1035,3 +1039,108 @@ def render_seo_blockers(diag, console) -> None:
         console.print(f"      [dim]→ {b.next_action}[/]")
     for n in diag.notes:
         console.print(f"    [dim]↷ {n}[/]")
+
+
+# ---------- v51.E — `project seo --deep` report ----------
+
+_TIER_STYLE = {"confirmed": "red", "likely": "yellow", "possible": "cyan"}
+_DISCOVERY_STYLE = {"indexed": "green", "crawled": "yellow", "known": "yellow",
+                    "unknown": "red", "not-inspected": "dim"}
+
+
+def render_seo_deep(report, console, *, all_urls: bool = False) -> None:
+    """Human-readable `--deep` report: findings (ranked by confidence),
+    fixes (ranked by impact), baseline contrasts, per-URL status."""
+    from rich.table import Table
+    from .seo_deep import _fmt, prioritized_fixes
+
+    st = report.statuses
+    insp = [s for s in st if s.inspected]
+    funnel: dict[str, int] = {}
+    for s in st:
+        funnel[s.discovery] = funnel.get(s.discovery, 0) + 1
+    console.print()
+    console.print(f"[bold]🔬 {report.domain} — why Google isn't indexing it[/]  "
+                  f"[dim]({len(st)} sitemap URLs · {len(insp)} inspected · "
+                  f"property {report.property_url or '—'})[/]")
+    order = ("indexed", "crawled", "known", "unknown", "not-inspected")
+    console.print("  " + "  ·  ".join(
+        f"[{_DISCOVERY_STYLE[k]}]{k} {funnel[k]}[/]" for k in order if funnel.get(k)))
+
+    # Findings
+    console.print()
+    if not report.findings:
+        console.print("  [green]✓ No root-cause findings — nothing observed explains "
+                      "the gap.[/]")
+    else:
+        console.print(f"  [bold]Findings[/] [dim]({len(report.findings)}, most certain first)[/]")
+        for i, f in enumerate(report.findings, 1):
+            c = _TIER_STYLE[f.tier]
+            scope = f" · {f.affected} URL(s)" if f.affected else ""
+            console.print(f"   {i}. [{c}]{f.tier.upper()}[/] [bold]{f.title}[/] "
+                          f"[dim]({f.impact} impact{scope})[/]")
+            for e in f.evidence:
+                console.print(f"      [dim]• {e}[/]")
+            for u in f.urls[:3]:
+                console.print(f"      [dim]  {u}[/]")
+            if len(f.urls) < f.affected and f.urls:
+                console.print(f"      [dim]  … +{f.affected - min(3, len(f.urls))} more[/]")
+
+        console.print()
+        console.print("  [bold]Fixes[/] [dim](highest impact first — lamill applies none of these)[/]")
+        for i, f in enumerate(prioritized_fixes(report.findings), 1):
+            console.print(f"   {i}. [{_TIER_STYLE[f.tier]}]{f.impact}[/] {f.fix} "
+                          f"[dim]← {f.id}[/]")
+
+    # Baselines
+    cmp = report.comparison
+    if cmp is not None and cmp.baselines:
+        console.print()
+        console.print("  [bold]vs well-indexed sites[/] [dim]("
+                      + ", ".join(f"{p.domain}: {p.reason}" for p in cmp.picks) + ")[/]")
+        t = Table(box=None, pad_edge=False, show_header=True, header_style="dim")
+        t.add_column("", width=1)
+        t.add_column("signal")
+        t.add_column(report.domain, justify="right")
+        for b in cmp.baselines:
+            t.add_column(b.domain, justify="right", style="dim")
+        for c in cmp.contrasts:
+            if not c.outside:
+                continue
+            mark = "[red]✗[/]" if c.worse else "[yellow]~[/]"
+            t.add_row(mark, c.label, _fmt(c.target), *[_fmt(v) for v in c.baselines.values()])
+        same = sum(1 for c in cmp.contrasts if not c.outside)
+        if t.row_count:
+            console.print(t)
+        console.print(f"   [dim]{same} other signal(s) within the baselines' range; "
+                      "✗ = worse, ~ = outside but not worse[/]")
+        for n in cmp.notes:
+            console.print(f"   [dim]• {n}[/]")
+
+    # Per-URL table
+    console.print()
+    rows = st if all_urls else [s for s in st if s.discovery != "indexed"]
+    hidden = len(st) - len(rows)
+    console.print(f"  [bold]Per-URL status[/] [dim]("
+                  + ("all" if all_urls else f"not indexed — {hidden} indexed hidden")
+                  + "; full list in the JSON report)[/]")
+    t = Table(box=None, pad_edge=False, show_header=True, header_style="dim")
+    for col, kw in (("URL", {}), ("stage", {}), ("crawled", {}),
+                    ("refs", {"justify": "right"}), ("HTTP", {"justify": "right"}),
+                    ("canon", {}), ("depth", {"justify": "right"}),
+                    ("links in", {"justify": "right"}), ("words", {"justify": "right"})):
+        t.add_column(col, **kw)
+    limit = 200
+    for s in rows[:limit]:
+        u = s.url.split("://", 1)[-1]
+        u = u if len(u) <= 48 else u[:22] + "…" + u[-25:]
+        t.add_row(u, f"[{_DISCOVERY_STYLE[s.discovery]}]{s.discovery}[/]",
+                  (s.last_crawl or "never")[:10],
+                  "—" if s.referring_urls is None else str(s.referring_urls),
+                  str(s.http_status or "—"), s.canonical_kind,
+                  "—" if s.depth is None else str(s.depth), str(s.inbound), str(s.words))
+    console.print(t)
+    if len(rows) > limit:
+        console.print(f"   [dim]… {len(rows) - limit} more in the JSON report[/]")
+    for n in report.notes:
+        console.print(f"  [yellow]↷[/] {n}")

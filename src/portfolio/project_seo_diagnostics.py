@@ -232,10 +232,13 @@ def _normalize_coverage_state(raw: str | None) -> str | None:
     return re.sub(r"[^a-z0-9]+", "_", key).strip("_")
 
 
-# URL Inspection daily quota per token, as recorded when v13.B shipped.
-# Used only to size the `--all` cost estimate (v45.E) — never enforced
-# here; Google is the authority and will 429 if it disagrees.
-URL_INSPECTION_DAILY_QUOTA = 200
+# URL Inspection quota per Search Console *property*: 2,000/day and
+# 600/min (developers.google.com/webmaster-tools/limits, checked
+# 2026-11-16 — v51.A). The v13.B value of 200 "per token" was wrong and
+# overstated `--all` costs 10x. Used to size cost estimates and the
+# `--deep` sweep budget; Google stays the authority (429 on overrun).
+URL_INSPECTION_DAILY_QUOTA = 2000
+URL_INSPECTION_PER_MINUTE_QUOTA = 600
 
 
 def fetch_coverage_details(service, property_url: str, *,
@@ -246,7 +249,7 @@ def fetch_coverage_details(service, property_url: str, *,
     `CoverageDetail` per URL.
 
     `top_n=10` matches v16.D's planned default (also caps URL
-    Inspection daily-quota burn — 200 calls/day per token; 10
+    Inspection daily-quota burn — 2,000 calls/day per property; 10
     per project keeps the per-domain footprint small).
 
     **`top_n=None` (v45.E) inspects every sitemap URL** — the

@@ -38,6 +38,16 @@ class UrlInspection:
     coverage_state: str | None = None
     verdict: str | None = None
     error: str | None = None
+    # v51.C — discovery + canonical evidence the API always returned but we
+    # used to drop. All optional/defaulted: existing callers and the
+    # `gsc-exchange-v1` payload (`_inspection_to_page`) are unchanged.
+    sitemaps: list[str] = field(default_factory=list)        # sitemaps Google ties to this URL
+    referring_urls: list[str] = field(default_factory=list)  # pages Google saw linking here
+    google_canonical: str | None = None
+    user_canonical: str | None = None
+    robots_txt_state: str | None = None
+    crawled_as: str | None = None
+    http_status: int | None = None     # set on an API error (429 = quota)
 
     def crawled_since(self, baseline: datetime) -> bool:
         if self.last_crawl_time is None:
@@ -277,7 +287,11 @@ def find_gsc_property(domain: str, service=None) -> str:
             f"no GSC property covers {domain!r}. Available domains: "
             f"{', '.join(sorted(cov.keys())[:10])}"
         )
-    # Prefer sc-domain: form (covers both www and bare).
+    return pick_property(matches)
+
+
+def pick_property(matches: list[dict]) -> str:
+    """Prefer the `sc-domain:` property (covers www + apex) over a URL-prefix one."""
     for p in matches:
         if p["siteUrl"].startswith("sc-domain:"):
             return p["siteUrl"]
@@ -308,7 +322,13 @@ def inspect_one_url(service, site_url: str, url: str) -> UrlInspection:
             "siteUrl": site_url,
         }).execute()
     except Exception as e:    # noqa: BLE001 — googleapiclient raises many
-        return UrlInspection(url=url, status="error", error=f"{type(e).__name__}: {e}")
+        status = getattr(getattr(e, "resp", None), "status", None)
+        try:
+            status = int(status) if status is not None else None
+        except (TypeError, ValueError):
+            status = None
+        return UrlInspection(url=url, status="error",
+                             error=f"{type(e).__name__}: {e}", http_status=status)
     result = resp.get("inspectionResult", {}) if isinstance(resp, dict) else {}
     idx = result.get("indexStatusResult", {}) or {}
     return UrlInspection(
@@ -319,6 +339,12 @@ def inspect_one_url(service, site_url: str, url: str) -> UrlInspection:
         indexing_state=idx.get("indexingState"),
         coverage_state=idx.get("coverageState"),
         verdict=idx.get("verdict"),
+        sitemaps=list(idx.get("sitemap") or []),
+        referring_urls=list(idx.get("referringUrls") or []),
+        google_canonical=idx.get("googleCanonical"),
+        user_canonical=idx.get("userCanonical"),
+        robots_txt_state=idx.get("robotsTxtState"),
+        crawled_as=idx.get("crawledAs"),
     )
 
 

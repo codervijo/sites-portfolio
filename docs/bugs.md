@@ -75,6 +75,16 @@ when applicable. Don't delete.
 
 ## Open bugs
 
+### BUG-105 · 2026-11-16 — site age reads as "days since the newest commit": `fetch_first_commit_date` returns the latest commit, not the first
+
+- **Repro** — `_site_age_days("calcengine.site", None)` → 7 on 2026-11-16; `git -C sites/calcengine.site log --reverse --format=%ad --date=short | head -1` → `2026-04-13` (~217 days). Every fleet site reads ~6–7 days old (the v49 GA4 commits).
+- **Expected** — days since the repo's first commit.
+- **Actual** — `project.fetch_first_commit_date` runs `git log --reverse --format=%aI --max-count=1`; git applies `--max-count` *before* `--reverse`, so it returns the newest commit.
+- **Where** — `src/portfolio/project.py:120`. Fix: `git rev-list --max-parents=0 HEAD` (root commit(s), take the oldest) then read its date, or `git log --reverse --format=%aI | head -1` without `--max-count`.
+- **Blast radius** — everything reading site age when `launched` isn't set: `fleet dashboard` site-age column, `seo_overall_status` young-site grading (every site looks < 90 days → 🔴 suppressed), `project seo` State (`unproven` vs `blocked` uses `YOUNG_SITE_THRESHOLD_DAYS` = 90 — a 7-month-old 0-traffic site is reported as young/unproven).
+- **Severity** — `major` (silently wrong grade inputs fleet-wide).
+- **Notes** — found during v51.D (operator not yet told when logged). v51 computes age with its own correct root-commit read (`seo_deep._repo_age_days`) rather than patching the shared helper mid-phase; fold `seo_deep` back onto the shared helper once this is fixed.
+
 ### BUG-104 · 2026-11-10 — `fleet seo --refresh` shows no GSC data for every site, labels it "fresh", and reports every site's impressions as lost
 
 - **Repro** — `lamill fleet seo --refresh` on 2026-11-10 at 09:03.
@@ -127,6 +137,8 @@ when applicable. Don't delete.
 - **Actual** — `📊 Coverage (top 24 inspected — 10/24 indexed, 41%)`. It reads as a sample, not full coverage.
 - **Where (guess)** — `research_render.py` coverage headline (~L341) hard-codes `top {total}`; the renderer isn't told whether the run was `--all` (v45.E).
 - **Severity** — `cosmetic`.
+- **Scheduled** — v51.E (operator, 2026-11-16: folded into the `--deep` report, which touches the same headline).
+- **Fixed** — 2026-11-16 (uncommitted, v51.E): `_render_project_seo_diagnostics(..., full=)`; `project seo --all` passes `full=True` → "all N sitemap URLs inspected". Test: `test_bug100_coverage_headline`.
 
 ### BUG-099 · 2026-10-17 — `project seo` blocker text ignores `coverage_state`: "unknown to Google" pages are called "known to Google", and noindex pages are told to "improve the page"
 
@@ -147,6 +159,8 @@ when applicable. Don't delete.
 - **Where (guess)** — `seo_diagnose.compute_state()` (~L453–459), the catch-all `else:` `Blocker(kind="warn", detail="URL is known to Google but not indexed.", ...)`.
 - **Severity** — `minor` (misleading wording and remedy; no wrong data).
 - **Notes** — Same root cause as BUG-095 (one generic message for every `coverage_state`); fix them together in v36.E. `project_seo_diagnostics._generate_hints` already keeps a per-`coverage_state` mapping, so the blocker text could reuse it instead of a second vocabulary. The same run also showed `/how-to-use-facebook-live-on-android/` moving from `discovered_not_indexed` (2026-10-16) to `url_is_unknown_to_google` (2026-10-17). That's probably GSC inspection noise, not a lamill bug; recorded here in case it repeats.
+- **Scheduled** — v51.E (operator, 2026-11-16). Supersedes the "fix together in v36.E" note for this bug; BUG-095 stays in v36.E. v51.E's per-state wording table should be the one v36.E then reuses for BUG-095, not a second copy.
+- **Fixed** — 2026-11-16 (uncommitted, v51.E): `seo_diagnose.COVERAGE_TEXT` / `coverage_text()` — meaning + remedy per coverage state; `compute_state`'s catch-all and its homepage branch both read it (an old site's unknown homepage is no longer called "crawled"). Tests: `test_bug099_*`.
 
 ### BUG-098 · 2026-10-11 — `new bootstrap` names the project by dropping the TLD, so `lamill.pics` became `lamill` and collides with the other lamill.* sites
 

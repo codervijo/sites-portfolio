@@ -390,6 +390,74 @@ def _homepage_urls(origin: str) -> set[str]:
     return {o, o + "/", o + "/index.html"}
 
 
+# BUG-099 (folded into v51.E) — plain-words meaning + remedy per GSC
+# coverage state, keyed by the `_normalize_coverage_state` token. One table
+# for `project seo` Blockers and the `--deep` per-URL report; v36.E reuses
+# it for BUG-095 rather than a second copy.
+COVERAGE_TEXT: dict[str, tuple[str, str]] = {
+    "url_is_unknown_to_google": (
+        "Google hasn't discovered this URL — it isn't in Google's crawl queue yet.",
+        "Link it from the homepage or a hub page; once the sitemap is processed, "
+        "Search Console's \"Request indexing\" can speed up key pages."),
+    "discovered_not_indexed": (
+        "Google knows the URL but hasn't crawled it yet — usually low crawl priority "
+        "on a site with little authority.",
+        "Add internal links from the homepage / hubs and earn external links; "
+        "re-check after a few weeks."),
+    "crawled_not_indexed": (
+        "Google crawled this URL and chose not to index it — a content / quality / "
+        "authority signal, not a technical fault.",
+        "Strengthen the page (substantive original content, internal links, "
+        "backlinks), or drop it from the sitemap if it's intentionally thin."),
+    "excluded_by_noindex_tag": (
+        "The page tells Google not to index it (noindex), yet it's in the sitemap — "
+        "conflicting signals.",
+        "Remove it from the sitemap, or drop the noindex if the page should rank."),
+    "blocked_by_robots": (
+        "robots.txt blocks Googlebot from this URL.",
+        "Unblock it in robots.txt, or remove it from the sitemap if the block is "
+        "intentional."),
+    "indexed_though_blocked_by_robots_txt": (
+        "Indexed from links alone — robots.txt stops Google reading the page.",
+        "Unblock it in robots.txt if it should rank; otherwise use noindex, not "
+        "robots.txt."),
+    "not_found_404": (
+        "The URL returns 404 but is listed in the sitemap.",
+        "Restore the page or remove it from the sitemap."),
+    "soft_404": (
+        "The URL returns 200 but Google judged it empty / not-found.",
+        "Add substantive content, or return a real 404 and drop it from the sitemap."),
+    "server_error": (
+        "The URL returned a 5xx error when Google fetched it.",
+        "Fix the route or the deploy, then re-check."),
+    "redirect_error": (
+        "The URL redirects (or its redirect failed) — Google indexes the final URL, "
+        "not this one.",
+        "List the final URL in the sitemap and link to it directly."),
+    "alternate_page_with_proper_canonical_tag": (
+        "This URL's canonical points to another page, and Google indexed that one.",
+        "Expected for duplicates; drop this URL from the sitemap so it lists only "
+        "canonical pages."),
+    "duplicate_without_user_selected_canonical": (
+        "Google sees this as a duplicate and the page declares no canonical.",
+        "Add a self-referencing canonical, or differentiate the content."),
+    "duplicate_google_chose_different_canonical_than_user": (
+        "Google picked a different canonical than the one the page declares.",
+        "Make the declared canonical consistent (links, sitemap, redirects all agree), "
+        "or differentiate the content."),
+}
+_COVERAGE_TEXT_DEFAULT = (
+    "Google reports this URL as not indexed.",
+    "Check the URL in Search Console's URL Inspection for the specific reason.")
+
+
+def coverage_text(state: str | None) -> tuple[str, str]:
+    """(meaning, next action) for a coverage token or GSC's human text."""
+    from .project_seo_diagnostics import _normalize_coverage_state
+    return COVERAGE_TEXT.get(_normalize_coverage_state(state) or "",
+                             _COVERAGE_TEXT_DEFAULT)
+
+
 def compute_state(
     *,
     origin: str,
@@ -441,21 +509,16 @@ def compute_state(
                 next_action="Give it time; ensure it's in the sitemap and "
                             "linked from the homepage. Re-check after ~30 days.",
             ))
-        elif is_home:
-            blockers.append(Blocker(
-                kind="blocker",
-                title=f'Homepage "{label}" (GSC)',
-                detail="Google has crawled the homepage but is not indexing it "
-                       "— a content/authority signal, not a technical fault.",
-                next_action="Strengthen the page (substantive original content, "
-                            "internal links, backlinks); not lamill-fixable.",
-            ))
         else:
+            # BUG-099 — wording + remedy follow the actual coverage state
+            # (one table, `coverage_text`, shared with `project seo --deep`).
+            detail, action = coverage_text(ins.coverage_state)
             blockers.append(Blocker(
-                kind="warn",
-                title=f'{ins.url} "{label}" (GSC)',
-                detail="URL is known to Google but not indexed.",
-                next_action="Improve the page or remove it from the sitemap.",
+                kind="blocker" if is_home else "warn",
+                title=(f'Homepage "{label}" (GSC)' if is_home
+                       else f'{ins.url} "{label}" (GSC)'),
+                detail=detail,
+                next_action=action,
             ))
 
     # --- sitemap honesty ---

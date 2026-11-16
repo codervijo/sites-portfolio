@@ -24,6 +24,25 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v51 — `project seo <site> --deep`: indexing root-cause diagnostic (v51.A-F) — complete 2026-11-16
+
+Commits: pending (all six phases built 2026-11-16, uncommitted). Trigger: calcengine.site — GSC showed 81 sitemap URLs, 1 indexed. Queue-jumped ahead of v50.D–H by the operator.
+
+**No ADR.** Read-only, no new write surface (ADR-0003 untouched), extends an existing verb with a flag; the load-bearing choices (quota posture, baseline selection, confidence tiers) are recorded in the v51.A row and here. Revisit as an ADR only if `--deep` ever gains a write step (indexing requests, sitemap submits) or a fleet variant.
+
+**Outcome on calcengine.site:** no confirmed technical fault — all 81 sitemap URLs return 200, self-canonical, server-rendered (median 1,250 words, 4% template), no orphans, depth ≤ 2. Ranked findings: (1) LIKELY — Google has read the sitemap (downloaded 1 day earlier; last resubmitted 41 days earlier) but hasn't queued 80 URLs for crawling ("URL is unknown to Google", never crawled, no referring pages; homepage last crawled 2026-10-26); (2) POSSIBLE — fewer internal links into each page (median 5 vs 8–9). Operator validation against the GSC UI pending. **Correction 2026-11-16:** GSC `lastSubmitted` is the latest resubmission, not first contact — calcengine's sitemap was *resubmitted* 2026-10-06 after its Experiment 1 pivot, and its URLs have been "unknown" since 2026-04 (`sites/calcengine.site/docs/growth.md`). The recency contrast is not evidence; v51 now labels it "last submitted" and no longer counts it, which leaves finding (1) on two signals (unknown + sitemap recently downloaded).
+
+**Field findings while building:** (1) `UrlInspection` had been discarding `sitemap` / `referringUrls` / `googleCanonical` / `userCanonical` / `robotsTxtState` / `crawledAs` since v16.C. (2) `URL_INSPECTION_DAILY_QUOTA` was 200 "per token"; Google publishes 2,000/day and 600/min per property — corrected, which also fixed a 10× overstated `--all` estimate. (3) The URL Inspection `sitemap` field is empty even on indexed URLs of fully indexed sc-domain properties (cottagefoodmap.com) — an all-empty field is not evidence; caught by a one-off 2-URL check before it shipped as a finding. (4) BUG-105 — site age was "days since the newest commit" fleet-wide; v51 reads the root commit itself pending the shared fix. (5) BUG-099 and BUG-100 fixed in v51.E (shared `COVERAGE_TEXT` table; "all N inspected" headline). (6) The 1-indexed / 9-unknown pattern seen on calcengine also appears on eight other sites in the 2026-11-11 cache.
+
+### Design notes (archived from prd.md)
+
+- **Read-only.** No write surface touched (ADR-0003); no `fix_tier_1`, no indexing / recrawl requests, no sitemap submit. Recommended fixes are text only.
+- **"Unknown to Google" despite a read sitemap** is the headline question — v51.C's referring-sitemap / discovery fields and v51.B's orphan detection are the two evidence sources expected to separate "Google saw the URL but chose not to crawl" from "Google never associated the URL with the sitemap". Hypothesis, not a finding — v51.E decides from evidence.
+- **Reuse, don't fork:** `seo_deep.py` is a new module only because `seo_diagnose.py` is already large; it imports `seo_diagnose` / `project_seo_diagnostics` / `gsc_recrawl` helpers rather than copying them.
+- **Fleet pattern (2026-11-11 snapshot, top-10 sample):** the same 1-indexed / 9-unknown split appears on calcengine, boxchive, civictools, cricketfansite, homeloom, keralavotemap, kwizicle, meetwhen, voltloop — Astro and vite-react alike, CF Pages and Vercel alike. Not stack-specific. A `fleet` variant stays out of scope until the operator asks; v51.E's calcengine findings may well generalize.
+
+---
+
 ## v49 — GA4 on every site: property, tag, and live verification (v49.A-H) — shipped 2026-11-09
 
 Commits: `08e2551` (B), `08f0af3` (C), `593b2c0` (D), `59c1982` + `52c3cd0` + `d79ff4c` (E), `fd0e4a2` (F), `5304a59` (G), H in its own commit. v49.H (new sites ship with the tag) was added after the A–G close, when the operator asked whether a new site would get GA4 automatically — bootstrap created the property but nothing injected the tag. ADR-0029 (amended 2026-11-09 for the clean switch).

@@ -4734,6 +4734,115 @@ def _confirm_all_scope(domain: str, *, yes: bool, console) -> int | None:
     return count
 
 
+def _run_seo_deep(domain: str, *, fresh: bool, baselines: list[str] | None,
+                  as_json: bool, yes: bool) -> None:
+    """v51.E — `project seo <domain> --deep`: crawl + full URL Inspection
+    sweep + baseline comparison → ranked findings. Read-only. Progress goes
+    to stderr under `--json` so stdout stays valid JSON."""
+    import contextlib
+    import json as _json
+    import time as _time
+    from rich.console import Console
+    from . import seo_deep as sd
+    from .project_seo_diagnostics import URL_INSPECTION_DAILY_QUOTA
+    from .research_render import render_seo_deep
+
+    out = Console(stderr=True) if as_json else console
+
+    def _status(label: str):
+        return (out.status(f"[cyan]{label}[/]", spinner="dots") if out.is_terminal
+                else contextlib.nullcontext(None))
+
+    # 1 — preflight first (BUG-104: never fail silently).
+    try:
+        service, prop = sd.open_gsc(domain)
+    except sd.GscUnavailable as e:
+        out.print(f"[red]✗[/] Preflight: Google Search Console — {e}")
+        raise typer.Exit(1)
+    out.print(f"[green]✓[/] Search Console ready [dim]({prop})[/]")
+
+    # 2 — crawl (raw HTML, every sitemap URL + bounded BFS).
+    origin = f"https://{domain}"
+    t0 = _time.monotonic()
+    with _status("Crawling") as st:
+        def _crawl_tick(i, n, url):
+            if st is not None:
+                st.update(f"[cyan]Crawling[/]  [dim]{i}/{n} · {url[-50:]}[/]")
+        crawl = sd.crawl_site(origin, on_progress=_crawl_tick)
+    if not crawl.sitemap_urls:
+        out.print(f"[red]✗[/] No sitemap readable for {domain} "
+                  f"[dim]({crawl.sitemap_error})[/]")
+    else:
+        out.print(f"[green]✓[/] Crawled {len(crawl.probes)} page(s) in "
+                  f"{_time.monotonic() - t0:.0f}s [dim]({crawl.sitemap_url} · "
+                  f"{len(crawl.sitemap_urls)} URLs)[/]")
+    if crawl.crawl_capped:
+        out.print(f"[yellow]↷[/] crawl stopped at {crawl.page_cap} pages")
+
+    # 3 — size + confirm the inspection sweep.
+    notes: list[str] = []
+    sweep = None
+    urls = crawl.sitemap_urls
+    cached = {} if fresh else sd.load_today_records(domain)
+    from_cache = sum(1 for u in urls if (cached.get(u) or {}).get("status") == "ok")
+    to_call = len(urls) - from_cache
+    used = sd.inspections_used_today(domain)
+    go = True
+    if urls:
+        pct = round(100 * to_call / URL_INSPECTION_DAILY_QUOTA)
+        out.print(f"  [bold]--deep[/]: {len(urls)} sitemap URL(s) → {to_call} URL Inspection "
+                  f"call(s) [dim](~{pct}% of {URL_INSPECTION_DAILY_QUOTA}/day; "
+                  f"{from_cache} from today's cache; {used} already used today)[/]")
+        if to_call > _ALL_CONFIRM_THRESHOLD and not yes:
+            go = typer.confirm(f"  Inspect {to_call} URLs?", default=True, err=as_json)
+            if not go:
+                out.print("  [yellow]↷[/] inspection skipped — findings use the crawl "
+                          "and baselines only.")
+                notes.append("URL Inspection skipped (operator declined)")
+    if urls and go:
+        t0 = _time.monotonic()
+        with _status("Inspecting") as st:
+            def _insp_tick(i, n, url, outcome):
+                if st is not None:
+                    st.update(f"[cyan]Inspecting[/]  [dim]{i}/{n} · {outcome} · {url[-45:]}[/]")
+            sweep = sd.sweep_inspections(domain, urls, service=service, property_url=prop,
+                                         fresh=fresh, on_progress=_insp_tick)
+        mark = "[green]✓[/]" if sweep.complete and not sweep.errors else "[yellow]↷[/]"
+        out.print(f"{mark} Inspected {sweep.inspected} URL(s), {sweep.from_cache} cached, "
+                  f"{sweep.errors} error(s) in {_time.monotonic() - t0:.0f}s"
+                  + (f" [yellow]— stopped ({sweep.stopped_reason}); "
+                     f"{len(sweep.not_inspected)} left for the next run[/]"
+                     if sweep.not_inspected else ""))
+
+    # 4 — baselines (HTTP only, zero inspection quota).
+    comparison = None
+    if urls:
+        with _status("Comparing with well-indexed sites") as st:
+            def _base(d):
+                if st is not None:
+                    st.update(f"[cyan]Crawling baseline[/]  [dim]{d}[/]")
+            comparison = sd.compare_with_baselines(domain, crawl, service=service,
+                                                   property_url=prop, override=baselines,
+                                                   on_baseline=_base)
+        if comparison.baselines:
+            out.print(f"[green]✓[/] Compared with "
+                      f"{', '.join(b.domain for b in comparison.baselines)}")
+        else:
+            out.print("[yellow]↷[/] no well-indexed baseline found in the GSC cache — "
+                      "pass --baseline <domain>")
+            notes.append("no baseline comparison (no well-indexed site in the cache)")
+
+    # 5 — report.
+    report = sd.build_report(domain, crawl, sweep=sweep, comparison=comparison,
+                             property_url=prop, notes=notes)
+    path = sd.save_report(report)
+    out.print(f"[green]✓[/] Report saved [dim]{path}[/]")
+    if as_json:
+        print(_json.dumps(report.to_json(), indent=2, default=str))
+    else:
+        render_seo_deep(report, console)
+
+
 @project_app.command("seo")
 def project_seo(
     name: str = typer.Argument(..., metavar="DOMAIN",
@@ -4753,7 +4862,23 @@ def project_seo(
              "confirms above 50 URLs. Overrides --top.",
     ),
     yes: bool = typer.Option(False, "--yes",
-                             help="Skip the --all confirmation prompt."),
+                             help="Skip the --all / --deep confirmation prompt."),
+    deep: bool = typer.Option(
+        False, "--deep",
+        help="Indexing root-cause diagnostic (v51): crawl every sitemap URL, "
+             "URL-Inspect all of them (same-day cache), compare with "
+             "well-indexed fleet sites, and rank why Google isn't indexing "
+             "the site. Read-only. Replaces the standard view; covers every "
+             "URL like --all.",
+    ),
+    fresh: bool = typer.Option(False, "--fresh",
+                               help="--deep: re-inspect URLs already inspected today."),
+    baseline: list[str] = typer.Option(
+        None, "--baseline", metavar="DOMAIN",
+        help="--deep: compare against this site instead of the auto-picked "
+             "well-indexed ones (repeatable)."),
+    as_json: bool = typer.Option(False, "--json",
+                                 help="--deep: print the JSON report to stdout."),
 ) -> None:
     """Per-project SEO view — runtime probe + GSC diagnostics.
 
@@ -4767,6 +4892,13 @@ def project_seo(
     with a 24h TTL. `--refresh` re-fetches.
     """
     domain = name.lower()
+
+    if deep:
+        _run_seo_deep(domain, fresh=fresh, baselines=baseline or None,
+                      as_json=as_json, yes=yes)
+        return
+    if fresh or baseline or as_json:
+        console.print("  [dim]↷ --fresh / --baseline / --json apply to --deep only.[/]")
 
     # v45.E — `--all` lifts BOTH caps (URL Inspection and the render
     # probe sample); a half-lifted cap would report "all" while still
@@ -4838,7 +4970,7 @@ def project_seo(
                         refresh=refresh)
     # v13.B diagnostics block below the header (loaded above).
     if gsc_diag is not None:
-        _render_project_seo_diagnostics(gsc_diag, console)
+        _render_project_seo_diagnostics(gsc_diag, console, full=all_urls)
 
     # v36 — the Blockers section last (the whole point). Never ends on green
     # when blockers exist.
