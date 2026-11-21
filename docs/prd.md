@@ -2792,6 +2792,25 @@ Trigger: on `calcengine.site`, GSC reports 81 sitemap URLs but only 1 indexed pa
 | v51.F | ☑ | *(done 2026-11-16 — `architecture.md` (§ Data model › `project seo --deep`, module index, layout, CLI tree, GSC-snapshot note), `AI_AGENTS.md` capabilities, `shipping-history.md § v51` with the no-ADR rationale + archived design notes; `data/seo_deep/` gitignored.)* **Docs wrap.** `architecture.md` (mechanism, module, CLI tree, data file), `AI_AGENTS.md`, `shipping-history.md § v51` (incl. the no-ADR rationale). |
 
 
+### v52 — Lumos design system + an explicit per-site design file *(planned — 2026-11-20; operator. Queued after v50 — worked once v50.D–H close.)*
+
+Operator, 2026-11-20: "use https://lumosframework.com/docs/ for future designs — make designs more explicit." Lumos (docs v1.0.4, read 2026-11-20) is a free, MIT-licensed component + styling framework **for Astro**, written in plain modern CSS (cascade layers, custom properties, `clamp()`): named design tokens (fluid `--space-*` / type, `--brand-*` colours, rem-based, no breakpoints for type/spacing), semantic class names, theme classes, typed components (Section, Grid, Button, Card, Accordion, Modal, form fields). Scaffolded with `npm create lumos@latest`; copied into the project, no account. It positions itself as an **alternative to Tailwind**, and its docs don't cover mixing the two — so this is a stack decision for new sites, not an add-on. "Explicit" (operator, 2026-11-20) = **a per-site design file**: a written spec each site carries, which agents and checks build against.
+
+#### Phases
+
+| # | Status | Feature |
+|---|---|---|
+| v52.A | ☐ | **Kickoff / decisions lock + ADR.** Lock: (a) scope — Lumos for **new** sites only; existing Tailwind sites untouched unless the operator later opts one in; (b) the design file — location (`docs/design.md` proposed), required sections (tokens: colours / type scale / spacing; theme(s); component list; page templates; do / don't), and whether `lamill.toml` points at it (additive-optional per ADR-0017); (c) how a Lovable design (React + Tailwind) maps onto Lumos tokens + components in `new site` / `project translate`; (d) pinned Lumos version and upgrade posture; (e) conformance impact — CHECK_035/036 stack baselines, `[stack] framework` value for Lumos sites, any check that assumes Tailwind. Reverses part of the Tailwind-by-default posture behind ADR-0013 → ADR required. |
+| v52.B | ☐ | **`new bootstrap` scaffolds Lumos + writes the design file.** Scaffold from the pinned Lumos version (inside the builder container, pnpm — not `npm create` on the host); generate `docs/design.md` from the interview (brand colours, type, tone) with explicit token values; still born-conformant (GA4 tag, email footer once v50.G lands, SEO pack). |
+| v52.C | ☐ | **Lovable → Lumos in `new site` / `project translate`.** The translation step targets Lumos components + tokens instead of Tailwind classes, and fills `docs/design.md` from the Lovable design (colours, type, spacing read from its Tailwind config). |
+| v52.D | ☐ | **Check + fixer: design file present and followed.** A check that a Lumos site has `docs/design.md` with the required sections (fixer: generate it from the site's token file), plus a check that styles use tokens — no hard-coded colours / px sizes outside the token file. `n/a` for non-Lumos sites. |
+| v52.E | ☐ | **Docs wrap.** `architecture.md` (stack baseline, design-file schema, checks), `AI_AGENTS.md`, ADR, `shipping-history.md § v52`, and a note in each new site's `AI_AGENTS.md` pointing agents at `docs/design.md`. |
+
+#### Design notes
+
+- **Unverified until v52.A:** whether Lumos coexists with Tailwind in one site (docs silent), and how its components behave with the fleet's Astro version and `@astrojs/sitemap` / SEO pack. Read the theming, layout and component reference pages (not yet read) during .A.
+- **No fleet migration in this tier.** Converting an existing Tailwind site is its own decision per site.
+
 ## 8. Open questions
 
 Append-only log. Questions get answered (with date) but never
