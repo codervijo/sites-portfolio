@@ -66,6 +66,8 @@ The five canonical doc surfaces in this repo, by purpose. **Spec discipline (per
 
 Plus this file (`AI_AGENTS.md`) — general agent orientation; canonical versioning rule (per ADR-0004).
 
+Also: `docs/fleet-learnings.md` — cross-site SEO / growth lessons rolled up from every site's `docs/growth.md`, `project seo --deep` runs and fleet probes. **Update it whenever a reviewed result (a site's growth.md Result/Learning, a `--deep` report, a fleet probe) teaches something new, and review the whole file at least every 6 months** (next: 2027-05-21). A working doc, not a sixth canonical surface.
+
 **Rule of thumb when editing code:**
 1. If the change touches a *mechanism* or *schema*, update `architecture.md` in the same commit.
 2. If the change *ships a phase*, move that phase's design notes from `prd.md` → `shipping-history.md`, update the phase row's status to `✅ done`, and tick the architecture sections it affects.

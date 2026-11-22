@@ -2352,3 +2352,4 @@ severities assume the failure mode is reachable in normal use
 - `docs/decisions/` — ADRs for load-bearing architectural decisions.
 - `docs/CLAUDE.md` — Claude-specific decisions and conventions.
 - `AI_AGENTS.md` — agent orientation; canonical versioning rule.
+- `docs/fleet-learnings.md` — cross-site SEO / growth lessons rolled up from every site's `docs/growth.md`, `project seo --deep` runs and fleet probes. **Update it whenever a reviewed result (a site's growth.md Result/Learning, a `--deep` report, a fleet probe) teaches something new, and review the whole file at least every 6 months** (next: 2027-05-21).
