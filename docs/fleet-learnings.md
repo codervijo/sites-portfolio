@@ -99,6 +99,17 @@ detail stays in that site's `growth.md`; this file is the cross-site roll-up.
 
 ## What to build
 
+- **Subjects that keep producing pages have the most SEO room; narrow
+  product-name sites have a low ceiling.** GSC 90d to 2026-11-20: the
+  sites with breadth (events × towns × months, states × foods, parts) lead —
+  montereybayevents 61,695 impressions / 2,291 queries, cottagefoodmap
+  10,438 / 462 (+95% vs the prior 28d), hybridautopart 63,781 / 2,187. The
+  single-product B2B sites (dropaudit, pqhorizon, mdburst, iotbastion, …)
+  sit at 2–68 queries each. Two signals of untapped room: **many queries per
+  page** (isitholiday.today: 328 queries reaching only 4 pages) and **a big
+  pool at positions 5–20** (hybridautopart: 17,773 impressions). For a
+  narrow product, the SEO angle is the regulation or problem it solves, not
+  the product name.
 - **Reference win: montereybayevents.com** (launched 2026-08; GSC pulled
   2026-11-21). Impressions and clicks every week since launch, ~4,000–6,500
   impressions and 65–240 clicks a week; 328 clicks in the 28 days to the
@@ -205,6 +216,63 @@ detail stays in that site's `growth.md`; this file is the cross-site roll-up.
   even its wins aren't credited bet by bet.
 - **`project seo` counts web search only.** lamill.pics' image impressions
   (4.6× web) are invisible to it.
+
+## Opportunity map — where SEO effort should go
+
+*Assessment, 2026-11-23 — not reviewed outcomes. Built from GSC (90d to
+2026-11-20: impressions, query spread, positions 5–20, last 28d vs the
+prior 28d) plus each site's subject from its `AI_AGENTS.md`. Demand was
+**not** sized with keyword data (Ahrefs / treg cost per lookup), so treat
+the rankings as judgement. Re-run at the 6-month review.*
+
+- **Tier 1 — broad subject, proven, invest most:** montereybayevents.com
+  (61,695 imp / 1,219 clicks; new events, towns, months, next year),
+  hybridautopart.com (63,781 imp; 17,773 at positions 5–20 on 52 pages —
+  move rankings, not more pages), cottagefoodmap.com (10,438 imp, +95%; 20 of
+  50 states covered), isitholiday.today (850 imp but 328 queries on 4 pages
+  — every holiday × country × year unbuilt).
+- **Tier 2 — broad demand, stuck on ranking or depth:** whizgraphs.com
+  (18,837 imp, 0 clicks — competitive head terms; image search v2.F),
+  lamill.pics (image-led, low value per visitor), airsucks.com (HVAC
+  problems; thin pages), washcalc.app (steady +37%), boxchive.com (+482%,
+  just moving).
+- **No traction yet, but worth a retarget** (ranked):
+  1. thoralox.com — one page per vulnerability is a huge renewing long
+     tail; held back by noindexed pages and age (25 days).
+  2. caringbeds.com — hospital bed rentals; its own docs call the demand
+     wide open; 1 page today → a cluster (rent vs buy, Medicare, types, by
+     city/state).
+  3. permittruck.xyz — "food truck permit [state/city]" is the cottagefoodmap
+     pattern; move off `.xyz` first.
+  4. dunam.co — retarget from the product to fire-extinguisher inspection
+     requirements; 242 of its 352 impressions already sit at positions 5–20
+     (quickest test).
+  5. bppvcoach.com — large vertigo / Epley demand around the tool; health
+     topic, so citations matter.
+  - After technical fixes: voltloop.site (soft-404, homepage only),
+    anglicanpath.org (63 days old), keralavotemap.site (election-timed;
+    soft-404, `.site`).
+- **Low ceiling — narrow B2B products:** dropaudit, agesdk / disclosur,
+  pqhorizon, iotbastion, markpdf, mdburst, drdebug, meetwhen, threadradar,
+  retouchlint, mcpscan. A few cited explainers on the regulation each one
+  answers (SB 361, AB 1043, CMMC, post-quantum deadlines, photo-disclosure
+  rules), not a big push.
+  - **retouchlint: big audience, small search demand for its angle**
+    (keyword data, SE Ranking US, 2026-11-23, treg call `031ed089…`). The
+    audience (agents, brokers, listing photographers) is large, but the
+    photo-rules / compliance searches barely register: "mls photo
+    requirements" 40/mo, "mls photo rules" 20; no data for "virtual staging
+    disclosure", "is virtual staging legal", "real estate photo compliance",
+    "ab 723", "zillow photo requirements" and similar (no data = very small
+    or unknown, not proven zero). Broad topics are big but commercial and
+    contested: "real estate photography" 9,900 (KD 37), "virtual staging"
+    4,400 (KD 59). The realistic room is low-KD editing-technique terms:
+    "listing photos" 320 (KD 8), "mls photos" 140 (KD 25), "virtual
+    twilight" 110 (KD 7), "twilight real estate photos" 110, seasonal to 480
+    (KD 12), "virtual staging ai" 180 (KD 35, was 810 earlier in 2026).
+    Lesson: size the *angle's* searches, not the audience.
+- **Broad but very competitive:** kwizicle (quizzes), cricketfansite,
+  homeloom, dearreels.
 
 ## Open questions
 
