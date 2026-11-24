@@ -237,8 +237,16 @@ the rankings as judgement. Re-run at the 6-month review.*
   problems; thin pages), washcalc.app (steady +37%), boxchive.com (+482%,
   just moving).
 - **No traction yet, but worth a retarget** (ranked):
-  1. thoralox.com — one page per vulnerability is a huge renewing long
-     tail; held back by noindexed pages and age (25 days).
+  1. thoralox.com — demand is on **named and vendor-level** vulnerabilities,
+     not raw CVE IDs (corrected 2026-11-23 with keyword data; the first
+     assessment called one-page-per-CVE "a huge renewing long tail"). SE
+     Ranking US, treg call `1a2a0ca7…`: "log4shell" 440 / KD 38, "log4j
+     vulnerability" 440 / KD 50, "fortinet vulnerability" 260 / KD 36, "palo
+     alto vulnerability" 170 / KD 21, "moveit vulnerability" 170 / KD 34;
+     raw IDs (`cve-2024-3094`, `-6387`, `-4577`, …) returned no data for 9 of
+     10, and monthly averages hide disclosure spikes. Planned as thoralox
+     PRD v2 (named exploited-vuln pages, vendor hubs, new-KEV fast path).
+     Held back until v1.I lifts its site-wide noindex.
   2. caringbeds.com — hospital bed rentals; its own docs call the demand
      wide open; 1 page today → a cluster (rent vs buy, Medicare, types, by
      city/state).
