@@ -93,6 +93,36 @@ def _default_runner(args: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(args, **kw)
 
 
+# ---------- v53.D: short site names ----------
+
+_BACKUP_SUFFIXES = (".bup", ".old", ".bak")
+
+
+def resolve_domain(name: str, sites_root: Path | None = None) -> str:
+    """`calcengine` → `calcengine.site` when exactly one site dir has that
+    first label. A full name (or any existing dir) passes through unchanged;
+    an ambiguous short name (`lamill` → lamill.pics / lamill.store) is
+    refused with the candidates."""
+    root = sites_root or SITES_ROOT
+    name = name.strip().lower().rstrip("/")
+    if "." in name or (root / name).is_dir():
+        return name
+    try:
+        hits = sorted(d.name for d in root.iterdir()
+                      if d.is_dir() and "." in d.name
+                      and not d.name.endswith(_BACKUP_SUFFIXES)
+                      and d.name.split(".")[0].lower() == name)
+    except OSError:
+        hits = []
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        raise CodeRefused(f"✗ No site named {name!r} under {root}.\n"
+                          "  Use the full domain (e.g. calcengine.site).")
+    raise CodeRefused(f"✗ {name!r} matches more than one site: {', '.join(hits)}.\n"
+                      "  Use the full domain.")
+
+
 # ---------- preflight ----------
 
 
@@ -592,6 +622,10 @@ def run_code(domain: str, *, emit: Emit = _print_emit, run: Runner = _default_ru
     docker = docker or ["docker"]
     home = home or Path.home()
     claude_home, claude_json = home / ".claude", home / ".claude.json"
+    full = resolve_domain(domain, sites_root)
+    if full != domain:
+        emit("✓", f"{domain} → {full}")
+    domain = full
     pf = preflight(domain, sites_root=sites_root, claude_home=claude_home,
                    claude_json=claude_json, docker=docker, run=run, isatty=isatty,
                    which=which)

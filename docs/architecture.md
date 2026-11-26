@@ -36,6 +36,7 @@ sites/portfolio/
 │   ├── seo_runtime.py            # live HTTP SEO probe orchestrator
 │   ├── seo_cache.py              # snapshot save/load for `data/seo/`
 │   ├── seo_deep.py               # v51 `project seo --deep`: crawl probe + link graph (raw HTML)
+│   ├── project_code.py           # v53 `project code`: interactive per-site container session + Prompts.md summary
 │   ├── serp.py                   # cluster builder for `new validate`
 │   ├── serp_fetch.py             # SerpAPI client
 │   ├── serp_query_cache.py       # per-query snapshot cache under `data/serp/`
@@ -1312,6 +1313,7 @@ lamill
 │   ├── check <name>                                 ✅ v7.A
 │   ├── fix <name>                                   ✅ v6.D
 │   ├── seo <name>                                   ✅ v7.A (+ v13.B GSC diagnostics; v51 `--deep [--fresh] [--baseline D] [--json]`)
+│   ├── code <name>                                  ✅ v53 — live Claude session in a per-site container; short names (`calcengine`) when unambiguous
 │   ├── todos <name>                                 ✅ v27.D — read [[todo]] table
 │   ├── diagnose <name>                              ✅ v7.F
 │   ├── version <name>                               ⏳ v15.B — read local
@@ -1593,6 +1595,7 @@ this was paid for in real debugging (2026-06-15).
 | `not_found.py` (v46.G–I) | Unknown-path handling for Cloudflare `wrangler.jsonc`: `wants_spa_fallback(stack, dir)` (SPA stacks keep `"single-page-application"`; Astro / anything with an Astro config gets `"404-page"`), JSONC-preserving `set_not_found_value`, `ensure_astro_404` (minimal noindex 404 page). Used by `new bootstrap` (born-conformant) and CHECK_167. | `wants_spa_fallback`, `set_not_found_value`, `not_found_value`, `ensure_astro_404` |
 | `seo_cache.py` | Snapshot save/load for `data/seo/` | `save_snapshot`, `latest_snapshot`, `is_stale` |
 | `seo_deep.py` (v51.B–E) | `project seo --deep` indexing root-cause diagnostic, read-only. v51.B: Googlebot-semantics robots.txt (`parse_robots` → `RobotsRules.check`: `googlebot` group else `*`, `*`/`$` wildcards, longest match wins, Allow wins ties; 4xx → allow all, 5xx/unreachable → disallow all); `probe_url` follows redirects by hand (every hop recorded, loop/>10 hops → `error`) and reads raw HTML for canonical kind (self/variant/other/host_mismatch/cross_site/missing/multiple), `noindex` (meta + `X-Robots-Tag`, UA-scoped values honored), title + visible body chars (SSR empty-shell), followable same-site `<a href>` links (www = apex; nofollow counted, not followed); `crawl_site` probes every sitemap URL + a bounded BFS from `/` (cap = sitemap + 100, ceiling 2000; 8 threads on one shared client) and builds the link graph — inbound links (a link through a redirect counts for its target), click depth from `/`, `orphans`, `unreachable_from_home`, `linked_not_in_sitemap`. Graph key `url_key` folds slash / www / `index.html` / fragment. Reuses `seo_diagnose._discover_pages` + `_has_title`. **v51.C** `sweep_inspections`: inspects every sitemap URL; same-day cache (today's `deep_inspections`, ok records reused unless `fresh`); budget = `URL_INSPECTION_DAILY_QUOTA` (2000/property/day) minus calls lamill recorded today (`inspections_used_today`: today's `deep_inspections` + `v16c_inspections`); past budget → `not_inspected` (resume next run); a 429/quota error stops the sweep; `_Throttle` at 550/min (< Google's 600); saves every 10 calls and in `finally`. `open_gsc` = BUG-104 `gsc_preflight` → `(service, property)`, else `GscUnavailable`. **v51.D** baseline comparison, zero URL Inspection quota: `pick_baselines` (cached inspections — today's `deep_inspections` else newest `v16c_inspections` — ≥5 inspected and all indexed; ranked same framework+platform → same framework → other, then inspected count; `--baseline` override taken as-is), `profile_site` → `SiteProfile` (crawl metrics from a `CrawlResult`, `sitemap_shape` = index/flat + `<lastmod>` share + `<loc>` hosts, `gsc_sitemaps` = `sitemaps.list` incl. `lastSubmitted`/`lastDownloaded`/submitted count, `text_stats` = 5-word-shingle template share, non-template words, near-duplicates at Jaccard ≥0.8 after template removal; `UrlProbe` gained `words` + `shingles`), `compare` → one `Contrast` per signal, `outside` = beyond the baselines' observed min–max, `worse` = outside on the bad side (no invented thresholds), `categorical_notes` (stack, sitemap form, multi-host `<loc>`, GSC sitemap ≠ live / pending / errors), `compare_with_baselines` orchestrates. Site age via `_repo_age_days` (`launched`, else `project.fetch_first_commit_date` — root commit since the BUG-105 fix). **v51.E** `derive_findings` (`Finding`: tier/impact/affected/evidence/fix/url sample), `prioritized_fixes`, `url_statuses` (`UrlStatus.discovery`), `build_report` → `DeepReport.to_json` (`seo-deep-v1`), `save_report` (atomic) to `report_path`. Renderer: `research_render.render_seo_deep`. See § Data model › `project seo --deep`. | `crawl_site`, `probe_url`, `parse_robots`, `url_key`, `CrawlResult`, `UrlProbe`, `sweep_inspections`, `open_gsc`, `SweepResult`, `pick_baselines`, `profile_site`, `compare`, `compare_with_baselines`, `Comparison`, `derive_findings`, `build_report`, `save_report` |
+| `project_code.py` (v53, ADR-0031) | `project code <domain>` — the operator's live Claude session on one site. `resolve_domain` (v53.D: `calcengine` → `calcengine.site` when exactly one site dir has that first label; backups skipped; ambiguous → refused with the candidates). `preflight` (site repo, terminal, Docker, host `claude` + `~/.claude`/`~/.claude.json`, refuses beside a running `lamill-code-<d>` / `lamill-delegate-<d>`; dirty tree → `↷` only). Image `lamill-code` (inline `DOCKERFILE`: node:20-bookworm toolchain, built on first use); `run_args` / `exec_args` build the same-path container (see § v53). `build_context_pack` (≤20 KB: AI_AGENTS.md, open PRD phase rows, active/testing `growth.md` entries, latest `data/seo/` GSC row, latest `data/seo_deep/` findings, `fleet-learnings.md` lines naming the site + its section list, `docs/` map). v53.C: `find_transcript` → `extract_session` (records since the session started; operator prompts, Claude text, Bash commands, edited files; 60 KB cap head+tail) → `summarize` (`claude -p`, stdin, scratch cwd, `--no-session-persistence`) → `append_prompts_entry` (`## YYYY-MM-DD — code session`); `log_session` maps every failure to `✗` (`TranscriptError`); `show_diff` prints the uncommitted state + commit command. | `run_code`, `resolve_domain`, `preflight`, `build_context_pack`, `run_args`, `exec_args`, `log_session`, `extract_session`, `summarize` |
 | `serp.py` | Cluster builder for `new validate` | `build_cluster` |
 | `serp_fetch.py` | SerpAPI client | `fetch_serp_for_query` |
 | `serp_query_cache.py` | Per-query snapshot cache under `data/serp/` | `save_query_snapshot`, `load_query_snapshot` |
@@ -2111,6 +2114,60 @@ surface** (joins § 2.1's two when v33.B ships).
   the swap rationale: `docs/coding-agents-survey.md` (cross-project reference).
 
 See ADR-0023 + ADR-0026 + `docs/prd.md § v33`/`§ v37` for the full rationale.
+
+### v53 — interactive site sessions (`project code`)
+
+`lamill project code <domain>` starts the operator's own back-and-forth Claude
+session on one site — the hand-started `cd sites/x && claude` routine, run by
+lamill (ADR-0031). Unlike delegate (supervised, one-shot, skip-permissions),
+the operator is at the keyboard with **normal permission prompts**. One
+argument, no options.
+
+**Container path layout — the same paths as the host.** Delegate mounts the
+site at `/work` with `HOME=/cc`, so every delegate run on every site files its
+transcript in one `-work` folder. `project code` instead:
+
+| Inside `lamill-code-<domain>` | From the host |
+|---|---|
+| `<sites>/<domain>` (also the working dir) | the site dir, read-write |
+| `$HOME` = the host's home path | a tmpfs (mode 1777), so tools can write caches |
+| `$HOME/.claude`, `$HOME/.claude.json` | the host's, read-write (auth, settings, transcripts) |
+| `$HOME/.gitconfig` | the host's, read-only (when present) |
+| `/opt/lamill-code/claude` | the host's resolved `claude` binary, read-only |
+
+Claude Code files sessions under `~/.claude/projects/<cwd, non-alphanumerics →
+->/`, so a container session and a hand-started host session on the same site
+share one folder and one history; `claude --continue` (passed when that folder
+has a transcript) resumes across both. The host binary is mounted rather than
+installed in the image because npm's package lagged the native build (2.1.197 vs
+2.1.332, 2026-11-26) and lacked `--system-prompt-snapshot`; one binary also
+means one transcript format for the shared folder. Runs as the host uid:gid,
+`--network=host`, `DISABLE_AUTOUPDATER=1`; the container is removed on exit.
+
+**Context.** The pack goes in with `--append-system-prompt` +
+`--system-prompt-snapshot off`, so a resumed conversation is sent today's pack
+rather than the one recorded on its first request. Ctrl-C belongs to Claude —
+lamill holds SIGINT during the session.
+
+**Concurrency.** One live session per site: refused while
+`lamill-code-<domain>` or `lamill-delegate-<domain>` is running. Different
+sites run in parallel (one container each). Claude's own subagents run inside
+the session's container.
+
+**Session log (v53.C).** After exit, lamill reads the newest transcript in the
+site's folder modified during the sitting, keeps only records since the
+session started (a resumed session logs just this sitting), summarises them
+with `claude -p` into Asked / Changed / Decided / Open, and appends `## <date> —
+code session` to `docs/Prompts.md`. The summariser runs from a scratch dir with
+`--no-session-persistence`, so it never becomes the site's next `--continue`.
+**The transcript format is internal to Claude Code** — the reader is the piece
+to re-check after upgrades; a missing/unrecognised transcript or a failed
+summary prints `✗` and exits 1, and `test_real_transcript_parses_if_present`
+parses the newest local transcript in the suite as an early warning.
+
+**Write surface.** The session edits the site as a manual session does;
+lamill's own write is the `Prompts.md` entry (as delegate's v33.H). Never
+commits — prints the uncommitted state and the commit command.
 
 ## 10. Implementation risks
 

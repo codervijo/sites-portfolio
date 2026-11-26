@@ -5195,7 +5195,9 @@ def _resolve_delegate_request(request: str | None) -> str:
 # loaded and its last session resumed (ADR-0031). One argument, no options.
 @project_app.command("code")
 def project_code(
-    domain: str = typer.Argument(..., help="Site to work on (e.g. calcengine.site)"),
+    domain: str = typer.Argument(
+        ..., help="Site to work on: full domain (calcengine.site) or, when unambiguous, "
+                  "the name without the TLD (calcengine)"),
 ) -> None:
     """Open a live Claude session on a site, in a container, with its context loaded.
 

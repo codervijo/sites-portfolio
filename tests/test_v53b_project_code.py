@@ -328,3 +328,51 @@ def test_cli_registers_project_code():
 def test_run_code_returns_1_when_logging_fails(env, monkeypatch):
     rc, _ = _run_code(env, FakeRun(), monkeypatch, log_session=lambda *a, **k: False)
     assert rc == 1
+
+
+# ---------- v53.D: short names ----------
+
+@pytest.fixture
+def root(tmp_path):
+    for d in ("calcengine.site", "lamill.pics", "lamill.store", "dunam.app.bup",
+              "portfolio"):
+        (tmp_path / d).mkdir()
+    (tmp_path / "notes.txt").write_text("")
+    return tmp_path
+
+
+@pytest.mark.parametrize("name,want", [
+    ("calcengine", "calcengine.site"),
+    ("CalcEngine/", "calcengine.site"),
+    ("calcengine.site", "calcengine.site"),
+    ("lamill.pics", "lamill.pics"),
+    ("portfolio", "portfolio"),           # existing non-domain dir passes through
+    ("other.com", "other.com"),           # full names pass through; preflight judges
+])
+def test_resolve_domain(root, name, want):
+    assert pc.resolve_domain(name, root) == want
+
+
+def test_resolve_domain_ambiguous(root):
+    with pytest.raises(pc.CodeRefused, match="lamill.pics, lamill.store"):
+        pc.resolve_domain("lamill", root)
+
+
+def test_resolve_domain_ignores_backups_and_unknown(root):
+    with pytest.raises(pc.CodeRefused, match="No site named 'dunam'"):
+        pc.resolve_domain("dunam", root)
+
+
+def test_run_code_resolves_short_name(env, monkeypatch):
+    rc, marks = _run_code_named(env, FakeRun(), monkeypatch, "example")
+    assert rc == 0 and ("✓", "example → example.com") in marks
+
+
+def _run_code_named(env, fake, monkeypatch, name):
+    sites, _, home = env
+    monkeypatch.setattr(pc, "build_context_pack", lambda d, s: "CTX")
+    monkeypatch.setattr(pc, "log_session", lambda *a, **k: True)
+    marks: list = []
+    rc = pc.run_code(name, emit=lambda m, t: marks.append((m, t)), run=fake,
+                     sites_root=sites, home=home, isatty=True, which=_which(home))
+    return rc, marks

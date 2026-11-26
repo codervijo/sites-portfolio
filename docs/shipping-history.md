@@ -24,6 +24,22 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v53 — `project code <domain>`: live Claude session per site, in a container, logged to Prompts.md (v53.A-E) — shipped 2026-11-26
+
+Commits: `2bc719f` (A), `65cc23a` (B), `f9a4f03` (C), D + E in one commit. Trigger: the operator worked on each site by starting `claude` by hand in its repo and wanted lamill to do it. Queue-jumped 2026-11-25 ahead of v50.D–H and v52. ADR-0031 (§ 2 amended in v53.B).
+
+**Outcome:** `lamill project code <domain>` — one argument, no options. Same-path container, resume with `--continue`, context pack refreshed on resume, one session per site, summary in `docs/Prompts.md`, never commits. v53.D (operator ask mid-tier) accepts `calcengine` for `calcengine.site` when unambiguous. Suite green (59 tests across `test_v53b_*` / `test_v53c_*`); smoke-tested in a real container (mounts, auth, flag, transcript filed in the host's per-site folder) and the summariser on a real 25-prompt calcengine transcript. **A full interactive session has not been run yet — needs the operator at a terminal.**
+
+**Field findings while building:** (1) npm's `@anthropic-ai/claude-code` installed 2.1.197 while the host ran 2.1.332, and the older one rejected `--system-prompt-snapshot` — the host binary is now mounted read-only instead (ADR-0031 § 2 amended). (2) A smoke-test `claude -p` inside the container wrote a real transcript into calcengine's folder, where it would have become the next `--continue` — deleted; it is why the v53.C summariser runs from a scratch dir with `--no-session-persistence`. (3) `--continue` and the summary window are both keyed off time, not session IDs: the newest transcript modified during the sitting, and only records since the session started. (4) `lamill` is a three-way ambiguous short name (lamill.io / lamill.pics / lamill.store).
+
+### Design notes (archived from prd.md)
+
+- **Parallel sessions.** *Different sites at once:* fine — one container per site (`lamill-code-<domain>`), each with its own transcript folder and `Prompts.md`. *The same site twice:* refused with a plain `✗` naming the running container — two live agents on one working tree overwrite each other's edits, and Claude Code itself warns that two terminals on one session lose messages. *`project code` and `project delegate` on the same site:* same rule, one at a time. *Claude's own subagents inside a session* (Agent tool, background tasks) run inside that container as usual; their transcripts sit beside the session's.
+- **Why not extend `project delegate`:** delegate is supervised and one-shot by design (ADR-0023); this is the operator at the keyboard. Shared pieces (container start, auth mounts, context pack, `Prompts.md` writer) get factored out and reused, not copied. Changing delegate's `/work` mount to the same-path layout is a separate decision.
+- **Write surface:** the session edits the site the way a manual session does today; lamill's own write is the `Prompts.md` entry (as v33.H).
+
+---
+
 ## v50 — Email forwarding per site: `hello@<site>` via Cloudflare Email Routing (v50.A-E, G-H) — shipped 2026-11-25
 
 Commits: `8998bd9` + `2acec78` (B/C, plus the v50.E pilot and the CHECK_165 half of the v50.F rollout), `debc4d0` (D), `18cde4c` (G), H in its own commit. ADR-0030. **v50.F stays open:** the CHECK_166 footer-link rollout (`fleet fix --rule CHECK_166 --apply`, then the operator commits and pushes per site) is the operator's step.
