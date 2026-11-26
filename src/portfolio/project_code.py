@@ -18,7 +18,9 @@ The operator at the keyboard, not delegate's supervised one-shot (ADR-0031):
      `--system-prompt-snapshot off`, so a resumed session sees today's state;
   5. `docker exec -it … claude [--continue]` with the terminal handed
      through; normal permission prompts;
-  6. on exit the container is removed. The `Prompts.md` summary is v53.C.
+  6. on exit the container is removed, the sitting's transcript is
+     summarised into a dated `docs/Prompts.md` entry (v53.C), and the
+     uncommitted diff + commit command are shown.
 
 Never commits.
 """
@@ -31,6 +33,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -359,6 +362,224 @@ def exec_args(domain: str, site_dir: Path, *, home: Path, uid: int, gid: int,
     return cmd
 
 
+# ---------- v53.C: transcript → summary → Prompts.md ----------
+#
+# Claude Code's transcript (`~/.claude/projects/<encoded cwd>/<id>.jsonl`) is
+# an internal format that can change on any upgrade (ADR-0031). Everything
+# that reads it lives here, and every way it can fail ends in a plain ✗ —
+# never a silently skipped log entry.
+
+TRANSCRIPT_TEXT_CAP = 60_000
+_EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+
+class TranscriptError(Exception):
+    """The transcript is missing or unreadable — logged as ✗."""
+
+
+@dataclass
+class SessionExtract:
+    path: Path
+    prompts: int
+    text: str
+    files: list[str]
+
+
+def find_transcript(site_dir: Path, claude_home: Path, started: float) -> Path:
+    """The site's transcript written during this sitting: the newest
+    `*.jsonl` in its project folder modified since the session started."""
+    d = transcript_dir(site_dir, claude_home)
+    files = [f for f in d.glob("*.jsonl") if f.stat().st_mtime >= started - 1] \
+        if d.is_dir() else []
+    if not files:
+        raise TranscriptError(
+            f"no session transcript written to {d} during this session. Claude Code "
+            "may have changed where it saves sessions — re-check after upgrades.")
+    return max(files, key=lambda f: f.stat().st_mtime)
+
+
+def _ts(rec: dict) -> float | None:
+    from datetime import datetime
+    t = rec.get("timestamp")
+    if not isinstance(t, str):
+        return None
+    try:
+        return datetime.fromisoformat(t.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _user_text(content) -> str:
+    if isinstance(content, list):     # tool results / pasted images: text blocks only
+        content = "\n".join(b.get("text", "") for b in content
+                            if isinstance(b, dict) and b.get("type") == "text")
+    if not isinstance(content, str):
+        return ""
+    t = content.strip()
+    m = re.search(r"<command-name>(.*?)</command-name>", t)
+    if m:
+        return m.group(1).strip()
+    if t.startswith(("<local-command", "Caveat:", "<system-reminder>")):
+        return ""
+    return t
+
+
+def extract_session(path: Path, started: float) -> SessionExtract:
+    """Operator prompts, Claude's replies and edited files since `started`
+    (a resumed session's earlier sittings are left out)."""
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+    except OSError as e:
+        raise TranscriptError(f"can't read {path}: {e}") from e
+    turns: list[str] = []
+    files: list[str] = []
+    prompts = recognised = 0
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict) or rec.get("type") not in ("user", "assistant"):
+            continue
+        msg = rec.get("message")
+        if not isinstance(msg, dict):
+            continue
+        recognised += 1
+        ts = _ts(rec)
+        if rec.get("isSidechain") or (ts is not None and ts < started - 1):
+            continue
+        if rec["type"] == "user":
+            t = _user_text(msg.get("content"))
+            if t:
+                prompts += 1
+                turns.append(f"OPERATOR: {t[:3000]}")
+            continue
+        for b in msg.get("content") or []:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "text" and b.get("text", "").strip():
+                turns.append(f"CLAUDE: {b['text'].strip()[:1500]}")
+            elif b.get("type") == "tool_use":
+                inp = b.get("input") or {}
+                if b.get("name") in _EDIT_TOOLS:
+                    fp = inp.get("file_path") or inp.get("notebook_path")
+                    if fp and fp not in files:
+                        files.append(fp)
+                elif b.get("name") == "Bash" and inp.get("command"):
+                    turns.append(f"CLAUDE ran: {str(inp['command'])[:160]}")
+    if lines and not recognised:
+        raise TranscriptError(f"{path.name}: no user/assistant records recognised — the "
+                              "transcript format may have changed in a Claude Code update.")
+    text = "\n\n".join(turns)
+    if len(text) > TRANSCRIPT_TEXT_CAP:
+        head = TRANSCRIPT_TEXT_CAP // 3
+        text = (text[:head] + "\n\n[... middle of session omitted ...]\n\n"
+                + text[-(TRANSCRIPT_TEXT_CAP - head):])
+    return SessionExtract(path=path, prompts=prompts, text=text, files=files)
+
+
+SUMMARY_PROMPT = """Summarise this interactive Claude Code session on the website \
+{domain} for the site's prompt log. Write exactly four markdown bullets and nothing else:
+
+- **Asked:** what the operator wanted
+- **Changed:** what was actually changed (files, content) — "nothing" if nothing
+- **Decided:** decisions or conclusions reached — "none" if none
+- **Open:** follow-ups left open — "none" if none
+
+Plain words, at most 120 words in total. Use only what the transcript shows; \
+don't invent. Files edited: {files}.
+
+TRANSCRIPT
+{text}
+"""
+
+
+def summarize(domain: str, ex: SessionExtract, *, run: Runner = _default_runner,
+              claude: str = "claude") -> str:
+    """`claude -p` on the host, prompt on stdin. Runs from a scratch dir with
+    `--no-session-persistence` so the summariser's own conversation never
+    lands in the site's folder (it would become the next `--continue`)."""
+    import tempfile
+    prompt = SUMMARY_PROMPT.format(domain=domain, text=ex.text,
+                                   files=", ".join(ex.files) or "none")
+    with tempfile.TemporaryDirectory(prefix="lamill-code-summary-") as tmp:
+        try:
+            r = run([claude, "-p", "--no-session-persistence", "--output-format", "json",
+                     "--allowedTools", "", "--max-budget-usd", "0.50"],
+                    input=prompt, cwd=tmp, timeout=300)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise TranscriptError(f"summary call failed: {e}") from e
+    try:
+        out = json.loads(r.stdout or "")
+    except ValueError:
+        out = {}
+    text = (out.get("result") or "").strip() if isinstance(out, dict) else ""
+    if r.returncode != 0 or out.get("is_error") or not text:
+        why = text or (r.stderr or r.stdout or "").strip()[-300:] or f"exit {r.returncode}"
+        raise TranscriptError(f"summary call failed: {why}")
+    return text
+
+
+def append_prompts_entry(site_dir: Path, domain: str, summary: str, today: str) -> Path:
+    """Dated `## YYYY-MM-DD — code session` entry (v33.H shape)."""
+    from .delegate import _PROMPTS_MD_HEADER
+    prompts = site_dir / "docs" / "Prompts.md"
+    entry = f"\n## {today} — code session\n{summary.strip()}\n"
+    if prompts.exists():
+        with prompts.open("a", encoding="utf-8") as fh:
+            fh.write(entry)
+    else:
+        prompts.parent.mkdir(parents=True, exist_ok=True)
+        prompts.write_text(_PROMPTS_MD_HEADER.format(domain=domain) + entry,
+                           encoding="utf-8")
+    return prompts
+
+
+def log_session(domain: str, site_dir: Path, claude_home: Path, started: float, *,
+                emit: Emit, run: Runner = _default_runner, today: str | None = None,
+                claude: str = "claude") -> bool:
+    """Find → extract → summarise → append. Returns False when logging failed
+    (✗ printed); True when logged or when there was nothing to log (↷)."""
+    from datetime import date
+    try:
+        path = find_transcript(site_dir, claude_home, started)
+        ex = extract_session(path, started)
+        if ex.prompts == 0:
+            emit("↷", "no prompts this session — nothing logged to Prompts.md")
+            return True
+        emit("✓", f"transcript {path.name} — {ex.prompts} prompt(s), "
+                  f"{len(ex.files)} file(s) edited")
+        summary = summarize(domain, ex, run=run, claude=claude)
+        prompts = append_prompts_entry(site_dir, domain, summary,
+                                       today or date.today().isoformat())
+    except TranscriptError as e:
+        emit("✗", f"session not logged to docs/Prompts.md — {e}")
+        return False
+    except OSError as e:
+        emit("✗", f"session not logged — couldn't write docs/Prompts.md: {e}")
+        return False
+    emit("✓", f"summary → {prompts.relative_to(site_dir)}")
+    print(summary, flush=True)
+    return True
+
+
+def show_diff(site_dir: Path, *, emit: Emit, run: Runner = _default_runner) -> None:
+    """Uncommitted state + the commit command. lamill never commits."""
+    st = run(["git", "-C", str(site_dir), "status", "--porcelain"])
+    changed = [ln for ln in (st.stdout or "").splitlines() if ln.strip()]
+    if not changed:
+        emit("✓", "working tree clean — nothing to commit")
+        return
+    stat = run(["git", "-C", str(site_dir), "diff", "--stat", "HEAD"])
+    last = [ln for ln in (stat.stdout or "").splitlines() if ln.strip()]
+    untracked = sum(1 for ln in changed if ln.startswith("??"))
+    emit("↷", f"{len(changed)} uncommitted path(s)"
+              + (f" — {last[-1].strip()}" if last else "")
+              + (f", {untracked} untracked" if untracked else ""))
+    print(f"  review + commit:  cd {site_dir} && git status && git add -A && git commit",
+          flush=True)
+
+
 def _print_emit(mark: str, text: str) -> None:
     print(f"{mark} {text}", flush=True)
 
@@ -395,6 +616,7 @@ def run_code(domain: str, *, emit: Emit = _print_emit, run: Runner = _default_ru
         raise CodeRefused(f"✗ Container start failed: {(r.stderr or '').strip()}")
     try:
         emit("✓", f"container {name}")
+        started = time.time()
         emit("✓", "resuming this site's last session (/clear starts fresh)" if pf.resume
              else "no earlier session for this site — starting fresh")
         # Ctrl-C belongs to Claude (interrupt), not to lamill. A Python-level
@@ -411,5 +633,7 @@ def run_code(domain: str, *, emit: Emit = _print_emit, run: Runner = _default_ru
     finally:
         run(docker + ["rm", "-f", name])
     emit("✓" if code == 0 else "✗", f"session ended (claude exit {code}); container removed")
-    emit("↷", "Prompts.md session summary not written yet — that's v53.C")
-    return code
+    logged = log_session(domain, pf.site_dir, claude_home, started, emit=emit, run=run,
+                         claude=str(pf.claude_bin))
+    show_diff(pf.site_dir, emit=emit, run=run)
+    return code if code != 0 or logged else 1

@@ -267,9 +267,15 @@ def test_context_pack_tolerates_nothing(env, tmp_path):
 
 # ---------- run_code ----------
 
+def _removed_after_exec(fake) -> bool:
+    i = fake.subs().index("exec")
+    return any(c[1:3] == ["rm", "-f"] for c in fake.calls[i + 1:])
+
+
 def _run_code(env, fake, monkeypatch, **kw):
     sites, _, home = env
     monkeypatch.setattr(pc, "build_context_pack", lambda d, s: "CTX")
+    monkeypatch.setattr(pc, "log_session", kw.pop("log_session", lambda *a, **k: True))
     marks: list[tuple[str, str]] = []
     rc = pc.run_code("example.com", emit=lambda m, t: marks.append((m, t)), run=fake,
                      sites_root=sites, home=home, isatty=True, which=_which(home), **kw)
@@ -282,10 +288,10 @@ def test_run_code_happy_path(env, monkeypatch):
     assert rc == 0
     subs = fake.subs()
     assert subs.index("run") < subs.index("exec") < len(subs) - 1
-    assert fake.calls[-1][1:3] == ["rm", "-f"]           # container removed after
+    assert _removed_after_exec(fake)
     exec_kw = fake.kw[subs.index("exec")]
     assert exec_kw.get("capture_output") is False        # terminal handed through
-    assert any("Prompts.md" in t and m == "↷" for m, t in marks)
+
 
 
 def test_run_code_builds_missing_image(env, monkeypatch):
@@ -298,7 +304,7 @@ def test_run_code_builds_missing_image(env, monkeypatch):
 def test_run_code_removes_container_when_session_fails(env, monkeypatch):
     fake = FakeRun(session_rc=3)
     rc, marks = _run_code(env, fake, monkeypatch)
-    assert rc == 3 and fake.calls[-1][1:3] == ["rm", "-f"]
+    assert rc == 3 and _removed_after_exec(fake)
     assert any(m == "✗" for m, _ in marks)
 
 
@@ -317,3 +323,8 @@ def test_cli_registers_project_code():
     from portfolio.cli import app
     r = CliRunner().invoke(app, ["project", "code", "--help"])
     assert r.exit_code == 0 and "live Claude session" in r.output
+
+
+def test_run_code_returns_1_when_logging_fails(env, monkeypatch):
+    rc, _ = _run_code(env, FakeRun(), monkeypatch, log_session=lambda *a, **k: False)
+    assert rc == 1
