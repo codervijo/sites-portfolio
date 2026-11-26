@@ -31,6 +31,7 @@ sites/portfolio/
 │   ├── gsc_admin.py              # GSC + Site Verification write client (v24.B)
 │   ├── ga4_admin.py              # GA4 Admin API client + OAuth (v18.C); find-or-create (v49.B)
 │   ├── fleet_ga.py               # `fleet ga` GA4 rollout runner (v49.E) + `--switch-old` (v49.F)
+│   ├── email_routing.py          # CF Email Routing client for CHECK_165/166 + `new deploy` 6.8 (v50)
 │   ├── gtrends.py                # Google Trends via pytrends (v19.B)
 │   ├── seo_runtime.py            # live HTTP SEO probe orchestrator
 │   ├── seo_cache.py              # snapshot save/load for `data/seo/`
@@ -55,6 +56,7 @@ sites/portfolio/
 │   ├── menu.py                   # interactive launcher
 │   ├── apikeys.py                # `settings apikeys` (KNOWN_KEYS + probes)
 │   ├── fix_helpers.py            # Tier 1 fixer factories + `run_claude_text`
+│   ├── fix_build.py              # build check after source-editing fixers (v50.D)
 │   ├── fix_registry.py           # fixer discovery + tier dispatch
 │   └── checks/                   # universal check catalog
 │       ├── registry.py           # auto-discovery + run() entry
@@ -263,8 +265,26 @@ Astro site. `new bootstrap` wrote the SPA value for every stack until
 
 Every operator-owned site gets `hello@<site>`, forwarded by Cloudflare
 Email Routing to `hello@lamill.io` (override: `lamill.toml [email]
-forward_to`). Client-owned, dark and HostGator sites, and archived dirs,
-are n/a. Delivered through check + fix only; there is no `fleet email` verb.
+forward_to`; extra local parts: `[email] addresses`). Client-owned, dark
+and HostGator sites, and archived dirs, are n/a. Delivered through check +
+fix only; there is no `fleet email` verb (ADR-0030).
+
+**Lifecycle of a site's address:**
+
+1. **`new bootstrap`** (v50.G) — the templates ship a site-wide `<footer>`;
+   `bootstrap.email_footer_for_new_site` runs CHECK_166's edit
+   (`add_footer_link`, no mail gate — the site isn't public yet) before
+   the initial commit.
+2. **`new deploy`** step 6.8 (v50.G, `cli._deploy_step_email_routing`) —
+   probes `email_routing.inspect`; ready → no-op, another provider → left
+   alone, zone not `active` → `↷` "re-run `new deploy` when the zone is
+   active", otherwise runs the CHECK_165 fixer (pass 1). Any failure is a
+   soft `↷`; the deploy never blocks (ADR-0015).
+3. **Operator clicks** the Cloudflare verification mail (once per
+   destination, account-wide).
+4. **`project fix` / `fleet fix`** — CHECK_165 pass 2 adds the rule;
+   CHECK_166 adds the footer link on existing sites once routing is ✓.
+5. **`project check`** reports CHECK_165/166 from then on.
 
 - **CHECK_165 `email-routing-ready`** (warn) — `email_routing.inspect()`
   classifies the domain:
@@ -287,6 +307,21 @@ are n/a. Delivered through check + fix only; there is no `fleet email` verb.
 
   Re-running on a done site writes nothing. Pilot command:
   `lamill project fix <domain> --rule CHECK_165 --apply`.
+- **CHECK_166 `email-footer-link`** (warn, v50.D) — reads source. The
+  footer every page renders: a `*Footer*` component reached from a
+  `</head>` owner / app entry within two import hops, else every
+  layout / app shell holding a `<footer>`, else `index.html`. Pass when
+  each has a `mailto:` on the site's own domain (a templated `mailto:`
+  counts). No footer → warn, add by hand.
+- **CHECK_166 fixer** (tier 1, `edits_source`) — address: an own-domain
+  address the source already links (if routed), else `hello@<site>`.
+  Gate: CHECK_165 ✓, or another provider handles mail *and* the source
+  already names an address — otherwise `manual`, so no address that
+  bounces is ever published. The link copies the footer's last literal
+  link (`class` / `className` / `style`, its `<li>` / `<p>` wrapper, or
+  the separator between inline links); mapped (`.map(`) links are never
+  cloned; a footer with no plain link gets `<p><a href="mailto:…">`.
+  Not yet covered: a live-HTML check that the link is deployed.
 
 ### Fix-tier
 
@@ -300,6 +335,17 @@ Each check module can co-locate two attributes:
   `run_claude_text()` (ADR-0006). Used when the fix requires reading
   surrounding code/content and applying a context-aware edit. Restricted
   tools, capped runtime, output captured for the run summary.
+
+**Build check for source edits (v50.D, option A).** A `FixerSpec` with
+`edits_source=True` (CHECK_163, CHECK_166) edits layouts / components /
+`index.html`. `project fix --apply` and `fleet fix --apply` then wrap
+the site in `fix_build.BuildGate`: snapshot before the first fixer
+(`fleet_ga.Snapshot`), container build after the last
+(`new_site.build_in_container`), restore build side effects; a failed
+build restores the touched files → ✗ with the cause, a passed one → ✓
+"built — ready to commit". Config-only fixes skip the build. Commit and
+push stay with the operator (ADR-0003). `tests/conftest.py` stubs the
+build.
 
 `fix_registry.py` discovers fixers by inspecting each check module
 for these attributes. `project fix --tier 1` runs only Tier 1;
@@ -1309,12 +1355,14 @@ lamill
 │   │           [-r REGION] [--json] [--refresh]                 pytrends; 24h cache)
 │   ├── bootstrap                                    ✅ v3.A
 │   │                                                              (writes lamill.toml
-│   │                                                              in v10.C)
+│   │                                                              in v10.C; hello@
+│   │                                                              footer link v50.G)
 │   └── deploy <name>                                ✅ v3.C → v11.M polymorphic
 │                                                              (reads lamill.toml,
 │                                                              dispatches CF Pages /
 │                                                              Workers / Vercel /
-│                                                              HostGator)
+│                                                              HostGator; step 6.8
+│                                                              email routing v50.G)
 │
 └── settings                                         # setup / debug
     ├── catalog {list, describe, run}                ✅ v7.A
@@ -1363,6 +1411,7 @@ lamill
 | v25.D | `lamill settings cloudflare check-token` — comprehensive per-account + per-zone diagnostic with operator-facing fix block. GSC 403 error-body parsing — Step 9 hint text now distinguishes `insufficient_scope` / `service_disabled` (with GCP project URL) / `invalid_grant`. |
 | v25.E | Docs sync wrap (this row + module index + deploy verb table). |
 | v36.B | `project seo <domain>` becomes a problem-surfacing diagnostic (project-scoped — `fleet seo`/dashboard grade unchanged). New `seo_diagnose.py`: `compute_state` (State = healthy/unproven/**blocked**; a 0-impression site with a not-indexed homepage is never green), `read_index_insights` (surfaces the cached `v16c_inspections` "Crawled – not indexed" headline), `audit_sitemap` (robots→redirect→recurse `<sitemapindex>`, honest count/submitted/reachable/thinness; kills the false "unreachable"), `probe_render` (flags SSR-less empty shells). Renders a State line above the table + a prioritized **Blockers** section below (`render_seo_state_header`/`render_seo_blockers` in `research_render.py`). Heavy per-URL probes run only in this single-domain path. |
+| v50.C–G | No new verb (ADR-0030). CHECK_165 `email-routing-ready` + CHECK_166 `email-footer-link` reach the operator through `project check/fix` and `fleet check/fix`; `project fix` / `fleet fix --apply` gain the container build check after source-editing fixers (v50.D); `new bootstrap` adds the `hello@` footer link and `new deploy` gains step 6.8 email routing (v50.G). |
 
 #### Open CLI design questions
 
@@ -1535,7 +1584,7 @@ this was paid for in real debugging (2026-06-15).
 | `gsc.py` | GSC OAuth + queries + sync. **v24.B scope bump**: `SCOPES` changed from `["webmasters.readonly"]` to `["webmasters", "siteverification"]` so `gsc_admin.py`'s write helpers can use the same cached OAuth token; operator runs `lamill settings gsc auth --force` once to re-consent. **BUG-104:** tokens are written atomically (`write_token_atomic`, also used by `ga4_admin`); an unreadable token raises `MissingCredentialsError` with the re-auth command (`load_token`); `authenticate(interactive=False)` never opens a browser. | `gsc_auth`, `gsc_status`, `authenticate`, `query_with_dims`, `list_properties`, `write_token_atomic`, `load_token` |
 | `gsc_recrawl.py` | Sitemap resubmit flow + per-URL inspection (powers v16.C `CHECK_147 url-indexed`). **v51.C:** `UrlInspection` gained optional `sitemaps`, `referring_urls`, `google_canonical`, `user_canonical`, `robots_txt_state`, `crawled_as` (fields the API always returned) + `http_status` on API errors (429 = quota); `pick_property` (sc-domain first) split out of `find_gsc_property`. `gsc-exchange-v1` payload unchanged. | `recrawl_property`, `inspect_one_url`, `pick_property` |
 | `gsc_admin.py` (v24.B / v25.C / v25.D) | GSC + Site Verification API **write** client. httpx-direct (matches `ga4_admin.py` / `gh_repo.py`; not `googleapiclient.discovery.build`). Reuses `gsc.authenticate()` token — no separate credential file. Used by `new deploy` Step 9 (v24.C / v25.C) to register `sc-domain:<domain>` properties + submit sitemaps without dashboard clicks. **v25.C multi-method verification**: `get_verification_token(method=...)` + `verify_domain(method=...)` accept `method ∈ {"FILE", "DNS_TXT"}` (default FILE per ADR-0014); `write_verification_file(project_dir, token)` writes Google's HTML proof to `public/<token>`; `wait_for_verification_file_live(domain, token)` HEAD-polls (~180s budget). **v25.D `classify_403(error_body)`** parses Google's 403 JSON details to distinguish `insufficient_scope` (re-consent) vs `service_disabled` (enable API in GCP; surfaces consumer-project URL when available) vs `invalid_grant` (re-auth) vs `unknown`. Idempotent at every level (`list_sites` + `list_sitemaps` probes skip re-adding existing entries). Typed errors: `GSCAdminError` (non-2xx) + `VerificationFailedError` (propagation budget exhausted; method-aware hint text). | `get_verification_token`, `write_verification_file`, `wait_for_verification_file_live`, `verify_domain`, `add_site`, `submit_sitemap`, `list_sites`, `list_sitemaps`, `classify_403` |
-| `email_routing.py` (v50.B) | Cloudflare Email Routing client: `hello@<site>` forwards to `hello@lamill.io` (or `lamill.toml [email] forward_to`). `inspect()` is a read-only snapshot (zone, MX, apex SPF, routing settings + status, rules, destination); `plan()` returns steps vs blockers; `ensure()` writes, then re-reads. Never touches a zone whose MX belongs to another provider, an SPF record lacking CF's include, or an existing rule that forwards elsewhere. CF rejects rules to an unverified destination (code 2054), so the rule is added on a second pass after the operator's click. Used only by CHECK_165 (check + fix; no CLI verb). Tests are isolated from the real API by `tests/conftest.py`. | `inspect`, `plan`, `ensure`, `forward_to_for`, `public_mx`, `EmailState`, `EmailRoutingError` |
+| `email_routing.py` (v50.B) | Cloudflare Email Routing client: `hello@<site>` forwards to `hello@lamill.io` (or `lamill.toml [email] forward_to`). `inspect()` is a read-only snapshot (zone, MX, apex SPF, routing settings + status, rules, destination); `plan()` returns steps vs blockers; `ensure()` writes, then re-reads. Never touches a zone whose MX belongs to another provider, an SPF record lacking CF's include, or an existing rule that forwards elsewhere. CF rejects rules to an unverified destination (code 2054), so the rule is added on a second pass after the operator's click. Used by CHECK_165 (check + fix), CHECK_166's mail gate and `new deploy` step 6.8 (v50.G); no CLI verb. Tests are isolated from the real API by `tests/conftest.py`. | `inspect`, `plan`, `ensure`, `forward_to_for`, `public_mx`, `EmailState`, `EmailRoutingError` |
 | `ga4_admin.py` (v18.C) | GA4 Admin API client + OAuth (`analytics.edit` scope). httpx-direct (no `googleapiclient.discovery.build`). Used by `new bootstrap` and the CHECK_162 fixer to provision per-site GA4 properties + web data streams; measurement ID lands in `lamill.toml [analytics] ga4_id`. **v49.B find-or-create:** `stream_index()` lists every property/web stream in every account the token can see; `ensure_property(domain, account_id)` reuses a fleet-account match, reports `elsewhere` (property lives in another account → move it, never duplicate), `ambiguous`, `would-create` (dry run), or creates property + stream; **v49.F** `ignore_other_accounts=True` creates a fleet property even when another account has one (clean switch); `set_data_retention()` probes then sets 14-month event + user retention (ADR-0015 idempotency). Credentials at `~/lamill/ga4/{credentials.json,token.json}` (chmod 600); account = `GA4_ACCOUNT_ID` (LaMill Sites, ADR-0029). Tests are isolated from the real sign-in by `tests/conftest.py`. | `create_property`, `create_web_stream`, `stream_index`, `find_for_domain`, `ensure_property`, `set_data_retention`, `normalize_host`, `authenticate`, `has_token` |
 | `fleet_ga.py` (v49.E–F) | `lamill fleet ga` GA4 rollout runner: per-site live gate → CHECK_162/163 plans → in-memory `Snapshot` → fixers → dirty-file guard → container build gate (`built_output_has`) → `commit_and_push` (touched files only) → CHECK_164 live state. `--switch-old` → `_switch`: fresh LaMill Sites property (`ensure_property(..., ignore_other_accounts=True)`), old ID replaced in source + gitignored `.env*`, Vercel `PUBLIC_GA_ID`/`VITE_GA_ID` deleted pre-push (`vercel.delete_env_keys`). | `run`, `run_site`, `in_scope_sites`, `Snapshot`, `commit_and_push`, `built_output_has` |
 | `gtrends.py` (v19.B + 2026-05-22 PM mitigations) | Google Trends via `pytrends` — topic-specific only (`fetch_trends(topic, ...)` returns `TrendsPayload` with interest-over-time + related queries). Per-topic cache at `data/gtrends/<topic-hash>.json` keyed by (topic, timeframe, region); schema `gtrends-v1`; 24h TTL. `_make_pytrends_client()` boundary handles UA rotation (5 modern browser UAs) + lazy `ImportError` → typed `GTrendsError` with `uv sync` hint. **429 mitigations** (2026-05-22 PM): `GTrendsRateLimitError` subclass detected via `"429"` / `"Too Many Requests"` in pytrends error string; `fetch_trends` falls back to ANY cached payload via `load_any_cached` (renderer surfaces yellow stale-warning header). **No-topic latest-trends surface withdrawn 2026-05-22 PM** — all three approaches 404'd (pytrends `trending_searches` / `today_searches` / public RSS feed). See `docs/bugs.md` 2026-05-22 PM entry for the iteration log. L4 SerpAPI fallback NOT shipped — pinned. | `fetch_trends`, `load_cached`, `load_any_cached`, `save_cached`, `payload_age_hours`, `TrendsPayload`, `GTrendsError`, `GTrendsRateLimitError` |
@@ -1564,7 +1613,8 @@ this was paid for in real debugging (2026-06-15).
 | `diagnose.py` | `project diagnose <domain>` 5-layer auto-investigate | `diagnose_domain` |
 | `menu.py` | Interactive launcher | `launch_menu` |
 | `apikeys.py` | `settings apikeys` + provider probes | `KNOWN_KEYS`, `_probe_<provider>` |
-| `fix_helpers.py` | Tier 1 factories + `run_claude_text()` Claude CLI subprocess | `run_claude_text`, `make_file_fixer`, `make_section_injector` |
+| `fix_helpers.py` | Tier 1 factories + `run_claude_text()` Claude CLI subprocess; `FixerSpec.edits_source` (v50.D) marks source-editing fixers | `run_claude_text`, `make_file_fixer`, `make_section_injector` |
+| `fix_build.py` (v50.D) | Build check after source-editing fixers in `project fix` / `fleet fix --apply`: snapshot → container build → restore touched files on failure (reuses `fleet_ga.Snapshot` + `new_site.build_in_container`). Build runner injectable; stubbed in `tests/conftest.py`. | `BuildGate`, `GateOutcome`, `needs_gate`, `default_build` |
 | `fix_registry.py` | Fixer discovery + tier dispatch | `discover_fixers`, `apply_fixer` |
 | `checks/registry.py` | Auto-discovery of `check_*.py` modules | `iter_checks`, `run_check` |
 | `checks/result.py` | `CheckResult` dataclass | `CheckResult` |

@@ -42,6 +42,7 @@ trade-offs were, and what the consequences are.
 | 0027 | Apex stays canonical, but `www` is required and permanently redirects to it (tightens the doc-only apex-canonical lock; no more absent-www) | Accepted | — |
 | 0028 | `micros` is a category-scoped namespace; microtypes are live pilot sites, and their data is agent-generated behind a provenance gate | Proposed | — |
 | 0029 | lamill owns GA4 tag injection (reverses the v18 SEO-pipeline boundary); the measurement ID is committed in site source, not a build env var | Accepted | — |
+| 0030 | lamill manages per-site email routing: every own site gets `hello@<site>` via Cloudflare Email Routing; other providers' mail is never touched; delivered as check + fix | Accepted | — |
 
 ## When to write an ADR
 

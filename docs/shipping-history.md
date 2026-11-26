@@ -24,6 +24,24 @@ Listed reverse-chronologically (newest first).
 
 ---
 
+## v50 — Email forwarding per site: `hello@<site>` via Cloudflare Email Routing (v50.A-E, G-H) — shipped 2026-11-25
+
+Commits: `8998bd9` + `2acec78` (B/C, plus the v50.E pilot and the CHECK_165 half of the v50.F rollout), `debc4d0` (D), `18cde4c` (G), H in its own commit. ADR-0030. **v50.F stays open:** the CHECK_166 footer-link rollout (`fleet fix --rule CHECK_166 --apply`, then the operator commits and pushes per site) is the operator's step.
+
+**Outcome:** 38 operator-owned CF sites forward `hello@` to `hello@lamill.io` (2026-11-11); 8 sites on another provider (Namecheap ×6, Zoho, Google) were left alone; `security@dropaudit.co` is live via `[email] addresses`. Inbound and reply-as were verified on cottagefoodmap.com (v50.E). New sites get the footer link at `new bootstrap` and routing at `new deploy` step 6.8.
+
+**Built in D/G (2026-11-25):** CHECK_166 `email-footer-link` + fixer (per stack, copies the footer's existing link style, adds the link only once CHECK_165 is ✓ or another provider handles mail and the source already names the address); the "build check (option A)" as `FixerSpec.edits_source` + `fix_build.BuildGate` (container build after source-editing fixers in `project fix` / `fleet fix --apply`; a failed build reverts the edits; CHECK_163 is marked too); bootstrap templates now ship a site-wide `<footer>`. **Not built:** a live-HTML check that the footer link is deployed; the v50.D row mentions one, and CHECK_166 reads source only. Operator validation of the build gate against real sites is pending (tests stub the container).
+
+**Field findings while building (B/C/E):** (1) Cloudflare rejects a rule to an unverified destination (code 2054), so the fixer runs in two passes around the operator's click; (2) routing can stay "enabled" with status `misconfigured` after CF's MX/SPF are removed, so readiness checks the status, not the switch; (3) replies sent as `hello@<site>` through Zoho are DMARC-unaligned (signed as lamill.io) but landed in the Inbox at two Gmail accounts, which the operator accepted; adding `include:zohomail.com` to the site SPF would not help, because the envelope is lamill.io.
+
+### Design notes (archived from prd.md)
+
+- **CF capabilities (checked 2026-11-10):** Email Routing is free and receive-only: forward to verified destinations, or hand mail to an Email Worker. Workers can send **free** to verified destinations, which is the basis for any future contact-form work. Email Sending to arbitrary addresses (plus SMTP `smtp.mx.cloudflare.net:465`, which would let you reply as `hello@<site>`) has been in public beta since 2026-04-16 and needs the Workers paid plan. Out of v50 scope. Whether a `send_email` binding works in Pages Functions (vs Workers) is unverified.
+- **Destination `hello@lamill.io` is a real Zoho mailbox** (operator confirmed 2026-11-10), so forwarded mail lands in Zoho, not Gmail. Receiving isn't blocked: verification is one click, and CF rewrites the sender (SRS) on forwarded mail. Watch the pilot for spam-foldering and add a Zoho filter if needed. **Replying as `hello@<site>`** (operator, 2026-11-10): Vijo's Zoho account supports **External From Addresses sent through Zoho SMTP**, so the site domains don't need to be added to Zoho and no paid SMTP is needed yet. The cottagefoodmap.com sender is already configured in Zoho, waiting on its verification email, which needs forwarding to work first. Caveat: recipients may see "on behalf of hello@lamill.io". Senders are set up in Zoho by the operator, outside lamill. **Receiving:** the destination is verified once (account-level), and forwarding is configured separately per domain (one rule per zone).
+- **SPF:** enabling routing adds CF's SPF include. On a zone with an existing SPF TXT, the fixer must merge, not replace. Pilot zone cottagefoodmap.com has no MX and no SPF (only a Google verification TXT).
+
+---
+
 ## v51 — `project seo <site> --deep`: indexing root-cause diagnostic (v51.A-F) — complete 2026-11-16
 
 Commits: pending (all six phases built 2026-11-16, uncommitted). Trigger: calcengine.site — GSC showed 81 sitemap URLs, 1 indexed. Queue-jumped ahead of v50.D–H by the operator.
