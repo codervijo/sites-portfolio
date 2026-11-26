@@ -98,6 +98,27 @@ def _default_runner(args: list[str], **kw) -> subprocess.CompletedProcess:
 _BACKUP_SUFFIXES = (".bup", ".old", ".bak")
 
 
+def _site_names(root: Path) -> list[str]:
+    try:
+        return sorted(d.name for d in root.iterdir()
+                      if d.is_dir() and "." in d.name
+                      and not d.name.endswith(_BACKUP_SUFFIXES))
+    except OSError:
+        return []
+
+
+def did_you_mean(name: str, root: Path) -> str:
+    """`  Did you mean calcengine.site?` for a typo (full name or first
+    label, difflib ratio ≥ 0.75); "" when nothing is close."""
+    import difflib
+    sites = _site_names(root)
+    name = name.lower()
+    target = {s: (s if "." in name else s.split(".")[0]) for s in sites}
+    close = difflib.get_close_matches(name, list(set(target.values())), n=3, cutoff=0.75)
+    hits = sorted(s for s, t in target.items() if t in close)[:3]
+    return f"\n  Did you mean {' or '.join(hits)}?" if hits else ""
+
+
 def resolve_domain(name: str, sites_root: Path | None = None) -> str:
     """`calcengine` → `calcengine.site` when exactly one site dir has that
     first label. A full name (or any existing dir) passes through unchanged;
@@ -107,18 +128,13 @@ def resolve_domain(name: str, sites_root: Path | None = None) -> str:
     name = name.strip().lower().rstrip("/")
     if "." in name or (root / name).is_dir():
         return name
-    try:
-        hits = sorted(d.name for d in root.iterdir()
-                      if d.is_dir() and "." in d.name
-                      and not d.name.endswith(_BACKUP_SUFFIXES)
-                      and d.name.split(".")[0].lower() == name)
-    except OSError:
-        hits = []
+    hits = [s for s in _site_names(root) if s.split(".")[0].lower() == name]
     if len(hits) == 1:
         return hits[0]
     if not hits:
-        raise CodeRefused(f"✗ No site named {name!r} under {root}.\n"
-                          "  Use the full domain (e.g. calcengine.site).")
+        raise CodeRefused(f"✗ No site named {name!r} under {root}."
+                          + (did_you_mean(name, root)
+                             or "\n  Use the full domain (e.g. calcengine.site)."))
     raise CodeRefused(f"✗ {name!r} matches more than one site: {', '.join(hits)}.\n"
                       "  Use the full domain.")
 
@@ -152,8 +168,9 @@ def preflight(domain: str, *, sites_root: Path | None = None,
     docker = docker or ["docker"]
     site_dir = (root / domain).resolve()
     if not site_dir.is_dir():
-        raise CodeRefused(f"✗ No site directory at {site_dir}.\n"
-                          "  Check the domain spelling, or bootstrap/clone it first.")
+        raise CodeRefused(f"✗ No site directory at {site_dir}."
+                          + (did_you_mean(domain, root)
+                             or "\n  Check the domain spelling, or bootstrap/clone it first."))
     if not (site_dir / ".git").exists():
         raise CodeRefused(f"✗ {site_dir} is not a git repository.\n"
                           f"  Initialize it first:  git -C {site_dir} init")

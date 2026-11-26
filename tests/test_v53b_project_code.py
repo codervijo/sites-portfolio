@@ -376,3 +376,27 @@ def _run_code_named(env, fake, monkeypatch, name):
     rc = pc.run_code(name, emit=lambda m, t: marks.append((m, t)), run=fake,
                      sites_root=sites, home=home, isatty=True, which=_which(home))
     return rc, marks
+
+
+# ---------- did you mean ----------
+
+def test_did_you_mean_short_typo(root):
+    with pytest.raises(pc.CodeRefused, match=r"Did you mean calcengine\.site\?"):
+        pc.resolve_domain("caclengine", root)
+
+
+def test_did_you_mean_full_typo(env):
+    sites, _, home = env
+    with pytest.raises(pc.CodeRefused, match=r"Did you mean example\.com\?"):
+        pc.preflight("exmaple.com", sites_root=sites, claude_home=home / ".claude",
+                     claude_json=home / ".claude.json", run=FakeRun(), isatty=True,
+                     which=_which(home))
+
+
+def test_did_you_mean_lists_all_matching_sites(root):
+    assert pc.did_you_mean("lamil", root) == "\n  Did you mean lamill.pics or lamill.store?"
+
+
+def test_did_you_mean_nothing_close(root):
+    with pytest.raises(pc.CodeRefused, match="Use the full domain"):
+        pc.resolve_domain("zzzzzz", root)
