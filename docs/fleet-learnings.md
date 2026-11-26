@@ -85,7 +85,11 @@ detail stays in that site's `growth.md`; this file is the cross-site roll-up.
   the soft-404 (v2.B, `growth.md` 2026-10-30 entry, interim 2026-11-19) —
   but that deploy also added pages and canonicals, so the soft-404's share
   isn't isolated. calcengine.site returns 404, so this isn't its cause.
-  *Strong lead, not proven.*
+  *Lead, not proven — weakened 2026-11-25:* a full fleet probe found **16** live
+  sites returning 200, including iotbastion.com (9/10 indexed) and dunam.co
+  (7/7 indexed), so soft-404 alone doesn't stop indexing. Root cause is
+  lamill's `new bootstrap` writing `not_found_handling:
+  "single-page-application"` for Astro sites — fix tracked as PRD v46.G–I.
 - **Weeks of "discovered / unknown" despite internal links usually means
   low crawl priority, not missing links.** marginready.com: `/tools/` linked
   from every footer and body content for ~8 weeks, still unknown.
