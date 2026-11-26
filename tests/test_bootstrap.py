@@ -520,7 +520,9 @@ def test_from_genai_adds_wrangler_jsonc(tmp_path):
     parsed = json.loads(text)
     assert parsed["name"] == "kwizicle-com"  # BUG-103: TLD kept
     assert parsed["assets"]["directory"] == "./dist"
-    assert parsed["assets"]["not_found_handling"] == "single-page-application"
+    # v46.I (CHECK_167): the fixture is detected as Astro, a static site →
+    # unknown paths must 404, not fall back to the homepage.
+    assert parsed["assets"]["not_found_handling"] == "404-page"
     assert any("wrangler.jsonc" in fix for fix in result.cf_fixes)
 
 
@@ -721,9 +723,14 @@ def test_add_wrangler_jsonc(tmp_path):
     # Name drops the TLD entirely (matches user's preferred form after kwizicle iteration).
     assert parsed["name"] == "kwizicle-com"
     assert parsed["compatibility_date"] == "2026-05-04"
-    assert parsed["assets"]["not_found_handling"] == "single-page-application"
+    # v46.I: static by default; the SPA fallback only when asked for.
+    assert parsed["assets"]["not_found_handling"] == "404-page"
     # Idempotent: second call returns False, doesn't overwrite.
     assert _add_wrangler_jsonc(tmp_path, "kwizicle.com", "2026-05-04") is False
+    spa_dir = tmp_path / "spa"
+    spa_dir.mkdir()
+    _add_wrangler_jsonc(spa_dir, "kwizicle.com", "2026-05-04", spa=True)
+    assert json.loads((spa_dir / "wrangler.jsonc").read_text())["assets"]["not_found_handling"] == "single-page-application"
 
 
 @pytest.mark.parametrize("domain,expected", [

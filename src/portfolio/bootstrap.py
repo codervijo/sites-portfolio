@@ -298,7 +298,7 @@ docker exec -w /usr/src/app <name> make test proj={domain}
 ## Deployment info
 
 - **Platform:** Cloudflare Workers (Static Assets) — *not* Vercel.
-- **Config:** `wrangler.jsonc` at the repo root — points `assets.directory` at `./dist` and uses `not_found_handling: "single-page-application"` for SPA client-side routing.
+- **Config:** `wrangler.jsonc` at the repo root — points `assets.directory` at `./dist`. `not_found_handling` is `"404-page"` for a static multi-page site (Astro — unknown URLs return a real 404 from `src/pages/404.astro`) and `"single-page-application"` only for a client-rendered SPA; on a static site the SPA value serves the homepage for every unknown URL (soft-404). Checked by CHECK_167.
 - **Headers:** `public/_headers` — cache (`/assets/*` immutable, HTML no-cache) + security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`). Vite copies `public/` into `dist/` at build, so the file ships with the assets.
 - **Build:** `pnpm build` → `dist/`. Wrangler picks up `dist/` via `wrangler.jsonc`.
 - **Deploy:** `wrangler deploy` (locally) or via Cloudflare's Git integration on push.
@@ -729,21 +729,25 @@ def _project_name(domain: str) -> str:
     return new_project_name(domain)
 
 
-def _wrangler_jsonc(domain: str, today_iso: str) -> str:
-    """Modern Cloudflare Pages config (matches homeloom.app's known-good setup).
+def _wrangler_jsonc(domain: str, today_iso: str, *, spa: bool = False) -> str:
+    """Modern Cloudflare config (assets on Workers / Pages).
 
-    Uses `assets.not_found_handling: "single-page-application"` for SPA routing
-    instead of the legacy `_redirects` fallback. The `[site]` block of older
-    `wrangler.toml` files is for Workers Sites — not CF Pages — and triggers
-    build errors on the modern CF Pages pipeline.
+    `assets.not_found_handling` is stack-dependent (v46.G–I, CHECK_167):
+    `"404-page"` for static multi-page sites (Astro — unknown paths answer
+    404 with `dist/404.html`), `"single-page-application"` only for
+    client-rendered SPAs whose router needs the fallback. Until 2026-11-25
+    this wrote the SPA value for every stack, soft-404ing the Astro fleet.
+    The `[site]` block of older `wrangler.toml` files is for Workers Sites —
+    not CF Pages — and triggers build errors on the modern pipeline.
     """
+    from .not_found import SPA_VALUE, STATIC_VALUE
     return json.dumps({
         "$schema": "node_modules/wrangler/config-schema.json",
         "name": _project_name(domain),
         "compatibility_date": today_iso,
         "assets": {
             "directory": "./dist",
-            "not_found_handling": "single-page-application",
+            "not_found_handling": SPA_VALUE if spa else STATIC_VALUE,
         },
     }, indent=2) + "\n"
 
@@ -1509,12 +1513,13 @@ def _remove_redirects_files(project_dir: Path) -> list[str]:
     return removed
 
 
-def _add_wrangler_jsonc(project_dir: Path, domain: str, today_iso: str) -> bool:
+def _add_wrangler_jsonc(project_dir: Path, domain: str, today_iso: str,
+                        *, spa: bool = False) -> bool:
     """Add wrangler.jsonc if missing. Returns True if added, False if already present."""
     path = project_dir / "wrangler.jsonc"
     if path.exists():
         return False
-    path.write_text(_wrangler_jsonc(domain, today_iso))
+    path.write_text(_wrangler_jsonc(domain, today_iso, spa=spa))
     return True
 
 
@@ -1675,9 +1680,12 @@ def _remove_legacy_wrangler_toml(project_dir: Path) -> bool:
     return True
 
 
-def _apply_cf_safety_fixes(project_dir: Path, domain: str, today_iso: str) -> list[str]:
+def _apply_cf_safety_fixes(project_dir: Path, domain: str, today_iso: str,
+                           stack: str | None = None) -> list[str]:
     """Apply Cloudflare Pages safety fixes after a genai-copy. Returns list of fix descriptions."""
+    from .not_found import ensure_astro_404, wants_spa_fallback
     fixes: list[str] = []
+    spa = wants_spa_fallback(stack, project_dir)
     bumped = _bump_vite_version(project_dir / "package.json")
     if bumped:
         fixes.append(bumped)
@@ -1687,8 +1695,12 @@ def _apply_cf_safety_fixes(project_dir: Path, domain: str, today_iso: str) -> li
         fixes.append(f"removed {r} (handled by wrangler.jsonc not_found_handling instead)")
     if _remove_legacy_wrangler_toml(project_dir):
         fixes.append("removed legacy wrangler.toml (Workers Sites format breaks CF Pages)")
-    if _add_wrangler_jsonc(project_dir, domain, today_iso):
-        fixes.append("wrote wrangler.jsonc with assets + SPA not_found_handling (matches homeloom.app convention)")
+    if _add_wrangler_jsonc(project_dir, domain, today_iso, spa=spa):
+        fixes.append("wrote wrangler.jsonc with assets + "
+                     + ("SPA fallback (client-rendered stack)" if spa
+                        else "not_found_handling \"404-page\" (static site, CHECK_167)"))
+    if not spa and ensure_astro_404(project_dir, domain):
+        fixes.append("wrote src/pages/404.astro (unknown paths answer 404, CHECK_167)")
     if _add_cf_headers(project_dir):
         fixes.append("wrote public/_headers (cache + security headers, copied to dist/ at build)")
     return fixes
@@ -2121,7 +2133,7 @@ def _bootstrap_inner(
 
     # CF safety fixes apply to BOTH paths — every bootstrapped project ships with
     # wrangler.jsonc + public/_headers matching the homeloom.app convention.
-    result.cf_fixes = _apply_cf_safety_fixes(project_dir, domain, today)
+    result.cf_fixes = _apply_cf_safety_fixes(project_dir, domain, today, stack)
 
     # SEO + test baseline: robots.txt, sitemap.xml stub, vitest config, smoke test.
     # Skip if the project already has them (genai exports often include their own).
