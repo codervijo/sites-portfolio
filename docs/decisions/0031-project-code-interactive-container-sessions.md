@@ -35,8 +35,13 @@ Three facts shape the design:
 1. **Command:** `lamill project code <domain>` — scope-first CLI, no
    subcommands, no options in v53.
 2. **Runs in a per-site container** `lamill-code-<domain>` from a prebuilt
-   `lamill-code` image with Claude Code installed (built once, rebuilt when
-   Claude Code updates), started per session and removed on exit. **Normal
+   `lamill-code` image (the site toolchain — node, corepack, git; built once
+   on first use), started per session and removed on exit. **Claude Code is
+   the host's own binary, mounted read-only** *(amended in v53.B,
+   2026-11-26)*: npm's `@anthropic-ai/claude-code` lagged the native build
+   (2.1.197 vs the host's 2.1.332) and lacked `--system-prompt-snapshot`; the
+   mount keeps container and host on one version — one transcript format for
+   the shared history — with nothing to rebuild when Claude updates. **Normal
    permission prompts** (operator, 2026-11-25) — not delegate's
    `--dangerously-skip-permissions`.
 3. **Same paths as the host.** The site is mounted at its real host path and

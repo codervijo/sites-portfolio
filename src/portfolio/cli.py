@@ -5190,6 +5190,28 @@ def _resolve_delegate_request(request: str | None) -> str:
     return "".join(lines).strip()
 
 
+# v53.B — `project code`. A live, interactive Claude session on one site,
+# in a per-site container on the host's paths, with the site's context
+# loaded and its last session resumed (ADR-0031). One argument, no options.
+@project_app.command("code")
+def project_code(
+    domain: str = typer.Argument(..., help="Site to work on (e.g. calcengine.site)"),
+) -> None:
+    """Open a live Claude session on a site, in a container, with its context loaded.
+
+    Resumes the site's most recent Claude session (host or container) when one
+    exists, else starts fresh; `/clear` inside the session starts over. Normal
+    permission prompts. Never commits.
+    """
+    from .project_code import CodeRefused, run_code
+    try:
+        code = run_code(domain)
+    except CodeRefused as e:
+        console.print(str(e), markup=False, highlight=False)
+        raise typer.Exit(1)
+    raise typer.Exit(code)
+
+
 # v33.B — `project delegate`. Hands a site a multi-step instruction and
 # lets Claude implement it semi-autonomously inside a fresh, disposable
 # container (only the site dir mounted RW + host ~/.claude), supervised on
