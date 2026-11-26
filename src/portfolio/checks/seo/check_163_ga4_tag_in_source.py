@@ -341,4 +341,5 @@ fix_tier_1 = FixerSpec(
     tier=1,
     summary="inject GA4 tag with the committed ID (+ privacy sentence)",
     apply=_fix,
+    edits_source=True,   # v50.D build check
 )

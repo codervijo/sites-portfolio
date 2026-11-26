@@ -4574,6 +4574,11 @@ def project_fix(
     fixed_count = 0
     skipped_count = 0
 
+    # v50.D build check (option A): source-editing fixers → container build.
+    from .fix_build import BuildGate, needs_gate
+    gate = (BuildGate(project_dir)
+            if needs_gate(get_tier_1(c) for c in to_fix_t1) else None)
+
     for cid in to_fix_t1:
         spec = get_tier_1(cid)
         # Lockfile deletions: per-file confirmation unless --yes.
@@ -4587,6 +4592,8 @@ def project_fix(
                 skipped_count += 1
                 continue
         result_obj = spec.apply(project_dir, dry_run=False, assume_yes=assume_yes)
+        if gate is not None:
+            gate.record(spec, result_obj)
         if result_obj.status == "fixed":
             console.print(f"  [green]✓[/]  {cid}  {result_obj.summary}")
             fixed_count += 1
@@ -4598,6 +4605,16 @@ def project_fix(
         else:
             console.print(f"  [red]✗[/]  {cid}  {result_obj.summary}")
             skipped_count += 1
+
+    if gate is not None and gate.needed:
+        console.print(f"  [dim]…  building {domain} in the container (source edits)[/]")
+        outcome = gate.finish()
+        if outcome.kind == "built":
+            console.print(f"  [green]✓[/]  build  {outcome.detail}")
+        else:
+            console.print(f"  [red]✗[/]  build  {outcome.detail}")
+            fixed_count -= len(gate.checks)
+            skipped_count += len(gate.checks)
 
     # Tier 2 (--ai): runs after Tier 1 so any file/section creation is
     # already in place when Claude tries to edit content.

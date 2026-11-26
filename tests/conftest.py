@@ -43,3 +43,14 @@ def _isolate_email_routing(monkeypatch):
 
     monkeypatch.setattr(email_routing, "inspect", _no_network)
     monkeypatch.setattr(email_routing, "public_mx", _no_network)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_fix_build(monkeypatch):
+    """v50.D: `project fix` / `fleet fix --apply` build a site in a container
+    after a source-editing fixer ran. Tests never start Docker — the default
+    build is a stub that passes; tests of the gate pass their own `build`."""
+    from portfolio import fix_build
+
+    monkeypatch.setattr(fix_build, "default_build",
+                        lambda base: (True, "build stubbed in tests"))

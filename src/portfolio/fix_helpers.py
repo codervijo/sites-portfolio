@@ -47,6 +47,11 @@ class FixerSpec:
     apply: Callable[[Path, bool, bool], FixResult]
     # apply(project_dir, dry_run, assume_yes) -> FixResult
     # `assume_yes` matters only for fixers that prompt (lockfile deletes).
+    # v50.D build check (option A): True for fixers that edit site source
+    # (layouts / components / index.html). After `project fix` / `fleet fix
+    # --apply`, a site touched by one builds in the container (`fix_build`);
+    # a failed build restores the touched files. Config-only fixers skip it.
+    edits_source: bool = False
 
 
 # ---------- factory helpers ----------

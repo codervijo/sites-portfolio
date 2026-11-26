@@ -183,7 +183,13 @@ def _run_project_fix_all(*, apply_changes: bool, rule_filter, assume_yes: bool,
             console.print(f"{prefix} [dim]·[/] {p['domain']}  nothing to fix")
             continue
         per_project_fixed = 0
+        build_note = ""
         try:
+            # v50.D build check (option A): a site touched by a source-editing
+            # fixer builds in the container; a failed build reverts those edits.
+            from .fix_build import BuildGate, needs_gate
+            gate = (BuildGate(p["dir"])
+                    if needs_gate(get_tier_1(c) for c in p["t1"]) else None)
             for cid in p["t1"]:
                 spec = get_tier_1(cid)
                 # Lockfile deletions: in --all mode, --yes is required to skip
@@ -192,8 +198,18 @@ def _run_project_fix_all(*, apply_changes: bool, rule_filter, assume_yes: bool,
                 if cid in {"CHECK_032", "CHECK_033", "CHECK_034"} and not assume_yes:
                     continue
                 r = spec.apply(p["dir"], dry_run=False, assume_yes=assume_yes)
+                if gate is not None:
+                    gate.record(spec, r)
                 if r.status == "fixed":
                     per_project_fixed += 1
+            if gate is not None and gate.needed:
+                outcome = gate.finish()
+                if outcome.kind == "built":
+                    build_note = "  [green]✓[/] built — ready to commit"
+                else:
+                    per_project_fixed -= len(gate.checks)
+                    console.print(f"{prefix} [red]✗[/] {p['domain']}  build: {outcome.detail}")
+                    errored += 1
             if use_ai and claude_available():
                 for cid in p["t2"]:
                     spec = get_tier_2(cid)
@@ -202,6 +218,7 @@ def _run_project_fix_all(*, apply_changes: bool, rule_filter, assume_yes: bool,
                         per_project_fixed += 1
             console.print(
                 f"{prefix} [green]✓[/] {p['domain']:<24}  {per_project_fixed} fix(es)"
+                f"{build_note}"
             )
             fixed += per_project_fixed
         except Exception as e:
