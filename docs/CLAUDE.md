@@ -250,6 +250,23 @@ anti-pattern. The full reasoning is in
 this exact command immediately, does the second run succeed cleanly
 without modifying state?" If no, the change isn't ready.
 
+### 🔒 Apex-canonical, fleet-wide (v26 — locked 2026-11-25)
+
+**The apex is the only canonical host for every site. No `www` option.**
+
+1. `https://<apex>/` serves the site; `http://` and `https://www.` answer
+   with a permanent redirect (301/308) to the apex.
+2. Canonical tags, `og:url`, sitemap `<loc>` and the GSC-registered sitemap
+   all use the apex host (CHECK_158–160, v26.G).
+3. Enforced by **CHECK_150** at `error` severity (promoted in v26.G) plus the
+   CF / Vercel fixers (v26.C/D). `new deploy` is born-conformant (v46.D).
+4. Pending: v46.E backfills the sites whose `www.` doesn't resolve at all,
+   then v46.F makes a missing `www` a fail (BUG-087).
+
+**Why:** a 307/second-canonical host blocked homeloom.app's indexing
+(2026-05-25), and a `www` sitemap registration had to be caught and fixed
+on calcengine.site (v26.G). One host everywhere removes the class.
+
 ### 🔒 `lamill.toml` additive-optional invariant (v27 — accepted 2026-05-29)
 
 **Any optional table in `lamill.toml` must remain optional everywhere —

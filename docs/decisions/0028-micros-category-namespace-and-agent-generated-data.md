@@ -1,6 +1,6 @@
 # 0028 — `micros` is a category-scoped namespace; microtypes are live pilot sites, and their data is agent-generated behind a provenance gate
 
-- **Status:** Proposed
+- **Status:** Proposed *(tier renumbered v47 → v54 on 2026-11-25)*
 - **Date:** 2026-08-22 *(third draft — 2026-08-18 proposed a kind registry with
   pluggable ingestion adapters; 2026-08-19 dropped ingestion and the registry
   with it; 2026-08-22 restored the registry on a second real microtype and
@@ -144,7 +144,7 @@ under a provenance gate rather than ingested or hand-typed.**
   unrelated sites. Staleness is **per microtype**: horizon for events,
   re-verification age for services.
 
-- **(j) Two microtypes are in scope for v47:** `events`, generalized from the
+- **(j) Two microtypes are in scope for v54:** `events`, generalized from the
   existing pilot, and `services` (local services / utilities), which requires a
   pilot to be **built first** — there is nothing to read otherwise. That phase is
   site work inside a tool tier, and is named as such rather than hidden.
@@ -162,7 +162,7 @@ names, generation-over-ingestion posture, live-pilot templates and the gate's
 existence are locked. Open: gate strictness (fail the run vs drop the row),
 staleness thresholds per microtype, the services vertical and domain, and whether
 the adaptation pass is a plain subprocess or a full delegate run. Flips to
-`Accepted` when v47.A closes those.
+`Accepted` when v54.A closes those.
 
 ## Consequences
 
@@ -224,7 +224,7 @@ the adaptation pass is a plain subprocess or a full delegate run. Flips to
 
 ## See also
 
-- `docs/prd.md § v47` — phases + design notes + the open v47.A agenda
+- `docs/prd.md § v54` — phases + design notes + the open v54.A agenda
 - ADR-0023 (`project delegate`) — the engine (f) reuses and the carve-out
   precedent; ADR-0026 — the `DelegateBackend` seam
 - ADR-0013 (Astro+Vite as the only `sites/*` stack) — untouched; `microtype` is

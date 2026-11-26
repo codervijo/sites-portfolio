@@ -143,7 +143,7 @@ detail stays in that site's `growth.md`; this file is the cross-site roll-up.
     logistics intent the incumbents' map apps don't serve as indexable HTML.
   - **Clean from day one:** `new bootstrap`, server-rendered, complete
     sitemap, GSC at deploy, real 404s — indexed immediately.
-  - It's the pilot for the planned v47 `micros` category, so these patterns
+  - It's the pilot for the planned v54 `micros` category (was v47), so these patterns
     are meant to be copied.
 - **Check search volume before building pages.** calcengine.site v1: 58
   developer calculators at ~0–30 US searches/month; even indexed they could
