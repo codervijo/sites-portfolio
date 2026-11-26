@@ -60,6 +60,8 @@ class BootstrapResult:
     ga4_measurement_id: str | None = None   # populated iff status is "created" or "found"
     # v49.H — CHECK_163 fixer outcome: (kind ok|skip|err, message); None = not attempted.
     ga4_tag: tuple[str, str] | None = None
+    # v50.G — CHECK_166 footer-link outcome: (kind ok|skip, message); None = not attempted.
+    email_footer: tuple[str, str] | None = None
     # v29.D — which [content] fields were derived+seeded from the
     # authored AI_AGENTS sections (ADR-0019). Empty list = none seeded
     # (no API key / no brief / derivation failure); CLI renders a summary.
@@ -846,6 +848,9 @@ const canonical = `${{site}}/`;
       <h1>{{title}}</h1>
       <p>Scaffolded via <code>portfolio new bootstrap</code>.</p>
     </main>
+    <footer>
+      <p>{domain}</p>
+    </footer>
   </body>
 </html>
 """
@@ -959,12 +964,19 @@ createRoot(document.getElementById('root')).render(<App />);
 
 
 def _vite_app_jsx() -> str:
+    # v50.G — a site-wide <footer> so `new bootstrap` can add the
+    # hello@<site> link (CHECK_166) before the initial commit.
     return """export default function App() {
   return (
-    <main>
-      <h1>Welcome</h1>
-      <p>Scaffolded via <code>portfolio new bootstrap</code>.</p>
-    </main>
+    <>
+      <main>
+        <h1>Welcome</h1>
+        <p>Scaffolded via <code>portfolio new bootstrap</code>.</p>
+      </main>
+      <footer>
+        <p>&copy; {new Date().getFullYear()}</p>
+      </footer>
+    </>
   );
 }
 """
@@ -1709,6 +1721,29 @@ def _apply_cf_safety_fixes(project_dir: Path, domain: str, today_iso: str,
 # ---------- git ----------
 
 
+def email_footer_for_new_site(project_dir: Path) -> tuple[str, str]:
+    """v50.G — add the `hello@<site>` footer link (CHECK_166's edit, without
+    its mail gate) before the initial commit. Returns (kind ok|skip, msg).
+    Never raises: a miss is reported and CHECK_166 catches it later.
+    Client-owned / dark / HostGator sites skip it (CHECK_165 scoping)."""
+    try:
+        from .checks.deploy import check_165_email_routing_ready as c165
+        from .checks.deploy import check_166_email_footer_link as c166
+        base = Path(project_dir).resolve()
+        reason = c165._not_applicable(base)
+        if reason:
+            return "skip", f"{reason} — no footer link"
+        addr = f"hello@{base.name.lower()}"
+        r = c166.add_footer_link(base, addr, dry_run=False)
+    except Exception as e:  # noqa: BLE001 — never fail bootstrap on the footer link
+        return "skip", f"footer link not added ({type(e).__name__}: {e})"[:300]
+    if r.status == "fixed":
+        return "ok", r.summary
+    if r.status == "nothing-to-do":
+        return "ok", r.summary
+    return "skip", r.summary
+
+
 def _git_init_and_commit(project_dir: Path, msg: str) -> tuple[bool, str | None]:
     """Run git init + git add . + git commit. Returns (initialized, sha)."""
     try:
@@ -2266,6 +2301,11 @@ def _bootstrap_inner(
             except Exception as e:  # noqa: BLE001 — never fail bootstrap on GA4
                 kind, msg = "skip", f"GA4 tag not injected ({type(e).__name__}: {e})"[:300]
             result.ga4_tag = (kind, msg)
+
+    # v50.G — every new site ships the hello@<site> footer link in the
+    # initial commit. Safe without the CHECK_165 mail gate: the site isn't
+    # public until `new deploy`, which turns on Email Routing.
+    result.email_footer = email_footer_for_new_site(project_dir)
 
     initialized, sha = _git_init_and_commit(
         project_dir,

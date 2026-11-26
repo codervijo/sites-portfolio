@@ -2192,6 +2192,63 @@ def _deploy_step_www_redirect(domain: str, zone_id: str, *, dry_run: bool) -> No
         )
 
 
+def _deploy_step_email_routing(*, domain: str, project_dir, dry_run: bool) -> None:
+    """Step 6.8 — `hello@<site>` → `hello@lamill.io` (or `[email] forward_to`)
+    via Cloudflare Email Routing: the CHECK_165 fixer as a deploy step (v50.G).
+
+    ADR-0015: probe first (`email_routing.inspect`); a done site writes
+    nothing. Zone not `active` yet → ↷ re-run hint, never blocks. Mail on
+    another provider → left alone. Client-owned / dark / HostGator sites
+    skip (CHECK_165 scoping). Any failure soft-fails ↷ — the site is live
+    without it, and `project fix --rule CHECK_165` finishes the job."""
+    from pathlib import Path
+
+    from . import email_routing as er
+    from .checks.deploy import check_165_email_routing_ready as c165
+
+    console.print(f"\n[bold]6.8 Email routing[/] [dim](hello@{domain})[/]")
+    base = Path(project_dir).resolve()
+    reason = c165._not_applicable(base)
+    if reason:
+        console.print(f"  [yellow]↷[/] {reason} — skipped")
+        return
+    if dry_run:
+        console.print("  [dim]would: probe Email Routing, then enable it + add "
+                      f"hello@{domain} → {er.forward_to_for(base)} if missing[/]")
+        return
+    try:
+        st = er.inspect(domain, forward_to=er.forward_to_for(base),
+                        local_parts=er.local_parts_for(base))
+    except Exception as e:  # noqa: BLE001 — never blocks the deploy
+        console.print(f"  [yellow]↷[/] can't read the email setup ({e}) — re-run "
+                      f"[cyan]lamill new deploy {domain} --yes[/] or "
+                      f"[cyan]lamill project fix {domain} --rule CHECK_165 --apply[/]")
+        return
+    if st.other_provider:
+        console.print(f"  [green]✓[/] mail handled by {st.other_provider} — left alone")
+        return
+    if st.on_cloudflare and st.zone_status != "active":
+        console.print(f"  [yellow]↷[/] zone is {st.zone_status!r} — re-run "
+                      f"[cyan]lamill new deploy {domain} --yes[/] when the zone is active")
+        return
+    if st.ready():
+        console.print(f"  [green]✓[/] {', '.join(st.addresses)} → {st.forward_to} "
+                      "already set up, skipping [dim](idempotent re-run)[/]")
+        return
+    try:
+        r = c165._apply(base, dry_run=False, assume_yes=True)
+    except Exception as e:  # noqa: BLE001
+        r = None
+        console.print(f"  [yellow]↷[/] email routing not set up ({type(e).__name__}: {e})")
+    if r is None:
+        return
+    if r.status in ("fixed", "nothing-to-do"):
+        mark = "[yellow]↷[/]" if "↷" in r.summary else "[green]✓[/]"
+        console.print(f"  {mark} {r.summary.replace(' — ↷ ', ' — ')}")
+    else:
+        console.print(f"  [yellow]↷[/] {r.summary}")
+
+
 def _deploy_cf_unified(
     *,
     domain: str,
@@ -2253,6 +2310,8 @@ def _deploy_cf_unified(
       5.5. Purge conflicting parking DNS records (v15.R, workers only)
       6. CF Pages/Workers project + custom domain attach (idempotent
          via GET-then-POST + 400/8000018 "already added" handling)
+      6.8. Email routing: hello@<site> → hello@lamill.io (CHECK_165 fixer,
+         v50.G; zone pending → ↷ re-run, never blocks)
       7. Build poll (90s queue wait + 5min terminal poll)
       8. Live HEAD probe
       9. GSC verify + add + sitemap (FILE-first / DNS_TXT fallback)
@@ -3129,6 +3188,9 @@ def _deploy_cf_unified(
             zone.zone_id if not dry_run else "",
             dry_run=dry_run,
         )
+
+    # --- Step 6.8: Email routing (v50.G) — CHECK_165 fixer, soft-fail -------
+    _deploy_step_email_routing(domain=domain, project_dir=project_dir, dry_run=dry_run)
 
     # --- Step 6.6: Repair stuck custom domain (v32.F, --repair only) --------
     if repair and not dry_run:

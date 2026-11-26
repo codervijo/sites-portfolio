@@ -887,6 +887,12 @@ def _render_bootstrap_summary(result, domain: str, *, topic: str = "") -> None:
                 f"[dim]{result.ga4_status[len('failed:'):]}[/]"
             )
 
+    # v50.G — hello@<site> footer link (CHECK_166 edit) in the initial commit.
+    if getattr(result, "email_footer", None):
+        kind, msg = result.email_footer
+        mark = "[green]✓[/]" if kind == "ok" else "[yellow]↷[/]"
+        console.print(f"\n{mark} email footer link · [dim]{msg}[/]")
+
     # v29.D — surface [content] derivation outcome (ADR-0019). Derived
     # from the operator's authored AI_AGENTS sections; best-effort.
     if result.content_seeded:
