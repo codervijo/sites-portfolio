@@ -2688,7 +2688,7 @@ bootstrap auto-create has skipped on every site because
 
 *(Tier complete 2026-11-09 — design notes archived in `docs/shipping-history.md § v49`.)*
 
-### v50 — Email forwarding per site: `hello@<site>` reaches the operator via Cloudflare Email Routing *(planned — 2026-11-10; operator. Queue position not yet decided.)*
+### v50 — Email forwarding per site: `hello@<site>` reaches the operator via Cloudflare Email Routing *(🚧 in progress — planned 2026-11-10; operator. A–E and G–H done 2026-11-25; **v50.F fleet rollout of CHECK_166 footer links is the operator's step** — `fleet fix --rule CHECK_166` dry run → review → `--apply` → per-site commit + push.)*
 
 Fleet audit 2026-11-10: **none of the 41 Cloudflare zones can receive mail.** They have no MX records and Email Routing is `unconfigured` everywhere. The one exception is `reimagineyourengine.com`, which has Proton MX and a zone still `pending`. So every footer / `mailto:` address on a CF site bounces, including `hello@` and `security@dropaudit.co`. Off-CF mail: `lamill.io` Zoho; `lamillrentals.com` Google Workspace; Namecheap eForward on calcengine, homeloom, civictools, keralavotemap, csinorcal, linkedcsi; HostGator's own mail on hybridautopart, streamsgalaxy, carrepairsite, iotnews, maslist; no MX on washcalc.app and caringbeds.com. CF token updated 2026-11-10: Email Routing settings, rules, catch-all and destination addresses are all readable (edit not yet exercised). Prerequisite for contact forms that actually deliver (to be planned after v50).
 

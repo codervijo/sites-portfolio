@@ -170,4 +170,5 @@ fix_tier_1 = FixerSpec(
     tier=1,
     summary='static site: wrangler.jsonc not_found_handling "404-page" + a 404 page',
     apply=_apply,
+    edits_source=True,   # adds src/pages/404.astro → v50.D build check runs after --apply
 )
