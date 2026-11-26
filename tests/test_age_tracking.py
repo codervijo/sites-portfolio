@@ -199,3 +199,28 @@ def test_rdap_creation_date_returns_none_on_no_endpoint(monkeypatch):
 def test_fetch_first_commit_date_returns_none_outside_repo(tmp_path):
     from portfolio.project import fetch_first_commit_date
     assert fetch_first_commit_date(tmp_path) is None
+
+
+def test_bug105_fetch_first_commit_date_is_the_root_commit_not_the_newest(tmp_path):
+    """BUG-105: `git log --reverse --max-count=1` returned the newest commit,
+    so every site read as a few days old. The root commit must win."""
+    import subprocess
+    from datetime import date, datetime, timedelta, timezone
+    from portfolio.project import fetch_first_commit_date
+
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+           "PATH": "/usr/bin:/bin"}
+    old = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
+    new = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+
+    def git(*a, when):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True,
+                       env={**env, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when})
+
+    git("init", "-q", when=old)
+    git("commit", "-q", "--allow-empty", "-m", "first", when=old)
+    git("commit", "-q", "--allow-empty", "-m", "second", when=new)
+    first = fetch_first_commit_date(tmp_path)
+    assert first is not None
+    assert (date.today() - first).days in (199, 200, 201)

@@ -84,6 +84,7 @@ when applicable. Don't delete.
 - **Blast radius** — everything reading site age when `launched` isn't set: `fleet dashboard` site-age column, `seo_overall_status` young-site grading (every site looks < 90 days → 🔴 suppressed), `project seo` State (`unproven` vs `blocked` uses `YOUNG_SITE_THRESHOLD_DAYS` = 90 — a 7-month-old 0-traffic site is reported as young/unproven).
 - **Severity** — `major` (silently wrong grade inputs fleet-wide).
 - **Notes** — found during v51.D (operator not yet told when logged). v51 computes age with its own correct root-commit read (`seo_deep._repo_age_days`) rather than patching the shared helper mid-phase; fold `seo_deep` back onto the shared helper once this is fixed.
+- **Fixed** — 2026-11-25 (between phases): `fetch_first_commit_date` reads the root commit(s) via `git log --max-parents=0 --format=%aI HEAD`, oldest wins; `seo_deep._repo_age_days` now calls the shared helper. Live: calcengine.site 226 days, cottagefoodmap.com 169, montereybayevents.com 114, lamill.store 18 (was ~7 for every site). Test: `test_bug105_fetch_first_commit_date_is_the_root_commit_not_the_newest`. Expect grade shifts: sites past 90 days are no longer treated as young by `project seo` / `fleet seo`.
 
 ### BUG-104 · 2026-11-10 — `fleet seo --refresh` shows no GSC data for every site, labels it "fresh", and reports every site's impressions as lost
 

@@ -117,19 +117,29 @@ def fetch_first_commit_date(project_dir: Path) -> "date | None":
     from datetime import date as _date, datetime as _datetime
     if not (project_dir / ".git").exists():
         return None
+    # BUG-105: `git log --reverse --max-count=1` applies --max-count BEFORE
+    # --reverse, so it returned the NEWEST commit. Read the root commit(s)
+    # instead (`--max-parents=0`); with several roots (merged histories)
+    # the oldest wins.
     rc, out = _git(
-        ["log", "--reverse", "--format=%aI", "--max-count=1"],
+        ["log", "--max-parents=0", "--format=%aI", "HEAD"],
         cwd=project_dir,
     )
     if rc != 0 or not out:
         return None
-    try:
-        return _datetime.fromisoformat(out.strip()).date()
-    except ValueError:
+    dates: list[_date] = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
         try:
-            return _date.fromisoformat(out.strip()[:10])
+            dates.append(_datetime.fromisoformat(line).date())
         except ValueError:
-            return None
+            try:
+                dates.append(_date.fromisoformat(line[:10]))
+            except ValueError:
+                continue
+    return min(dates) if dates else None
 
 
 def fetch_last_commit(project_dir: Path) -> dict | None:

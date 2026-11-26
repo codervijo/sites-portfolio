@@ -798,11 +798,10 @@ NEAR_DUP_MAX_PAGES = 400          # O(n²) pair scan — sample above this
 
 
 def _repo_age_days(domain: str) -> int | None:
-    """Days since `launched` (portfolio.json) or the repo's ROOT commit.
-    Local, correct stand-in for `project.fetch_first_commit_date` until
-    BUG-105 (it returns the newest commit) is fixed."""
-    import subprocess
-    from datetime import date, datetime
+    """Days since `launched` (portfolio.json) or the repo's root commit —
+    the same rule as the dashboard's site age (BUG-105 fixed the shared
+    helper, so this no longer carries its own git read)."""
+    from datetime import date
     try:
         from .data import load_domains
         for d in load_domains():
@@ -811,16 +810,9 @@ def _repo_age_days(domain: str) -> int | None:
     except Exception:  # noqa: BLE001
         pass
     try:
-        from .project import SITES_ROOT
-        repo = SITES_ROOT / domain
-        if not (repo / ".git").exists():
-            return None
-        out = subprocess.run(
-            ["git", "log", "--max-parents=0", "--format=%aI", "HEAD"],
-            cwd=repo, capture_output=True, text=True, timeout=15)
-        dates = [datetime.fromisoformat(x.strip()).date()
-                 for x in out.stdout.splitlines() if x.strip()]
-        return (date.today() - min(dates)).days if dates else None
+        from .project import SITES_ROOT, fetch_first_commit_date
+        first = fetch_first_commit_date(SITES_ROOT / domain)
+        return (date.today() - first).days if first else None
     except Exception:  # noqa: BLE001
         return None
 
